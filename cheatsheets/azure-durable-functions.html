@@ -1,0 +1,958 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Azure Durable Functions · Tech cheatsheets</title>
+<meta name="description" content="Azure Durable Functions cheatsheet: orchestrators, activities and entities, an animated walk-through of replay and fan-out/fan-in, determinism rules, patterns, backends and gotchas.">
+<meta name="aliases" content="Azure Durable Functions, Durable Functions, Durable Task, durable orchestration">
+<meta name="related" content="azure-api-management">
+<meta name="keywords" content="azure, serverless, workflow, orchestration, durable execution, event sourcing, dotnet, saga, stateful functions">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../assets/notebook.css">
+<script src="../assets/site.js" defer></script>
+</head>
+<body data-root="..">
+<div class="layout">
+  <nav class="toc" aria-label="Sections">
+    <a href="#overview">Overview</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#concepts">Key concepts</a>
+    <a href="#commands">Commands</a>
+    <a href="#pros-cons">Pros &amp; cons</a>
+    <a href="#use-cases">Use cases</a>
+    <a href="#when">When to use</a>
+    <a href="#gotchas">Gotchas</a>
+    <a href="#alternatives">Alternatives</a>
+    <a href="#resources">Resources</a>
+    <a href="#related">Related</a>
+  </nav>
+
+  <main>
+    <header class="hero" id="overview">
+      <h1>Azure Durable Functions</h1>
+      <p class="tagline">Write a long-running workflow as ordinary code, and let replay make it survive restarts.</p>
+      <span class="meta">As of Nov 2026 · extension v3.x (in-process and .NET isolated) · Durable Task Scheduler backend generally available</span>
+      <p>Plain serverless functions are stateless and short-lived, which makes multi-step processes awkward: you end up stitching functions together with queues, storing progress in a table, and writing your own retry, timeout and compensation logic. Durable Functions is the extension to Azure Functions that removes all of that plumbing.</p>
+      <p>You write an <b>orchestrator function</b> that looks like normal, sequential code &mdash; call this, await it, loop, branch, wait for approval, time out after three days &mdash; and the runtime makes it durable. Every decision the orchestrator takes is appended to a history, the function is unloaded from memory whenever it is waiting, and it is <b>replayed</b> from the top when new results arrive. Your code looks synchronous; the execution is event-sourced.</p>
+      <p>It is available for C# (in-process and isolated worker), JavaScript and TypeScript, Python, PowerShell and Java, and it runs on every Azure Functions hosting plan. The same engine underneath, the Durable Task Framework, also powers Durable Task Scheduler &mdash; a managed backend with a real monitoring dashboard &mdash; and Azure Container Apps' durable workflows.</p>
+    </header>
+
+    <section id="architecture">
+      <h2>Architecture / mental model</h2>
+      <div class="diagram">
+        <svg viewBox="0 0 800 340" role="img" aria-label="A client function starts an orchestrator, which schedules activities through control and work-item queues, with all state in a durable history store">
+          <defs>
+            <marker id="df-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+          </defs>
+
+          <rect x="18" y="52" width="140" height="78" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="88" y="78" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Client function</text>
+          <text x="88" y="98" font-size="11.5" text-anchor="middle" fill="#5f6f66">HTTP, queue, timer&hellip;</text>
+          <text x="88" y="116" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">ScheduleNewAsync</text>
+
+          <line x1="158" y1="91" x2="212" y2="91" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#df-arr)"/>
+
+          <rect x="215" y="40" width="190" height="104" rx="8" fill="#f9e3df" stroke="#c53b3b" stroke-width="1.5"/>
+          <text x="310" y="64" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Orchestrator</text>
+          <text x="310" y="84" font-size="11.5" text-anchor="middle" fill="#5f6f66">decides what happens next</text>
+          <text x="310" y="102" font-size="11.5" text-anchor="middle" fill="#5f6f66">replayed, must be deterministic</text>
+          <text x="310" y="124" font-size="11.5" text-anchor="middle" fill="#c53b3b" font-weight="600">no I/O of its own</text>
+
+          <line x1="405" y1="92" x2="462" y2="92" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#df-arr)"/>
+          <text x="433" y="82" font-size="10.5" text-anchor="middle" fill="#5f6f66">schedules</text>
+
+          <rect x="465" y="40" width="150" height="104" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+          <text x="540" y="64" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Activities</text>
+          <text x="540" y="84" font-size="11.5" text-anchor="middle" fill="#5f6f66">the actual work</text>
+          <text x="540" y="102" font-size="11.5" text-anchor="middle" fill="#5f6f66">DB, HTTP, files, email</text>
+          <text x="540" y="124" font-size="11.5" text-anchor="middle" fill="#2f6b3f" font-weight="600">at-least-once</text>
+
+          <rect x="630" y="40" width="152" height="104" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+          <text x="706" y="64" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Entities</text>
+          <text x="706" y="84" font-size="11.5" text-anchor="middle" fill="#5f6f66">small, addressable</text>
+          <text x="706" y="102" font-size="11.5" text-anchor="middle" fill="#5f6f66">pieces of state</text>
+          <text x="706" y="124" font-size="11.5" text-anchor="middle" fill="#5f6f66">one at a time per key</text>
+
+          <path d="M310 144 L310 186" stroke="#5f6f66" stroke-width="1.5" fill="none" marker-end="url(#df-arr)"/>
+          <path d="M540 144 L540 186" stroke="#5f6f66" stroke-width="1.5" fill="none" marker-end="url(#df-arr)"/>
+
+          <rect x="150" y="190" width="520" height="62" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="410" y="213" font-size="13" font-weight="600" text-anchor="middle" fill="#23362e">Task hub &mdash; control queues + work-item queue</text>
+          <text x="410" y="234" font-size="11.5" text-anchor="middle" fill="#5f6f66">every message is one event; partitions decide which worker owns an instance</text>
+
+          <path d="M410 252 L410 278" stroke="#5f6f66" stroke-width="1.5" fill="none" marker-end="url(#df-arr)"/>
+
+          <rect x="150" y="282" width="520" height="52" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="410" y="304" font-size="13" font-weight="600" text-anchor="middle" fill="#23362e">History store &mdash; the append-only truth</text>
+          <text x="410" y="324" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">Azure Storage &middot; Durable Task Scheduler &middot; Netherite &middot; MSSQL</text>
+
+          <text class="hand" x="20" y="186" font-size="16" fill="#c53b3b">the orchestrator holds no state &mdash;</text>
+          <text class="hand" x="20" y="206" font-size="16" fill="#c53b3b">the history does</text>
+        </svg>
+      </div>
+      <p class="caption">The orchestrator is a pure decision-maker; activities do the I/O; everything that happened is an event in the history, which is why the workflow survives a process crash, a deploy or a three-day wait.</p>
+    </section>
+
+    <section id="how-it-works">
+      <h2>How it works</h2>
+
+      <div class="anim" id="anim-replay">
+        <h3>Replay: how awaiting for three days costs nothing</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 330" role="img" aria-label="Animated replay cycle of a durable orchestrator with its history table">
+            <defs>
+              <marker id="rp-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+
+            <rect id="rp-orch" x="24" y="52" width="296" height="190" rx="8" fill="#f9e3df" stroke="#c53b3b" stroke-width="1.5"/>
+            <text x="172" y="76" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Orchestrator function</text>
+            <g font-size="11.5" font-family="Fira Code, monospace" fill="#23362e">
+              <rect id="rp-l1" x="40" y="92" width="264" height="26" rx="4" fill="#fbfcf8" stroke="#d5dccf"/>
+              <text x="50" y="110">var a = await ctx.CallActivity("Charge");</text>
+              <rect id="rp-l2" x="40" y="124" width="264" height="26" rx="4" fill="#fbfcf8" stroke="#d5dccf"/>
+              <text x="50" y="142">var b = await ctx.CallActivity("Ship");</text>
+              <rect id="rp-l3" x="40" y="156" width="264" height="26" rx="4" fill="#fbfcf8" stroke="#d5dccf"/>
+              <text x="50" y="174">return new Receipt(a, b);</text>
+            </g>
+            <text id="rp-state" x="172" y="206" font-size="12.5" text-anchor="middle" fill="#c53b3b" font-weight="600" font-family="Fira Code, monospace">not started</text>
+            <text id="rp-runs" x="172" y="228" font-size="11.5" text-anchor="middle" fill="#5f6f66">executions so far: 0</text>
+
+            <rect id="rp-worker" x="352" y="92" width="120" height="86" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+            <text x="412" y="118" font-size="12.5" font-weight="600" text-anchor="middle" fill="#23362e">Activity</text>
+            <text x="412" y="136" font-size="11.5" text-anchor="middle" fill="#5f6f66">worker</text>
+            <text id="rp-worker-sub" x="412" y="160" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">idle</text>
+
+            <line x1="320" y1="120" x2="348" y2="120" stroke="#a9b5a6" stroke-width="1.5" marker-end="url(#rp-arr)"/>
+            <line x1="472" y1="150" x2="500" y2="150" stroke="#a9b5a6" stroke-width="1.5" marker-end="url(#rp-arr)"/>
+
+            <rect x="504" y="44" width="280" height="238" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="644" y="66" font-size="13" font-weight="600" text-anchor="middle" fill="#23362e">History (append-only)</text>
+            <g font-size="11" font-family="Fira Code, monospace" fill="#23362e">
+              <text id="rp-h1" class="hidden" x="518" y="92">1  ExecutionStarted</text>
+              <text id="rp-h2" class="hidden" x="518" y="118">2  TaskScheduled: Charge</text>
+              <text id="rp-h3" class="hidden" x="518" y="144">3  TaskCompleted: Charge = 42.00</text>
+              <text id="rp-h4" class="hidden" x="518" y="170">4  TaskScheduled: Ship</text>
+              <text id="rp-h5" class="hidden" x="518" y="196">5  TaskCompleted: Ship = TRK-991</text>
+              <text id="rp-h6" class="hidden" x="518" y="222">6  ExecutionCompleted</text>
+            </g>
+            <text id="rp-hnote" x="644" y="262" font-size="11.5" text-anchor="middle" fill="#5f6f66">this table is the only state there is</text>
+
+            <text id="rp-note" class="hand hidden" x="40" y="306" font-size="16" fill="#c53b3b">3 executions of your code, 1 logical run &mdash; that is why it must be deterministic</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <div class="anim" id="anim-fanout">
+        <h3>Fan-out / fan-in, with a failure and a retry</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 320" role="img" aria-label="Animated fan-out to five parallel activities, one failing and retrying, then fanning in">
+            <defs>
+              <marker id="fo-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+            <rect id="fo-orch" x="24" y="90" width="180" height="120" rx="8" fill="#f9e3df" stroke="#c53b3b" stroke-width="1.5"/>
+            <text x="114" y="116" font-size="13" font-weight="600" text-anchor="middle" fill="#23362e">Orchestrator</text>
+            <text x="114" y="138" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">foreach (file)</text>
+            <text x="114" y="156" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">tasks.Add(CallActivity)</text>
+            <text id="fo-state" x="114" y="182" font-size="11.5" text-anchor="middle" fill="#c53b3b" font-weight="600" font-family="Fira Code, monospace">starting</text>
+
+            <g stroke="#a9b5a6" stroke-width="1.5" fill="none" marker-end="url(#fo-arr)">
+              <line x1="204" y1="130" x2="294" y2="56"/><line x1="204" y1="140" x2="294" y2="106"/>
+              <line x1="204" y1="150" x2="294" y2="150"/><line x1="204" y1="160" x2="294" y2="196"/>
+              <line x1="204" y1="170" x2="294" y2="244"/>
+            </g>
+
+            <g font-size="11.5" font-family="Fira Code, monospace">
+              <rect id="fo-a1" x="298" y="36" width="190" height="40" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/><text id="fo-t1" x="310" y="61" fill="#23362e">Resize invoice-001.pdf</text>
+              <rect id="fo-a2" x="298" y="86" width="190" height="40" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/><text id="fo-t2" x="310" y="111" fill="#23362e">Resize invoice-002.pdf</text>
+              <rect id="fo-a3" x="298" y="130" width="190" height="40" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/><text id="fo-t3" x="310" y="155" fill="#23362e">Resize invoice-003.pdf</text>
+              <rect id="fo-a4" x="298" y="176" width="190" height="40" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/><text id="fo-t4" x="310" y="201" fill="#23362e">Resize invoice-004.pdf</text>
+              <rect id="fo-a5" x="298" y="224" width="190" height="40" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/><text id="fo-t5" x="310" y="249" fill="#23362e">Resize invoice-005.pdf</text>
+            </g>
+            <text x="393" y="24" font-size="11.5" text-anchor="middle" fill="#5f6f66">five work items, picked up by any available worker</text>
+
+            <g stroke="#a9b5a6" stroke-width="1.5" fill="none" marker-end="url(#fo-arr)">
+              <line x1="488" y1="56" x2="586" y2="130"/><line x1="488" y1="106" x2="586" y2="142"/>
+              <line x1="488" y1="150" x2="586" y2="150"/><line x1="488" y1="196" x2="586" y2="158"/>
+              <line x1="488" y1="244" x2="586" y2="170"/>
+            </g>
+
+            <rect id="fo-sum" x="590" y="100" width="186" height="100" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="683" y="126" font-size="13" font-weight="600" text-anchor="middle" fill="#23362e">WhenAll</text>
+            <text id="fo-done" x="683" y="150" font-size="12.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">0 / 5 complete</text>
+            <text id="fo-result" x="683" y="176" font-size="11.5" text-anchor="middle" fill="#5f6f66">waiting</text>
+
+            <text id="fo-caption" x="400" y="290" font-size="12.5" text-anchor="middle" fill="#23362e">The orchestrator schedules all five, then unloads. Nothing is running in memory.</text>
+            <text id="fo-note" class="hand hidden" x="300" y="312" font-size="16" fill="#c53b3b">retries live in the orchestrator, not in your activity</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <div class="anim" id="anim-async">
+        <h3>Async HTTP API: answering in 50 ms for work that takes four minutes</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 285" role="img" aria-label="Animated async HTTP pattern where the client gets 202 Accepted and polls a status endpoint">
+            <defs>
+              <marker id="ah-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+            <rect id="ah-client" x="24" y="76" width="150" height="90" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="99" y="104" font-size="13" font-weight="600" text-anchor="middle" fill="#23362e">Caller</text>
+            <text id="ah-client-sub" x="99" y="126" font-size="11" text-anchor="middle" fill="#5f6f66">idle</text>
+            <text id="ah-client-lat" x="99" y="148" font-size="11.5" text-anchor="middle" fill="#c53b3b" font-weight="600" font-family="Fira Code, monospace">&nbsp;</text>
+            <line x1="174" y1="100" x2="212" y2="100" stroke="#a9b5a6" stroke-width="1.5" marker-end="url(#ah-a)"/>
+            <rect id="ah-fn" x="216" y="62" width="160" height="62" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+            <text x="296" y="86" font-size="12.5" font-weight="600" text-anchor="middle" fill="#23362e">Client function</text>
+            <text x="296" y="106" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">ScheduleNewAsync</text>
+            <line x1="296" y1="124" x2="296" y2="152" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#ah-a)"/>
+            <rect id="ah-orch" x="216" y="156" width="160" height="80" rx="8" fill="#f9e3df" stroke="#c53b3b" stroke-width="1.5"/>
+            <text x="296" y="180" font-size="12.5" font-weight="600" text-anchor="middle" fill="#23362e">Orchestrator</text>
+            <text id="ah-orch-sub" x="296" y="202" font-size="10.5" text-anchor="middle" fill="#5f6f66">not started</text>
+            <text id="ah-orch-step" x="296" y="222" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <rect x="406" y="48" width="374" height="196" rx="8" fill="#fbfcf8" stroke="#d5dccf"/>
+            <text x="420" y="70" font-size="12" font-weight="600" fill="#23362e">HTTP exchange</text>
+            <g font-size="11" font-family="Fira Code, monospace" fill="#23362e">
+              <text id="ah-l1" class="hidden" x="420" y="94">&rarr; POST /api/orders</text>
+              <text id="ah-l2" class="hidden" x="420" y="118">&larr; 202 Accepted  + statusQueryGetUri</text>
+              <text id="ah-l3" class="hidden" x="420" y="142">&rarr; GET /runtime/.../instances/order-10427</text>
+              <text id="ah-l4" class="hidden" x="420" y="166">&larr; 202  Running  "step 2 of 4: charging card"</text>
+              <text id="ah-l5" class="hidden" x="420" y="190">&larr; 202  Running  "step 3 of 4: booking courier"</text>
+              <text id="ah-l6" class="hidden" x="420" y="214">&larr; 200  Completed  {"tracking":"TRK-991"}</text>
+            </g>
+            <text id="ah-note" class="hand hidden" x="30" y="272" font-size="16" fill="#c53b3b">no connection held open, so no gateway timeout to design around</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <div class="anim" id="anim-human">
+        <h3>Human interaction: racing an approval against a three-day deadline</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 285" role="img" aria-label="Animated human interaction pattern racing an external event against a durable timer">
+            <defs>
+              <marker id="hi-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+            <rect id="hi-orch" x="24" y="98" width="164" height="92" rx="8" fill="#f9e3df" stroke="#c53b3b" stroke-width="1.5"/>
+            <text x="106" y="124" font-size="13" font-weight="600" text-anchor="middle" fill="#23362e">Orchestrator</text>
+            <text id="hi-orch-sub" x="106" y="146" font-size="10.5" text-anchor="middle" fill="#5f6f66">at the approval step</text>
+            <text id="hi-orch-state" x="106" y="168" font-size="11" text-anchor="middle" fill="#c53b3b" font-weight="600" font-family="Fira Code, monospace">running</text>
+            <g stroke="#a9b5a6" stroke-width="1.5" fill="none" marker-end="url(#hi-a)">
+              <line x1="188" y1="124" x2="256" y2="88"/><line x1="188" y1="164" x2="256" y2="200"/>
+            </g>
+            <rect id="hi-evt" x="260" y="56" width="260" height="66" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="390" y="80" font-size="12" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">WaitForExternalEvent("Approved")</text>
+            <text id="hi-evt-sub" x="390" y="102" font-size="11" text-anchor="middle" fill="#5f6f66">waiting &mdash; no deadline of its own</text>
+            <rect id="hi-timer" x="260" y="168" width="260" height="66" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="390" y="192" font-size="12" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">CreateTimer(now + 3 days)</text>
+            <text id="hi-timer-sub" x="390" y="214" font-size="11" text-anchor="middle" fill="#5f6f66">waiting &mdash; a row in a table</text>
+            <g stroke="#a9b5a6" stroke-width="1.5" fill="none" marker-end="url(#hi-a)">
+              <line x1="520" y1="88" x2="588" y2="128"/><line x1="520" y1="200" x2="588" y2="160"/>
+            </g>
+            <rect id="hi-any" x="592" y="112" width="184" height="64" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+            <text x="684" y="136" font-size="12.5" font-weight="600" text-anchor="middle" fill="#23362e">WhenAny</text>
+            <text id="hi-any-sub" x="684" y="158" font-size="11" text-anchor="middle" fill="#5f6f66">first one wins</text>
+            <text id="hi-clock" x="24" y="222" font-size="12" fill="#5f6f66" font-family="Fira Code, monospace">day 0 &middot; memory in use: none</text>
+            <text id="hi-out" x="24" y="248" font-size="12.5" fill="#23362e" font-weight="600" font-family="Fira Code, monospace">outcome: pending</text>
+            <text id="hi-note" class="hand hidden" x="330" y="252" font-size="16" fill="#c53b3b">cancel the loser, or it haunts you for three days</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <div class="anim" id="anim-monitor">
+        <h3>Monitor: a polling loop that does not grow forever</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 285" role="img" aria-label="Animated monitor pattern comparing history growth with and without ContinueAsNew">
+            <defs>
+              <marker id="mo-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+            <text id="mo-iter" x="24" y="30" font-size="13" font-weight="700" fill="#c53b3b" font-family="Fira Code, monospace">iteration 0</text>
+            <g font-size="11" text-anchor="middle">
+              <rect id="mo-s1" x="24" y="48" width="150" height="44" rx="6" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="99" y="68" fill="#23362e" font-weight="600">1. PollDevice</text>
+              <text id="mo-s1-t" x="99" y="84" fill="#5f6f66" font-family="Fira Code, monospace">&mdash;</text>
+              <rect id="mo-s2" x="24" y="102" width="150" height="44" rx="6" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="99" y="122" fill="#23362e" font-weight="600">2. is it critical?</text>
+              <text id="mo-s2-t" x="99" y="138" fill="#5f6f66" font-family="Fira Code, monospace">&mdash;</text>
+              <rect id="mo-s3" x="24" y="156" width="150" height="44" rx="6" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="99" y="176" fill="#23362e" font-weight="600">3. CreateTimer</text>
+              <text id="mo-s3-t" x="99" y="192" fill="#5f6f66" font-family="Fira Code, monospace">+5 min</text>
+              <rect id="mo-s4" x="24" y="210" width="150" height="44" rx="6" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+              <text x="99" y="230" fill="#23362e" font-weight="600">4. ContinueAsNew</text>
+              <text id="mo-s4-t" x="99" y="246" fill="#5f6f66" font-family="Fira Code, monospace">&mdash;</text>
+            </g>
+            <path d="M174 232 Q 210 232 210 150 Q 210 70 178 70" stroke="#2f6b3f" stroke-width="1.5" fill="none" marker-end="url(#mo-a)"/>
+            <rect x="236" y="44" width="544" height="96" rx="8" fill="#fbfcf8" stroke="#d5dccf"/>
+            <text x="250" y="66" font-size="12" font-weight="600" fill="#c53b3b">a plain <tspan font-family="Fira Code, monospace">while</tspan> loop &mdash; one history, forever</text>
+            <g>
+              <rect id="mo-a1" x="250" y="78" width="46" height="20" rx="3" fill="#f9e3df" stroke="#e6b3ad"/>
+              <rect id="mo-a2" class="hidden" x="300" y="78" width="46" height="20" rx="3" fill="#f9e3df" stroke="#e6b3ad"/>
+              <rect id="mo-a3" class="hidden" x="350" y="78" width="46" height="20" rx="3" fill="#f9e3df" stroke="#e6b3ad"/>
+              <rect id="mo-a4" class="hidden" x="400" y="78" width="46" height="20" rx="3" fill="#f9e3df" stroke="#e6b3ad"/>
+              <rect id="mo-a5" class="hidden" x="450" y="78" width="46" height="20" rx="3" fill="#f9e3df" stroke="#e6b3ad"/>
+              <rect id="mo-a6" class="hidden" x="500" y="78" width="46" height="20" rx="3" fill="#f9e3df" stroke="#e6b3ad"/>
+              <rect id="mo-a7" class="hidden" x="550" y="78" width="46" height="20" rx="3" fill="#f9e3df" stroke="#e6b3ad"/>
+              <rect id="mo-a8" class="hidden" x="600" y="78" width="46" height="20" rx="3" fill="#f9e3df" stroke="#e6b3ad"/>
+              <rect id="mo-a9" class="hidden" x="650" y="78" width="46" height="20" rx="3" fill="#f9e3df" stroke="#e6b3ad"/>
+              <rect id="mo-a10" class="hidden" x="700" y="78" width="76" height="20" rx="3" fill="#c53b3b" stroke="#c53b3b"/>
+            </g>
+            <text id="mo-a-t" x="250" y="124" font-size="11.5" fill="#5f6f66" font-family="Fira Code, monospace">history: 0 events &middot; every replay re-reads all of them</text>
+            <rect x="236" y="152" width="544" height="96" rx="8" fill="#fbfcf8" stroke="#d5dccf"/>
+            <text x="250" y="174" font-size="12" font-weight="600" fill="#2f6b3f">with <tspan font-family="Fira Code, monospace">ContinueAsNew</tspan> &mdash; a fresh history each time</text>
+            <g>
+              <rect id="mo-b1" x="250" y="186" width="46" height="20" rx="3" fill="#e3eedc" stroke="#2f6b3f"/>
+              <rect id="mo-b2" class="hidden" x="300" y="186" width="46" height="20" rx="3" fill="#e3eedc" stroke="#2f6b3f"/>
+            </g>
+            <text id="mo-b-t" x="250" y="232" font-size="11.5" fill="#5f6f66" font-family="Fira Code, monospace">history: 0 events</text>
+            <text id="mo-note" class="hand hidden" x="236" y="272" font-size="16" fill="#c53b3b">state travels in the input, not in the history</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <h3 id="compare-patterns">Comparing the patterns</h3>
+      <p>All five run on the same engine &mdash; an orchestrator that is replayed, and activities that are not. What differs is the <i>shape</i> of the workflow and therefore which failure you have to think about.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Pattern</th><th>Shape</th><th>What it buys you</th><th>The thing that bites</th><th>Use it for</th></tr></thead>
+          <tbody>
+            <tr><td><b>Chaining</b></td><td><code>await</code>, <code>await</code>, <code>await</code></td><td>checkpointing between every step, for free</td><td>non-deterministic code between the awaits</td><td>multi-step processes: order fulfilment, onboarding</td></tr>
+            <tr><td><b>Fan-out / fan-in</b></td><td>schedule many, <code>WhenAll</code></td><td>parallelism across every worker, per-item retries</td><td>thousands of tasks bloat one history &mdash; batch or sub-orchestrate</td><td>batch processing, per-file or per-region work</td></tr>
+            <tr><td><b>Async HTTP API</b></td><td>202 + a status URL</td><td>no held connection, no gateway timeout</td><td>callers that poll too aggressively</td><td>any operation longer than a few seconds</td></tr>
+            <tr><td><b>Human interaction</b></td><td>event vs timer, <code>WhenAny</code></td><td>waiting days costs nothing</td><td>an uncancelled timer keeps the instance Running</td><td>approvals, confirmations, escalation</td></tr>
+            <tr class="self"><td><b>Monitor</b></td><td>poll, timer, <code>ContinueAsNew</code></td><td>a polling loop with no cron job and no state table</td><td>forgetting <code>ContinueAsNew</code> &mdash; the history grows until it fails</td><td>watching an external job to completion</td></tr>
+            <tr><td><b>Aggregator</b> (entities)</td><td>a keyed actor, not an orchestration</td><td>serialised operations per key, no locking</td><td>different model &mdash; entities are not replayed</td><td>per-device or per-cart state, counters</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:14px">Two things to take from that table:</p>
+      <ul>
+        <li><b>The first five are the same mechanism wearing different clothes.</b> Every one of them is an orchestrator awaiting a durable task and being replayed when it completes. Once the replay animation makes sense, the rest are just different things to await: an activity, a set of activities, an external event, a timer.</li>
+        <li><b>The aggregator is the odd one out.</b> An entity is not replayed, has no beginning or end, and processes one operation at a time per key. If you find yourself writing an orchestration that never finishes and only accumulates state, you want an entity instead.</li>
+      </ul>
+    </section>
+
+    <section id="concepts">
+      <h2>Key concepts</h2>
+      <div class="terms">
+        <div class="term"><b>orchestrator function</b><span>The workflow itself, written as sequential code. It decides what to call and in what order, and is replayed from the start every time it resumes.</span><template class="term-detail" data-see="determinism, replay, activity function, history">
+<p>An orchestrator is a function with a <code>TaskOrchestrationContext</code> (isolated worker) or <code>IDurableOrchestrationContext</code> (in-process). Everything it awaits must come from that context, because only context calls are recorded in the history.</p>
+<pre><code>[Function(nameof(ProcessOrder))]
+public static async Task&lt;Receipt&gt; ProcessOrder(
+    [OrchestrationTrigger] TaskOrchestrationContext ctx)
+{
+    var order = ctx.GetInput&lt;Order&gt;()!;
+
+    var payment = await ctx.CallActivityAsync&lt;PaymentResult&gt;("ChargeCard", order);
+    if (!payment.Succeeded)
+        return Receipt.Declined(payment.Reason);
+
+    var tracking = await ctx.CallActivityAsync&lt;string&gt;("ShipOrder", order);
+    await ctx.CallActivityAsync("SendConfirmation", (order, tracking));
+
+    return new Receipt(payment.TransactionId, tracking);
+}</code></pre>
+<table><tr><th>Allowed in an orchestrator</th><th>Forbidden</th></tr>
+<tr><td><code>CallActivityAsync</code>, <code>CallSubOrchestratorAsync</code></td><td><code>HttpClient</code>, database calls, file I/O</td></tr>
+<tr><td><code>ctx.CreateTimer</code>, <code>WaitForExternalEvent</code></td><td><code>Task.Delay</code>, <code>Thread.Sleep</code></td></tr>
+<tr><td><code>ctx.CurrentUtcDateTime</code>, <code>ctx.NewGuid()</code></td><td><code>DateTime.UtcNow</code>, <code>Guid.NewGuid()</code>, <code>Random</code></td></tr>
+<tr><td>loops, <code>if</code>, <code>try/catch</code>, LINQ over results</td><td><code>Task.Run</code>, <code>ConfigureAwait(false)</code>, blocking waits</td></tr></table>
+<p>Think of it as a pure function from "the history so far" to "the next thing to schedule". Everything that touches the outside world belongs in an activity.</p>
+        </template></div>
+        <div class="term"><b>activity function</b><span>A single unit of real work: call an API, write to a database, send an email. Ordinary code, no determinism rules, executed at least once.</span><template class="term-detail" data-see="orchestrator function, retry policy, determinism">
+<p>Activities are where all the I/O lives. They receive one serializable input, return one serializable output, and know nothing about the workflow they belong to.</p>
+<pre><code>[Function("ChargeCard")]
+public static async Task&lt;PaymentResult&gt; ChargeCard(
+    [ActivityTrigger] Order order, FunctionContext ctx)
+{
+    // ordinary code: HttpClient, EF Core, whatever you like
+    return await _payments.ChargeAsync(order.CardToken, order.Total);
+}</code></pre>
+<h4>Rules that matter</h4>
+<ul><li><b>At least once.</b> An activity can run twice &mdash; a worker crashes after doing the work but before reporting the result. Make activities idempotent, usually with an idempotency key derived from the instance id.</li>
+<li><b>Keep inputs and outputs small.</b> They are serialized into the history. Large payloads belong in Blob Storage, with the activity passing a URL.</li>
+<li><b>One job each.</b> Fine-grained activities give you better retry granularity and a far more readable history.</li></ul>
+<p>Anything that would be unsafe to run twice &mdash; charging a card, sending an email &mdash; needs a deduplication key. The instance id plus a step name is a good one, because it is stable across replays.</p>
+        </template></div>
+        <div class="term"><b>client function</b><span>Any ordinary function &mdash; HTTP, queue, timer &mdash; that starts, queries, terminates or raises events against orchestration instances.</span><template class="term-detail" data-see="instance id, status and management, external events">
+<p>The client is the only way in. It gets a <code>DurableTaskClient</code> through a binding and uses it to drive instances.</p>
+<pre><code>[Function("StartOrder")]
+public static async Task&lt;HttpResponseData&gt; Start(
+    [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequestData req,
+    [DurableClient] DurableTaskClient client)
+{
+    var order = await req.ReadFromJsonAsync&lt;Order&gt;();
+    string id = await client.ScheduleNewOrchestrationInstanceAsync(
+        nameof(ProcessOrder), order);
+
+    return await client.CreateCheckStatusResponseAsync(req, id);
+}</code></pre>
+<p><code>CreateCheckStatusResponseAsync</code> returns <code>202 Accepted</code> with a payload of management URLs &mdash; status, terminate, raise-event, purge &mdash; which gives you a complete async HTTP API for free.</p>
+<table><tr><th>Client operation</th><th>Use</th></tr>
+<tr><td><code>ScheduleNewOrchestrationInstanceAsync</code></td><td>start, optionally with your own instance id</td></tr>
+<tr><td><code>GetInstanceAsync</code></td><td>poll status, input, output, custom status</td></tr>
+<tr><td><code>RaiseEventAsync</code></td><td>deliver an external event (approval, webhook)</td></tr>
+<tr><td><code>TerminateAsync</code> / <code>SuspendAsync</code> / <code>ResumeAsync</code></td><td>operational control</td></tr>
+<tr><td><code>PurgeInstancesAsync</code></td><td>delete completed history &mdash; schedule this, see the gotchas</td></tr></table>
+        </template></div>
+        <div class="term"><b>entity function</b><span>A small, addressable piece of durable state &mdash; a counter, a cart, a device shadow &mdash; that processes operations one at a time per entity key.</span><template class="term-detail" data-see="orchestrator function, task hub">
+<p>Entities are the actor model inside Durable Functions. Each entity has an id (<code>"Counter@device-42"</code>), holds serializable state, and the runtime guarantees that its operations execute serially, so you never need a lock.</p>
+<pre><code>public class Counter : TaskEntity&lt;int&gt;
+{
+    public void Add(int amount) =&gt; State += amount;
+    public int Get() =&gt; State;
+    public void Reset() =&gt; State = 0;
+
+    [Function(nameof(Counter))]
+    public Task RunAsync([EntityTrigger] TaskEntityDispatcher d) =&gt; d.DispatchAsync&lt;Counter&gt;();
+}</code></pre>
+<table><tr><th>Entity</th><th>Orchestrator</th></tr>
+<tr><td>holds state, reacts to operations</td><td>holds a plan, drives a sequence</td></tr>
+<tr><td>no replay &mdash; operations run once</td><td>replayed many times</td></tr>
+<tr><td>lives indefinitely, no "end"</td><td>runs to completion</td></tr>
+<tr><td>signal (fire-and-forget) or call (await)</td><td>started by a client</td></tr></table>
+<p>Reach for an entity when state is keyed and long-lived and the work is a stream of small updates. Use <code>LockAsync</code> from an orchestrator when one operation must span several entities atomically &mdash; that is Durable Functions' version of a transaction.</p>
+        </template></div>
+        <div class="term"><b>replay</b><span>Each time an orchestrator resumes, it runs again from the first line. Completed awaits return their recorded result instead of re-executing.</span><template class="term-detail" data-see="determinism, history, orchestrator function">
+<p>This is the whole trick, and the thing that confuses everyone on day one. The orchestrator is not suspended and resumed in place &mdash; it is <b>re-executed from the top</b>, with the history replayed into it.</p>
+<ol><li>The orchestrator runs until it awaits something not yet in the history.</li>
+<li>The function returns; the instance is evicted from memory.</li>
+<li>When the awaited result arrives, it is appended to the history.</li>
+<li>The orchestrator starts again at line 1. Each <code>await</code> whose result is already in the history completes instantly, without scheduling anything.</li>
+<li>Execution reaches the first <i>new</i> await, schedules it, and the cycle repeats.</li></ol>
+<p>Consequences worth internalising:</p>
+<ul><li>A log statement in an orchestrator prints once per replay. Use <code>ctx.CreateReplaySafeLogger()</code> to suppress the duplicates.</li>
+<li>Waiting costs nothing: a three-day timer is a row in a table, not a process holding memory.</li>
+<li>The cost of an orchestration grows with the <i>number of steps squared</i> in the worst case, because each replay re-reads the whole history. Long loops need <code>ContinueAsNew</code>.</li></ul>
+<p>The first animation on this page walks through one full cycle.</p>
+        </template></div>
+        <div class="term"><b>determinism</b><span>Replayed code must take exactly the same decisions every time. Anything that could return a different value on the second run breaks the orchestration.</span><template class="term-detail" data-see="replay, orchestrator function, versioning">
+<p>Because the orchestrator is re-executed, non-deterministic code makes replay diverge from history &mdash; and the runtime fails the instance with a non-determinism error, often long after the offending deploy.</p>
+<table><tr><th>Instead of</th><th>Use</th></tr>
+<tr><td><code>DateTime.UtcNow</code></td><td><code>ctx.CurrentUtcDateTime</code></td></tr>
+<tr><td><code>Guid.NewGuid()</code></td><td><code>ctx.NewGuid()</code></td></tr>
+<tr><td><code>new Random()</code></td><td>generate it in an activity and return it</td></tr>
+<tr><td><code>Task.Delay</code> / <code>Thread.Sleep</code></td><td><code>ctx.CreateTimer(deadline, ct)</code></td></tr>
+<tr><td><code>HttpClient</code>, database, file access</td><td>an activity function</td></tr>
+<tr><td><code>Environment.GetEnvironmentVariable</code> for a value that changes</td><td>pass it as input, or read it in an activity</td></tr>
+<tr><td><code>Task.WhenAny</code> on non-durable tasks</td><td><code>ctx.WhenAny</code> over durable tasks only</td></tr></table>
+<p>Two subtler traps. First, <code>foreach</code> over a <code>HashSet</code> or <code>Dictionary</code> has no guaranteed order &mdash; sort first. Second, parallel <code>Task.Run</code> inside an orchestrator breaks the single-threaded replay model entirely. In .NET, the <a href="https://www.nuget.org/packages/Microsoft.DurableTask.Analyzers" target="_blank" rel="noopener">Durable Task analyzers</a> catch most of these at build time; install them on day one.</p>
+        </template></div>
+        <div class="term"><b>history</b><span>The append-only list of events for one instance: what was scheduled, what completed, what failed. It is the only state the workflow has.</span><template class="term-detail" data-see="replay, task hub, storage backend">
+<p>Event sourcing, applied to a function call stack. A completed two-activity orchestration looks like this:</p>
+<pre><code>1  OrchestratorStarted
+2  ExecutionStarted        name=ProcessOrder  input={...}
+3  TaskScheduled           name=ChargeCard
+4  OrchestratorCompleted
+5  TaskCompleted           result={"txn":"ch_9f3"}
+6  OrchestratorStarted
+7  TaskScheduled           name=ShipOrder
+8  TaskCompleted           result="TRK-991"
+9  ExecutionCompleted      output={...}</code></pre>
+<div class="figure"><svg viewBox="0 0 560 190" role="img" aria-label="Each replay re-reads the whole history, so total work grows with the square of the number of steps">
+  <text x="12" y="20" font-size="12" font-weight="600" fill="#23362e">Every replay re-reads the whole history &mdash; so total work grows with the <tspan fill="#c53b3b">square</tspan> of the steps</text>
+  <g font-size="10.5" font-family="Fira Code, monospace" fill="#23362e">
+    <text x="12" y="46">execution 1</text><rect x="110" y="34" width="22" height="16" rx="3" fill="#e3eedc" stroke="#2f6b3f"/><text x="460" y="46" fill="#5f6f66">reads 1 event</text>
+    <text x="12" y="72">execution 2</text><rect x="110" y="60" width="66" height="16" rx="3" fill="#e3eedc" stroke="#2f6b3f"/><text x="460" y="72" fill="#5f6f66">reads 3 events</text>
+    <text x="12" y="98">execution 3</text><rect x="110" y="86" width="110" height="16" rx="3" fill="#e3eedc" stroke="#2f6b3f"/><text x="460" y="98" fill="#5f6f66">reads 5 events</text>
+    <text x="12" y="124">execution 50</text><rect x="110" y="112" width="300" height="16" rx="3" fill="#fbf3c4" stroke="#d9c25a"/><text x="460" y="124" fill="#5f6f66">reads 99 events</text>
+    <text x="12" y="150">execution 500</text><rect x="110" y="138" width="340" height="16" rx="3" fill="#f9e3df" stroke="#c53b3b"/><text x="460" y="150" fill="#c53b3b">reads 999 events</text>
+  </g>
+  <text class="hand" x="12" y="180" font-size="15" fill="#c53b3b">this is what ContinueAsNew and sub-orchestrations are for</text>
+</svg></div>
+<h4>Size matters</h4>
+<table><tr><th>Shape</th><th>History size</th><th>Verdict</th></tr>
+<tr><td>10 activities, small payloads</td><td>a few KB</td><td>fine</td></tr>
+<tr><td>1,000 activities</td><td>megabytes, replay seconds</td><td>batch them, or sub-orchestrate</td></tr>
+<tr><td>Activity returning a 10 MB document</td><td>huge rows, slow every replay</td><td>store it in a blob, pass the URL</td></tr>
+<tr><td>Infinite loop without <code>ContinueAsNew</code></td><td>grows forever</td><td>will eventually fail the instance</td></tr></table>
+<p>You can read the history through the management API or the Durable Task Scheduler dashboard. It is the first place to look when a workflow behaves strangely, because it is a literal transcript of what the orchestrator decided.</p>
+        </template></div>
+        <div class="term"><b>task hub</b><span>The named container for all the queues, tables and blobs an application uses. Two apps sharing a task hub will steal each other's work.</span><template class="term-detail" data-see="history, storage backend, instance id">
+<p>Configured in <code>host.json</code>, it namespaces everything in the backend:</p>
+<pre><code>{ "extensions": { "durableTask": { "hubName": "OrdersHubProd" } } }</code></pre>
+<table><tr><th>Situation</th><th>What to do</th></tr>
+<tr><td>Dev, test and prod sharing a storage account</td><td>a different <code>hubName</code> each &mdash; or, better, separate accounts</td></tr>
+<tr><td>Several developers running locally against one account</td><td><code>"hubName": "%UserName%Hub"</code> (the setting supports app-setting substitution)</td></tr>
+<tr><td>Two apps that must share work</td><td>same hub name, same storage &mdash; this is the only correct reason to share</td></tr>
+<tr><td>Deleting old data</td><td>deleting the task hub's tables wipes every instance, including running ones</td></tr></table>
+<p>The classic incident: a staging slot and production share a storage account and a hub name, staging picks up a production work item, and an activity runs against the wrong database. Give every environment its own hub, and check it in code review.</p>
+        </template></div>
+        <div class="term"><b>instance id</b><span>The unique key of one orchestration run. Supply your own to get deduplication for free.</span><template class="term-detail" data-see="client function, status and management, activity function">
+<p>By default it is a GUID. Pass your own and the task hub enforces uniqueness, which turns "start a workflow" into an idempotent operation:</p>
+<pre><code>// if order 10427 is already being processed, this throws instead of
+// starting a second, parallel workflow for the same order
+await client.ScheduleNewOrchestrationInstanceAsync(
+    nameof(ProcessOrder), order,
+    new StartOrchestrationOptions { InstanceId = $"order-{order.Id}" });</code></pre>
+<table><tr><th>Good instance id</th><th>Why</th></tr>
+<tr><td><code>order-10427</code></td><td>natural key: a duplicate message cannot start a second run</td></tr>
+<tr><td><code>invoice-2026-11-ACME</code></td><td>readable in the dashboard, greppable in logs</td></tr>
+<tr><td><code>{guid}</code> (default)</td><td>fine when there is no natural key, useless for deduplication</td></tr></table>
+<p>Caveat: an id can be reused once the previous instance has completed <i>and</i> been purged, so an id that must stay unique forever needs a date or version segment. Avoid <code>/</code> and <code>@</code> in ids &mdash; <code>@</code> is reserved for entities.</p>
+        </template></div>
+        <div class="term"><b>durable timers</b><span><code>ctx.CreateTimer()</code> instead of <code>Task.Delay</code>. The orchestrator unloads and is woken at the deadline &mdash; minutes, days or months later.</span><template class="term-detail" data-see="external events, replay, determinism">
+<p>A durable timer is a scheduled message, not a sleeping thread. Nothing is in memory while it waits, so a 30-day timer costs nothing but a row.</p>
+<pre><code>using var cts = new CancellationTokenSource();
+var approval = ctx.WaitForExternalEvent&lt;bool&gt;("Approved");
+var timeout  = ctx.CreateTimer(ctx.CurrentUtcDateTime.AddDays(3), cts.Token);
+
+if (approval == await Task.WhenAny(approval, timeout))
+{
+    cts.Cancel();                       // always cancel the loser
+    await ctx.CallActivityAsync("Publish");
+}
+else
+{
+    await ctx.CallActivityAsync("Escalate");
+}</code></pre>
+<table><tr><th>Detail</th><th>Value</th></tr>
+<tr><td>Maximum single timer</td><td>6 days on the Azure Storage backend; longer waits are split automatically in recent versions</td></tr>
+<tr><td>Precision</td><td>seconds, not milliseconds &mdash; it is a queue message with a visibility delay</td></tr>
+<tr><td>Cost while waiting</td><td>storage only; on the Consumption plan you pay nothing for the idle time</td></tr></table>
+<p>Always cancel the losing timer. An uncancelled timer keeps the instance alive until it fires, so the orchestration shows as Running for three days after it has logically finished.</p>
+        </template></div>
+        <div class="term"><b>external events</b><span><code>WaitForExternalEvent</code> parks the orchestration until something outside &mdash; a human, a webhook, another system &mdash; raises a named event.</span><template class="term-detail" data-see="durable timers, client function, instance id">
+<p>This is what makes human-in-the-loop workflows trivial. The orchestrator awaits a named event; any client raises it by instance id.</p>
+<pre><code>// in the orchestrator
+var decision = await ctx.WaitForExternalEvent&lt;ApprovalDecision&gt;("ApprovalReceived");
+
+// anywhere else, days later
+await client.RaiseEventAsync(instanceId, "ApprovalReceived", new ApprovalDecision(true, "jane"));</code></pre>
+<table><tr><th>Behaviour</th><th>Detail</th></tr>
+<tr><td>Event before the await</td><td>buffered in the history, delivered as soon as the orchestrator awaits it</td></tr>
+<tr><td>Event to an unknown instance</td><td>silently dropped &mdash; check the instance exists first</td></tr>
+<tr><td>Event to a completed instance</td><td>dropped; there is nothing to wake</td></tr>
+<tr><td>Several events, same name</td><td>queued; each <code>WaitForExternalEvent</code> consumes one</td></tr></table>
+<p>Always pair an external event with a timer. A workflow waiting on an event that will never arrive is invisible: it is not failed, not completed, just Running forever.</p>
+        </template></div>
+        <div class="term"><b>fan-out / fan-in</b><span>Schedule many activities without awaiting, then <code>Task.WhenAll</code>. The platform parallelises across every available worker.</span><template class="term-detail" data-see="orchestrator function, sub-orchestration, retry policy">
+<p>The pattern Durable Functions makes almost free, and the main reason to pick it over a chain of queue-triggered functions.</p>
+<pre><code>var tasks = files.Select(f =&gt; ctx.CallActivityAsync&lt;long&gt;("ProcessFile", f)).ToList();
+long[] sizes = await Task.WhenAll(tasks);
+await ctx.CallActivityAsync("WriteSummary", sizes.Sum());</code></pre>
+<table><tr><th>Scale</th><th>Guidance</th></tr>
+<tr><td>Up to ~100 parallel activities</td><td>straightforward; the default concurrency settings cope</td></tr>
+<tr><td>Thousands</td><td>batch the inputs, or fan out to sub-orchestrations that each fan out further</td></tr>
+<tr><td>Per-worker concurrency</td><td><code>maxConcurrentActivityFunctions</code> in <code>host.json</code>, default 10 x core count</td></tr></table>
+<p>The aggregation step runs in the orchestrator, so it is replayed &mdash; keep it cheap and deterministic. If an exception from one activity should not kill the batch, await each task inside a <code>try/catch</code> rather than relying on <code>WhenAll</code>, which surfaces only the first failure.</p>
+        </template></div>
+        <div class="term"><b>sub-orchestration</b><span>An orchestrator calling another orchestrator. The unit of composition, and the way to keep any single history small.</span><template class="term-detail" data-see="fan-out / fan-in, history, ContinueAsNew">
+<p>A sub-orchestration has its own instance, its own history and its own lifetime; the parent awaits it exactly like an activity.</p>
+<pre><code>var results = await Task.WhenAll(
+    regions.Select(r =&gt; ctx.CallSubOrchestratorAsync&lt;RegionReport&gt;(
+        nameof(ProcessRegion), input: r,
+        options: new SubOrchestrationOptions { InstanceId = $"{ctx.InstanceId}:{r}" })));</code></pre>
+<table><tr><th>Use it to</th><th>Because</th></tr>
+<tr><td>Split a 1,000-step workflow</td><td>ten histories of 100 events replay far faster than one of 1,000</td></tr>
+<tr><td>Reuse a workflow</td><td>the same sub-orchestration can be called from several parents</td></tr>
+<tr><td>Isolate failure</td><td>a sub-orchestration can fail and be retried as a unit</td></tr>
+<tr><td>Give a step its own retry policy</td><td>retries apply to the whole sub-workflow, not one activity</td></tr></table>
+<p>Give sub-orchestrations a derived instance id. Searching the dashboard for <code>order-10427</code> then shows the parent and all of its children together.</p>
+        </template></div>
+        <div class="term"><b>ContinueAsNew</b><span>Restart the orchestration with fresh input and an empty history. The only correct way to write an eternal or long-looping workflow.</span><template class="term-detail" data-see="history, replay, durable timers">
+<p>Because every replay re-reads the whole history, a loop that runs forever eventually makes replay unbearably slow and then fails outright. <code>ContinueAsNew</code> truncates it.</p>
+<pre><code>[Function(nameof(MonitorDevice))]
+public static async Task MonitorDevice([OrchestrationTrigger] TaskOrchestrationContext ctx)
+{
+    var state = ctx.GetInput&lt;MonitorState&gt;()!;
+    var reading = await ctx.CallActivityAsync&lt;Reading&gt;("PollDevice", state.DeviceId);
+
+    if (reading.IsCritical)
+    {
+        await ctx.CallActivityAsync("RaiseAlert", reading);
+        return;                                     // stop the loop
+    }
+
+    await ctx.CreateTimer(ctx.CurrentUtcDateTime.AddMinutes(5), CancellationToken.None);
+    ctx.ContinueAsNew(state with { Polls = state.Polls + 1 });   // fresh history
+}</code></pre>
+<table><tr><th>Rule</th><th>Why</th></tr>
+<tr><td>Carry all the state you need in the input</td><td>the new instance starts with an empty history and no memory of the old one</td></tr>
+<tr><td>Call it last, and return straight after</td><td>anything scheduled after it is lost</td></tr>
+<tr><td>Use it after roughly 100&ndash;1,000 iterations</td><td>before replay cost becomes noticeable</td></tr></table>
+<p>Unprocessed external events are carried over, so an eternal orchestration can still receive signals across restarts.</p>
+        </template></div>
+        <div class="term"><b>retry policy</b><span>Declarative retries on an activity or sub-orchestration call: attempts, delay, backoff, timeout. The orchestrator owns them, so they survive a crash.</span><template class="term-detail" data-see="activity function, sub-orchestration, durable timers">
+<p>Retries are recorded in the history, which means a retry schedule survives the worker that started it dying. That is the difference from an in-process retry library.</p>
+<pre><code>var options = TaskOptions.FromRetryPolicy(new RetryPolicy(
+    maxNumberOfAttempts: 5,
+    firstRetryInterval: TimeSpan.FromSeconds(5),
+    backoffCoefficient: 2.0,                        // 5s, 10s, 20s, 40s
+    maxRetryInterval: TimeSpan.FromMinutes(5),
+    retryTimeout: TimeSpan.FromMinutes(30)));
+
+await ctx.CallActivityAsync("CallPartnerApi", payload, options);</code></pre>
+<table><tr><th>Setting</th><th>Typical</th></tr>
+<tr><td><code>maxNumberOfAttempts</code></td><td>3&ndash;5 for a transient dependency, 1 for anything not idempotent</td></tr>
+<tr><td><code>firstRetryInterval</code></td><td>1&ndash;10 s</td></tr>
+<tr><td><code>backoffCoefficient</code></td><td>2.0 &mdash; exponential; the platform adds no jitter, so stagger at the source</td></tr>
+<tr><td><code>retryTimeout</code></td><td>bounds the total, which <code>maxNumberOfAttempts</code> alone does not</td></tr></table>
+<p>For compensation rather than retry &mdash; the saga pattern &mdash; wrap the orchestrator body in <code>try/catch</code> and call undo activities in the catch. The catch block is replayed deterministically, so compensation is as durable as the forward path.</p>
+        </template></div>
+        <div class="term"><b>versioning</b><span>Changing orchestrator code while instances are mid-flight. The in-flight ones replay against your <i>new</i> code, and a changed shape breaks them.</span><template class="term-detail" data-see="determinism, replay, instance id">
+<p>The single most common production incident with Durable Functions. An instance started on Monday, parked on a three-day timer, replays on Thursday against the code you deployed on Wednesday. If step 2 is now a different activity, replay diverges and the instance fails.</p>
+<table><tr><th>Change</th><th>Safe?</th></tr>
+<tr><td>Changing the body of an activity</td><td>yes &mdash; activities are not replayed</td></tr>
+<tr><td>Adding a step at the end</td><td>yes</td></tr>
+<tr><td>Adding or removing a step in the middle</td><td><b>no</b></td></tr>
+<tr><td>Renaming an activity or changing its argument types</td><td><b>no</b></td></tr>
+<tr><td>Reordering awaits, or changing a loop's iteration count</td><td><b>no</b></td></tr></table>
+<h4>Strategies</h4>
+<ul><li><b>Side-by-side:</b> deploy <code>ProcessOrderV2</code> next to <code>ProcessOrder</code> and point new starts at it. Verbose, and always correct.</li>
+<li><b>New task hub / new app:</b> drain the old hub while the new one takes new work. The cleanest option for a big change.</li>
+<li><b>Drain before deploy:</b> stop new starts, wait for in-flight instances to finish, then deploy. Only viable for short workflows.</li>
+<li>Recent extension versions add built-in orchestration versioning, which lets one app run several versions of the same orchestrator &mdash; check the version you are on before relying on it.</li></ul>
+        </template></div>
+        <div class="term"><b>storage backend</b><span>Where the history and queues live: Azure Storage by default, or Durable Task Scheduler, Netherite or MSSQL.</span><template class="term-detail" data-see="task hub, history, status and management">
+<p>The backend is pluggable and changes throughput, cost and operability far more than anything in your code.</p>
+<table><tr><th>Backend</th><th>Good for</th><th>Trade-off</th></tr>
+<tr><td>Azure Storage (default)</td><td>most workloads; cheap, zero setup</td><td>lowest throughput; no built-in dashboard</td></tr>
+<tr><td>Durable Task Scheduler</td><td>high throughput, a real monitoring UI, managed by Azure</td><td>a provisioned resource with its own cost</td></tr>
+<tr><td>Netherite</td><td>very high throughput via Event Hubs + FASTER</td><td>more moving parts to operate</td></tr>
+<tr><td>MSSQL</td><td>keeping state in your own SQL Server, on-premises or portable</td><td>you own the database's capacity and backups</td></tr></table>
+<p>Switching backends means starting a fresh task hub: history is not portable, so in-flight instances do not migrate. Plan the switch like a migration, not a config change.</p>
+        </template></div>
+        <div class="term"><b>status and management</b><span>Querying, suspending, terminating, rewinding and purging instances &mdash; through HTTP, the client API, the CLI or the dashboard.</span><template class="term-detail" data-see="client function, instance id, history">
+<p>Every instance has a status, and operations are the day-two part of running workflows in production.</p>
+<table><tr><th>Status</th><th>Means</th></tr>
+<tr><td><code>Pending</code></td><td>scheduled, not yet picked up</td></tr>
+<tr><td><code>Running</code></td><td>executing, or waiting on a timer or event &mdash; the two look the same</td></tr>
+<tr><td><code>Completed</code></td><td>returned normally</td></tr>
+<tr><td><code>Failed</code></td><td>an unhandled exception, or replay divergence</td></tr>
+<tr><td><code>Terminated</code></td><td>killed by an operator; activities already running are not cancelled</td></tr>
+<tr><td><code>Suspended</code></td><td>paused and resumable &mdash; useful while you fix a downstream system</td></tr></table>
+<p><code>SetCustomStatusAsync</code> is underused: it attaches an arbitrary object to the instance, visible to any status query. "Step 3 of 7: awaiting approval from finance" turns an opaque Running into something a support engineer can act on.</p>
+<p>Completed instances are kept forever unless you purge them, so schedule a timer-triggered purge of instances older than your retention policy. A task hub with millions of stale rows gets slow and expensive.</p>
+        </template></div>
+      </div>
+    </section>
+
+    <section id="commands">
+      <h2>Essential commands &amp; syntax</h2>
+
+      <div class="cmd-group">
+        <h3>Project setup (.NET isolated worker)</h3>
+        <div class="cmd"><pre><code>func init OrdersWorkflow --worker-runtime dotnet-isolated
+cd OrdersWorkflow
+dotnet add package Microsoft.Azure.Functions.Worker.Extensions.DurableTask
+dotnet add package Microsoft.DurableTask.Analyzers</code></pre><div class="what">New Functions app with the Durable extension and the analyzers that catch non-determinism at build time.</div></div>
+        <div class="cmd"><pre><code>func start</code></pre><div class="what">Runs locally. With <code>"AzureWebJobsStorage": "UseDevelopmentStorage=true"</code> it uses Azurite for the task hub.</div></div>
+        <div class="cmd"><pre><code>{ "extensions": { "durableTask": {
+    "hubName": "%TaskHubName%",
+    "maxConcurrentActivityFunctions": 10,
+    "maxConcurrentOrchestratorFunctions": 5 } } }</code></pre><div class="what"><code>host.json</code>: per-environment hub name, and the two concurrency knobs that matter most.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>The patterns, in C#</h3>
+        <div class="cmd"><pre><code>// function chaining
+var a = await ctx.CallActivityAsync&lt;string&gt;("StepOne", input);
+var b = await ctx.CallActivityAsync&lt;string&gt;("StepTwo", a);
+return await ctx.CallActivityAsync&lt;string&gt;("StepThree", b);</code></pre><div class="what">Sequential steps where each depends on the previous result.</div></div>
+        <div class="cmd"><pre><code>// fan-out / fan-in
+var tasks = items.Select(i =&gt; ctx.CallActivityAsync&lt;long&gt;("Process", i)).ToList();
+var results = await Task.WhenAll(tasks);</code></pre><div class="what">Parallel work across every available worker, then aggregation.</div></div>
+        <div class="cmd"><pre><code>// human interaction with a deadline
+using var cts = new CancellationTokenSource();
+var approval = ctx.WaitForExternalEvent&lt;bool&gt;("Approved");
+var timeout  = ctx.CreateTimer(ctx.CurrentUtcDateTime.AddDays(3), cts.Token);
+if (approval == await Task.WhenAny(approval, timeout)) { cts.Cancel(); /* ... */ }</code></pre><div class="what">Waits up to three days for an approval, escalating on timeout. Cancel the loser.</div></div>
+        <div class="cmd"><pre><code>// saga: compensate on failure
+try { await ctx.CallActivityAsync("ReserveStock", o); await ctx.CallActivityAsync("ChargeCard", o); }
+catch (TaskFailedException) { await ctx.CallActivityAsync("ReleaseStock", o); throw; }</code></pre><div class="what">Compensation is just a catch block, replayed as durably as the forward path.</div></div>
+        <div class="cmd"><pre><code>ctx.SetCustomStatus(new { step = "awaiting-approval", since = ctx.CurrentUtcDateTime });</code></pre><div class="what">Attaches progress to the instance so a status query shows something meaningful.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Python</h3>
+        <div class="cmd"><pre><code>import azure.durable_functions as df
+
+def orchestrator(context: df.DurableOrchestrationContext):
+    order = context.get_input()
+    payment = yield context.call_activity("ChargeCard", order)
+    tracking = yield context.call_activity("ShipOrder", order)
+    return {"payment": payment, "tracking": tracking}
+
+main = df.Orchestrator.create(orchestrator)</code></pre><div class="what">Same model with generators: every <code>yield</code> is a durable await, and the function is replayed identically.</div></div>
+        <div class="cmd"><pre><code>tasks = [context.call_activity("Process", i) for i in items]
+results = yield context.task_all(tasks)</code></pre><div class="what">Fan-out / fan-in in Python: <code>task_all</code> and <code>task_any</code> replace <code>WhenAll</code> and <code>WhenAny</code>.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Operating instances (HTTP management API)</h3>
+        <div class="cmd"><pre><code>curl -s "$BASE/runtime/webhooks/durabletask/instances/order-10427?code=$KEY&amp;showHistory=true"</code></pre><div class="what">Full status plus the event history &mdash; the first thing to look at when a workflow misbehaves.</div></div>
+        <div class="cmd"><pre><code>curl -X POST "$BASE/runtime/webhooks/durabletask/instances/order-10427/raiseEvent/Approved?code=$KEY" \
+  -H "Content-Type: application/json" -d 'true'</code></pre><div class="what">Delivers an external event to a parked orchestration.</div></div>
+        <div class="cmd"><pre><code>curl -X POST ".../instances/order-10427/terminate?reason=duplicate&amp;code=$KEY"
+curl -X POST ".../instances/order-10427/suspend?reason=upstream-outage&amp;code=$KEY"</code></pre><div class="what">Terminate kills the instance; suspend pauses it so you can resume once a dependency recovers.</div></div>
+        <div class="cmd"><pre><code>curl -X DELETE ".../instances?createdTimeTo=2026-09-01T00:00:00Z&amp;runtimeStatus=Completed&amp;code=$KEY"</code></pre><div class="what">Purges old completed instances. Schedule this &mdash; history is kept forever otherwise.</div></div>
+      </div>
+    </section>
+
+    <section id="pros-cons">
+      <h2>Pros &amp; cons</h2>
+      <div class="cols">
+        <div class="col good"><h3>Pros</h3><ul>
+          <li>Workflow logic reads as ordinary code: loops, conditionals, try/catch, not a state machine in JSON.</li>
+          <li>State, checkpointing and recovery are free &mdash; no progress table, no "where was I" logic.</li>
+          <li>Waiting is genuinely free: a three-day timer or a pending approval costs storage, not compute.</li>
+          <li>Durable retries and compensation survive the worker process dying mid-retry.</li>
+          <li>Fan-out across hundreds of workers is three lines, and fan-in is <code>WhenAll</code>.</li>
+          <li>The history is a readable transcript of exactly what happened, which makes debugging unusually pleasant.</li>
+        </ul></div>
+        <div class="col bad"><h3>Cons</h3><ul>
+          <li>The replay model is genuinely unintuitive, and every new team member writes a non-deterministic orchestrator first.</li>
+          <li>Versioning in-flight instances is a real operational burden, not an edge case.</li>
+          <li>Debugging is odd: breakpoints hit repeatedly, and logs duplicate unless you use a replay-safe logger.</li>
+          <li>Per-step latency is higher than a direct call &mdash; each activity is a queue hop plus a history write.</li>
+          <li>Payload size is constrained by the history; large data needs out-of-band storage.</li>
+          <li>It ties the workflow to Azure Functions. Portable alternatives exist, but migration means rewriting.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="use-cases">
+      <h2>Concrete use cases</h2>
+      <div class="cards">
+        <div class="card"><h3>Order fulfilment saga</h3><p>Reserve stock, charge the card, book the courier, send confirmation &mdash; four systems, any of which can fail. The orchestrator calls each as an activity with its own retry policy, and a <code>catch</code> block compensates in reverse order. A crash halfway through resumes exactly where it stopped instead of leaving a half-charged order.</p></div>
+        <div class="card"><h3>Document approval with a deadline</h3><p>An expense claim over a threshold waits for a manager's approval. The orchestrator races <code>WaitForExternalEvent("Approved")</code> against a three-day timer, escalating to the department head on timeout. Nothing is running for those three days; the entire workflow is one row in a table and a scheduled message.</p></div>
+        <div class="card"><h3>Batch processing a nightly drop</h3><p>Ten thousand files land in Blob Storage each night. The orchestrator fans out in batches of 200 to sub-orchestrations, each fanning out to per-file activities. The platform scales workers out and back in, failures retry individually, and the final fan-in writes a single summary report.</p></div>
+        <div class="card"><h3>Polling an external job to completion</h3><p>A rendering service accepts a job and returns a job id. Instead of a cron job scanning a table, the orchestrator loops: call a status activity, wait on a durable timer, <code>ContinueAsNew</code> every hundred polls. It stops the instant the job finishes, and the polling state needs no storage of its own.</p></div>
+        <div class="card"><h3>Per-device state with entities</h3><p>A fleet of IoT devices sends readings at different rates. A <code>DeviceState</code> entity per device accumulates readings, exposes a current aggregate and signals an orchestrator when a threshold is crossed. Operations on one device serialise automatically, so there is no locking and no lost update.</p></div>
+      </div>
+    </section>
+
+    <section id="when">
+      <h2>When to use / when not to</h2>
+      <span class="note" style="margin:-6px 0 14px">If you were about to add a "status" column and a cron job to chase it, this is what you wanted.</span>
+      <div class="cols">
+        <div class="col good"><h3>Use it when&hellip;</h3><ul>
+          <li>A process has several steps that must all eventually happen, across minutes, days or months.</li>
+          <li>You need reliable compensation: step 3 failed, so undo steps 2 and 1.</li>
+          <li>The workflow waits on humans, webhooks or external jobs, and polling would be wasteful.</li>
+          <li>You want parallel fan-out with aggregation and per-item retries, without writing a coordinator.</li>
+          <li>You are already on Azure Functions and the team knows C#, Python or TypeScript.</li>
+          <li>You need an auditable record of what the process did and when.</li>
+        </ul></div>
+        <div class="col bad"><h3>Avoid it when&hellip;</h3><ul>
+          <li>The work is one short step. Use a <b>plain Azure Function</b> with a queue trigger.</li>
+          <li>The workflow is mostly connector glue across SaaS systems. Use <b>Azure Logic Apps</b>, where those connectors already exist.</li>
+          <li>You need sub-millisecond coordination or very high per-step throughput. Use <b>direct calls</b> or a stream processor over Apache Kafka.</li>
+          <li>Your workflow must run outside Azure or stay portable. Use <b>Temporal</b> or <b>Dapr Workflow</b>, which share the model without the hosting lock-in.</li>
+          <li>Non-technical users must author or change the flow. Use a <b>designer-based tool</b>; orchestrators are code and belong to developers.</li>
+          <li>The team cannot absorb the determinism rules. The failure mode is subtle and shows up in production &mdash; a <b>state machine in a database</b> is less clever and easier to reason about.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="gotchas">
+      <h2>Common mistakes &amp; gotchas</h2>
+      <div class="gotcha"><b>Doing I/O in the orchestrator</b><span>An <code>HttpClient</code> call or a database query inside an orchestrator runs again on every replay &mdash; so a "send email" step sends four emails &mdash; and it breaks determinism the moment the response differs.</span><div class="fix">Fix: every side effect goes in an activity. Install <code>Microsoft.DurableTask.Analyzers</code> so the compiler tells you before production does.</div></div>
+      <div class="gotcha"><b><code>DateTime.UtcNow</code> and <code>Guid.NewGuid()</code> in orchestrator code</b><span>They return something different on each replay, so the orchestrator takes a different branch than the history records, and the instance fails with a non-determinism error &mdash; often days after the deploy.</span><div class="fix">Fix: <code>ctx.CurrentUtcDateTime</code> and <code>ctx.NewGuid()</code>. For randomness, generate it in an activity and return it, so the value is recorded.</div></div>
+      <div class="gotcha"><b>Deploying a changed orchestrator while instances are in flight</b><span>An instance parked on a timer resumes against the new code, replay diverges from its history, and it fails. The instances that break are the long-running ones you care about most.</span><div class="fix">Fix: version side-by-side (<code>ProcessOrderV2</code>), or use a new task hub for the new version and drain the old one. Never reorder or insert steps in a live orchestrator.</div></div>
+      <div class="gotcha"><b>Sharing a task hub between environments</b><span>Staging and production point at the same storage account with the same <code>hubName</code>. A staging worker picks up a production work item and runs it against the wrong database.</span><div class="fix">Fix: a distinct <code>hubName</code> per environment, ideally a distinct storage account. Locally, use <code>"hubName": "%UserName%Hub"</code> so developers do not collide.</div></div>
+      <div class="gotcha"><b>Assuming an activity runs exactly once</b><span>Delivery is at-least-once. A worker that completes the work and dies before reporting the result causes the activity to run again &mdash; charging the card twice.</span><div class="fix">Fix: make activities idempotent with a deduplication key derived from the instance id and step name, and enforce it where the side effect happens.</div></div>
+      <div class="gotcha"><b>Putting large payloads through activities</b><span>Inputs and outputs are serialized into the history, so a 10 MB response is written once and re-read on every replay. Orchestrations get slow, then expensive, then they fail.</span><div class="fix">Fix: write the payload to Blob Storage and pass a URL or blob name. Keep activity inputs and outputs to kilobytes.</div></div>
+      <div class="gotcha"><b>Never cancelling the losing durable timer</b><span>After <code>Task.WhenAny(approval, timeout)</code> picks the approval, the timer is still pending, so the instance stays Running until the three days elapse and your dashboard is full of phantom work.</span><div class="fix">Fix: hold a <code>CancellationTokenSource</code> for the timer and cancel it as soon as the other task wins.</div></div>
+      <div class="gotcha"><b>Never purging completed instances</b><span>History is retained indefinitely. Task hubs grow to millions of rows, queries slow down, storage costs climb, and the dashboard becomes unusable.</span><div class="fix">Fix: a timer-triggered function calling <code>PurgeInstancesAsync</code> for completed instances older than your retention period. Decide the period before you launch, not after.</div></div>
+      <div class="gotcha"><b>Logging normally inside an orchestrator</b><span>Every log line appears once per replay, so a six-step workflow writes the first line six times. Log volume, and your confidence in the logs, both suffer.</span><div class="fix">Fix: <code>ctx.CreateReplaySafeLogger&lt;T&gt;()</code>, which suppresses output during replay. Check <code>ctx.IsReplaying</code> if you need the distinction yourself.</div></div>
+    </section>
+
+    <section id="alternatives">
+      <h2>Alternatives</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Tool</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs Durable Functions</th></tr></thead>
+          <tbody>
+            <tr class="self"><td><b>Azure Durable Functions</b></td><td>code-first workflows on Azure Functions</td><td>Medium</td><td>Functions plan + storage</td><td>&mdash;</td></tr>
+            <tr><td><b>Azure Logic Apps</b></td><td>SaaS integration, connector-heavy flows</td><td>Low</td><td>per action / per execution</td><td>Visual designer and 1,000+ connectors; no code, and harder to unit-test</td></tr>
+            <tr><td><b>Temporal</b></td><td>durable execution anywhere, any cloud</td><td>Medium&ndash;high</td><td>OSS, or Temporal Cloud</td><td>Same replay model, cloud-agnostic, far better tooling; you operate a cluster or pay for one</td></tr>
+            <tr><td><b>AWS Step Functions</b></td><td>the same patterns on AWS</td><td>Medium</td><td>per state transition</td><td>Workflow is JSON/ASL, not code; strong AWS service integrations</td></tr>
+            <tr><td><b>Dapr Workflow</b></td><td>workflows inside Kubernetes microservices</td><td>Medium</td><td>OSS</td><td>Built on the same Durable Task engine, but hosted by Dapr rather than Functions</td></tr>
+            <tr><td><b>Plain queues + a state table</b></td><td>two or three steps, full control</td><td>Low to write, high to maintain</td><td>infrastructure only</td><td>You write the checkpointing, retries, timeouts and compensation yourself</td></tr>
+            <tr><td><b>MassTransit / NServiceBus sagas</b></td><td>message-driven .NET systems already on a bus</td><td>Medium</td><td>OSS / commercial</td><td>Saga state is an explicit entity reacting to messages, not replayed code</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul style="margin-top:12px">
+        <li><b>Pick Logic Apps</b> if the workflow is mostly connecting SaaS products and a non-developer should be able to read it.</li>
+        <li><b>Pick Temporal</b> if you want this programming model without tying it to Azure Functions, and you can run or buy the server.</li>
+        <li><b>Pick Step Functions</b> if you are on AWS; the concepts transfer, the authoring experience does not.</li>
+        <li><b>Pick Dapr Workflow</b> if your services already run on Kubernetes with Dapr and you want the same model in-process.</li>
+        <li><b>Pick plain queues</b> if the process is two steps and will stay two steps. The moment it needs timeouts and compensation, you are reimplementing this.</li>
+      </ul>
+    </section>
+
+    <section id="resources">
+      <h2>Resources</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/azure/azure-functions/durable/durable-functions-overview" target="_blank" rel="noopener">Durable Functions overview</a>: the official introduction, with all the application patterns side by side.</li>
+        <li><a href="https://learn.microsoft.com/azure/azure-functions/durable/durable-functions-code-constraints" target="_blank" rel="noopener">Orchestrator code constraints</a>: the determinism rules, in full. Read this before writing your first orchestrator.</li>
+        <li><a href="https://learn.microsoft.com/azure/azure-functions/durable/durable-functions-versioning" target="_blank" rel="noopener">Versioning in Durable Functions</a>: the strategies for changing orchestrators with instances in flight.</li>
+        <li><a href="https://learn.microsoft.com/azure/azure-functions/durable/durable-task-scheduler/durable-task-scheduler" target="_blank" rel="noopener">Durable Task Scheduler</a>: the managed backend, its dashboard and when it is worth the extra resource.</li>
+        <li><a href="https://learn.microsoft.com/azure/azure-functions/durable/durable-functions-http-api" target="_blank" rel="noopener">HTTP API reference</a>: every management endpoint for querying, raising events, terminating and purging.</li>
+        <li><a href="https://github.com/Azure/azure-functions-durable-extension/tree/dev/samples" target="_blank" rel="noopener">Official samples on GitHub</a>: runnable implementations of each pattern in several languages.</li>
+      </ul>
+    </section>
+    <!-- RELATED:START (generated by scripts/build-index.mjs, do not edit) -->
+    <section id="related">
+      <h2>Related pages</h2>
+      <div class="related-list">
+          <a class="related-card" href="azure-api-management.html">
+            <b>Azure API Management</b>
+            <span>One front door for every API you own — and a place to put all the things that are not business logic.</span>
+            <small>Shared tags: azure</small>
+          </a>
+          <a class="related-card" href="kafka.html">
+            <b>Apache Kafka</b>
+            <span>A distributed, append-only log for events: write once, read by many, replay any time.</span>
+            <small>Mentioned here in When to use / when not to</small>
+          </a>
+          <a class="related-card" href="kubernetes.html">
+            <b>Kubernetes</b>
+            <span>You declare what should run; it keeps a fleet of machines making that true, forever.</span>
+            <small>Mentioned here in Alternatives</small>
+          </a>
+      </div>
+    </section>
+    <!-- RELATED:END -->
+  </main>
+</div>
+
+<script src="../assets/player.js"></script>
+<script>
+/* ---------- Animation 1: replay ---------- */
+createAnimation('anim-replay', [
+  { say: 'A client starts the orchestration. Nothing runs yet: an <code>ExecutionStarted</code> event is appended to the history and a message goes on the control queue.',
+    show: ['rp-h1'], text: { 'rp-state': 'queued' } },
+  { say: 'Execution #1. The orchestrator runs line 1. <code>CallActivity("Charge")</code> does <b>not</b> call anything &mdash; it records the intent as <code>TaskScheduled</code> and returns an incomplete task.',
+    show: ['rp-h2'], hl: ['rp-orch', 'rp-l1'],
+    text: { 'rp-state': 'running (execution 1)', 'rp-runs': 'executions so far: 1' } },
+  { say: 'The orchestrator awaits a task that is not complete, so the function simply <b>returns</b>. The instance is evicted from memory: no thread, no process, nothing to pay for. It could stay like this for three days.',
+    unhl: ['rp-orch', 'rp-l1'], text: { 'rp-state': 'unloaded — zero memory, zero cost' } },
+  { say: 'A worker &mdash; possibly on a different machine &mdash; picks the work item off the queue and runs the <code>Charge</code> activity. This is ordinary code with no restrictions: HTTP calls, database writes, whatever it needs.',
+    hl: ['rp-worker'], text: { 'rp-worker-sub': 'Charge → 42.00' } },
+  { say: 'The result is appended to the history as <code>TaskCompleted</code>, and the orchestrator is queued to run again.',
+    show: ['rp-h3'], unhl: ['rp-worker'], text: { 'rp-worker-sub': 'idle' } },
+  { say: 'Execution #2 &mdash; and this is the part that surprises everyone. The orchestrator starts again <b>at line 1</b>. But this time <code>CallActivity("Charge")</code> finds a matching <code>TaskCompleted</code> in the history, so it returns 42.00 immediately without scheduling anything.',
+    hl: ['rp-orch'], fill: { 'rp-l1': '#e3eedc' },
+    text: { 'rp-state': 'replaying (execution 2)', 'rp-runs': 'executions so far: 2' } },
+  { say: 'Replay catches up with reality at line 2, which is new. <code>Ship</code> is scheduled, <code>TaskScheduled</code> is written, and the instance unloads again.',
+    show: ['rp-h4'], hl: ['rp-l2'], unhl: ['rp-orch'],
+    text: { 'rp-state': 'unloaded again' } },
+  { say: 'Same cycle: the activity runs, its result is appended, and the orchestrator replays a third time &mdash; lines 1 and 2 both answered from history &mdash; until it reaches the return.',
+    show: ['rp-h5'], fill: { 'rp-l2': '#e3eedc' }, unhl: ['rp-l1', 'rp-l2'], hl: ['rp-l3'],
+    text: { 'rp-state': 'replaying (execution 3)', 'rp-runs': 'executions so far: 3' } },
+  { say: '<code>ExecutionCompleted</code> is written with the output, and the instance is done. Your code ran three times; the workflow happened once. That is also why orchestrator code must be <b>deterministic</b>: a <code>DateTime.UtcNow</code> or a <code>Guid.NewGuid()</code> would give a different answer on replay, and the instance would fail.',
+    show: ['rp-h6', 'rp-note'], unhl: ['rp-l3'], fill: { 'rp-l3': '#e3eedc' },
+    text: { 'rp-state': 'Completed', 'rp-hnote': 'same history → same run, every time' } },
+]);
+
+/* ---------- Animation 2: fan-out / fan-in ---------- */
+createAnimation('anim-fanout', [
+  { say: 'The orchestrator loops over five files and calls <code>CallActivityAsync</code> for each one <b>without awaiting</b>. Five <code>TaskScheduled</code> events go into the history in a single execution.',
+    hl: ['fo-orch'], text: { 'fo-state': 'scheduled 5' } },
+  { say: 'It then awaits <code>Task.WhenAll</code> and unloads. Five work items sit on the queue, and any worker in the app can pick up any of them &mdash; this is where the parallelism comes from.',
+    unhl: ['fo-orch'], text: { 'fo-state': 'unloaded', 'fo-caption': 'Five work items, picked up by however many workers the platform has scaled out to.' } },
+  { say: 'Results come back out of order, which is normal: each activity is independent and runs wherever there was capacity.',
+    fill: { 'fo-a3': '#e3eedc', 'fo-a1': '#e3eedc' },
+    text: { 'fo-t3': 'invoice-003 ✓ 1.4 MB', 'fo-t1': 'invoice-001 ✓ 0.9 MB', 'fo-done': '2 / 5 complete' } },
+  { say: 'Two more land. The orchestrator has replayed once per completion, each time finding four results in the history and one task still outstanding.',
+    fill: { 'fo-a2': '#e3eedc', 'fo-a5': '#e3eedc' },
+    text: { 'fo-t2': 'invoice-002 ✓ 0.7 MB', 'fo-t5': 'invoice-005 ✓ 2.1 MB', 'fo-done': '4 / 5 complete' } },
+  { say: 'The fourth file throws: the storage account returned a 503. The activity fails, and the failure is recorded in the history like any other event.',
+    fill: { 'fo-a4': '#f9e3df' }, hl: ['fo-a4'],
+    text: { 'fo-t4': 'invoice-004 ✗ 503 from storage', 'fo-result': '1 failure' } },
+  { say: 'The retry policy on that call &mdash; 3 attempts, 5 s, backoff 2x &mdash; schedules a durable timer and retries. Because the schedule lives in the history, it survives the worker that started it crashing.',
+    text: { 'fo-t4': 'invoice-004 ↺ retry 1 in 5 s', 'fo-result': 'retrying' },
+    fill: { 'fo-a4': '#fbf3c4' } },
+  { say: 'The retry succeeds, the last result is appended, and <code>WhenAll</code> finally completes.',
+    fill: { 'fo-a4': '#e3eedc' }, unhl: ['fo-a4'],
+    text: { 'fo-t4': 'invoice-004 ✓ 1.1 MB', 'fo-done': '5 / 5 complete', 'fo-result': 'all results in history' } },
+  { say: 'The orchestrator replays one last time with all five results available, runs the aggregation, and calls the summary activity. The aggregation happens <i>in the orchestrator</i>, so keep it cheap and deterministic &mdash; it has now run six times.',
+    hl: ['fo-orch', 'fo-sum'], show: ['fo-note'],
+    text: { 'fo-state': 'aggregating', 'fo-result': 'total 6.2 MB → WriteSummary',
+            'fo-caption': 'One failure retried itself without touching the other four. No coordinator code was written.' } },
+]);
+
+/* ---------- Animation 3: async HTTP API ---------- */
+createAnimation('anim-async', [
+  { say: 'A caller posts an order. Fulfilling it takes about four minutes &mdash; far longer than any sensible HTTP timeout, and longer than most gateways will hold a connection open.',
+    show: ['ah-l1'], hl: ['ah-client'], text: { 'ah-client-sub': 'POST /api/orders' } },
+  { say: 'The client function schedules the orchestration and returns <b>immediately</b>. It does not await the workflow. <code>CreateCheckStatusResponseAsync</code> writes a <code>202 Accepted</code> whose body carries the management URLs &mdash; status, terminate, raise-event, purge.',
+    show: ['ah-l2'], unhl: ['ah-client'],
+    text: { 'ah-client-lat': 'HTTP done in 52 ms', 'ah-orch-sub': 'queued', 'ah-client-sub': 'holds a status URL' } },
+  { say: 'The HTTP request is already over. Only now does the orchestrator start, charging the card, and it sets a custom status so the outside world can see where it is.',
+    hl: ['ah-orch'], text: { 'ah-orch-sub': 'Running', 'ah-orch-step': 'step 2 of 4' } },
+  { say: 'The caller polls the status URL whenever it likes &mdash; from a browser, a mobile app, a retry loop. Nothing is blocked while it is not polling.',
+    show: ['ah-l3', 'ah-l4'], unhl: ['ah-orch'], text: { 'ah-client-sub': 'polling' } },
+  { say: 'Minutes later, another poll. The custom status is the difference between an opaque "Running" and something a support engineer can act on &mdash; set it with <code>SetCustomStatus</code>.',
+    show: ['ah-l5'], hl: ['ah-orch'], text: { 'ah-orch-step': 'step 3 of 4' } },
+  { say: 'When the orchestration finishes, the same URL returns <code>200</code> with the output in the body. The caller never held a connection for more than a few milliseconds.',
+    show: ['ah-l6'], unhl: ['ah-orch'],
+    text: { 'ah-orch-sub': 'Completed', 'ah-orch-step': 'output: TRK-991', 'ah-client-sub': 'has its result' } },
+  { say: 'This is the pattern to reach for the moment an operation outgrows a request. You get the whole status API generated for you, the work survives a restart of the thing that started it, and there is no timeout to design around &mdash; just a resource the caller can check.',
+    show: ['ah-note'] },
+]);
+
+/* ---------- Animation 4: human interaction ---------- */
+createAnimation('anim-human', [
+  { say: 'An expense claim is over the threshold, so the orchestrator reaches an approval step. It starts <b>two durable tasks at once</b>: one waiting for a named external event, one a timer three days out.',
+    hl: ['hi-orch'], text: { 'hi-orch-sub': 'awaiting WhenAny', 'hi-orch-state': 'running' } },
+  { say: 'It awaits <code>WhenAny</code> over the pair and returns. The instance is evicted from memory. Both "tasks" are now just rows in a table &mdash; no thread, no process, no timeout to keep alive.',
+    unhl: ['hi-orch'], hl: ['hi-any'],
+    text: { 'hi-orch-state': 'unloaded', 'hi-clock': 'day 0 · memory in use: none' } },
+  { say: 'Day one passes. Day two passes. The entire cost of waiting is a few bytes of storage &mdash; which is why a three-day approval needs no special design at all.',
+    unhl: ['hi-any'],
+    text: { 'hi-clock': 'day 2 · memory in use: none · cost: storage only' } },
+  { say: 'A manager clicks <b>Approve</b> in an email. That link hits an ordinary HTTP function, which calls <code>RaiseEventAsync(instanceId, "Approved", decision)</code>.',
+    fill: { 'hi-evt': '#e3eedc' }, hl: ['hi-evt'],
+    text: { 'hi-evt-sub': 'event raised by a client function' } },
+  { say: 'The event is appended to the history and the orchestrator is replayed. This time the approval task is complete, so it wins the race.',
+    unhl: ['hi-evt'], hl: ['hi-any'],
+    text: { 'hi-orch-state': 'replaying', 'hi-any-sub': 'approval won', 'hi-out': 'outcome: Approved by jane@contoso' } },
+  { say: 'Now the step everybody forgets: <b>cancel the timer</b>. An uncancelled durable timer keeps the instance alive until it fires, so the workflow shows as Running for the next three days even though it is logically finished.',
+    fill: { 'hi-timer': '#f9e3df' }, unhl: ['hi-any'],
+    text: { 'hi-timer-sub': 'cancelled via the CancellationTokenSource', 'hi-orch-state': 'Completed',
+            'hi-clock': 'day 2 · total elapsed: 2 days · compute used: milliseconds' } },
+  { say: 'Had nobody approved, the timer would have won instead and the <code>Escalate</code> activity would have run &mdash; the same code, the other branch, equally durable. This is what makes human-in-the-loop workflows almost free here, and genuinely hard with queues and a status table.',
+    show: ['hi-note'] },
+]);
+
+/* ---------- Animation 5: monitor ---------- */
+createAnimation('anim-monitor', [
+  { say: 'A device has to be polled until a reading goes critical. The obvious implementation is a <code>while</code> loop around an activity and a timer &mdash; and it works, right up until it does not.',
+    hl: ['mo-s1'], text: { 'mo-iter': 'iteration 1', 'mo-s1-t': '38 °C' } },
+  { say: 'The reading is normal, so the orchestrator schedules a five-minute durable timer and unloads. One iteration costs about seven history events.',
+    unhl: ['mo-s1'], hl: ['mo-s3'],
+    text: { 'mo-s2-t': 'no', 'mo-a-t': 'history: 7 events', 'mo-b-t': 'history: 7 events' } },
+  { say: 'With a plain loop, iteration 2 <b>appends to the same history</b>. Fourteen events now &mdash; and every replay re-reads all of them, because that is how replay works.',
+    show: ['mo-a2'], unhl: ['mo-s3'],
+    text: { 'mo-iter': 'iteration 2', 'mo-a-t': 'history: 14 events · replay re-reads all of them' } },
+  { say: '<code>ContinueAsNew</code> changes that. The orchestration restarts with fresh input and an <b>empty history</b>: back to seven events. The state it needs travels in the input, not in the history.',
+    hl: ['mo-s4'], hide: ['mo-b2'],
+    text: { 'mo-s4-t': 'poll count: 2', 'mo-b-t': 'history: 7 events — reset every iteration' } },
+  { say: 'Fifty iterations in &mdash; about four hours of polling &mdash; the plain loop is carrying 350 events. The ContinueAsNew version is still carrying seven.',
+    show: ['mo-a3', 'mo-a4', 'mo-a5', 'mo-a6'], unhl: ['mo-s4'],
+    text: { 'mo-iter': 'iteration 50', 'mo-a-t': 'history: 350 events · replay is getting slow',
+            'mo-s4-t': 'poll count: 50' } },
+  { say: 'Five hundred iterations, about two days: <b>3,500 events</b> against seven. Replay cost grows with the square of the step count, so the plain loop gets slower, then expensive, then the instance fails outright.',
+    show: ['mo-a7', 'mo-a8', 'mo-a9', 'mo-a10'],
+    text: { 'mo-iter': 'iteration 500', 'mo-a-t': 'history: 3,500 events · this instance will fail',
+            'mo-b-t': 'history: 7 events · unchanged', 'mo-s4-t': 'poll count: 500' } },
+  { say: 'And the loop still has to end. When the reading does go critical the orchestrator calls <code>RaiseAlert</code> and <b>returns</b> instead of continuing &mdash; that <code>return</code> is how an eternal orchestration stops. Two rules: carry everything you need in the input, and call <code>ContinueAsNew</code> last, with nothing scheduled after it.',
+    hl: ['mo-s2'], show: ['mo-note'],
+    text: { 'mo-s1-t': '91 °C', 'mo-s2-t': 'yes → RaiseAlert, return', 'mo-iter': 'iteration 501 — done' } },
+]);
+</script>
+</body>
+</html>

@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Azure API Management · Tech cheatsheets</title>
+<meta name="description" content="Azure API Management cheatsheet: the policy pipeline animated end to end, products and subscriptions, backend pools with circuit breakers, revisions versus versions, tiers and gotchas.">
+<meta name="aliases" content="Azure API Management, API Management, APIM, Azure APIM">
+<meta name="related" content="rate-limiting, caching-strategies">
+<meta name="keywords" content="azure, api gateway, apim, policies, rate limiting, api versioning, developer portal, jwt validation, backend">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../assets/notebook.css">
+<script src="../assets/site.js" defer></script>
+</head>
+<body data-root="..">
+<div class="layout">
+  <nav class="toc" aria-label="Sections">
+    <a href="#overview">Overview</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#concepts">Key concepts</a>
+    <a href="#commands">Commands</a>
+    <a href="#pros-cons">Pros &amp; cons</a>
+    <a href="#use-cases">Use cases</a>
+    <a href="#when">When to use</a>
+    <a href="#gotchas">Gotchas</a>
+    <a href="#alternatives">Alternatives</a>
+    <a href="#resources">Resources</a>
+    <a href="#related">Related</a>
+  </nav>
+
+  <main>
+    <header class="hero" id="overview">
+      <h1>Azure API Management</h1>
+      <p class="tagline">One front door for every API you own &mdash; and a place to put all the things that are not business logic.</p>
+      <span class="meta">As of Nov 2026 · classic tiers (Developer, Basic, Standard, Premium) plus the v2 tiers and Consumption</span>
+      <p>Once you have more than a couple of APIs, the same concerns reappear in every one of them: authentication, rate limits, caching, CORS, request validation, logging, a consistent error shape, a developer-facing catalogue. Azure API Management (APIM) is the managed gateway that takes those concerns out of your services and puts them in one configurable place.</p>
+      <p>The core of it is the <b>policy pipeline</b>: a small XML document, attached at global, product, API or operation scope, that runs on every request in four phases &mdash; <code>inbound</code>, <code>backend</code>, <code>outbound</code> and <code>on-error</code>. Policies validate a JWT, throttle a caller, look up a cached response, rewrite a URL, add a managed-identity token, transform a payload or return a mock. Your backend sees only what survives all of that.</p>
+      <p>Around the gateway sit the pieces that make an API a product: <b>products</b> group APIs and carry quotas, <b>subscriptions</b> issue keys, the <b>developer portal</b> publishes documentation and a try-it console, and <b>revisions</b> and <b>versions</b> let you change an API without breaking the clients already using it.</p>
+    </header>
+
+    <section id="architecture">
+      <h2>Architecture / mental model</h2>
+      <div class="diagram">
+        <svg viewBox="0 0 800 340" role="img" aria-label="Clients call the APIM gateway, which runs a policy pipeline before forwarding to backends, with a control plane, developer portal and observability around it">
+          <defs>
+            <marker id="am-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+          </defs>
+
+          <g font-size="12.5" text-anchor="middle">
+            <rect x="14" y="56" width="112" height="34" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/><text x="70" y="78" fill="#23362e">Mobile / SPA</text>
+            <rect x="14" y="100" width="112" height="34" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/><text x="70" y="122" fill="#23362e">Partner system</text>
+            <rect x="14" y="144" width="112" height="34" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/><text x="70" y="166" fill="#23362e">Internal service</text>
+          </g>
+          <g stroke="#5f6f66" stroke-width="1.5" fill="none" marker-end="url(#am-arr)">
+            <line x1="126" y1="73" x2="172" y2="105"/><line x1="126" y1="117" x2="172" y2="117"/><line x1="126" y1="161" x2="172" y2="129"/>
+          </g>
+
+          <rect x="175" y="40" width="250" height="176" rx="8" fill="#f9e3df" stroke="#c53b3b" stroke-width="1.5"/>
+          <text x="300" y="63" font-size="14" font-weight="600" text-anchor="middle" fill="#23362e">Gateway</text>
+          <text x="300" y="80" font-size="11" text-anchor="middle" fill="#5f6f66">the only thing exposed publicly</text>
+          <g font-size="11.5" text-anchor="middle" fill="#23362e">
+            <rect x="191" y="90" width="218" height="26" rx="4" fill="#fbfcf8" stroke="#d5dccf"/><text x="300" y="108">inbound &mdash; auth, limits, cache lookup</text>
+            <rect x="191" y="120" width="218" height="26" rx="4" fill="#fbfcf8" stroke="#d5dccf"/><text x="300" y="138">backend &mdash; forward, retry, breaker</text>
+            <rect x="191" y="150" width="218" height="26" rx="4" fill="#fbfcf8" stroke="#d5dccf"/><text x="300" y="168">outbound &mdash; transform, cache store</text>
+            <rect x="191" y="180" width="218" height="26" rx="4" fill="#fbf3c4" stroke="#d9c25a"/><text x="300" y="198">on-error &mdash; one error shape</text>
+          </g>
+
+          <line x1="425" y1="128" x2="478" y2="128" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#am-arr)"/>
+
+          <g font-size="12" text-anchor="middle">
+            <rect x="482" y="48" width="150" height="40" rx="6" fill="#e3eedc" stroke="#2f6b3f"/><text x="557" y="73" fill="#23362e">App Service API</text>
+            <rect x="482" y="96" width="150" height="40" rx="6" fill="#e3eedc" stroke="#2f6b3f"/><text x="557" y="121" fill="#23362e">Azure Functions</text>
+            <rect x="482" y="144" width="150" height="40" rx="6" fill="#e3eedc" stroke="#2f6b3f"/><text x="557" y="169" fill="#23362e">AKS service</text>
+            <rect x="482" y="192" width="150" height="40" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/><text x="557" y="217" fill="#23362e">Legacy SOAP</text>
+          </g>
+          <text x="557" y="248" font-size="11" text-anchor="middle" fill="#5f6f66">private endpoints / VNet &mdash; not reachable directly</text>
+
+          <rect x="648" y="48" width="138" height="88" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+          <text x="717" y="70" font-size="12.5" font-weight="600" text-anchor="middle" fill="#23362e">Control plane</text>
+          <text x="717" y="90" font-size="11" text-anchor="middle" fill="#5f6f66">Bicep / Terraform</text>
+          <text x="717" y="107" font-size="11" text-anchor="middle" fill="#5f6f66">APIOps pipeline</text>
+          <text x="717" y="124" font-size="11" text-anchor="middle" fill="#5f6f66">portal (last resort)</text>
+
+          <rect x="648" y="146" width="138" height="86" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="717" y="168" font-size="12.5" font-weight="600" text-anchor="middle" fill="#23362e">Developer portal</text>
+          <text x="717" y="188" font-size="11" text-anchor="middle" fill="#5f6f66">docs + try-it console</text>
+          <text x="717" y="205" font-size="11" text-anchor="middle" fill="#5f6f66">self-service sign-up</text>
+          <text x="717" y="222" font-size="11" text-anchor="middle" fill="#5f6f66">subscription keys</text>
+
+          <rect x="175" y="252" width="457" height="52" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="403" y="274" font-size="12.5" font-weight="600" text-anchor="middle" fill="#23362e">Products, subscriptions and quotas</text>
+          <text x="403" y="294" font-size="11" text-anchor="middle" fill="#5f6f66">Free: 1,000 calls/month &middot; Pro: 1,000,000 &middot; Partner: unlimited + IP allow-list</text>
+          <path d="M300 216 L300 248" stroke="#5f6f66" stroke-width="1.5" fill="none" stroke-dasharray="4 3" marker-end="url(#am-arr)"/>
+
+          <text class="hand" x="14" y="212" font-size="16" fill="#c53b3b">if it isn't business logic,</text>
+          <text class="hand" x="14" y="232" font-size="16" fill="#c53b3b">it probably belongs here</text>
+        </svg>
+      </div>
+      <p class="caption">The gateway is the only public surface. Everything cross-cutting happens in the policy pipeline, so backends stay small and the API contract stays stable even when they change.</p>
+    </section>
+
+    <section id="how-it-works">
+      <h2>How it works</h2>
+
+      <div class="anim" id="anim-pipeline">
+        <h3>One request through the policy pipeline</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 330" role="img" aria-label="Animated walk-through of a request through the inbound, backend, outbound and on-error policy sections">
+            <defs>
+              <marker id="pp-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+
+            <rect id="pp-client" x="16" y="124" width="112" height="74" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="72" y="150" font-size="12.5" font-weight="600" text-anchor="middle" fill="#23362e">Client</text>
+            <text id="pp-client-sub" x="72" y="170" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">idle</text>
+            <text id="pp-client-sub2" x="72" y="187" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <line x1="128" y1="160" x2="160" y2="160" stroke="#a9b5a6" stroke-width="1.5" marker-end="url(#pp-arr)"/>
+
+            <rect x="164" y="26" width="416" height="282" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="372" y="46" font-size="12.5" font-weight="600" text-anchor="middle" fill="#23362e">Policy pipeline</text>
+
+            <rect x="176" y="56" width="392" height="98" rx="6" fill="#f9e3df" stroke="#e6b3ad"/>
+            <text x="186" y="72" font-size="11" fill="#c53b3b" font-weight="600" font-family="Fira Code, monospace">&lt;inbound&gt;</text>
+            <g font-size="11" font-family="Fira Code, monospace" fill="#23362e">
+              <rect id="pp-p1" x="186" y="78" width="372" height="17" rx="3" fill="#fbfcf8" stroke="#d5dccf"/><text x="192" y="91">&lt;validate-jwt require-scheme="Bearer" /&gt;</text>
+              <rect id="pp-p2" x="186" y="97" width="372" height="17" rx="3" fill="#fbfcf8" stroke="#d5dccf"/><text x="192" y="110">&lt;rate-limit-by-key calls="600" renewal-period="60" /&gt;</text>
+              <rect id="pp-p3" x="186" y="116" width="372" height="17" rx="3" fill="#fbfcf8" stroke="#d5dccf"/><text x="192" y="129">&lt;cache-lookup-value key="..." /&gt;</text>
+              <rect id="pp-p4" x="186" y="135" width="372" height="17" rx="3" fill="#fbfcf8" stroke="#d5dccf"/><text x="192" y="148">&lt;rewrite-uri&gt; + &lt;authentication-managed-identity&gt;</text>
+            </g>
+
+            <rect x="176" y="160" width="392" height="38" rx="6" fill="#e3eedc" stroke="#2f6b3f"/>
+            <text x="186" y="176" font-size="11" fill="#2f6b3f" font-weight="600" font-family="Fira Code, monospace">&lt;backend&gt;</text>
+            <rect id="pp-p5" x="186" y="177" width="372" height="17" rx="3" fill="#fbfcf8" stroke="#d5dccf"/>
+            <text x="192" y="190" font-size="11" font-family="Fira Code, monospace" fill="#23362e">&lt;forward-request timeout="20" /&gt;</text>
+
+            <rect x="176" y="204" width="392" height="60" rx="6" fill="#fbf3c4" stroke="#d9c25a"/>
+            <text x="186" y="220" font-size="11" fill="#8a6a0c" font-weight="600" font-family="Fira Code, monospace">&lt;outbound&gt;</text>
+            <g font-size="11" font-family="Fira Code, monospace" fill="#23362e">
+              <rect id="pp-p6" x="186" y="224" width="372" height="17" rx="3" fill="#fbfcf8" stroke="#d5dccf"/><text x="192" y="237">&lt;cache-store-value duration="60" /&gt;</text>
+              <rect id="pp-p7" x="186" y="243" width="372" height="17" rx="3" fill="#fbfcf8" stroke="#d5dccf"/><text x="192" y="256">&lt;set-header name="X-Powered-By" exists-action="delete" /&gt;</text>
+            </g>
+
+            <rect x="176" y="270" width="392" height="30" rx="6" fill="#fbfcf8" stroke="#d5dccf"/>
+            <text x="186" y="286" font-size="11" fill="#5f6f66" font-weight="600" font-family="Fira Code, monospace">&lt;on-error&gt;</text>
+            <rect id="pp-p8" x="280" y="274" width="278" height="17" rx="3" fill="#fbfcf8" stroke="#d5dccf"/>
+            <text x="286" y="287" font-size="11" font-family="Fira Code, monospace" fill="#23362e">&lt;return-response&gt; one error envelope</text>
+
+            <line x1="580" y1="178" x2="614" y2="178" stroke="#a9b5a6" stroke-width="1.5" marker-end="url(#pp-arr)"/>
+            <rect id="pp-backend" x="618" y="146" width="166" height="66" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="701" y="170" font-size="12.5" font-weight="600" text-anchor="middle" fill="#23362e">Your API</text>
+            <text id="pp-backend-sub" x="701" y="190" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">never called yet</text>
+
+            <rect x="618" y="30" width="166" height="100" rx="8" fill="#fbfcf8" stroke="#d5dccf"/>
+            <text x="701" y="50" font-size="12" font-weight="600" text-anchor="middle" fill="#23362e">Request state</text>
+            <g font-size="10.5" font-family="Fira Code, monospace" fill="#5f6f66">
+              <text id="pp-s1" x="628" y="70">sub: (unchecked)</text>
+              <text id="pp-s2" x="628" y="88">jwt: (unchecked)</text>
+              <text id="pp-s3" x="628" y="106">cache: (unchecked)</text>
+              <text id="pp-s4" x="628" y="124">status: &mdash;</text>
+            </g>
+            <text id="pp-note" class="hand hidden" x="300" y="324" font-size="16" fill="#c53b3b">your API never saw the token, the limit or the cache</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <div class="anim" id="anim-backend">
+        <h3>A load-balanced backend pool with a circuit breaker</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 300" role="img" aria-label="Animated backend pool where one backend trips its circuit breaker and traffic shifts to the others">
+            <defs>
+              <marker id="bp-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+            <rect id="bp-gw" x="24" y="110" width="150" height="90" rx="8" fill="#f9e3df" stroke="#c53b3b" stroke-width="1.5"/>
+            <text x="99" y="138" font-size="13" font-weight="600" text-anchor="middle" fill="#23362e">Gateway</text>
+            <text x="99" y="158" font-size="11" text-anchor="middle" fill="#5f6f66">backend pool</text>
+            <text id="bp-gw-sub" x="99" y="178" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">1,000 req/s in</text>
+
+            <g stroke="#a9b5a6" stroke-width="1.5" fill="none" marker-end="url(#bp-arr)">
+              <line id="bp-l1" x1="174" y1="140" x2="316" y2="68"/>
+              <line id="bp-l2" x1="174" y1="155" x2="316" y2="152"/>
+              <line id="bp-l3" x1="174" y1="175" x2="316" y2="238"/>
+            </g>
+            <text id="bp-f1" x="248" y="94" font-size="11.5" text-anchor="middle" fill="#2f6b3f" font-weight="600" font-family="Fira Code, monospace">500 /s</text>
+            <text id="bp-f2" x="248" y="168" font-size="11.5" text-anchor="middle" fill="#2f6b3f" font-weight="600" font-family="Fira Code, monospace">500 /s</text>
+            <text id="bp-f3" x="248" y="226" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">0 /s</text>
+
+            <rect id="bp-a" x="320" y="36" width="250" height="66" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+            <text x="445" y="58" font-size="12.5" font-weight="600" text-anchor="middle" fill="#23362e">backend-a &middot; priority 1, weight 50</text>
+            <text id="bp-a-t" x="445" y="78" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">healthy &middot; p99 40 ms</text>
+            <text id="bp-a-b" x="445" y="94" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">breaker: closed</text>
+
+            <rect id="bp-b" x="320" y="118" width="250" height="66" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+            <text x="445" y="140" font-size="12.5" font-weight="600" text-anchor="middle" fill="#23362e">backend-b &middot; priority 1, weight 50</text>
+            <text id="bp-b-t" x="445" y="160" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">healthy &middot; p99 38 ms</text>
+            <text id="bp-b-b" x="445" y="176" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">breaker: closed</text>
+
+            <rect id="bp-c" x="320" y="200" width="250" height="66" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="445" y="222" font-size="12.5" font-weight="600" text-anchor="middle" fill="#23362e">backend-c &middot; priority 2 (fallback)</text>
+            <text id="bp-c-t" x="445" y="242" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">idle &mdash; lower priority</text>
+            <text id="bp-c-b" x="445" y="258" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">breaker: closed</text>
+
+            <rect x="596" y="86" width="188" height="118" rx="8" fill="#fbfcf8" stroke="#d5dccf"/>
+            <text x="690" y="108" font-size="12" font-weight="600" text-anchor="middle" fill="#23362e">Breaker rule</text>
+            <g font-size="10.5" font-family="Fira Code, monospace" fill="#5f6f66">
+              <text x="606" y="128">failureCount: 5</text>
+              <text x="606" y="146">interval: 30 s</text>
+              <text x="606" y="164">statusCode: 5xx</text>
+              <text x="606" y="182">tripDuration: 60 s</text>
+            </g>
+            <text id="bp-state" x="690" y="224" font-size="12" text-anchor="middle" fill="#2f6b3f" font-weight="700">all backends serving</text>
+            <text id="bp-note" class="hand hidden" x="180" y="290" font-size="16" fill="#c53b3b">the breaker is per gateway unit &mdash; scale out and each one learns separately</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+    </section>
+
+    <section id="concepts">
+      <h2>Key concepts</h2>
+      <div class="terms">
+        <div class="term"><b>gateway</b><span>The component that actually receives traffic, runs policies and forwards to backends. Everything else in APIM configures it.</span><template class="term-detail" data-see="policy pipeline, tiers and units, self-hosted gateway">
+<p>Separate the two planes in your head. The <b>data plane</b> is the gateway handling requests; the <b>control plane</b> is the management API, Bicep and the portal that configure it. They scale, fail and get secured independently.</p>
+<table><tr><th>Property</th><th>Detail</th></tr>
+<tr><td>Added latency</td><td>a few milliseconds for a simple policy set; <code>validate-jwt</code> with a cached JWKS adds little</td></tr>
+<tr><td>Config propagation</td><td>policy changes reach gateways in seconds, not instantly &mdash; do not assume atomicity</td></tr>
+<tr><td>Network</td><td>can be injected into a VNet (classic Premium, v2 tiers) so backends are never public</td></tr>
+<tr><td>Scaling</td><td>by capacity units; each unit is a fixed throughput envelope, not a CPU percentage</td></tr></table>
+<p>A deliberate consequence of putting the gateway in front: backends should refuse traffic that did not come through it. Use private endpoints, VNet integration, or at minimum a shared secret or client certificate the gateway adds &mdash; otherwise your policies are a suggestion.</p>
+        </template></div>
+        <div class="term"><b>API and operation</b><span>An <i>API</i> is a façade with a base path; an <i>operation</i> is one method and URL template within it. Policies can attach to either.</span><template class="term-detail" data-see="policy pipeline, backend, versions">
+<p>The API in APIM is a façade, not your service. It has its own URL, its own schema and its own operations, and the mapping to the backend is something you configure.</p>
+<table><tr><th>Piece</th><th>Example</th></tr>
+<tr><td>API base path</td><td><code>/orders</code> on <code>https://contoso.azure-api.net</code></td></tr>
+<tr><td>Operation</td><td><code>GET /orders/{orderId}</code></td></tr>
+<tr><td>Backend URL</td><td><code>https://orders-prod.internal/api/v3</code></td></tr>
+<tr><td>Rewrite</td><td><code>/orders/{orderId}</code> &rarr; <code>/api/v3/order?id={orderId}</code></td></tr></table>
+<p>Import from an OpenAPI document rather than clicking operations into existence &mdash; you get schemas, examples and descriptions, and <code>validate-content</code> can then enforce the contract. For SOAP backends, import the WSDL and let APIM generate a REST façade.</p>
+<p>Operation-scoped policies are the right place for anything that is genuinely about one endpoint: a longer timeout on a report, a tighter rate limit on search, a mock while the backend is being built.</p>
+        </template></div>
+        <div class="term"><b>policy pipeline</b><span>Four sections &mdash; <code>inbound</code>, <code>backend</code>, <code>outbound</code>, <code>on-error</code> &mdash; evaluated in order on every request. This is where APIM does its work.</span><template class="term-detail" data-see="policy expressions, policy scope, response caching, validate-jwt">
+<p>A policy document is XML, and the order of elements <i>is</i> the order of execution.</p>
+<pre><code>&lt;policies&gt;
+  &lt;inbound&gt;
+    &lt;base /&gt;                                  &lt;!-- inherit the outer scope first --&gt;
+    &lt;validate-jwt header-name="Authorization" failed-validation-httpcode="401"&gt;
+      &lt;openid-config url="https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration" /&gt;
+      &lt;required-claims&gt;&lt;claim name="scp" match="any"&gt;&lt;value&gt;orders.read&lt;/value&gt;&lt;/claim&gt;&lt;/required-claims&gt;
+    &lt;/validate-jwt&gt;
+    &lt;rate-limit-by-key calls="600" renewal-period="60" counter-key="@(context.Subscription.Id)" /&gt;
+    &lt;cache-lookup-value key="@($"order-{context.Request.MatchedParameters["orderId"]}")" variable-name="cached" /&gt;
+    &lt;rewrite-uri template="/api/v3/order?id={orderId}" /&gt;
+  &lt;/inbound&gt;
+  &lt;backend&gt;&lt;forward-request timeout="20" /&gt;&lt;/backend&gt;
+  &lt;outbound&gt;
+    &lt;base /&gt;
+    &lt;cache-store-value key="..." value="..." duration="60" /&gt;
+    &lt;set-header name="X-Powered-By" exists-action="delete" /&gt;
+  &lt;/outbound&gt;
+  &lt;on-error&gt;&lt;base /&gt;&lt;return-response&gt;&lt;set-status code="502" /&gt;&lt;/return-response&gt;&lt;/on-error&gt;
+&lt;/policies&gt;</code></pre>
+<table><tr><th>Section</th><th>Runs</th><th>Typical content</th></tr>
+<tr><td><code>inbound</code></td><td>before the backend is called</td><td>auth, limits, validation, cache lookup, rewriting</td></tr>
+<tr><td><code>backend</code></td><td>the call itself</td><td>timeout, retry, circuit breaker, backend selection</td></tr>
+<tr><td><code>outbound</code></td><td>after a response is received</td><td>transformation, cache store, header stripping</td></tr>
+<tr><td><code>on-error</code></td><td>whenever any section throws</td><td>a consistent error envelope, logging the real cause</td></tr></table>
+<p>If a policy returns a response early &mdash; a cache hit, a 429, a mock &mdash; the remaining inbound and backend policies are skipped and execution jumps to <code>outbound</code>. That short-circuit is the whole point of the first animation on this page.</p>
+        </template></div>
+        <div class="term"><b>policy scope</b><span>Policies attach at four levels &mdash; global, product, API, operation &mdash; and <code>&lt;base /&gt;</code> decides where the outer level's policies run.</span><template class="term-detail" data-see="policy pipeline, product">
+<p>Each level has its own document. <code>&lt;base /&gt;</code> is a placeholder for everything inherited from the level above; omit it and you silently discard the outer policies, which is one of the most common APIM bugs.</p>
+<div class="figure"><svg viewBox="0 0 560 190" role="img" aria-label="Nested policy scopes from global through product and API to operation">
+  <rect x="8" y="12" width="544" height="168" rx="8" fill="#fbfcf8" stroke="#a9b5a6"/>
+  <text x="20" y="32" font-size="12" font-weight="600" fill="#c53b3b" font-family="Fira Code, monospace">All APIs (global)</text>
+  <text x="20" y="48" font-size="10.5" fill="#5f6f66" font-family="Fira Code, monospace">cors &middot; set-header X-Correlation-Id &middot; global rate-limit</text>
+  <rect x="26" y="56" width="508" height="116" rx="7" fill="#f9e3df" stroke="#e6b3ad"/>
+  <text x="38" y="76" font-size="12" font-weight="600" fill="#c53b3b" font-family="Fira Code, monospace">Product: Pro</text>
+  <text x="38" y="92" font-size="10.5" fill="#5f6f66" font-family="Fira Code, monospace">quota 1,000,000 / month &middot; rate-limit 600 / min</text>
+  <rect x="44" y="100" width="472" height="64" rx="6" fill="#fbf3c4" stroke="#d9c25a"/>
+  <text x="56" y="119" font-size="12" font-weight="600" fill="#8a6a0c" font-family="Fira Code, monospace">API: Orders</text>
+  <text x="56" y="134" font-size="10.5" fill="#5f6f66" font-family="Fira Code, monospace">validate-jwt &middot; set-backend-service</text>
+  <rect x="62" y="140" width="436" height="18" rx="4" fill="#e3eedc" stroke="#2f6b3f"/>
+  <text x="72" y="153" font-size="10.5" fill="#2f6b3f" font-family="Fira Code, monospace">Operation GET /orders/{id}: cache-lookup &middot; timeout 5s</text>
+</svg></div>
+<table><tr><th>Where <code>&lt;base /&gt;</code> sits</th><th>Effect</th></tr>
+<tr><td>First in <code>inbound</code></td><td>outer policies run first &mdash; the usual choice</td></tr>
+<tr><td>Last in <code>inbound</code></td><td>your policy runs before the inherited ones</td></tr>
+<tr><td>Missing</td><td>the outer scope is <b>ignored</b> entirely, including your global CORS and correlation id</td></tr></table>
+<p>In <code>outbound</code> and <code>on-error</code> the natural order is reversed: put <code>&lt;base /&gt;</code> last so the inner scope transforms the response before the outer one does.</p>
+        </template></div>
+        <div class="term"><b>policy expressions</b><span>Inline C# in <code>@(...)</code> or <code>@{ ... }</code> with access to <code>context</code>. The escape hatch that makes policies programmable.</span><template class="term-detail" data-see="policy pipeline, named values, subscription">
+<p>Single-statement expressions use <code>@(...)</code>; multi-statement blocks use <code>@{ ... }</code> and must <code>return</code> a value.</p>
+<pre><code>&lt;set-header name="X-Tenant" exists-action="override"&gt;
+  &lt;value&gt;@(context.User?.Email?.Split('@')[1] ?? "unknown")&lt;/value&gt;
+&lt;/set-header&gt;
+
+&lt;set-variable name="isPremium" value="@{
+    var jwt = context.Request.Headers.GetValueOrDefault("Authorization","")
+                     .Replace("Bearer ","").AsJwt();
+    return jwt?.Claims.GetValueOrDefault("tier") == "premium";
+}" /&gt;</code></pre>
+<table><tr><th>Useful <code>context</code> members</th><th>Gives you</th></tr>
+<tr><td><code>context.Request</code> / <code>context.Response</code></td><td>method, URL, headers, body, matched parameters</td></tr>
+<tr><td><code>context.Subscription</code></td><td>id, name, key &mdash; the natural rate-limit counter key</td></tr>
+<tr><td><code>context.User</code></td><td>the developer-portal identity, when there is one</td></tr>
+<tr><td><code>context.Variables</code></td><td>values passed between policies in one request</td></tr>
+<tr><td><code>context.LastError</code></td><td>in <code>on-error</code>: what actually went wrong</td></tr>
+<tr><td><code>.AsJwt()</code>, <code>.AsJObject()</code></td><td>parsing helpers on strings and bodies</td></tr></table>
+<p>Reading the body needs <code>context.Request.Body.As&lt;JObject&gt;(preserveContent: true)</code>, or the backend receives an empty body. Forgetting <code>preserveContent</code> produces a bug that only appears on requests with payloads.</p>
+<p>Keep expressions short. Policies are not a place to write business logic: they are hard to test, hard to debug and invisible to your IDE.</p>
+        </template></div>
+        <div class="term"><b>product</b><span>A bundle of APIs with its own terms, policies and quotas, which developers subscribe to. The commercial packaging layer.</span><template class="term-detail" data-see="subscription, policy scope, rate limits and quota">
+<p>Products answer "who may call these APIs, and on what terms". An API can belong to several products, and the product's policies apply to every call made with one of its subscription keys.</p>
+<table><tr><th>Product</th><th>APIs</th><th>Policy</th><th>Approval</th></tr>
+<tr><td>Free</td><td>Orders (read)</td><td>quota 1,000 / month, 10 / min</td><td>automatic</td></tr>
+<tr><td>Pro</td><td>Orders, Catalogue</td><td>quota 1,000,000 / month, 600 / min</td><td>automatic</td></tr>
+<tr><td>Partner</td><td>everything, including write</td><td>IP allow-list, mutual TLS, no quota</td><td>manual</td></tr>
+<tr><td>Internal</td><td>everything</td><td>JWT only, no subscription key</td><td>not published</td></tr></table>
+<p>Two flags matter. <b>Published</b> makes the product visible in the developer portal. <b>Requires subscription</b>, when turned off, makes the APIs callable without a key &mdash; occasionally right for a public read API, and a very common accident otherwise.</p>
+<p>Approval workflows put a human in the loop before a key is issued, which is what you want for partner access and rarely what you want for a free tier.</p>
+        </template></div>
+        <div class="term"><b>subscription</b><span>A pair of keys issued to a consumer for a product (or a single API, or all APIs). The default unit of identity and throttling.</span><template class="term-detail" data-see="product, rate limits and quota, validate-jwt">
+<p>Each subscription has a primary and a secondary key, sent as <code>Ocp-Apim-Subscription-Key</code>. Two keys exist so that rotation needs no downtime: switch clients to the secondary, regenerate the primary, switch back.</p>
+<table><tr><th>Scope</th><th>Use</th></tr>
+<tr><td>Product</td><td>the normal case &mdash; the key carries the product's terms</td></tr>
+<tr><td>API</td><td>one API without product packaging</td></tr>
+<tr><td>All APIs</td><td>internal tooling and smoke tests; dangerous if it leaks</td></tr></table>
+<p>A subscription key is <b>not authentication</b>. It identifies an application for metering and throttling; it says nothing about a user, it travels in a header that ends up in logs, and in a browser app it is visible to anyone who opens the network tab. Use OAuth 2.0 with <code>validate-jwt</code> for anything that needs to know <i>who</i> is calling, and keep the subscription key for the quota story.</p>
+        </template></div>
+        <div class="term"><b>validate-jwt</b><span>The inbound policy that verifies a bearer token's signature, issuer, audience, expiry and claims &mdash; before your backend sees the request.</span><template class="term-detail" data-see="policy pipeline, subscription, backend authentication">
+<p>APIM fetches and caches the signing keys from the OpenID configuration endpoint, so validation costs no network call per request.</p>
+<pre><code>&lt;validate-jwt header-name="Authorization" require-scheme="Bearer"
+              failed-validation-httpcode="401"
+              failed-validation-error-message="Invalid or missing token"&gt;
+  &lt;openid-config url="https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration" /&gt;
+  &lt;audiences&gt;&lt;audience&gt;api://contoso-orders&lt;/audience&gt;&lt;/audiences&gt;
+  &lt;issuers&gt;&lt;issuer&gt;https://sts.windows.net/{tenant}/&lt;/issuer&gt;&lt;/issuers&gt;
+  &lt;required-claims&gt;
+    &lt;claim name="scp" match="any"&gt;&lt;value&gt;orders.read&lt;/value&gt;&lt;/claim&gt;
+  &lt;/required-claims&gt;
+&lt;/validate-jwt&gt;</code></pre>
+<table><tr><th>Check</th><th>Why it matters</th></tr>
+<tr><td><code>audiences</code></td><td>without it, a valid token for a <i>different</i> API is accepted</td></tr>
+<tr><td><code>issuers</code></td><td>pins the identity provider; note v1 and v2 endpoints issue different issuer values</td></tr>
+<tr><td><code>required-claims</code></td><td>coarse authorization at the edge: scope, role, tenant</td></tr>
+<tr><td><code>failed-validation-httpcode</code></td><td>401 for a missing or bad token, 403 for a valid token without the right scope</td></tr></table>
+<p>Edge validation is not a substitute for checks in the backend. APIM can confirm the caller holds a valid token with the right scope; only your service knows whether <i>this</i> user may read <i>that</i> order.</p>
+        </template></div>
+        <div class="term"><b>rate limits and quota</b><span><code>rate-limit</code> protects against bursts over seconds; <code>quota</code> enforces a volume over days or months. They solve different problems.</span><template class="term-detail" data-see="product, subscription, policy expressions">
+<p>Both come in a plain and a <code>-by-key</code> form. The <code>-by-key</code> variants let you choose the counter yourself, which is almost always what you want.</p>
+<pre><code>&lt;rate-limit-by-key calls="600" renewal-period="60"
+    counter-key="@(context.Subscription?.Id ?? context.Request.IpAddress)"
+    remaining-calls-header-name="RateLimit-Remaining"
+    retry-after-header-name="Retry-After" /&gt;
+
+&lt;quota-by-key calls="1000000" renewal-period="2592000"
+    counter-key="@(context.Subscription.Id)" /&gt;</code></pre>
+<table><tr><th></th><th><code>rate-limit</code></th><th><code>quota</code></th></tr>
+<tr><td>Window</td><td>seconds to minutes</td><td>days to months</td></tr>
+<tr><td>Protects</td><td>your capacity</td><td>your commercial terms</td></tr>
+<tr><td>Response</td><td>429, retry soon</td><td>403, come back next month</td></tr>
+<tr><td>Counter</td><td>per gateway unit, approximate</td><td>per gateway unit, approximate</td></tr></table>
+<p>That last row deserves emphasis: counters are <b>not shared across gateway units or regions</b>. Scale to four units and a 600/min limit becomes roughly 2,400/min in the worst case. For a hard global cap, keep a single-unit gateway in front, or enforce the real limit downstream &mdash; see the dedicated page on rate limiting for the algorithms involved.</p>
+        </template></div>
+        <div class="term"><b>response caching</b><span>Either the built-in <code>cache-lookup</code> / <code>cache-store</code> pair, or fine-grained <code>cache-lookup-value</code> for arbitrary values. Served from the gateway, so the backend is never called.</span><template class="term-detail" data-see="policy pipeline, policy expressions, policy scope">
+<p>The simple form caches whole responses keyed on URL plus whatever you vary by:</p>
+<pre><code>&lt;inbound&gt;
+  &lt;cache-lookup downstream-caching-type="none" must-revalidate="true"
+                vary-by-developer="false" vary-by-developer-groups="false"&gt;
+    &lt;vary-by-header&gt;Accept-Language&lt;/vary-by-header&gt;
+    &lt;vary-by-query-parameter&gt;page&lt;/vary-by-query-parameter&gt;
+  &lt;/cache-lookup&gt;
+&lt;/inbound&gt;
+&lt;outbound&gt;
+  &lt;cache-store duration="60" /&gt;
+&lt;/outbound&gt;</code></pre>
+<table><tr><th>Cache</th><th>Available in</th><th>Notes</th></tr>
+<tr><td>Built-in</td><td>all tiers except Consumption</td><td>small, per gateway unit, not shared between units</td></tr>
+<tr><td>External Redis</td><td>any tier</td><td>shared across units and regions; what you want in production</td></tr></table>
+<p><code>vary-by-developer</code> defaults matter enormously. Leave it <code>false</code> on a response that differs per user and you will serve one caller's data to another &mdash; the one APIM mistake that is a security incident rather than a bug.</p>
+<p>The caching patterns themselves &mdash; TTLs, stampedes, invalidation &mdash; are the same here as anywhere; see the caching strategies page.</p>
+        </template></div>
+        <div class="term"><b>backend</b><span>A named, reusable target: a URL, credentials and optionally a pool with load balancing and a circuit breaker. Referenced by <code>set-backend-service</code>.</span><template class="term-detail" data-see="backend authentication, named values, api and operation">
+<p>Defining a backend entity rather than hard-coding a URL in each policy gives you one place to change the target, and unlocks pools.</p>
+<pre><code>&lt;set-backend-service backend-id="orders-pool" /&gt;</code></pre>
+<table><tr><th>Pool feature</th><th>What it does</th></tr>
+<tr><td><code>priority</code></td><td>lower numbers are used first; higher ones are failover targets</td></tr>
+<tr><td><code>weight</code></td><td>splits traffic within a priority group &mdash; useful for canaries</td></tr>
+<tr><td>Circuit breaker</td><td>trips a backend out of rotation after N failures in a window</td></tr></table>
+<p>Weighted pools are the cheapest canary you can build: send 5% to the new revision of a service and 95% to the old one, with no deployment slot and no client change. The second animation on this page shows a pool reacting to a failing backend.</p>
+<p>Remember the breaker is per gateway unit: on a four-unit gateway, each unit must independently observe the failures before it stops sending traffic.</p>
+        </template></div>
+        <div class="term"><b>backend authentication</b><span>How the gateway proves itself to your API: managed identity, client certificate, or a secret from a named value. Never a key the client supplied.</span><template class="term-detail" data-see="named values, backend, validate-jwt">
+<p>The gateway is a confidential client, so it can hold credentials a browser or mobile app cannot. Use that.</p>
+<pre><code>&lt;!-- best: no secret exists anywhere --&gt;
+&lt;authentication-managed-identity resource="api://contoso-orders" /&gt;
+
+&lt;!-- for backends that require mutual TLS --&gt;
+&lt;authentication-certificate thumbprint="{{orders-client-cert}}" /&gt;
+
+&lt;!-- last resort: a secret, stored in Key Vault via a named value --&gt;
+&lt;set-header name="X-Api-Key"&gt;&lt;value&gt;{{orders-backend-key}}&lt;/value&gt;&lt;/set-header&gt;</code></pre>
+<table><tr><th>Mechanism</th><th>Rotation</th><th>Verdict</th></tr>
+<tr><td>Managed identity</td><td>automatic, nothing to store</td><td>the default for Azure backends</td></tr>
+<tr><td>Client certificate</td><td>manual, on expiry</td><td>right for partners and legacy systems</td></tr>
+<tr><td>Named value from Key Vault</td><td>rotates with the secret</td><td>acceptable when nothing better exists</td></tr>
+<tr><td>Hard-coded secret in the policy</td><td>never</td><td>it ends up in source control and in the portal UI</td></tr></table>
+<p>Strip inbound credentials before forwarding. The client's subscription key and bearer token should not reach the backend unless it actually needs them: <code>&lt;set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" /&gt;</code>.</p>
+        </template></div>
+        <div class="term"><b>named values</b><span>The configuration store: plain strings, secrets, or references to Key Vault, usable in any policy as <code>{{name}}</code>.</span><template class="term-detail" data-see="backend authentication, policy expressions">
+<p>They keep environment-specific values out of policy XML, so the same policy document deploys unchanged to dev, test and production.</p>
+<pre><code>&lt;set-backend-service base-url="{{orders-backend-url}}" /&gt;
+&lt;set-header name="X-Api-Key"&gt;&lt;value&gt;{{orders-backend-key}}&lt;/value&gt;&lt;/set-header&gt;</code></pre>
+<table><tr><th>Type</th><th>Stored</th><th>Use for</th></tr>
+<tr><td>Plain</td><td>visible in the portal and API</td><td>URLs, tenant ids, feature switches</td></tr>
+<tr><td>Secret</td><td>encrypted, masked in the UI</td><td>legacy secrets with no better home</td></tr>
+<tr><td>Key Vault reference</td><td>in Key Vault, fetched by managed identity</td><td>everything sensitive &mdash; it rotates automatically</td></tr></table>
+<p>Key Vault references refresh on a schedule (about every four hours by default), not instantly. After rotating a secret, either wait or force a refresh &mdash; otherwise you will debug a backend returning 401 while the vault shows the correct value.</p>
+        </template></div>
+        <div class="term"><b>revisions</b><span>Non-breaking changes to an API, staged and tested at <code>?rev=N</code> before one of them becomes current. Same URL for clients.</span><template class="term-detail" data-see="versions, policy pipeline">
+<p>A revision is a copy of the API's definition and policies that you can edit and call privately, then promote. Clients keep using the same URL throughout.</p>
+<div class="anim" id="rev-anim" data-steps="rev">
+  <h4>Staging a revision, then making it current</h4>
+  <div class="stage">
+    <svg viewBox="0 0 560 240" role="img" aria-label="Animated revision workflow from creation through private testing to becoming current">
+      <text x="12" y="24" font-size="12" font-weight="600" fill="#23362e" font-family="Fira Code, monospace">API: Orders &mdash; https://contoso.azure-api.net/orders</text>
+      <rect id="rv-r1" x="12" y="40" width="256" height="62" rx="6" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+      <text x="140" y="62" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">Revision 1</text>
+      <text id="rv-r1-t" x="140" y="82" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">CURRENT &middot; 1,000 req/s</text>
+      <rect id="rv-r2" class="hidden" x="292" y="40" width="256" height="62" rx="6" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+      <text id="rv-r2-h" class="hidden" x="420" y="62" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">Revision 2</text>
+      <text id="rv-r2-t" class="hidden" x="420" y="82" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">draft &middot; 0 req/s</text>
+      <text id="rv-url1" x="12" y="128" font-size="11" fill="#5f6f66" font-family="Fira Code, monospace">clients call /orders &rarr; revision 1</text>
+      <text id="rv-url2" class="hidden" x="12" y="150" font-size="11" fill="#c53b3b" font-family="Fira Code, monospace">you call /orders;rev=2 &rarr; revision 2 only</text>
+      <text id="rv-log" class="hidden" x="12" y="186" font-size="11" fill="#2f6b3f" font-family="Fira Code, monospace">change log: "added ?include=lines, no breaking change"</text>
+      <text id="rv-note" class="hand hidden" x="12" y="224" font-size="15" fill="#c53b3b">breaking change? That's a version, not a revision.</text>
+    </svg>
+  </div>
+  <div class="controls"></div><div class="narration"></div>
+</div>
+<table><tr><th>Use a revision for</th><th>Use a version for</th></tr>
+<tr><td>adding an optional field or query parameter</td><td>removing or renaming a field</td></tr>
+<tr><td>a policy change</td><td>changing a response shape or status semantics</td></tr>
+<tr><td>a backend URL change</td><td>anything a client must be told about</td></tr></table>
+<p>Making a revision current is instant and reversible: the previous revision is still there, so rolling back is one click. Always fill in the change log &mdash; it is published to the developer portal.</p>
+        </template></div>
+        <div class="term"><b>versions</b><span>Breaking changes, exposed deliberately: <code>/v1</code> and <code>/v2</code> live side by side, with their own policies and lifecycles.</span><template class="term-detail" data-see="revisions, api and operation">
+<p>A version set groups the versions of one logical API. Clients choose which they call; you deprecate on a schedule.</p>
+<table><tr><th>Scheme</th><th>Looks like</th><th>Trade-off</th></tr>
+<tr><td>Path</td><td><code>/orders/v2/{id}</code></td><td>obvious, cache-friendly, easy to route &mdash; the usual choice</td></tr>
+<tr><td>Query string</td><td><code>/orders/{id}?api-version=2</code></td><td>easy to default, but easy to forget and awkward for CDNs</td></tr>
+<tr><td>Header</td><td><code>Api-Version: 2</code></td><td>keeps URLs clean, invisible in a browser, harder to debug</td></tr></table>
+<p>Each version is a full API in APIM: its own operations, its own policies, its own products. That is the point &mdash; v1 can keep a legacy backend and a generous rate limit while v2 points at the rewrite.</p>
+<p>Deprecation needs a plan, not a date in a wiki: add a <code>Deprecation</code> and <code>Sunset</code> header in an outbound policy, watch per-version metrics in Application Insights to see who is still calling, and contact those subscriptions directly before you remove anything.</p>
+        </template></div>
+        <div class="term"><b>developer portal</b><span>The auto-generated, customisable site where consumers read the docs, sign up for a product and try calls in the browser.</span><template class="term-detail" data-see="product, subscription">
+<p>Generated from your OpenAPI definitions, so the quality of the portal is the quality of your API descriptions and examples.</p>
+<table><tr><th>Capability</th><th>Detail</th></tr>
+<tr><td>Try-it console</td><td>real calls with the signed-in developer's key; needs CORS configured at global scope</td></tr>
+<tr><td>Sign-up and identity</td><td>built-in accounts, Microsoft Entra ID, or Entra External ID</td></tr>
+<tr><td>Customisation</td><td>a visual editor; the whole portal can also be self-hosted from source</td></tr>
+<tr><td>Publishing</td><td>edits are <b>not</b> live until you publish &mdash; and this catches everyone once</td></tr></table>
+<p>Two practical notes. The portal is not available in the Consumption tier. And if you have no external consumers, you may not need it at all &mdash; an internal API catalogue is usually better served by your existing documentation site, with APIM just exporting the OpenAPI document.</p>
+        </template></div>
+        <div class="term"><b>self-hosted gateway</b><span>The gateway as a container you run yourself &mdash; on-premises, in another cloud, or in Kubernetes &mdash; managed from the same Azure control plane.</span><template class="term-detail" data-see="gateway, tiers and units">
+<p>It solves one specific problem: a backend that cannot be reached from Azure, or data that must not leave a location, while you still want one place to manage every API.</p>
+<table><tr><th>Property</th><th>Detail</th></tr>
+<tr><td>Availability</td><td>Premium and Developer tiers</td></tr>
+<tr><td>Runs as</td><td>a container; usually a Deployment on Kubernetes, with the APIM Operator available</td></tr>
+<tr><td>Config</td><td>pulled from the Azure control plane and cached locally</td></tr>
+<tr><td>Control-plane outage</td><td>keeps serving traffic with the cached configuration</td></tr>
+<tr><td>Telemetry</td><td>to Application Insights, or locally via OpenTelemetry</td></tr></table>
+<p>You now operate it: scaling, upgrades, certificates and capacity are yours. Take it only when the network topology genuinely requires it, not for the idea of hybrid.</p>
+        </template></div>
+        <div class="term"><b>tiers and units</b><span>The pricing tier fixes the feature set (VNet, multi-region, portal, SLA) and the capacity unit fixes throughput. Changing tier later is disruptive.</span><template class="term-detail" data-see="gateway, self-hosted gateway, rate limits and quota">
+<p>Choose the tier for its <i>features</i>, not its throughput &mdash; throughput is what units are for.</p>
+<table><tr><th>Tier</th><th>Use for</th><th>Watch out</th></tr>
+<tr><td>Consumption</td><td>spiky, low-volume, serverless APIs; pay per call</td><td>no built-in cache, no developer portal, cold starts</td></tr>
+<tr><td>Developer</td><td>non-production only</td><td><b>no SLA</b> &mdash; never run production on it, whatever the cost argument</td></tr>
+<tr><td>Basic / Standard</td><td>ordinary production workloads</td><td>no VNet injection on the classic tiers</td></tr>
+<tr><td>Premium</td><td>VNet, multi-region, self-hosted gateways, workspaces</td><td>the expensive one; justify it with a feature you actually use</td></tr>
+<tr><td>v2 tiers</td><td>faster provisioning and scaling, simpler networking</td><td>feature parity with the classic tiers is still not complete &mdash; check before committing</td></tr></table>
+<p>Two operational facts worth knowing early. Classic-tier deployments and scale operations take tens of minutes, so treat them as planned changes. And a tier change usually means recreating the instance, which means a new IP address &mdash; plan for it before clients start allow-listing you.</p>
+        </template></div>
+        <div class="term"><b>diagnostics</b><span>What you can see: Application Insights traces, Azure Monitor metrics, resource logs, and the request trace in the test console.</span><template class="term-detail" data-see="policy pipeline, gateway">
+<p>APIM sits between two systems, so it is the natural place to answer "was it us or them". Configure it deliberately rather than relying on defaults.</p>
+<table><tr><th>Signal</th><th>Gives you</th></tr>
+<tr><td>Application Insights</td><td>per-request traces, dependency timing for the backend call, failures by operation</td></tr>
+<tr><td>Azure Monitor metrics</td><td>capacity, requests, duration, by product and subscription</td></tr>
+<tr><td>Resource logs (<code>GatewayLogs</code>)</td><td>the full log, queryable in Log Analytics &mdash; the best place for alerting</td></tr>
+<tr><td><code>Ocp-Apim-Trace</code></td><td>a step-by-step trace of every policy, for one request, from the test console</td></tr></table>
+<p>Set the Application Insights sampling rate explicitly. The default of 100% on a busy gateway produces a surprising bill; 5&ndash;10% is usually plenty, with failures sampled at 100%.</p>
+<p>Be careful with request and response body logging: it is invaluable in development and a data-protection problem in production. If you need it, mask the fields that matter in an outbound policy first.</p>
+        </template></div>
+      </div>
+    </section>
+
+    <section id="commands">
+      <h2>Essential commands &amp; syntax</h2>
+
+      <div class="cmd-group">
+        <h3>Policies you will write on day one</h3>
+        <div class="cmd"><pre><code>&lt;cors allow-credentials="false"&gt;
+  &lt;allowed-origins&gt;&lt;origin&gt;https://app.contoso.com&lt;/origin&gt;&lt;/allowed-origins&gt;
+  &lt;allowed-methods&gt;&lt;method&gt;GET&lt;/method&gt;&lt;method&gt;POST&lt;/method&gt;&lt;/allowed-methods&gt;
+  &lt;allowed-headers&gt;&lt;header&gt;*&lt;/header&gt;&lt;/allowed-headers&gt;
+&lt;/cors&gt;</code></pre><div class="what">Global inbound CORS. The developer portal's try-it console needs this too.</div></div>
+        <div class="cmd"><pre><code>&lt;validate-jwt header-name="Authorization" failed-validation-httpcode="401"&gt;
+  &lt;openid-config url="https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration" /&gt;
+  &lt;audiences&gt;&lt;audience&gt;api://contoso-orders&lt;/audience&gt;&lt;/audiences&gt;
+&lt;/validate-jwt&gt;</code></pre><div class="what">Rejects unauthenticated calls at the edge. Always set <code>audiences</code>.</div></div>
+        <div class="cmd"><pre><code>&lt;rate-limit-by-key calls="600" renewal-period="60"
+    counter-key="@(context.Subscription?.Id ?? context.Request.IpAddress)"
+    retry-after-header-name="Retry-After" /&gt;</code></pre><div class="what">Per-subscription throttle, falling back to the caller's IP for anonymous APIs.</div></div>
+        <div class="cmd"><pre><code>&lt;set-backend-service backend-id="orders-pool" /&gt;
+&lt;rewrite-uri template="/api/v3/order?id={orderId}" /&gt;
+&lt;authentication-managed-identity resource="api://contoso-orders" /&gt;</code></pre><div class="what">Routes to a pooled backend, reshapes the URL and authenticates with no stored secret.</div></div>
+        <div class="cmd"><pre><code>&lt;set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" /&gt;
+&lt;set-header name="Authorization" exists-action="delete" /&gt;</code></pre><div class="what">Strips the client's credentials so they never reach the backend.</div></div>
+        <div class="cmd"><pre><code>&lt;return-response&gt;
+  &lt;set-status code="200" reason="OK" /&gt;
+  &lt;set-header name="Content-Type"&gt;&lt;value&gt;application/json&lt;/value&gt;&lt;/set-header&gt;
+  &lt;set-body&gt;{"id":10427,"status":"shipped"}&lt;/set-body&gt;
+&lt;/return-response&gt;</code></pre><div class="what">A mock response: front-end teams can build against the API before the backend exists.</div></div>
+        <div class="cmd"><pre><code>&lt;on-error&gt;
+  &lt;base /&gt;
+  &lt;return-response&gt;
+    &lt;set-status code="502" reason="Bad Gateway" /&gt;
+    &lt;set-body&gt;@($"{{\"error\":\"upstream\",\"traceId\":\"{context.RequestId}\"}}")&lt;/set-body&gt;
+  &lt;/return-response&gt;
+&lt;/on-error&gt;</code></pre><div class="what">One error shape for every failure, with a trace id the caller can quote in a support ticket.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Azure CLI</h3>
+        <div class="cmd"><pre><code>az apim create -g rg-apis -n contoso-apim -l westeurope \
+  --publisher-email apis@contoso.com --publisher-name Contoso --sku-name Developer</code></pre><div class="what">Creates an instance. Classic tiers take 30&ndash;45 minutes &mdash; start it and go do something else.</div></div>
+        <div class="cmd"><pre><code>az apim api import -g rg-apis -n contoso-apim --path orders \
+  --specification-format OpenApi --specification-path ./orders.openapi.json --api-id orders</code></pre><div class="what">Imports an API from OpenAPI, bringing operations, schemas and descriptions with it.</div></div>
+        <div class="cmd"><pre><code>az apim api policy import -g rg-apis -n contoso-apim --api-id orders \
+  --policy-format xml --value "@policies/orders.xml"</code></pre><div class="what">Applies an API-scoped policy document from a file in source control.</div></div>
+        <div class="cmd"><pre><code>az apim nv create -g rg-apis -n contoso-apim --named-value-id orders-backend-key \
+  --display-name orders-backend-key --secret true \
+  --value-from-key-vault "https://kv-contoso.vault.azure.net/secrets/orders-key"</code></pre><div class="what">Creates a Key Vault-backed named value so no secret lives in APIM itself.</div></div>
+        <div class="cmd"><pre><code>az apim show -g rg-apis -n contoso-apim --query "publicIPAddresses"</code></pre><div class="what">The IP partners will allow-list. It changes if you change tier &mdash; keep that in mind.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Calling and testing</h3>
+        <div class="cmd"><pre><code>curl -s https://contoso.azure-api.net/orders/10427 \
+  -H "Ocp-Apim-Subscription-Key: $KEY" -H "Authorization: Bearer $TOKEN"</code></pre><div class="what">A normal call: subscription key for metering, bearer token for identity.</div></div>
+        <div class="cmd"><pre><code>curl -s "https://contoso.azure-api.net/orders;rev=2/10427" -H "Ocp-Apim-Subscription-Key: $KEY"</code></pre><div class="what">Calls a non-current revision directly, to test it before promoting.</div></div>
+        <div class="cmd"><pre><code>curl -sD - https://contoso.azure-api.net/orders/10427 -o /dev/null \
+  -H "Ocp-Apim-Subscription-Key: $KEY" | grep -iE "ratelimit|retry-after|x-cache"</code></pre><div class="what">Checks that your throttle and cache headers actually reach the client.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Infrastructure as code (Bicep)</h3>
+        <div class="cmd"><pre><code>resource pool 'Microsoft.ApiManagement/service/backends@2023-09-01-preview' = {
+  parent: apim
+  name: 'orders-pool'
+  properties: {
+    type: 'Pool'
+    pool: { services: [ { id: backendA.id, priority: 1, weight: 50 }
+                        { id: backendB.id, priority: 1, weight: 50 }
+                        { id: backendC.id, priority: 2 } ] }
+    circuitBreaker: { rules: [ { name: 'trip5xx', failureCondition: {
+      count: 5, interval: 'PT30S', statusCodeRanges: [ { min: 500, max: 599 } ] },
+      tripDuration: 'PT1M' } ] }
+  }
+}</code></pre><div class="what">A load-balanced pool with failover and a circuit breaker &mdash; the configuration behind the second animation.</div></div>
+        <div class="cmd"><pre><code>git clone https://github.com/Azure/apiops</code></pre><div class="what">APIOps: extracts an APIM instance into files and promotes them through environments. The usual answer to "how do we stop editing production in the portal".</div></div>
+      </div>
+    </section>
+
+    <section id="pros-cons">
+      <h2>Pros &amp; cons</h2>
+      <div class="cols">
+        <div class="col good"><h3>Pros</h3><ul>
+          <li>Cross-cutting concerns move out of every service into one auditable, versioned place.</li>
+          <li>Auth, throttling, caching and transformation are configuration, not code you maintain per API.</li>
+          <li>A stable public contract in front of backends you are free to rewrite, split or replace.</li>
+          <li>Products, subscriptions and the developer portal turn a set of endpoints into a sellable API product.</li>
+          <li>Backends can stay entirely private, with the gateway as the only internet-facing surface.</li>
+          <li>Mocks, revisions and weighted backend pools make safe rollout and parallel development easy.</li>
+        </ul></div>
+        <div class="col bad"><h3>Cons</h3><ul>
+          <li>Expensive relative to a plain reverse proxy, and the Premium features are a steep step up.</li>
+          <li>Policy XML with embedded C# is awkward to test, review and debug compared with real code.</li>
+          <li>Classic-tier deployment and scaling are measured in tens of minutes.</li>
+          <li>It is a single point of failure in front of everything, so its blast radius is your whole API estate.</li>
+          <li>Rate-limit and cache state is per gateway unit, which surprises people at scale.</li>
+          <li>Strong Azure lock-in: policies and products do not port to another gateway.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="use-cases">
+      <h2>Concrete use cases</h2>
+      <div class="cards">
+        <div class="card"><h3>A monolith being strangled</h3><p>A legacy ASP.NET monolith is being broken into services. APIM fronts the old application, and as each endpoint is rewritten, <code>set-backend-service</code> routes that one operation to the new service. Clients see one unchanging URL throughout, and a weighted pool lets each cut-over start at 5% of traffic.</p></div>
+        <div class="card"><h3>Selling an API to partners</h3><p>A logistics company exposes tracking data. Products define Free, Pro and Partner tiers with different quotas; the developer portal handles sign-up, documentation and key issuance; <code>quota-by-key</code> enforces the monthly allowance. Billing reads the per-subscription metrics rather than instrumenting the backend.</p></div>
+        <div class="card"><h3>A SOAP backend with modern clients</h3><p>An insurance core system speaks SOAP and will not change. APIM imports the WSDL, exposes a REST façade, and <code>xml-to-json</code> plus a few <code>set-body</code> policies convert payloads in both directions. New mobile clients call clean JSON and never learn what is behind it.</p></div>
+        <div class="card"><h3>Protecting an LLM endpoint</h3><p>Calls to a model deployment are expensive and have hard token limits. APIM validates the JWT, applies a token-aware rate limit per subscription, caches identical prompts, and load-balances across several deployments with a circuit breaker so one throttled region does not fail the whole feature.</p></div>
+        <div class="card"><h3>One gateway, many teams</h3><p>Fifteen teams each own APIs. A global policy adds CORS, a correlation id and a standard error envelope; each team owns its own API-scoped policy file in its own repository, promoted by an APIOps pipeline. Nobody edits production in the portal, and every change arrives as a reviewed pull request.</p></div>
+      </div>
+    </section>
+
+    <section id="when">
+      <h2>When to use / when not to</h2>
+      <span class="note" style="margin:-6px 0 14px">One API and one consumer? You want a reverse proxy. Many APIs and many consumers? You want this.</span>
+      <div class="cols">
+        <div class="col good"><h3>Use it when&hellip;</h3><ul>
+          <li>Several APIs, owned by several teams, need one consistent front door.</li>
+          <li>External consumers need keys, quotas, documentation and self-service sign-up.</li>
+          <li>You want auth, throttling and caching enforced uniformly and provably, not per service.</li>
+          <li>Backends must stay private, or sit in several networks and clouds.</li>
+          <li>You are modernising something legacy and need a stable façade while it changes underneath.</li>
+          <li>Per-consumer usage data is a product or billing requirement.</li>
+        </ul></div>
+        <div class="col bad"><h3>Avoid it when&hellip;</h3><ul>
+          <li>You have one API and one internal client. Use <b>Azure Front Door</b> or <b>Application Gateway</b> for TLS and routing.</li>
+          <li>The need is purely CDN and WAF. Use <b>Front Door</b> or a <b>CDN</b>; they are cheaper and closer to the user.</li>
+          <li>All traffic is service-to-service inside one Kubernetes cluster. Use a <b>service mesh</b> or an ingress controller.</li>
+          <li>You want to run the gateway anywhere, cheaply, with config in Git. Use <b>Kong</b>, <b>Envoy</b> or <b>APISIX</b>.</li>
+          <li>The budget does not stretch to the tier whose features you actually need. Developer tier has <b>no SLA</b> &mdash; use something else rather than run production on it.</li>
+          <li>You would be moving real business logic into policies. Keep it in the <b>service</b>, where it can be tested.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="gotchas">
+      <h2>Common mistakes &amp; gotchas</h2>
+      <div class="gotcha"><b>Forgetting <code>&lt;base /&gt;</code></b><span>An API-scoped policy without <code>&lt;base /&gt;</code> silently discards every global and product policy &mdash; your CORS, your correlation id, your product quota. Nothing errors; things just stop applying.</span><div class="fix">Fix: always include <code>&lt;base /&gt;</code>, first in <code>inbound</code> and <code>backend</code>, last in <code>outbound</code> and <code>on-error</code>. Make it a review checklist item.</div></div>
+      <div class="gotcha"><b>Treating the subscription key as authentication</b><span>It identifies an application for metering, nothing more. In a browser app it is visible in the network tab, and it is frequently pasted into tickets and logs.</span><div class="fix">Fix: use OAuth 2.0 with <code>validate-jwt</code> for identity and keep the subscription key for quotas. Never put a subscription key in client-side code you cannot rotate.</div></div>
+      <div class="gotcha"><b>Assuming rate limits are global</b><span>Counters are per gateway unit and per region. A 600/min limit on a four-unit gateway admits roughly 2,400/min, which only shows up once you scale out &mdash; usually during the incident that made you scale out.</span><div class="fix">Fix: size the limit per unit deliberately, or enforce the real cap downstream with a shared counter. Document which one your number is.</div></div>
+      <div class="gotcha"><b>Caching a personalised response</b><span><code>cache-lookup</code> with <code>vary-by-developer="false"</code> on an endpoint that returns the caller's own data serves one customer's response to another. It is a data breach, and it looks exactly like a cache working well.</span><div class="fix">Fix: vary by every dimension that changes the response, or do not cache authenticated responses at all. Review every <code>cache-store</code> as if it were a security change.</div></div>
+      <div class="gotcha"><b>Reading the body without <code>preserveContent</code></b><span><code>context.Request.Body.As&lt;JObject&gt;()</code> consumes the stream, so the backend receives an empty body. GETs work perfectly and every POST breaks.</span><div class="fix">Fix: <code>As&lt;JObject&gt;(preserveContent: true)</code> whenever the body must continue downstream, and the same on the response side.</div></div>
+      <div class="gotcha"><b>Editing production in the portal</b><span>Policies drift from source control, nobody knows who changed what, and the next infrastructure-as-code deployment reverts a fix somebody made at 2am.</span><div class="fix">Fix: treat the portal as read-only for production. Keep policies in Git and promote them with APIOps, Bicep or Terraform. Grant portal write access sparingly.</div></div>
+      <div class="gotcha"><b>Leaving backends publicly reachable</b><span>The gateway enforces auth and limits, but if the backend has a public URL, anyone who finds it bypasses all of it &mdash; including your rate limits and your JWT validation.</span><div class="fix">Fix: private endpoints or VNet integration, plus a gateway-supplied credential (managed identity or a client certificate) that the backend requires.</div></div>
+      <div class="gotcha"><b>Running production on the Developer tier</b><span>It is the cheapest tier with the full feature set, which makes it tempting. It carries <b>no SLA</b> and is taken down for platform maintenance without warning.</span><div class="fix">Fix: Developer for non-production only. If Basic or Standard is unaffordable, the right answer is a simpler gateway, not an unsupported one.</div></div>
+      <div class="gotcha"><b>Expecting a tier change to be in-place</b><span>Moving between tiers often means a new instance, a new IP address and a migration &mdash; discovered after partners have allow-listed the old address.</span><div class="fix">Fix: choose the tier from the features you will need within a year, use a custom domain from day one, and never publish the raw <code>*.azure-api.net</code> host to partners.</div></div>
+    </section>
+
+    <section id="alternatives">
+      <h2>Alternatives</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Tool</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs APIM</th></tr></thead>
+          <tbody>
+            <tr class="self"><td><b>Azure API Management</b></td><td>many APIs, external consumers, full API product lifecycle</td><td>Medium&ndash;high</td><td>per instance + units</td><td>&mdash;</td></tr>
+            <tr><td><b>Azure Front Door</b></td><td>global routing, WAF, CDN, TLS termination</td><td>Low</td><td>per GB + requests</td><td>Edge network, not an API gateway: no products, keys or policy pipeline</td></tr>
+            <tr><td><b>Application Gateway</b></td><td>regional L7 load balancing with WAF</td><td>Low&ndash;medium</td><td>per hour + capacity</td><td>Routing and WAF only; no API lifecycle features at all</td></tr>
+            <tr><td><b>Kong</b></td><td>portable, plugin-rich gateway on any infrastructure</td><td>Medium</td><td>OSS or enterprise</td><td>Runs anywhere, config in Git; you operate it, and the developer portal is a paid add-on</td></tr>
+            <tr><td><b>Envoy / Istio ingress</b></td><td>service-to-service traffic inside Kubernetes</td><td>High</td><td>OSS</td><td>Mesh-native, extremely fast; no products, subscriptions or portal</td></tr>
+            <tr><td><b>Apache APISIX</b></td><td>high-throughput open-source gateway</td><td>Medium</td><td>OSS</td><td>Dynamic config, good performance; a smaller managed ecosystem</td></tr>
+            <tr><td><b>Container Apps / AKS ingress</b></td><td>a single app that only needs routing and TLS</td><td>Low</td><td>included</td><td>Enough when "gateway" really means "reverse proxy"</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul style="margin-top:12px">
+        <li><b>Pick Front Door</b> if the requirement is global performance, caching and WAF rather than API lifecycle.</li>
+        <li><b>Pick Application Gateway</b> if you need regional L7 routing with a WAF and nothing more.</li>
+        <li><b>Pick Kong or APISIX</b> if the gateway must run outside Azure, or the licence cost matters more than the managed experience.</li>
+        <li><b>Pick a service mesh</b> if the traffic you are governing is service-to-service inside a cluster.</li>
+        <li>These stack: Front Door for the edge and WAF, APIM behind it for API concerns, and a mesh inside the cluster is a common and sensible layering.</li>
+      </ul>
+    </section>
+
+    <section id="resources">
+      <h2>Resources</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/azure/api-management/api-management-key-concepts" target="_blank" rel="noopener">API Management key concepts</a>: the official model of APIs, products, subscriptions and the gateway.</li>
+        <li><a href="https://learn.microsoft.com/azure/api-management/api-management-policies" target="_blank" rel="noopener">Policy reference</a>: every policy, with syntax, scopes and examples. The page you will keep open.</li>
+        <li><a href="https://learn.microsoft.com/azure/api-management/api-management-policy-expressions" target="_blank" rel="noopener">Policy expressions</a>: the <code>context</code> object and the C# subset available inside policies.</li>
+        <li><a href="https://azure.github.io/apiops/" target="_blank" rel="noopener">APIOps</a>: extracting APIM configuration into Git and promoting it through environments.</li>
+        <li><a href="https://learn.microsoft.com/azure/api-management/api-management-howto-api-inspector" target="_blank" rel="noopener">Tracing calls with the API inspector</a>: how to see which policy did what for a single request.</li>
+        <li><a href="https://learn.microsoft.com/azure/api-management/api-management-features" target="_blank" rel="noopener">Feature comparison by tier</a>: check this before choosing a tier, especially for the v2 tiers.</li>
+      </ul>
+    </section>
+    <!-- RELATED:START (generated by scripts/build-index.mjs, do not edit) -->
+    <section id="related">
+      <h2>Related pages</h2>
+      <div class="related-list">
+          <a class="related-card" href="rate-limiting.html">
+            <b>Rate limiting</b>
+            <span>Say no on purpose, before the system says no by falling over.</span>
+            <small>Mentioned here in Overview, Key concepts, Pros &amp; cons, When to use / when not to and Common mistakes &amp; gotchas · Rate limiting mentions Azure API Management in Essential commands &amp; syntax · Shared tags: api gateway, rate limiting</small>
+          </a>
+          <a class="related-card" href="caching-strategies.html">
+            <b>Caching strategies</b>
+            <span>Keep the answer near the question — and decide, up front, how wrong you are willing to be.</span>
+            <small>Mentioned here in Overview, Key concepts, Pros &amp; cons, When to use / when not to and Alternatives</small>
+          </a>
+          <a class="related-card" href="azure-durable-functions.html">
+            <b>Azure Durable Functions</b>
+            <span>Write a long-running workflow as ordinary code, and let replay make it survive restarts.</span>
+            <small>Shared tags: azure</small>
+          </a>
+          <a class="related-card" href="kubernetes.html">
+            <b>Kubernetes</b>
+            <span>You declare what should run; it keeps a fleet of machines making that true, forever.</span>
+            <small>Mentioned here in Key concepts, When to use / when not to and Alternatives</small>
+          </a>
+          <a class="related-card" href="redis.html">
+            <b>Redis</b>
+            <span>An in-memory data structure server: a key-value store that answers in microseconds.</span>
+            <small>Mentioned here in Key concepts</small>
+          </a>
+      </div>
+    </section>
+    <!-- RELATED:END -->
+  </main>
+</div>
+
+<script src="../assets/player.js"></script>
+<script>
+/* ---------- Animation 1: the policy pipeline ---------- */
+createAnimation('anim-pipeline', [
+  { say: 'A client calls <code>GET /orders/10427</code> with a subscription key and a bearer token. It reaches the <b>gateway</b>, not your API &mdash; the backend is not addressable from the internet at all.',
+    hl: ['pp-client'], text: { 'pp-client-sub': 'GET /orders/10427', 'pp-client-sub2': 'key + bearer token' } },
+  { say: '<b>inbound, policy 1.</b> <code>validate-jwt</code> checks the token’s signature against the cached signing keys, plus issuer, audience, expiry and the <code>orders.read</code> scope. A bad token stops here with a 401 &mdash; no backend call, no cost.',
+    hl: ['pp-p1'], unhl: ['pp-client'], text: { 'pp-s2': 'jwt: valid, scp=orders.read' } },
+  { say: '<b>inbound, policy 2.</b> <code>rate-limit-by-key</code> counts this call against the subscription’s allowance of 600 per minute. Over the limit and the caller gets a 429 with <code>Retry-After</code> &mdash; again, your API never hears about it.',
+    hl: ['pp-p2'], unhl: ['pp-p1'], text: { 'pp-s1': 'sub: Pro · 412/600 used' } },
+  { say: '<b>inbound, policy 3.</b> <code>cache-lookup-value</code> checks the gateway cache. On a <b>hit</b>, the pipeline short-circuits: everything below is skipped and execution jumps straight to <code>outbound</code>. That is the cheapest possible response.',
+    hl: ['pp-p3'], unhl: ['pp-p2'], text: { 'pp-s3': 'cache: MISS' } },
+  { say: 'This one misses, so we continue. <b>inbound, policy 4.</b> <code>rewrite-uri</code> maps the public shape onto the internal one, and <code>authentication-managed-identity</code> attaches a token for the backend &mdash; so no shared secret exists anywhere.',
+    hl: ['pp-p4'], unhl: ['pp-p3'] },
+  { say: '<b>backend section.</b> <code>forward-request</code> makes the actual call, with a timeout and, if configured, retries and a circuit breaker. This is the only part where your service is involved.',
+    hl: ['pp-p5', 'pp-backend'], unhl: ['pp-p4'],
+    text: { 'pp-backend-sub': 'GET /api/v3/order?id=10427', 'pp-s4': 'status: 200 in 38 ms' } },
+  { say: '<b>outbound.</b> The response comes back and the pipeline runs in the other direction: <code>cache-store-value</code> saves it for 60 seconds, so the next identical call never reaches the backend at all.',
+    hl: ['pp-p6'], unhl: ['pp-p5', 'pp-backend'], text: { 'pp-s3': 'cache: stored, 60 s' } },
+  { say: 'Still outbound: headers are cleaned up. Internal identifiers, framework banners and anything else you do not want public are deleted here &mdash; one policy, applied to every API.',
+    hl: ['pp-p7'], unhl: ['pp-p6'] },
+  { say: 'Had anything thrown &mdash; a backend timeout, a transform failure &mdash; the <code>on-error</code> section would have run instead, returning one consistent error envelope with a trace id, rather than leaking whatever the backend produced.',
+    hl: ['pp-p8'], unhl: ['pp-p7'] },
+  { say: 'The client gets its response. Authentication, throttling, caching, URL rewriting, backend credentials, header hygiene and error shaping all happened <b>outside</b> your API code &mdash; and they apply identically to every service behind this gateway.',
+    unhl: ['pp-p8'], hl: ['pp-client'], show: ['pp-note'],
+    text: { 'pp-client-sub': '200 OK · 41 ms', 'pp-client-sub2': 'remaining: 188' } },
+]);
+
+/* ---------- Animation 2: backend pool and circuit breaker ---------- */
+createAnimation('anim-backend', [
+  { say: 'The API points at a <b>backend pool</b>, not a URL. Two backends share priority 1 with equal weight, so each takes half the traffic; <code>backend-c</code> sits at priority 2 and gets nothing while the primaries are healthy.',
+    hl: ['bp-gw'] },
+  { say: '<code>backend-b</code> starts returning 503 &mdash; a bad deploy, a failing dependency, it does not matter. The gateway keeps sending it traffic, because one error is not a pattern.',
+    unhl: ['bp-gw'], fill: { 'bp-b': '#fbf3c4' },
+    text: { 'bp-b-t': 'errors · 2 x 503 in 4 s', 'bp-state': 'counting failures' } },
+  { say: 'The circuit-breaker rule says five 5xx responses within 30 seconds. The fifth arrives, the threshold is crossed, and the breaker <b>trips</b>.',
+    fill: { 'bp-b': '#f9e3df' }, hl: ['bp-b'],
+    text: { 'bp-b-t': 'failing · 5 x 503 in 11 s', 'bp-b-b': 'breaker: OPEN for 60 s', 'bp-state': 'backend-b tripped' } },
+  { say: '<code>backend-b</code> is removed from rotation for the trip duration. No request is sent to it, so callers stop seeing its errors &mdash; and it gets a chance to recover without being hammered.',
+    text: { 'bp-f2': '0 /s', 'bp-f1': '1,000 /s', 'bp-a-t': 'healthy · p99 96 ms · 2x load' }, unhl: ['bp-b'] },
+  { say: 'Notice what just happened to <code>backend-a</code>: its load doubled instantly. This is the moment most pools actually fail &mdash; if each backend was sized for exactly its own share, the survivor now tips over too.',
+    fill: { 'bp-a': '#fbf3c4' },
+    text: { 'bp-a-t': 'degrading · p99 2,400 ms', 'bp-state': 'one backend carrying everything' } },
+  { say: 'It does: <code>backend-a</code> starts timing out and trips as well. With both priority-1 backends out, the pool falls through to the <b>priority 2</b> fallback, which is exactly what it was configured for.',
+    fill: { 'bp-a': '#f9e3df', 'bp-c': '#e3eedc' },
+    text: { 'bp-a-t': 'failing · timeouts', 'bp-a-b': 'breaker: OPEN for 60 s',
+            'bp-f1': '0 /s', 'bp-f3': '1,000 /s', 'bp-c-t': 'serving · p99 120 ms',
+            'bp-state': 'serving from fallback' } },
+  { say: 'Sixty seconds later the trip expires and <code>backend-b</code> is probed again. The gateway sends it a request; a successful response closes the breaker and puts it back in rotation.',
+    fill: { 'bp-b': '#e3eedc' },
+    text: { 'bp-b-t': 'probe ✓ · p99 40 ms', 'bp-b-b': 'breaker: closed', 'bp-f2': '1,000 /s', 'bp-f3': '0 /s',
+            'bp-c-t': 'idle — lower priority', 'bp-state': 'backend-b restored' } },
+  { say: '<code>backend-a</code> recovers next and the pool returns to a 50/50 split. Two things to remember: the breaker is evaluated <b>per gateway unit</b>, so each unit learns about a failure independently &mdash; and a pool only helps if the remaining backends can carry the whole load.',
+    fill: { 'bp-a': '#e3eedc' }, show: ['bp-note'],
+    text: { 'bp-a-t': 'healthy · p99 40 ms', 'bp-a-b': 'breaker: closed', 'bp-b-t': 'healthy · p99 38 ms',
+            'bp-f1': '500 /s', 'bp-f2': '500 /s', 'bp-state': 'all backends serving' } },
+]);
+
+/* ---------- Key-concept animations ---------- */
+window.TERM_ANIMS = {
+  rev: [
+    { say: 'Revision 1 is <b>current</b>: every client calling <code>/orders</code> is served by it.' },
+    { say: 'You create <b>revision 2</b> to add an optional <code>?include=lines</code> parameter. It is a full copy of the definition and policies, and it receives no traffic at all.',
+      show: ['rv-r2', 'rv-r2-h', 'rv-r2-t'] },
+    { say: 'You can call it directly at <code>/orders;rev=2</code> while clients keep hitting revision 1. Same gateway, same keys, completely separate behaviour &mdash; this is how you test against production configuration without risking it.',
+      show: ['rv-url2'] },
+    { say: 'Once it is verified you make revision 2 current, with a change log entry. The switch is instant and clients never change a URL.',
+      fill: { 'rv-r1': '#fbfcf8', 'rv-r2': '#e3eedc' },
+      text: { 'rv-r1-t': 'archived · 0 req/s', 'rv-r2-t': 'CURRENT · 1,000 req/s', 'rv-url1': 'clients call /orders → revision 2' },
+      show: ['rv-log'], hide: ['rv-url2'] },
+    { say: 'If it misbehaves, making revision 1 current again is the same one-click operation. Nothing was deleted, so rollback costs seconds.',
+      text: { 'rv-r2-t': 'current · rollback available' } },
+    { say: 'The rule that matters: revisions are for changes clients do not need to know about. The moment you remove a field or change a response shape, that is a <b>version</b> &mdash; a separate API that lives alongside the old one until you sunset it.',
+      show: ['rv-note'] },
+  ],
+};
+</script>
+</body>
+</html>

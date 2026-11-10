@@ -17,9 +17,21 @@ const SHEETS = join(ROOT, 'cheatsheets');
 const check = process.argv.includes('--check');
 const MAX_RELATED = 6;
 
-const ENT = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ', rarr: '→', larr: '←' };
-const strip = s => s.replace(/<[^>]+>/g, ' ').replace(/&(#?\w+);/g, (m, e) => ENT[e] ?? m).replace(/\s+/g, ' ').trim();
-const tidy = s => strip(s).replace(/\s+([.,;:!?)])/g, '$1').replace(/\(\s+/g, '(');
+const ENT = {
+  amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ', rarr: '→', larr: '←',
+  mdash: '—', ndash: '–', hellip: '…', middot: '·', times: '×', divide: '÷',
+  minus: '−', plusmn: '±', approx: '≈', asymp: '≈', micro: 'µ', deg: '°',
+  lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”',
+  pi: 'π', lambda: 'λ', le: '≤', ge: '≥', ne: '≠',
+};
+// Decodes the named entities above plus any numeric reference (&#8212; / &#x2014;).
+const decodeEnt = s => s.replace(/&(#x[0-9a-fA-F]+|#\d+|\w+);/g, (m, e) =>
+  e[0] === '#'
+    ? String.fromCodePoint(parseInt(e[1] === 'x' || e[1] === 'X' ? e.slice(2) : e.slice(1), e[1] === 'x' || e[1] === 'X' ? 16 : 10))
+    : ENT[e] ?? m);
+const strip = s => decodeEnt(s.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+// Collapse the space before punctuation only when it really ends a word (so " .NET 9" survives).
+const tidy = s => strip(s).replace(/\s+([.,;:!?)])(?=\s|$)/g, '$1').replace(/\(\s+/g, '(');
 // Must match slugify() in assets/site.js
 const slugify = s => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
