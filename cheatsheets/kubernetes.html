@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kubernetes · Tech cheatsheets</title>
+<meta name="description" content="Kubernetes cheatsheet: architecture, animated deployment and self-healing walk-throughs, key concepts with deep dives, kubectl commands, trade-offs and alternatives.">
+<meta name="aliases" content="Kubernetes, K8s, k8s">
+<meta name="related" content="docker">
+<meta name="keywords" content="container orchestration, k8s, containers, devops, cloud native, kubectl, helm, aks, eks, gke">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../assets/notebook.css">
+<script src="../assets/site.js" defer></script>
+</head>
+<body data-root="..">
+<div class="layout">
+  <nav class="toc" aria-label="Sections">
+    <a href="#overview">Overview</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#concepts">Key concepts</a>
+    <a href="#commands">Commands</a>
+    <a href="#pros-cons">Pros &amp; cons</a>
+    <a href="#use-cases">Use cases</a>
+    <a href="#when">When to use</a>
+    <a href="#gotchas">Gotchas</a>
+    <a href="#alternatives">Alternatives</a>
+    <a href="#resources">Resources</a>
+    <a href="#related">Related</a>
+  </nav>
+
+  <main>
+    <header class="hero" id="overview">
+      <h1>Kubernetes</h1>
+      <p class="tagline">You declare what should run; it keeps a fleet of machines making that true, forever.</p>
+      <span class="meta">As of Nov 2026 · release line 1.36</span>
+      <p>Running one container on one server is easy. Running hundreds across dozens of servers is not: which machine has room, what happens when a machine dies, how do containers find each other, how do you roll out a new version without downtime? Kubernetes (K8s) is the system that answers those questions for you.</p>
+      <p>You describe the <b>desired state</b> in YAML ("3 replicas of <code>web:1.4</code>, reachable on port 80, each needing half a CPU") and send it to the API server. Controllers then run a reconcile loop: they compare desired and actual state and act until they match. They schedule containers onto nodes, restart crashed ones, replace lost machines and roll out new versions gradually.</p>
+      <p>Kubernetes was open-sourced by Google in 2014 and is now the CNCF's flagship project (Apache 2.0). Most teams use a managed control plane such as AKS, EKS or GKE, and run containers built with Docker or any OCI-compatible tool. For local learning, kind, minikube and k3d run a whole cluster on a laptop.</p>
+    </header>
+
+    <section id="architecture">
+      <h2>Architecture / mental model</h2>
+      <div class="diagram">
+        <svg viewBox="0 0 800 320" role="img" aria-label="A control plane with API server, etcd, scheduler and controller manager manages worker nodes running kubelet, kube-proxy, a container runtime and pods; a Service load-balances to pods">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+          </defs>
+          <rect x="20" y="15" width="300" height="220" rx="8" fill="#f9e3df" stroke="#e6b3ad" stroke-width="1.5"/>
+          <text x="170" y="36" font-size="14" font-weight="600" text-anchor="middle" fill="#23362e">Control plane</text>
+          <g font-size="13" text-anchor="middle" fill="#23362e">
+            <rect x="35" y="48" width="270" height="44" rx="6" fill="#fbfcf8" stroke="#c53b3b" stroke-width="1.5"/><text x="170" y="68" font-weight="600">kube-apiserver</text><text x="170" y="84" font-size="11" fill="#5f6f66">the only door: everything talks to it</text>
+            <rect x="35" y="106" width="125" height="50" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/><text x="97" y="128" font-weight="600">etcd</text><text x="97" y="145" font-size="11" fill="#5f6f66">stores cluster state</text>
+            <rect x="180" y="106" width="125" height="50" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/><text x="242" y="128" font-weight="600">scheduler</text><text x="242" y="145" font-size="11" fill="#5f6f66">picks a node per pod</text>
+            <rect x="35" y="170" width="270" height="50" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/><text x="170" y="192" font-weight="600">controller manager</text><text x="170" y="209" font-size="11" fill="#5f6f66">Deployment, ReplicaSet, Node… reconcile loops</text>
+          </g>
+          <rect x="20" y="255" width="300" height="44" rx="6" fill="#fbfcf8" stroke="#a9b5a6" stroke-dasharray="5 3"/>
+          <text x="170" y="282" font-size="13" text-anchor="middle" fill="#23362e">kubectl · CI/CD · GitOps (Argo CD)</text>
+          <line x1="170" y1="253" x2="170" y2="237" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#arr)"/>
+          <!-- nodes -->
+          <g font-size="13" text-anchor="middle" fill="#23362e">
+            <rect x="360" y="15" width="200" height="205" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/><text x="460" y="36" font-weight="600">Node 1 (VM)</text>
+            <rect x="585" y="15" width="200" height="205" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/><text x="685" y="36" font-weight="600">Node 2 (VM)</text>
+          </g>
+          <g font-size="12" text-anchor="middle" fill="#23362e">
+            <rect x="375" y="46" width="170" height="24" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="460" y="62">kubelet</text>
+            <rect x="375" y="76" width="170" height="24" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="460" y="92">kube-proxy</text>
+            <rect x="375" y="106" width="170" height="24" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="460" y="122">containerd</text>
+            <rect x="600" y="46" width="170" height="24" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="685" y="62">kubelet</text>
+            <rect x="600" y="76" width="170" height="24" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="685" y="92">kube-proxy</text>
+            <rect x="600" y="106" width="170" height="24" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="685" y="122">containerd</text>
+          </g>
+          <g font-size="12" text-anchor="middle" fill="#23362e">
+            <rect x="375" y="145" width="80" height="58" rx="6" fill="#e3eedc" stroke="#2f6b3f"/><text x="415" y="168" font-weight="600">pod</text><text x="415" y="186" font-size="11" fill="#5f6f66">web</text>
+            <rect x="465" y="145" width="80" height="58" rx="6" fill="#e3eedc" stroke="#2f6b3f"/><text x="505" y="168" font-weight="600">pod</text><text x="505" y="186" font-size="11" fill="#5f6f66">api</text>
+            <rect x="600" y="145" width="80" height="58" rx="6" fill="#e3eedc" stroke="#2f6b3f"/><text x="640" y="168" font-weight="600">pod</text><text x="640" y="186" font-size="11" fill="#5f6f66">web</text>
+            <rect x="690" y="145" width="80" height="58" rx="6" fill="#e3eedc" stroke="#2f6b3f"/><text x="730" y="168" font-weight="600">pod</text><text x="730" y="186" font-size="11" fill="#5f6f66">redis</text>
+          </g>
+          <g stroke="#5f6f66" stroke-width="1.5" marker-end="url(#arr)">
+            <line x1="305" y1="66" x2="373" y2="58"/>
+            <path d="M305,78 C 340,78 340,140 470,140 S 590,100 598,64" fill="none"/>
+          </g>
+          <!-- service -->
+          <rect x="360" y="240" width="425" height="40" rx="20" fill="#2f6b3f"/>
+          <text x="572" y="265" font-size="13" text-anchor="middle" fill="#fbfcf8">Service "web": one stable IP and DNS name → all Ready web pods</text>
+          <g stroke="#2f6b3f" stroke-width="1.5" stroke-dasharray="4 3"><line x1="415" y1="238" x2="415" y2="205"/><line x1="640" y1="238" x2="640" y2="205"/></g>
+          <text class="hand" x="360" y="308" font-size="16" fill="#c53b3b">you declare WHAT; controllers keep making it so</text>
+        </svg>
+      </div>
+      <p class="caption">Everything is an object in the API server. Controllers watch objects and nudge reality toward them; kubelets on each node actually start the containers.</p>
+    </section>
+
+    <section id="how-it-works">
+      <h2>How it works</h2>
+
+      <div class="anim" id="anim-deploy">
+        <h3>From <code>kubectl apply</code> to running pods</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 330" role="img" aria-label="Animated walk-through of applying a Deployment">
+            <rect id="k-cli" x="20" y="130" width="130" height="60" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="85" y="156" font-size="14" font-weight="600" text-anchor="middle" fill="#23362e">kubectl</text>
+            <text x="85" y="175" font-size="12" text-anchor="middle" fill="#5f6f66">apply -f web.yaml</text>
+            <rect id="k-api" x="180" y="120" width="160" height="80" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="260" y="146" font-size="14" font-weight="600" text-anchor="middle" fill="#23362e">API server</text>
+            <text id="k-api-l" x="260" y="180" font-size="11.5" text-anchor="middle" fill="#c53b3b" font-family="Fira Code, monospace">idle</text>
+            <rect id="k-etcd" x="180" y="245" width="160" height="65" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="260" y="268" font-size="14" font-weight="600" text-anchor="middle" fill="#23362e">etcd</text>
+            <text id="k-etcd-t" x="260" y="292" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">no "web" yet</text>
+            <rect id="k-ctrl" x="180" y="15" width="160" height="80" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="260" y="40" font-size="13" font-weight="600" text-anchor="middle" fill="#23362e">Deployment controller</text>
+            <text id="k-ctrl-t" x="260" y="70" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">watching</text>
+            <rect id="k-sched" x="370" y="15" width="160" height="80" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="450" y="40" font-size="14" font-weight="600" text-anchor="middle" fill="#23362e">Scheduler</text>
+            <text id="k-sched-t" x="450" y="70" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">watching</text>
+            <rect id="k-pending" class="hidden" x="370" y="120" width="160" height="190" rx="8" fill="none" stroke="#a9b5a6" stroke-width="1.5" stroke-dasharray="6 4"/>
+            <text id="k-pending-t" class="hidden" x="450" y="140" font-size="12" text-anchor="middle" fill="#5f6f66">Pending pods</text>
+            <rect id="k-n1" x="560" y="15" width="225" height="140" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="575" y="36" font-size="13" font-weight="600" fill="#23362e">node-1</text><text x="770" y="36" font-size="11" text-anchor="end" fill="#5f6f66">3.2 vCPU free</text>
+            <rect id="k-n2" x="560" y="175" width="225" height="140" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="575" y="196" font-size="13" font-weight="600" fill="#23362e">node-2</text><text x="770" y="196" font-size="11" text-anchor="end" fill="#5f6f66">0.6 vCPU free</text>
+            <g id="k-p1" class="hidden"><rect id="k-p1-r" x="385" y="150" width="130" height="38" rx="6" fill="#fbf3c4" stroke="#d9c25a"/><text x="395" y="166" font-size="11.5" font-weight="600" fill="#23362e" font-family="Fira Code, monospace">web-7d9-a</text><text id="k-p1-t" x="395" y="181" font-size="11" fill="#5f6f66">Pending</text></g>
+            <g id="k-p2" class="hidden"><rect id="k-p2-r" x="385" y="196" width="130" height="38" rx="6" fill="#fbf3c4" stroke="#d9c25a"/><text x="395" y="212" font-size="11.5" font-weight="600" fill="#23362e" font-family="Fira Code, monospace">web-7d9-b</text><text id="k-p2-t" x="395" y="227" font-size="11" fill="#5f6f66">Pending</text></g>
+            <g id="k-p3" class="hidden"><rect id="k-p3-r" x="385" y="242" width="130" height="38" rx="6" fill="#fbf3c4" stroke="#d9c25a"/><text x="395" y="258" font-size="11.5" font-weight="600" fill="#23362e" font-family="Fira Code, monospace">web-7d9-c</text><text id="k-p3-t" x="395" y="273" font-size="11" fill="#5f6f66">Pending</text></g>
+            <g id="k-yaml" class="hidden"><rect x="20" y="205" width="150" height="30" rx="15" fill="#c53b3b"/><text x="95" y="225" font-size="11.5" text-anchor="middle" fill="#fbfcf8" font-family="Fira Code, monospace">replicas: 3 · web:1.4</text></g>
+            <text id="k-note" class="hand hidden" x="20" y="300" font-size="16" fill="#c53b3b">…and it keeps checking, forever</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <div class="anim" id="anim-heal">
+        <h3>Self-healing: a node dies</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 300" role="img" aria-label="Animated walk-through of Kubernetes replacing pods from a failed node">
+            <rect id="h-svc" x="20" y="110" width="150" height="70" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+            <text x="95" y="137" font-size="14" font-weight="600" text-anchor="middle" fill="#23362e">Service "web"</text>
+            <text id="h-svc-t" x="95" y="160" font-size="11.5" text-anchor="middle" fill="#5f6f66">3 endpoints</text>
+            <g stroke="#2f6b3f" stroke-width="2.5" stroke-linecap="round">
+              <line id="h-l-a" x1="170" y1="140" x2="253" y2="65"/>
+              <line id="h-l-b" x1="170" y1="145" x2="253" y2="158"/>
+              <line id="h-l-c" x1="170" y1="150" x2="253" y2="251"/>
+              <line id="h-l-d" class="hidden" x1="170" y1="150" x2="420" y2="225"/>
+            </g>
+            <rect id="h-n1" x="240" y="15" width="260" height="85" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text id="h-n1-t" x="490" y="32" font-size="12" text-anchor="end" fill="#5f6f66">node-1 · Ready</text>
+            <rect id="h-n2" x="240" y="108" width="260" height="85" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="490" y="125" font-size="12" text-anchor="end" fill="#5f6f66">node-2 · Ready</text>
+            <rect id="h-n3" x="240" y="201" width="260" height="85" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="490" y="218" font-size="12" text-anchor="end" fill="#5f6f66">node-3 · Ready</text>
+            <g font-size="12" fill="#23362e">
+              <rect id="h-a" x="255" y="37" width="110" height="56" rx="6" fill="#e3eedc" stroke="#2f6b3f"/><text x="265" y="59" font-weight="600" font-family="Fira Code, monospace">web-a</text><text id="h-a-t" x="265" y="79" font-size="11" fill="#5f6f66">Running</text>
+              <rect id="h-b" x="255" y="130" width="110" height="56" rx="6" fill="#e3eedc" stroke="#2f6b3f"/><text x="265" y="152" font-weight="600" font-family="Fira Code, monospace">web-b</text><text x="265" y="172" font-size="11" fill="#5f6f66">Running</text>
+              <rect id="h-c" x="255" y="223" width="110" height="56" rx="6" fill="#e3eedc" stroke="#2f6b3f"/><text x="265" y="245" font-weight="600" font-family="Fira Code, monospace">web-c</text><text x="265" y="265" font-size="11" fill="#5f6f66">Running</text>
+              <g id="h-d" class="hidden"><rect id="h-d-r" x="375" y="223" width="110" height="56" rx="6" fill="#fbf3c4" stroke="#d9c25a"/><text x="385" y="245" font-weight="600" font-family="Fira Code, monospace">web-x9k</text><text id="h-d-t" x="385" y="265" font-size="11" fill="#5f6f66">Pending</text></g>
+            </g>
+            <rect id="h-ctrl" x="550" y="15" width="235" height="80" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="667" y="40" font-size="13" font-weight="600" text-anchor="middle" fill="#23362e">ReplicaSet controller</text>
+            <text id="h-ctrl-t" x="667" y="70" font-size="11.5" text-anchor="middle" fill="#2f6b3f" font-family="Fira Code, monospace">want 3 · have 3 ✓</text>
+            <rect id="h-nc" x="550" y="115" width="235" height="80" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="667" y="140" font-size="13" font-weight="600" text-anchor="middle" fill="#23362e">Node lifecycle controller</text>
+            <text id="h-nc-t" x="667" y="170" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">all nodes healthy</text>
+            <text id="h-note" class="hand hidden" x="550" y="235" font-size="16" fill="#c53b3b">pods are cattle, not pets:</text>
+            <text id="h-note2" class="hand hidden" x="550" y="257" font-size="16" fill="#c53b3b">new name, new IP, same job</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+    </section>
+
+    <section id="concepts">
+      <h2>Key concepts</h2>
+      <div class="terms">
+        <div class="term"><b>cluster</b><span>A set of machines (nodes) plus a control plane that manages them as one big computer for containers.</span><template class="term-detail" data-see="node, namespace, pod">
+          <p>A cluster is the unit you create, upgrade and secure. You talk to it only through its API server; the machines behind it are interchangeable.</p>
+          <ul>
+            <li><b>Control plane</b>: API server, etcd, scheduler, controller manager. Managed services (AKS, EKS, GKE) run and patch it for you.</li>
+            <li><b>Worker nodes</b>: where your pods actually run.</li>
+          </ul>
+          <h4>Typical sizes</h4>
+          <table><tr><th>Setting</th><th>Nodes</th></tr><tr><td>Laptop (kind, minikube)</td><td>1–3 containers pretending to be nodes</td></tr><tr><td>Small production</td><td>3–10 nodes</td></tr><tr><td>Large</td><td>hundreds; the documented limit is 5,000 nodes</td></tr></table>
+          <p>Many companies run several clusters (dev, staging, prod, per region) rather than one giant one: a smaller blast radius and easier upgrades.</p>
+        </template></div>
+        <div class="term"><b>node</b><span>A worker machine (VM or physical) that runs pods. Each runs a kubelet, kube-proxy and a container runtime.</span><template class="term-detail" data-see="cluster, pod, vCPU, requests &amp; limits, DaemonSet">
+          <p>A node offers <b>allocatable</b> resources to pods: its total CPU and memory minus what is reserved for the OS and Kubernetes' own agents.</p>
+          <h4>On every node</h4>
+          <ul>
+            <li><b>kubelet</b>: the agent. Watches the API server for pods assigned to this node and starts or stops their containers.</li>
+            <li><b>container runtime</b>: usually containerd; pulls images and runs containers.</li>
+            <li><b>kube-proxy</b> (or a CNI like Cilium): implements Service routing on the node.</li>
+          </ul>
+          <h4>Common sizes</h4>
+          <p>Production nodes are often 4–16 vCPU with 16–64 GiB of memory (e.g. Azure <code>Standard_D4s_v5</code>: 4 vCPU, 16 GiB). Several medium nodes usually beat one huge node: losing one costs less.</p>
+          <p>Statuses: <code>Ready</code>, <code>NotReady</code> (kubelet stopped reporting), <code>SchedulingDisabled</code> (cordoned for maintenance).</p>
+        </template></div>
+        <div class="term"><b>pod</b><span>The smallest deployable unit: one or more containers that share an IP address and volumes and are always scheduled together.</span><template class="term-detail" data-see="node, Deployment, Service, probes, requests &amp; limits">
+          <p>You almost never create pods directly; a Deployment, StatefulSet, DaemonSet or Job creates them for you and replaces them when they die.</p>
+          <ul>
+            <li>Containers in one pod talk over <code>localhost</code> and can share volumes.</li>
+            <li>Typical shape: one main container, optionally a <b>sidecar</b> (log shipper, proxy) and <b>init containers</b> that run first.</li>
+            <li>Pods are <b>ephemeral</b>: a replacement gets a new name and a new IP. Reach them through a Service.</li>
+          </ul>
+          <h4>Lifecycle phases</h4>
+          <p><code>Pending</code> → <code>Running</code> → <code>Succeeded</code> / <code>Failed</code>. Common trouble states you'll see in <code>kubectl get pods</code>: <code>ImagePullBackOff</code> (wrong image or no registry access), <code>CrashLoopBackOff</code> (container keeps exiting), <code>OOMKilled</code> (exceeded memory limit).</p>
+        </template></div>
+        <div class="term"><b>vCPU</b><span>The CPU unit Kubernetes counts in: 1 CPU = one vCPU or hyperthread = 1000 millicores (<code>1000m</code>).</span><template class="term-detail" data-see="requests &amp; limits, node, HPA, pod">
+          <p>A <b>vCPU</b> is one virtual CPU as sold by a cloud provider: usually one hyperthread of a physical core. Kubernetes measures CPU in these units and lets you ask for fractions, written in <b>millicores</b>: <code>1000m</code> = 1 vCPU, <code>250m</code> = a quarter.</p>
+          <h4>Common values</h4>
+          <table>
+            <tr><th>Request</th><th>Typical workload</th></tr>
+            <tr><td><code>50m–100m</code></td><td>sidecars, small agents, idle-most-of-the-time services</td></tr>
+            <tr><td><code>250m–500m</code></td><td>a typical web API or worker replica</td></tr>
+            <tr><td><code>1</code>–<code>2</code></td><td>CPU-heavy services, JVM apps at startup, build jobs</td></tr>
+            <tr><td><code>4+</code></td><td>databases, ML inference, batch processing</td></tr>
+          </table>
+          <p>A node with 4 vCPU has roughly <b>3.8 vCPU allocatable</b> after system reservations. The scheduler only places a pod where the sum of <b>requests</b> fits.</p>
+          <div class="anim" id="vcpu-anim" data-steps="vcpu">
+            <h4>CPU on a 4-vCPU node</h4>
+            <div class="stage">
+              <svg viewBox="0 0 560 250" role="img" aria-label="Animated example of CPU requests filling a 4 vCPU node and a limit throttling a pod">
+                <text x="20" y="22" font-size="12" font-weight="600" fill="#23362e">node-1 · 4 vCPU = 4000m</text>
+                <rect x="20" y="32" width="520" height="40" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/>
+                <rect x="514" y="32" width="26" height="40" fill="#d5dccf"/>
+                <g font-size="10.5" fill="#5f6f66" text-anchor="middle"><text x="20" y="86">0</text><text x="150" y="86">1000m</text><text x="280" y="86">2000m</text><text x="410" y="86">3000m</text><text x="527" y="86">sys</text></g>
+                <g font-size="11" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">
+                  <g id="v-api" class="hidden"><rect x="20" y="32" width="65" height="40" fill="#e3eedc" stroke="#2f6b3f"/><text x="52" y="56">api</text></g>
+                  <g id="v-web" class="hidden"><rect x="85" y="32" width="32" height="40" fill="#e3eedc" stroke="#2f6b3f"/><rect x="117" y="32" width="33" height="40" fill="#e3eedc" stroke="#2f6b3f"/><text x="117" y="56" font-size="10">web×2</text></g>
+                  <g id="v-worker" class="hidden"><rect x="150" y="32" width="195" height="40" fill="#f9e3df" stroke="#c53b3b"/><text x="247" y="56">worker 1500m</text></g>
+                  <g id="v-new" class="hidden"><rect x="345" y="104" width="195" height="34" rx="4" fill="#fbf3c4" stroke="#c53b3b" stroke-dasharray="4 3"/><text x="442" y="126">new pod 1500m</text></g>
+                </g>
+                <text id="v-free" x="430" y="56" font-size="11" text-anchor="middle" fill="#5f6f66">free: 3800m</text>
+                <text id="v-new-t" class="hidden" x="345" y="155" font-size="11.5" fill="#c53b3b">only 1300m free → Pending</text>
+                <g id="v-usage" class="hidden">
+                  <text x="20" y="190" font-size="12" font-weight="600" fill="#23362e">worker CPU usage</text>
+                  <rect x="150" y="200" width="260" height="26" fill="#c53b3b"/>
+                  <rect id="v-cover" x="268" y="199" width="290" height="28" fill="#fbfcf8"/>
+                  <rect x="150" y="200" width="260" height="26" fill="none" stroke="#23362e"/>
+                  <line x1="345" y1="194" x2="345" y2="232" stroke="#2f6b3f" stroke-width="2"/>
+                  <text x="341" y="192" font-size="10.5" text-anchor="end" fill="#2f6b3f">request 1500m</text>
+                  <text x="410" y="244" font-size="10.5" text-anchor="middle" fill="#23362e">limit 2000m</text>
+                </g>
+                <text id="v-thr" class="hand hidden" x="420" y="218" font-size="15" fill="#c53b3b">throttled!</text>
+              </svg>
+            </div>
+            <div class="controls"></div>
+            <div class="narration"></div>
+          </div>
+          <h4>How it relates</h4>
+          <ul>
+            <li><b>Requests</b> reserve vCPU for scheduling; <b>limits</b> cap usage. Going over the CPU limit only <b>slows</b> the container (throttling); going over the memory limit <b>kills</b> it (<code>OOMKilled</code>).</li>
+            <li>The <b>HPA</b> measures CPU usage as a percentage of the request, so a wrong request makes autoscaling wrong too.</li>
+            <li>Node size in vCPU sets how many pods fit; cloud cost is mostly "vCPU × hours".</li>
+          </ul>
+        </template></div>
+        <div class="term"><b>requests &amp; limits</b><span>Per-container CPU and memory settings: requests are reserved for scheduling, limits are the hard ceiling.</span><template class="term-detail" data-see="vCPU, node, HPA, pod">
+          <pre><code>resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits:   { memory: 512Mi }</code></pre>
+          <ul>
+            <li><b>Requests</b>: what the scheduler adds up to decide if a pod fits on a node. Your guaranteed share.</li>
+            <li><b>CPU limit</b>: usage above it is throttled. Many teams set no CPU limit to avoid needless throttling, relying on requests for fairness.</li>
+            <li><b>Memory limit</b>: exceeding it gets the container killed (<code>OOMKilled</code>) and restarted. Always set one.</li>
+          </ul>
+          <h4>Quality of Service classes</h4>
+          <table><tr><th>Class</th><th>When</th><th>Evicted</th></tr><tr><td>Guaranteed</td><td>requests = limits for CPU and memory</td><td>last</td></tr><tr><td>Burstable</td><td>requests set, lower than limits</td><td>middle</td></tr><tr><td>BestEffort</td><td>nothing set</td><td>first</td></tr></table>
+          <p>Memory units: <code>Mi</code>/<code>Gi</code> are powers of 2 (256Mi ≈ 268 MB); <code>M</code>/<code>G</code> are powers of 10.</p>
+        </template></div>
+        <div class="term"><b>Deployment</b><span>Declares how many replicas of a stateless pod should run and rolls out new versions gradually.</span><template class="term-detail" data-see="ReplicaSet, pod, Service, HPA, probes">
+          <p>The workhorse object for web apps, APIs and workers. You change the image tag; the Deployment creates a new ReplicaSet and shifts pods over.</p>
+          <h4>Rolling update knobs</h4>
+          <ul>
+            <li><code>maxSurge: 25%</code>: how many extra pods may exist during a rollout.</li>
+            <li><code>maxUnavailable: 25%</code>: how many may be missing. Set to <code>0</code> for zero downtime.</li>
+            <li>New pods must pass their <b>readiness probe</b> before old ones are removed.</li>
+          </ul>
+          <p><code>kubectl rollout undo deployment/web</code> switches back to the previous ReplicaSet in seconds. Kubernetes keeps 10 old revisions by default.</p>
+          <p>For stateful software with stable identities (databases, Kafka brokers) use a StatefulSet instead.</p>
+        </template></div>
+        <div class="term"><b>ReplicaSet</b><span>Keeps exactly N identical pods running. Deployments create and manage ReplicaSets for you.</span><template class="term-detail" data-see="Deployment, pod, labels &amp; selectors">
+          <p>A ReplicaSet runs the simplest reconcile loop: count the pods matching my <b>label selector</b>; create or delete pods until the count equals <code>replicas</code>.</p>
+          <p>You rarely touch them directly. During a rollout a Deployment owns two ReplicaSets, old and new, and scales one down while scaling the other up. Their names carry the pod-template hash: <code>web-7d9f8c</code>, and pods are named <code>web-7d9f8c-x2k4q</code>.</p>
+          <p>Deleting a pod by hand is safe: the ReplicaSet notices the shortfall and creates a replacement within seconds.</p>
+        </template></div>
+        <div class="term"><b>Service</b><span>A stable virtual IP and DNS name that load-balances to the Ready pods matching a label selector.</span><template class="term-detail" data-see="pod, labels &amp; selectors, Ingress / Gateway API, probes">
+          <p>Pods come and go with new IPs; a Service gives clients one address that never changes: <code>web.shop.svc.cluster.local</code>, or just <code>web</code> from the same namespace.</p>
+          <h4>Types</h4>
+          <table>
+            <tr><th>Type</th><th>Reachable from</th></tr>
+            <tr><td><code>ClusterIP</code> (default)</td><td>inside the cluster only</td></tr>
+            <tr><td><code>NodePort</code></td><td>every node's IP on a port 30000–32767</td></tr>
+            <tr><td><code>LoadBalancer</code></td><td>a cloud load balancer with a public or private IP</td></tr>
+            <tr><td><code>Headless</code> (<code>clusterIP: None</code>)</td><td>DNS returns pod IPs directly (used by StatefulSets)</td></tr>
+          </table>
+          <p>Only pods passing their readiness probe are listed as endpoints, which is how rollouts and failures avoid sending traffic to broken pods.</p>
+        </template></div>
+        <div class="term"><b>Ingress / Gateway API</b><span>HTTP(S) routing from outside the cluster to Services by host name and path, with TLS termination.</span><template class="term-detail" data-see="Service, namespace">
+          <p>Instead of one cloud load balancer per Service, a single entry point routes <code>shop.example.com/api</code> to the <code>api</code> Service and <code>/</code> to <code>web</code>.</p>
+          <ul>
+            <li><b>Ingress</b>: the original API; needs an ingress controller (NGINX, Traefik, cloud-specific) installed in the cluster.</li>
+            <li><b>Gateway API</b>: the newer, more expressive successor (traffic splitting, header matching, roles for platform vs app teams). Prefer it for new setups.</li>
+          </ul>
+          <p>TLS certificates are usually issued automatically by cert-manager with Let's Encrypt.</p>
+        </template></div>
+        <div class="term"><b>namespace</b><span>A virtual folder inside a cluster for grouping and isolating objects, quotas and permissions.</span><template class="term-detail" data-see="cluster, ConfigMap &amp; Secret, Service">
+          <p>Names must be unique only within a namespace, so <code>team-a</code> and <code>team-b</code> can both have a Service called <code>api</code>.</p>
+          <ul>
+            <li>Built-in: <code>default</code>, <code>kube-system</code> (cluster components), <code>kube-public</code>, <code>kube-node-lease</code>.</li>
+            <li>Attach <b>ResourceQuotas</b> (max CPU/memory per team), <b>RBAC</b> roles and <b>NetworkPolicies</b> per namespace.</li>
+            <li>Namespaces are not a security boundary by themselves: pods can still talk across them unless NetworkPolicies say otherwise.</li>
+          </ul>
+          <p>Common layouts: one namespace per team, per app, or per environment in a shared dev cluster. Select one with <code>-n shop</code> or set it as default for your context.</p>
+        </template></div>
+        <div class="term"><b>labels &amp; selectors</b><span>Key/value tags on objects (<code>app=web</code>) and the queries that pick objects by them. The glue of Kubernetes.</span><template class="term-detail" data-see="Service, ReplicaSet, Deployment">
+          <p>Kubernetes rarely references objects by name. A Service, ReplicaSet or NetworkPolicy finds its pods with a <b>selector</b> such as <code>app=web,tier=frontend</code>.</p>
+          <pre><code>metadata:
+  labels: { app: web, version: "1.4", team: shop }
+---
+selector:
+  matchLabels: { app: web }</code></pre>
+          <p>Recommended keys: <code>app.kubernetes.io/name</code>, <code>/version</code>, <code>/component</code>, <code>/part-of</code>. Query from the CLI: <code>kubectl get pods -l app=web</code>.</p>
+          <p>Gotcha: a typo in a selector means a Service with zero endpoints, silently. Check with <code>kubectl get endpointslices -l kubernetes.io/service-name=web</code>.</p>
+        </template></div>
+        <div class="term"><b>ConfigMap &amp; Secret</b><span>Configuration and credentials stored separately from the image and injected as env vars or files.</span><template class="term-detail" data-see="pod, namespace, Deployment">
+          <p>The same image runs in dev and prod; only its ConfigMaps and Secrets differ.</p>
+          <ul>
+            <li><b>ConfigMap</b>: plain settings (feature flags, URLs, config files).</li>
+            <li><b>Secret</b>: passwords, tokens, TLS keys. Only <b>base64-encoded</b>, not encrypted, unless you enable encryption at rest. Restrict access with RBAC.</li>
+          </ul>
+          <p>Mounted as files they update in place after a short delay; as env vars they're read only at container start, so you need a rollout (<code>kubectl rollout restart</code>) to pick up changes.</p>
+          <p>Production teams often sync secrets from a vault (Azure Key Vault, AWS Secrets Manager, HashiCorp Vault) with the External Secrets Operator.</p>
+        </template></div>
+        <div class="term"><b>PersistentVolumeClaim</b><span>A pod's request for durable storage ("10Gi, read-write"), fulfilled by a PersistentVolume from a StorageClass.</span><template class="term-detail" data-see="StatefulSet, pod, node">
+          <p>Container filesystems disappear with the pod. A PVC asks for a disk that outlives it; the cluster provisions one dynamically (an Azure Disk, an EBS volume…) via a <b>StorageClass</b>.</p>
+          <h4>Access modes</h4>
+          <table><tr><th>Mode</th><th>Meaning</th><th>Typical backend</th></tr><tr><td><code>ReadWriteOnce</code></td><td>one node mounts it read-write</td><td>cloud block disks</td></tr><tr><td><code>ReadWriteMany</code></td><td>many nodes read-write</td><td>NFS, Azure Files, EFS</td></tr><tr><td><code>ReadOnlyMany</code></td><td>many nodes read-only</td><td>shared datasets</td></tr></table>
+          <p>Block disks are tied to one availability zone: a pod using one can only be rescheduled to nodes in that zone. Check the <code>reclaimPolicy</code>: <code>Delete</code> removes the disk with the claim.</p>
+        </template></div>
+        <div class="term"><b>StatefulSet</b><span>Like a Deployment, but each pod gets a stable name, stable DNS and its own persistent volume.</span><template class="term-detail" data-see="PersistentVolumeClaim, Service, Deployment">
+          <p>Pods are named <code>db-0</code>, <code>db-1</code>, <code>db-2</code>, created in order and keep their name and disk across restarts. A headless Service gives each one a DNS name like <code>db-0.db</code>.</p>
+          <p>Used for databases, Kafka brokers, Elasticsearch, ZooKeeper-style clusters: software where members are not interchangeable.</p>
+          <p>Running databases on Kubernetes is possible but demanding (backups, upgrades, failover). Operators such as CloudNativePG or Strimzi automate it; managed cloud databases are often simpler.</p>
+        </template></div>
+        <div class="term"><b>DaemonSet</b><span>Runs one copy of a pod on every node (or a chosen subset), for node-level agents.</span><template class="term-detail" data-see="node, pod">
+          <p>When a node joins, the DaemonSet adds its pod there automatically; when it leaves, the pod goes with it.</p>
+          <p>Typical uses: log collectors (Fluent Bit), metrics agents (node-exporter, Datadog agent), network plugins (Cilium), storage drivers. Use a <code>nodeSelector</code> or tolerations to target, say, only GPU nodes.</p>
+        </template></div>
+        <div class="term"><b>probes</b><span>Health checks the kubelet runs: liveness restarts a stuck container, readiness controls traffic, startup protects slow boots.</span><template class="term-detail" data-see="Service, Deployment, pod">
+          <table>
+            <tr><th>Probe</th><th>If it fails…</th><th>Check</th></tr>
+            <tr><td><b>readiness</b></td><td>pod removed from Service endpoints (no restart)</td><td>"can I serve traffic now?" (DB connected, cache warm)</td></tr>
+            <tr><td><b>liveness</b></td><td>container is restarted</td><td>"am I deadlocked?" Keep it cheap and local</td></tr>
+            <tr><td><b>startup</b></td><td>other probes wait until it passes</td><td>for apps that take a minute to boot</td></tr>
+          </table>
+          <pre><code>readinessProbe:
+  httpGet: { path: /healthz/ready, port: 8000 }
+  periodSeconds: 5</code></pre>
+          <p>Classic mistake: a liveness probe that checks the database. When the database is slow, every pod restarts at once and turns a blip into an outage.</p>
+        </template></div>
+        <div class="term"><b>HPA</b><span>Horizontal Pod Autoscaler: adds or removes replicas based on CPU, memory or custom metrics.</span><template class="term-detail" data-see="vCPU, requests &amp; limits, Deployment">
+          <pre><code>kubectl autoscale deployment web --cpu-percent=70 --min=2 --max=10</code></pre>
+          <p>Every 15 s it computes <code>desired = ceil(current × actual / target)</code>. With 3 pods at 140% of their CPU <b>request</b> and a 70% target, it scales to 6.</p>
+          <ul>
+            <li>Needs metrics-server and CPU <b>requests</b> on the pods, since utilisation is measured against them.</li>
+            <li>Scales down slowly by design (5-minute stabilisation window) to avoid flapping.</li>
+            <li>It adds pods, not machines: the <b>Cluster Autoscaler</b> or Karpenter adds nodes when pods stay Pending. KEDA scales on queue length, Kafka lag and more.</li>
+          </ul>
+        </template></div>
+        <div class="term"><b>Helm</b><span>The package manager for Kubernetes: templated YAML bundles ("charts") installed and upgraded as releases.</span><template class="term-detail" data-see="namespace, Deployment, ConfigMap &amp; Secret">
+          <pre><code>helm repo add bitnami https://charts.bitnami.com/bitnami
+helm install cache bitnami/redis -n shop --set auth.enabled=true
+helm upgrade cache bitnami/redis -f values-prod.yaml
+helm rollback cache 1</code></pre>
+          <p>A chart is templates plus a <code>values.yaml</code>; you override values per environment. Helm records each install as a numbered revision you can roll back to.</p>
+          <p>Alternatives: <b>Kustomize</b> (built into kubectl, patches plain YAML without templates) and GitOps tools like Argo CD or Flux that apply either from a Git repo.</p>
+        </template></div>
+      </div>
+    </section>
+
+    <section id="commands">
+      <h2>Essential commands &amp; syntax</h2>
+      <div class="cmd-group">
+        <h3>Setup &amp; context</h3>
+        <div class="cmd"><pre><code>kind create cluster --name dev</code></pre><div class="what">Local cluster running inside Docker containers (also: minikube, k3d, Docker Desktop's built-in Kubernetes).</div></div>
+        <div class="cmd"><pre><code>kubectl config get-contexts
+kubectl config use-context dev</code></pre><div class="what">List clusters you can talk to and switch between them. Always check before running destructive commands.</div></div>
+        <div class="cmd"><pre><code>kubectl config set-context --current --namespace=shop</code></pre><div class="what">Default namespace for later commands, instead of typing <code>-n shop</code> each time.</div></div>
+      </div>
+      <div class="cmd-group">
+        <h3>Deploy</h3>
+        <div class="cmd"><pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata: { name: web }
+spec:
+  replicas: 3
+  selector: { matchLabels: { app: web } }
+  template:
+    metadata: { labels: { app: web } }
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/acme/web:1.4
+          ports: [{ containerPort: 8000 }]
+          resources:
+            requests: { cpu: 250m, memory: 256Mi }
+            limits: { memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: web }
+spec:
+  selector: { app: web }
+  ports: [{ port: 80, targetPort: 8000 }]</code></pre><div class="what"><code>web.yaml</code>: a Deployment with resource requests plus a Service in front of it.</div></div>
+        <div class="cmd"><pre><code>kubectl apply -f web.yaml</code></pre><div class="what">Create or update objects to match the file. Safe to run repeatedly.</div></div>
+        <div class="cmd"><pre><code>kubectl set image deployment/web web=ghcr.io/acme/web:1.5
+kubectl rollout status deployment/web
+kubectl rollout undo deployment/web</code></pre><div class="what">Roll out a new image, watch it, and roll back if something's wrong.</div></div>
+        <div class="cmd"><pre><code>kubectl scale deployment/web --replicas=5</code></pre><div class="what">Change the replica count by hand (an HPA would override it).</div></div>
+      </div>
+      <div class="cmd-group">
+        <h3>Inspect &amp; debug</h3>
+        <div class="cmd"><pre><code>kubectl get pods -o wide · kubectl get all -A</code></pre><div class="what">Pods with their node and IP; everything in every namespace.</div></div>
+        <div class="cmd"><pre><code>kubectl describe pod web-7d9f8c-x2k4q</code></pre><div class="what">Details and <b>Events</b> at the bottom: why it's Pending, failing probes, image pull errors.</div></div>
+        <div class="cmd"><pre><code>kubectl logs -f deploy/web --previous</code></pre><div class="what">Follow logs; <code>--previous</code> shows the crashed container's last run.</div></div>
+        <div class="cmd"><pre><code>kubectl exec -it deploy/web -- sh</code></pre><div class="what">Shell inside a running container.</div></div>
+        <div class="cmd"><pre><code>kubectl port-forward svc/web 8080:80</code></pre><div class="what">Reach a Service from your laptop at <code>localhost:8080</code>, no Ingress needed.</div></div>
+        <div class="cmd"><pre><code>kubectl get events --sort-by=.lastTimestamp
+kubectl top pods</code></pre><div class="what">Recent cluster events in order; live CPU and memory usage (needs metrics-server).</div></div>
+        <div class="cmd"><pre><code>from kubernetes import client, config
+config.load_kube_config()
+for p in client.CoreV1Api().list_namespaced_pod("shop").items:
+    print(p.metadata.name, p.status.phase)</code></pre><div class="what">Python client (<code>pip install kubernetes</code>), using the same kubeconfig as kubectl.</div></div>
+      </div>
+    </section>
+
+    <section id="pros-cons">
+      <h2>Pros &amp; cons</h2>
+      <div class="cols">
+        <div class="col good"><h3>Pros</h3><ul>
+          <li>Self-healing: crashed containers restart, lost nodes' pods are rescheduled automatically.</li>
+          <li>Zero-downtime rolling updates and one-command rollbacks.</li>
+          <li>Declarative YAML in Git: environments are reproducible and reviewable.</li>
+          <li>Bin-packs many services onto shared machines, using hardware efficiently.</li>
+          <li>Same API on every cloud and on-premises; huge ecosystem (Helm, Argo CD, Prometheus, Istio).</li>
+          <li>Autoscaling of pods (HPA, KEDA) and of nodes (Cluster Autoscaler, Karpenter).</li>
+        </ul></div>
+        <div class="col bad"><h3>Cons</h3><ul>
+          <li>Steep learning curve: dozens of object types, networking and storage concepts.</li>
+          <li>Operational overhead even when managed: upgrades every few months, add-ons, security patches.</li>
+          <li>Easy to misconfigure: missing requests, bad probes or open RBAC cause outages and breaches.</li>
+          <li>Debugging spans many layers (app, container, pod, node, network, cloud).</li>
+          <li>Baseline cost: control plane, system pods and spare capacity before your app runs.</li>
+          <li>Overkill for a handful of services or a small team.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="use-cases">
+      <h2>Concrete use cases</h2>
+      <div class="cards">
+        <div class="card"><h3>Microservices platform</h3><p>A retailer runs 60 services owned by 10 teams on one AKS cluster per environment. Each team gets a namespace, quotas and its own Argo CD app; the platform team owns ingress, observability and upgrades.</p></div>
+        <div class="card"><h3>Spiky web traffic</h3><p>A ticketing site's HPA scales the checkout Deployment from 4 to 40 pods during a sale, and Karpenter adds nodes for them. Both scale back down at night.</p></div>
+        <div class="card"><h3>Batch and ML jobs</h3><p>A data team submits Jobs and CronJobs for nightly ETL and model training on a GPU node pool that scales to zero when idle.</p></div>
+        <div class="card"><h3>Hybrid and multi-cloud</h3><p>A manufacturer runs the same Helm charts on-premises (on factory servers with k3s) and in the cloud, so the deployment process is identical everywhere.</p></div>
+        <div class="card"><h3>Preview environments</h3><p>Every pull request gets its own namespace with the full app deployed, so reviewers click a URL instead of running it locally. It's deleted on merge.</p></div>
+      </div>
+    </section>
+
+    <section id="when">
+      <h2>When to use / when not to</h2>
+      <span class="note" style="margin:-6px 0 14px">Rule of thumb: adopt it when you have more services than people who want to manage servers.</span>
+      <div class="cols">
+        <div class="col good"><h3>Use it when…</h3><ul>
+          <li>You run many containerised services that need scheduling, scaling and self-healing.</li>
+          <li>You need zero-downtime deploys and fast rollbacks as routine.</li>
+          <li>Several teams share infrastructure and need isolation and self-service.</li>
+          <li>You want one deployment model across clouds or on-premises.</li>
+          <li>You already have (or can buy) the skills: a platform team or a managed service.</li>
+        </ul></div>
+        <div class="col bad"><h3>Avoid it when…</h3><ul>
+          <li>You have a few services and a small team. Use <b>Azure Container Apps</b>, <b>Cloud Run</b> or <b>ECS Fargate</b>.</li>
+          <li>Everything runs on one server. Use <b>Docker Compose</b>.</li>
+          <li>The app is a classic monolith with a database. Use a <b>PaaS</b> such as App Service or Heroku.</li>
+          <li>Workloads are event-driven and short. Use <b>serverless functions</b>.</li>
+          <li>Nobody owns upgrades and security. An unmaintained cluster is a liability.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="gotchas">
+      <h2>Common mistakes &amp; gotchas</h2>
+      <span class="note" style="margin:-6px 0 14px">Click any key concept above for the deep dive. vCPU and probes explain half of these.</span>
+      <div class="gotcha"><b>No resource requests or memory limits</b><span>The scheduler packs pods blindly, nodes run out of memory, and random pods get evicted or OOMKilled.</span><div class="fix">Fix: set CPU and memory requests on every container and a memory limit; enforce with LimitRanges.</div></div>
+      <div class="gotcha"><b>Liveness probe checks dependencies</b><span>When the database is slow, every pod fails liveness and restarts together, turning a slowdown into an outage.</span><div class="fix">Fix: liveness checks only the process itself; put dependency checks in readiness.</div></div>
+      <div class="gotcha"><b>Using <code>:latest</code> image tags</b><span>Pods on different nodes run different code, and <code>kubectl rollout undo</code> can't go back.</span><div class="fix">Fix: immutable tags (version or git SHA) and <code>imagePullPolicy: IfNotPresent</code>.</div></div>
+      <div class="gotcha"><b>Running only one replica</b><span>Node upgrades and evictions take the app down, even though Kubernetes is "highly available".</span><div class="fix">Fix: at least 2 replicas, a PodDisruptionBudget and topology spread across zones.</div></div>
+      <div class="gotcha"><b>Secrets treated as encrypted</b><span>Secrets are base64; anyone who can read them in the namespace can decode them.</span><div class="fix">Fix: enable encryption at rest, tight RBAC, and an external secret store.</div></div>
+      <div class="gotcha"><b>Ignoring graceful shutdown</b><span>On rollout, pods get SIGTERM while the Service may still route to them for a few seconds; in-flight requests fail.</span><div class="fix">Fix: handle SIGTERM, add a short <code>preStop</code> sleep, and set <code>terminationGracePeriodSeconds</code> to cover your longest request.</div></div>
+      <div class="gotcha"><b>Running <code>kubectl</code> against the wrong cluster</b><span>A <code>delete</code> meant for dev hits production because the context was still set.</span><div class="fix">Fix: show the context in your prompt (kube-ps1), use separate kubeconfigs, and restrict prod access with RBAC.</div></div>
+      <div class="gotcha"><b>Falling behind on upgrades</b><span>Each minor version is supported for about a year; skipping versions makes upgrades painful and APIs disappear.</span><div class="fix">Fix: upgrade on a schedule, one minor version at a time, and test with <code>kubectl deprecations</code> tools such as Pluto.</div></div>
+    </section>
+
+    <section id="alternatives">
+      <h2>Alternatives</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Tool</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs Kubernetes</th></tr></thead>
+          <tbody>
+            <tr class="self"><td><b>Kubernetes</b></td><td>Many services, many teams, any cloud</td><td>High</td><td>Apache 2.0; managed AKS, EKS, GKE</td><td>—</td></tr>
+            <tr><td><b>Docker Compose</b></td><td>One host: dev and small production</td><td>Low</td><td>Apache 2.0</td><td>No multi-node scheduling or self-healing across machines</td></tr>
+            <tr><td><b>Azure Container Apps / Cloud Run / ECS Fargate</b></td><td>Running containers without managing a cluster</td><td>Low</td><td>Pay per use</td><td>Serverless containers: no nodes, less control, scale to zero</td></tr>
+            <tr><td><b>HashiCorp Nomad</b></td><td>Simple orchestration of containers and non-container jobs</td><td>Medium</td><td>BSL 1.1</td><td>Single binary, smaller scope; integrates with Consul and Vault</td></tr>
+            <tr><td><b>Docker Swarm</b></td><td>Small clusters with Compose-like files</td><td>Low</td><td>Apache 2.0</td><td>Built into Docker, simple, but a much smaller ecosystem</td></tr>
+            <tr><td><b>k3s</b></td><td>Edge, IoT, small or on-prem clusters</td><td>Medium</td><td>Apache 2.0</td><td>Certified Kubernetes in a single lightweight binary</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul style="margin-top:12px">
+        <li><b>Pick Docker Compose</b> if everything fits on one machine.</li>
+        <li><b>Pick Container Apps, Cloud Run or Fargate</b> if you want containers in production without a platform team.</li>
+        <li><b>Pick Nomad</b> if you need to schedule mixed workloads with less complexity.</li>
+        <li><b>Pick Swarm</b> only for small, simple setups that already use Compose files.</li>
+        <li><b>Pick k3s</b> if you need real Kubernetes on small hardware or at the edge.</li>
+      </ul>
+    </section>
+
+    <section id="resources">
+      <h2>Resources</h2>
+      <ul>
+        <li><a href="https://kubernetes.io/docs/home/" target="_blank" rel="noopener">Kubernetes documentation</a>: concepts, tasks and the API reference.</li>
+        <li><a href="https://kubernetes.io/docs/tutorials/kubernetes-basics/" target="_blank" rel="noopener">Kubernetes Basics tutorial</a>: deploy, expose, scale and update an app step by step.</li>
+        <li><a href="https://kind.sigs.k8s.io/" target="_blank" rel="noopener">kind</a>: run a local cluster inside Docker in one command.</li>
+        <li><a href="https://kubernetes.io/docs/reference/kubectl/quick-reference/" target="_blank" rel="noopener">kubectl quick reference</a>: the official cheat sheet of commands.</li>
+        <li><a href="https://learnk8s.io/troubleshooting-deployments" target="_blank" rel="noopener">Troubleshooting deployments (Learnk8s)</a>: a visual flowchart for broken pods.</li>
+      </ul>
+    </section>
+    <!-- RELATED:START (generated by scripts/build-index.mjs, do not edit) -->
+    <section id="related">
+      <h2>Related pages</h2>
+      <div class="related-list">
+          <a class="related-card" href="docker.html">
+            <b>Docker</b>
+            <span>Package an app with everything it needs, then run it the same way on any machine.</span>
+            <small>Mentioned here in Overview, Essential commands &amp; syntax, When to use / when not to, Alternatives and Resources · Docker mentions Kubernetes in Overview, Key concepts, When to use / when not to and Alternatives · Shared tags: containers, devops</small>
+          </a>
+          <a class="related-card" href="kafka.html">
+            <b>Apache Kafka</b>
+            <span>A distributed, append-only log for events: write once, read by many, replay any time.</span>
+            <small>Mentioned here in Key concepts</small>
+          </a>
+      </div>
+    </section>
+    <!-- RELATED:END -->
+  </main>
+</div>
+
+<script src="../assets/player.js"></script>
+<script>
+/* ---------- Animation 1: kubectl apply ---------- */
+createAnimation('anim-deploy', [
+  { say: 'You run <code>kubectl apply -f web.yaml</code>: a Deployment asking for 3 replicas of <code>web:1.4</code>. You describe the <b>desired state</b>, not the steps to get there.',
+    show: ['k-yaml'], hl: ['k-cli'] },
+  { say: 'The API server authenticates you, checks your RBAC permissions and validates the object against its schema.',
+    move: { 'k-yaml': [160, 0] }, unhl: ['k-cli'], hl: ['k-api'], text: { 'k-api-l': 'authn · RBAC · validate' } },
+  { say: 'It stores the Deployment in <b>etcd</b>, the cluster\'s database, and kubectl returns. Nothing is running yet: you only changed the desired state.',
+    hide: ['k-yaml'], unhl: ['k-api'], hl: ['k-etcd'], text: { 'k-api-l': 'stored ✓', 'k-etcd-t': 'web: want 3 replicas' } },
+  { say: 'The Deployment controller (through a ReplicaSet) sees "want 3, have 0" and creates 3 Pod objects. They are <b>Pending</b>: no node yet.',
+    unhl: ['k-etcd'], hl: ['k-ctrl'], text: { 'k-ctrl-t': 'want 3 · have 0 → create' }, show: ['k-pending', 'k-pending-t', 'k-p1', 'k-p2', 'k-p3'] },
+  { say: 'The scheduler picks up Pending pods and scores every node: is there enough free CPU and memory for the pod\'s <b>requests</b> (500m each here)? Affinity and spreading rules count too.',
+    unhl: ['k-ctrl'], hl: ['k-sched'], text: { 'k-ctrl-t': 'want 3 · have 3', 'k-sched-t': 'scoring nodes…' } },
+  { say: 'It binds two pods to node-1 and one to node-2, which only has room for one.',
+    move: { 'k-p1': [190, -95], 'k-p2': [190, -101], 'k-p3': [190, -27] }, hide: ['k-pending', 'k-pending-t'],
+    text: { 'k-sched-t': 'node-1 ×2 · node-2 ×1', 'k-p1-t': 'Scheduled', 'k-p2-t': 'Scheduled', 'k-p3-t': 'Scheduled' } },
+  { say: 'The <b>kubelet</b> on each node sees pods assigned to it, tells containerd to pull <code>web:1.4</code> and start the containers.',
+    unhl: ['k-sched'], hl: ['k-n1', 'k-n2'], text: { 'k-p1-t': 'pulling image…', 'k-p2-t': 'pulling image…', 'k-p3-t': 'pulling image…' } },
+  { say: 'Containers start, readiness probes pass, and the pods become <b>Ready</b>. The Service starts sending them traffic. Desired state = actual state.',
+    unhl: ['k-n1', 'k-n2'], fill: { 'k-p1-r': '#e3eedc', 'k-p2-r': '#e3eedc', 'k-p3-r': '#e3eedc' },
+    text: { 'k-p1-t': 'Running · Ready', 'k-p2-t': 'Running · Ready', 'k-p3-t': 'Running · Ready' } },
+  { say: 'Controllers never stop comparing desired and actual state. That reconcile loop is what makes the next animation, self-healing, possible.',
+    show: ['k-note'] },
+]);
+
+/* ---------- Animation 2: self-healing ---------- */
+createAnimation('anim-heal', [
+  { say: 'Three <code>web</code> pods run on three nodes. The <b>Service</b> gives them one stable name and spreads traffic across all Ready pods.',
+    hl: ['h-svc'] },
+  { say: 'node-1 loses power. Its kubelet stops sending heartbeats to the API server.',
+    unhl: ['h-svc'], hl: ['h-n1'], fill: { 'h-n1': '#f9e3df' }, text: { 'h-n1-t': 'node-1 · no heartbeat' } },
+  { say: 'After about 40 s without heartbeats the node lifecycle controller marks node-1 <b>NotReady</b>. Its pods are marked for eviction (after a 5-minute toleration by default).',
+    unhl: ['h-n1'], hl: ['h-nc'], text: { 'h-n1-t': 'node-1 · NotReady', 'h-nc-t': 'node-1 NotReady → evict', 'h-a-t': 'Terminating' }, fill: { 'h-a': '#f9e3df' } },
+  { say: 'As soon as web-a stops being Ready, it is removed from the Service\'s endpoints, so users only reach web-b and web-c.',
+    hide: ['h-l-a'], unhl: ['h-nc'], hl: ['h-svc'], text: { 'h-svc-t': '2 endpoints' } },
+  { say: 'The <b>ReplicaSet controller</b> compares desired and actual: want 3, have 2. It creates a replacement Pod object.',
+    unhl: ['h-svc'], hl: ['h-ctrl'], text: { 'h-ctrl-t': 'want 3 · have 2 → create 1' }, fill: { 'h-ctrl': '#fbf3c4' } },
+  { say: 'The scheduler places the new pod on node-3, which has spare capacity.',
+    show: ['h-d'], unhl: ['h-ctrl'], hl: ['h-n3'], text: { 'h-d-t': 'Scheduled · pulling' } },
+  { say: 'It starts, passes readiness, and joins the Service. Back to 3 healthy replicas, and nobody was paged.',
+    unhl: ['h-n3'], show: ['h-l-d'], fill: { 'h-d-r': '#e3eedc', 'h-ctrl': '#fbfcf8' },
+    text: { 'h-d-t': 'Running · Ready', 'h-svc-t': '3 endpoints', 'h-ctrl-t': 'want 3 · have 3 ✓' } },
+  { say: 'The new pod has a different name and IP. That is why clients use the Service name and why state belongs in volumes or external databases, never inside a pod.',
+    show: ['h-note', 'h-note2'] },
+]);
+
+/* ---------- Concept panel animations ---------- */
+window.TERM_ANIMS = {
+  vcpu: [
+    { say: 'node-1 has 4 vCPU = 4000m. About 200m is reserved for the OS and the kubelet, so ~3800m is <b>allocatable</b> to pods.', hl: [] },
+    { say: 'The <code>api</code> pod requests <code>500m</code>. The scheduler subtracts it from the free capacity.', show: ['v-api'], text: { 'v-free': 'free: 3300m' } },
+    { say: 'Two <code>web</code> replicas request <code>250m</code> each.', show: ['v-web'], text: { 'v-free': 'free: 2800m' } },
+    { say: 'A <code>worker</code> requests <code>1500m</code>. Requests are a reservation: they count even when the pod is idle.', show: ['v-worker'], text: { 'v-free': 'free: 1300m' } },
+    { say: 'A new pod requesting <code>1500m</code> doesn\'t fit: only 1300m is unreserved. It stays <b>Pending</b> until a node has room, even if the node\'s actual CPU usage is low.', show: ['v-new', 'v-new-t'] },
+    { say: 'The worker idles at ~900m, below its request. Its <b>limit</b> is <code>2000m</code>.', hide: ['v-new', 'v-new-t'], show: ['v-usage'] },
+    { say: 'A traffic spike: the worker can burst above its request, using spare CPU on the node, up to its limit.', move: { 'v-cover': [77, 0] } },
+    { say: 'At <code>2000m</code> the kernel <b>throttles</b> it: the container is paused for part of every 100 ms period. It gets slower, not killed. (Exceeding a <i>memory</i> limit kills it: OOMKilled.)', move: { 'v-cover': [142, 0] }, show: ['v-thr'] },
+  ],
+};
+</script>
+</body>
+</html>

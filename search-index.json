@@ -1,0 +1,690 @@
+{
+  "pages": [
+    {
+      "slug": "kafka",
+      "url": "cheatsheets/kafka.html",
+      "title": "Apache Kafka",
+      "aliases": [
+        "Apache Kafka",
+        "Kafka"
+      ],
+      "tagline": "A distributed, append-only log for events: write once, read by many, replay any time.",
+      "asOf": "As of Nov 2026 · release line 4.x (KRaft only)",
+      "description": "Apache Kafka cheatsheet: architecture, animated produce and consumer-group walk-throughs, key concepts, CLI commands, trade-offs and alternatives.",
+      "tags": [
+        "event streaming",
+        "message broker",
+        "pub/sub",
+        "log",
+        "event-driven",
+        "microservices",
+        "kraft",
+        "cdc"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential commands & syntax"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-record",
+          "term": "record",
+          "def": "One event: optional key, value (bytes), timestamp and headers. Kafka does not care about the format; JSON, Avro and Protobuf are common.",
+          "detail": "Field Example Notes key user-42 optional; decides the partition and enables compaction value {\"status\":\"paid\"} bytes: JSON, Avro, Protobuf… timestamp 1731234567890 creation or append time (ms) headers trace-id: ab12 metadata, e.g. tracing, content type Default maximum size is about 1 MB (message.max.bytes). Typical events are 0.5–10 KB. Records are batched and compressed (lz4, zstd) by the producer, which is why throughput is so high. Use a schema registry with Avro or Protobuf so producers and consumers agree on the format as it evolves."
+        },
+        {
+          "id": "term-topic",
+          "term": "topic",
+          "def": "A named stream of records, like orders or user-signups. Roughly a table name for events.",
+          "detail": "A topic is a named, partitioned log. Name it after the event, in a consistent style: orders.placed.v1, payments.refunded, user-profiles (compacted). Settings you'll set per topic partitions: parallelism and ordering unit (e.g. 6–12 for a busy topic). replication factor: copies across brokers (3 in production). retention: retention.ms (7 days default) or retention.bytes. cleanup.policy: delete (by age/size) or compact (latest per key). Avoid auto-created topics in production (auto.create.topics.enable=false): a typo silently creates a new, empty topic with default settings."
+        },
+        {
+          "id": "term-partition",
+          "term": "partition",
+          "def": "A topic is split into partitions. Each one is an ordered, append-only log and the unit of parallelism and ordering.",
+          "detail": "Each partition is an ordered log stored as segment files on a broker's disk, replicated to others. It is the unit of: Ordering: guaranteed within a partition only. Parallelism: in a consumer group, at most one consumer per partition. Placement: each partition has one leader broker. Choosing a count Rule of thumb: max(target throughput / per-consumer throughput, peak consumers). If one consumer handles 5 MB/s and you need 30 MB/s, you need at least 6. Common values: 3–12 for most topics, 30–100 for very high volume. You can add partitions later but never remove them, and adding them changes which partition each key maps to."
+        },
+        {
+          "id": "term-offset",
+          "term": "offset",
+          "def": "The position of a record inside a partition (0, 1, 2…). Never reused. Consumers track progress by offset.",
+          "detail": "An offset is a record's position in its partition: 0, 1, 2… It never changes and is never reused, even after old records are deleted by retention or compaction (gaps are normal). Log end offset: where the next record will be written. Committed offset: where a consumer group will resume. Lag = log end offset − committed offset. The key health metric. Reset where a group starts with auto.offset.reset (earliest / latest) for new groups, or explicitly with kafka-consumer-groups.sh --reset-offsets --to-datetime 2026-11-10T08:00:00.000."
+        },
+        {
+          "id": "term-broker",
+          "term": "broker",
+          "def": "A Kafka server. It stores partition replicas on disk and serves producers and consumers. A cluster usually has 3 or more.",
+          "detail": "A broker is one Kafka server process. It stores partition replicas in log segments on disk, serves producer and consumer requests for partitions it leads, and replicates from leaders for the others. Typical sizing 3 brokers is the minimum for production with replication factor 3. Brokers commonly have 8–32 vCPU, 32–64 GB RAM (much of it used as OS page cache) and fast disks. A single broker can handle hundreds of MB/s and thousands of partitions. Clients connect to any broker via bootstrap.servers, fetch metadata, then talk directly to each partition's leader."
+        },
+        {
+          "id": "term-kraft-controller",
+          "term": "KRaft controller",
+          "def": "The built-in Raft quorum that manages cluster metadata and elects partition leaders. Replaced ZooKeeper, which was removed in Kafka 4.0.",
+          "detail": "KRaft (Kafka Raft) is Kafka's built-in metadata quorum. A few controller nodes (3 or 5) replicate a metadata log containing topics, partitions, configs, ACLs and who leads what. Elects partition leaders when a broker fails. Replaced ZooKeeper; ZooKeeper mode was removed in Kafka 4.0. Older clusters must migrate on 3.x first. Controllers can run on dedicated nodes (production) or combined with brokers (dev). Benefit: one system to operate and secure, faster failover, and support for millions of partitions."
+        },
+        {
+          "id": "term-replication-factor",
+          "term": "replication factor",
+          "def": "How many copies of each partition exist on different brokers. 3 is the usual production value.",
+          "detail": "RF = number of copies of each partition, each on a different broker. RF Survives Use 1 nothing: one disk failure loses data local dev only 2 1 broker, but no safety margin with acks=all rarely a good idea 3 1 broker down while still accepting writes production standard Pair RF 3 with min.insync.replicas=2 and acks=all: every acknowledged write is on at least 2 brokers. Storage cost is RF × data size."
+        },
+        {
+          "id": "term-leader-follower",
+          "term": "leader / follower",
+          "def": "Each partition has one leader replica that handles reads and writes. Followers copy it and take over if it fails.",
+          "detail": "For each partition one replica is the leader: producers write to it and (by default) consumers read from it. Followers continuously fetch from the leader to stay in sync. When a leader's broker dies, the controller promotes an in-sync follower within seconds; clients refresh metadata and continue. Leaders are spread across brokers so load is balanced. Consumers can read from a nearby follower (rack-aware fetching) to save cross-zone traffic costs."
+        },
+        {
+          "id": "term-isr",
+          "term": "ISR",
+          "def": "In-sync replicas: the followers that are caught up with the leader. Only they can become leader without data loss.",
+          "detail": "The in-sync replica set is the leader plus the followers that have caught up within replica.lag.time.max.ms (30 s by default). With acks=all, a write is acknowledged when every ISR member has it. If the ISR shrinks below min.insync.replicas, producers using acks=all get NotEnoughReplicas errors: Kafka chooses consistency over availability. unclean.leader.election.enable=false (default) prevents an out-of-sync replica from becoming leader and silently losing data. Alert on \"under-replicated partitions\": it means a broker is slow or down."
+        },
+        {
+          "id": "term-acks",
+          "term": "acks",
+          "def": "Producer setting for durability: 0 (fire and forget), 1 (leader only), all (every in-sync replica, the default since 3.0).",
+          "detail": "acks Producer waits for Risk Latency 0 nothing lost silently on any error lowest 1 the leader lost if the leader dies before followers copy it low all / -1 (default) all in-sync replicas none, with min.insync.replicas ≥ 2 a few ms more Since Kafka 3.0 producers default to acks=all and enable.idempotence=true, so retries can't create duplicates. Only lower them for metrics or logs you can afford to lose."
+        },
+        {
+          "id": "term-producer",
+          "term": "producer",
+          "def": "Client that writes records. It batches and compresses them, and picks the partition by hashing the key.",
+          "detail": "The producer client batches records per partition, compresses them and sends them asynchronously. Settings worth knowing Setting Typical Effect linger.ms 5–20 (default 5) wait a bit to fill bigger batches batch.size 16–256 KB max bytes per partition batch compression.type lz4 / zstd less network and disk enable.idempotence true no duplicates on retry Partitioning: keyed records go to murmur2(key) % partitions; records without a key are spread with a \"sticky\" partitioner that fills one batch at a time. For atomic writes across partitions, use transactions (transactional.id)."
+        },
+        {
+          "id": "term-consumer-group",
+          "term": "consumer group",
+          "def": "Consumers sharing a group.id. Partitions are divided among them, so each record is processed by one member of the group.",
+          "detail": "All consumers with the same group.id share the work: each partition is assigned to exactly one member. Different groups are completely independent and each sees every record. Partitions Consumers Result 6 3 2 partitions each 6 6 1 each: maximum parallelism 6 8 2 consumers idle Name groups after the application, not the instance: billing-service. Inspect with kafka-consumer-groups.sh --describe --group billing-service."
+        },
+        {
+          "id": "term-committed-offset",
+          "term": "committed offset",
+          "def": "The group's bookmark per partition, stored in the internal topic __consumer_offsets. A restart resumes from it.",
+          "detail": "The bookmark a group stores per partition in the internal topic __consumer_offsets. By convention it's the offset of the next record to read. Commit… Crash in between means Delivery after processing reprocessing some records at-least-once (usual) before processing skipping some records at-most-once in a transaction with the output nothing duplicated exactly-once (Kafka-to-Kafka) enable.auto.commit=true commits every 5 s in the background, regardless of whether you finished processing: convenient but imprecise."
+        },
+        {
+          "id": "term-rebalance",
+          "term": "rebalance",
+          "def": "Reassignment of partitions when consumers join, leave or crash. Processing pauses for affected partitions while it runs.",
+          "detail": "Triggered when a consumer joins, leaves, crashes (no heartbeat within session.timeout.ms, 45 s default) or takes too long between polls (max.poll.interval.ms, 5 min default). Classic eager protocol: everyone stops, all partitions are reassigned. \"Stop-the-world\". Cooperative (incremental): only moved partitions pause. New consumer protocol (KIP-848, Kafka 4.0+, group.protocol=consumer): the broker coordinates assignments; rebalances are faster and less disruptive. Use group.instance.id (static membership) so a restarting pod gets its partitions back without a rebalance."
+        },
+        {
+          "id": "term-retention",
+          "term": "retention",
+          "def": "How long records are kept: by time (retention.ms, 7 days by default) or size, whether consumed or not.",
+          "detail": "Kafka deletes old data per segment file (default 1 GB or 7 days per segment), once the whole segment is older than the retention limit. Setting Default Typical retention.ms 7 days 1–30 days; -1 = forever retention.bytes unlimited cap per partition Retention is independent of consumption: unread records are deleted too, so lag must stay well below retention. Tiered storage can move old segments to object storage (S3, Azure Blob) for cheap long retention."
+        },
+        {
+          "id": "term-log-compaction",
+          "term": "log compaction",
+          "def": "Alternative cleanup policy that keeps only the latest record per key. Turns a topic into a changelog or table snapshot.",
+          "detail": "With cleanup.policy=compact, Kafka keeps at least the latest record per key instead of deleting by age. The topic becomes a changelog: replaying it rebuilds the current state. Compacting a user-address topic Used for Kafka Streams state stores, CDC tables, configuration and __consumer_offsets itself. Compaction runs in the background and never touches the active segment, so recent duplicates can still be read."
+        },
+        {
+          "id": "term-kafka-connect-streams",
+          "term": "Kafka Connect / Streams",
+          "def": "Connect moves data between Kafka and other systems (databases, S3). Streams is a Java library for processing topics into new topics.",
+          "detail": "Kafka Connect A framework to move data in and out of Kafka with configuration instead of code. Source connectors read from systems (Debezium for PostgreSQL/MySQL CDC, JDBC, MQTT); sink connectors write to them (Elasticsearch, S3, Snowflake). Runs as a scalable cluster of workers. Kafka Streams A Java/Kotlin library (not a cluster) for processing topics into topics: filter, map, join, aggregate over time windows, with local state backed by compacted changelog topics and exactly-once support. Scales like a consumer group. Alternatives for processing: Apache Flink (bigger, any language via SQL), ksqlDB, or plain consumers in Python with confluent-kafka or Faust-style libraries."
+        }
+      ],
+      "related": [
+        "redis",
+        "docker",
+        "kubernetes"
+      ]
+    },
+    {
+      "slug": "docker",
+      "url": "cheatsheets/docker.html",
+      "title": "Docker",
+      "aliases": [
+        "Docker"
+      ],
+      "tagline": "Package an app with everything it needs, then run it the same way on any machine.",
+      "asOf": "As of Nov 2026 · Docker Engine 29.x",
+      "description": "Docker cheatsheet: architecture, animated docker run and build-cache walk-throughs, key concepts, commands, trade-offs and alternatives.",
+      "tags": [
+        "containers",
+        "container runtime",
+        "images",
+        "dockerfile",
+        "devops",
+        "docker compose",
+        "oci",
+        "podman"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential commands & syntax"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-image",
+          "term": "image",
+          "def": "A read-only template: a stack of filesystem layers plus metadata (start command, env vars, exposed ports). Built once, run anywhere.",
+          "detail": "An image is a list of layer tarballs plus a JSON config (entrypoint, env vars, working dir, exposed ports, user). It is immutable and identified by a content hash (digest). Typical base image sizes Base Size Notes alpine ~8 MB musl libc: some Python wheels must compile python:3.13-slim ~45 MB compressed Debian minimal, good default python:3.13 ~400 MB full toolchain, use as build stage distroless / chiseled ~20–50 MB no shell, smallest attack surface One image can target several CPU architectures (linux/amd64, linux/arm64) under the same tag: a multi-platform image."
+        },
+        {
+          "id": "term-container",
+          "term": "container",
+          "def": "A running (or stopped) instance of an image: an isolated process with its own writable layer. Many containers can run from one image.",
+          "detail": "A container = image layers (read-only) + its own writable layer + runtime settings (env, ports, mounts, limits) + an isolated process. Lifecycle created → running → paused / exited → removed. A stopped container still exists (and keeps its writable layer) until docker rm. PID 1 inside the container is your app; when it exits, the container stops. Restart policies: --restart unless-stopped keeps services up across crashes and host reboots. Limit resources: --memory 512m --cpus 1.5."
+        },
+        {
+          "id": "term-layer",
+          "term": "layer",
+          "def": "The filesystem changes made by one Dockerfile instruction. Layers are content-addressed, cached and shared between images.",
+          "detail": "Each filesystem-changing instruction (RUN, COPY, ADD) creates a layer containing only the files it added, changed or deleted. Layers are stacked with a union filesystem (overlayfs). Deleting a file in a later layer hides it but doesn't shrink the image: the bytes are still in the earlier layer. Clean up in the same RUN that created the files. Layers are shared: ten images on python:3.13-slim store the base once. Inspect with docker history myapp:1.0 or the dive tool."
+        },
+        {
+          "id": "term-dockerfile",
+          "term": "Dockerfile",
+          "def": "A text file of instructions (FROM, COPY, RUN, CMD …) that describes how to build an image.",
+          "detail": "Instruction Does FROM base image (one per stage) WORKDIR set and create the working directory COPY / ADD add files from the build context (prefer COPY) RUN run a command at build time, creating a layer ENV / ARG runtime env var / build-time variable EXPOSE document the port (doesn't publish it) USER run as this user from here on CMD / ENTRYPOINT default command / fixed executable HEALTHCHECK command Docker runs to report health Order instructions from least to most frequently changing so the build cache helps you."
+        },
+        {
+          "id": "term-build-cache",
+          "term": "build cache",
+          "def": "Docker reuses a layer when its instruction and inputs are unchanged. Once one step changes, every later step is rebuilt.",
+          "detail": "For each instruction, BuildKit checks whether it already built the same instruction on the same parent layer with the same inputs (for COPY, a checksum of the copied files). If yes, it reuses the layer. The first cache miss invalidates every later step. RUN apt-get update is cached too, so combine it with install in one RUN. Cache mounts keep package caches between builds: RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.txt. CI runners start empty; export the cache to a registry (--cache-to type=registry) or use the GitHub Actions cache. Force a clean build with --no-cache."
+        },
+        {
+          "id": "term-registry",
+          "term": "registry",
+          "def": "A server that stores and distributes images: Docker Hub, GitHub Container Registry, ECR, ACR, or a private one.",
+          "detail": "A registry stores images in repositories (ghcr.io/acme/web), each with many tags. Pull and push use the OCI distribution API; only missing layers are transferred. Registry Notes Docker Hub default for unqualified names; pull rate limits for anonymous users GitHub Container Registry ghcr.io, permissions tied to the repo Azure ACR / AWS ECR / Google Artifact Registry close to your cloud workloads, private networking Harbor self-hosted, with scanning and replication Scan images for known vulnerabilities (Docker Scout, Trivy) as part of CI."
+        },
+        {
+          "id": "term-tag-digest",
+          "term": "tag / digest",
+          "def": "nginx:1.27 is a movable tag; nginx@sha256:… is an immutable digest. Pin digests (or exact tags) in production.",
+          "detail": "nginx:1.27 is a tag: a human-friendly pointer that can be moved to a new image at any time. nginx@sha256:3b2f… is a digest: the hash of the image manifest, which can never change. latest is just the default tag name, not \"the newest\". Tag your builds with something unique: version (1.4.2) and/or git SHA (sha-9f3c2a1). Pin base images by digest in production Dockerfiles for fully reproducible builds; let a bot (Dependabot, Renovate) update the pin."
+        },
+        {
+          "id": "term-volume",
+          "term": "volume",
+          "def": "Storage managed by Docker that lives outside the container's writable layer, so data survives when the container is removed.",
+          "detail": "docker volume create pgdata docker run -d -v pgdata:/var/lib/postgresql/data postgres:17 A named volume lives in Docker's storage area (/var/lib/docker/volumes), independent of any container. Remove and recreate the container and the data is still there. Faster than bind mounts on Docker Desktop (stays inside the Linux VM). Back up by running a throwaway container: docker run --rm -v pgdata:/d -v.:/b alpine tar czf /b/pg.tgz -C /d.. docker compose down -v deletes the project's volumes. Careful."
+        },
+        {
+          "id": "term-bind-mount",
+          "term": "bind mount",
+          "def": "Maps a host folder into a container (-v./src:/app). Handy for live code reloading in development.",
+          "detail": "-v./src:/app/src (or --mount type=bind,…) maps a host path into the container. Changes appear on both sides instantly, which is ideal for hot-reloading code in development. File ownership follows host UIDs, which can cause permission errors with non-root containers. On Windows and macOS, file I/O crosses the VM boundary and can be slow for large trees (node_modules). Keep the repo inside WSL 2 on Windows. Add:ro to mount read-only. Use volumes for data, bind mounts for source code and config you edit."
+        },
+        {
+          "id": "term-network",
+          "term": "network",
+          "def": "Virtual network for containers. On a user-defined bridge network, containers reach each other by name (http://api:8000).",
+          "detail": "Driver What it does bridge (default) private network on the host; NAT to the outside user-defined bridge same, plus DNS: containers reach each other by name host container shares the host network stack (Linux only) none no networking Compose creates a user-defined network per project, so api can call http://cache:6379. On the default bridge network, name resolution doesn't work: always create your own network."
+        },
+        {
+          "id": "term-port-mapping",
+          "term": "port mapping",
+          "def": "-p 8080:80 forwards host port 8080 to port 80 inside the container. Without it the service is unreachable from outside.",
+          "detail": "-p 8080:80 = host port 8080 → container port 80. Docker adds NAT rules on the host so traffic reaching 8080 is forwarded to the container's private IP. -p 127.0.0.1:8080:80 binds only to localhost; plain -p 8080:80 listens on all interfaces, so it's reachable from your network. EXPOSE in a Dockerfile only documents a port; -P publishes all exposed ports to random host ports. Containers on the same network don't need port mapping to talk to each other."
+        },
+        {
+          "id": "term-docker-compose",
+          "term": "Docker Compose",
+          "def": "Defines a multi-container app (services, networks, volumes) in compose.yaml and starts it with one command.",
+          "detail": "One compose.yaml describes services (image or build, ports, env, volumes, dependencies), networks and volumes. docker compose up creates them all, in dependency order, on a private network. depends_on with condition: service_healthy waits for a healthcheck, not just a started container..env files and ${VAR} substitution keep secrets and per-machine settings out of the file. Profiles enable optional services (docker compose --profile debug up). docker compose watch syncs code changes into containers as you edit. Great for development, CI and small single-host production. For many hosts, the same services move to Kubernetes manifests or Helm charts."
+        },
+        {
+          "id": "term-multi-stage-build",
+          "term": "multi-stage build",
+          "def": "Several FROM stages in one Dockerfile: compile in a big image, copy only the result into a small final image.",
+          "detail": "FROM python:3.13 AS build WORKDIR /src COPY requirements.txt. RUN pip wheel --wheel-dir /wheels -r requirements.txt FROM python:3.13-slim COPY --from=build /wheels /wheels RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels COPY. /app USER 1000 CMD [\"python\", \"/app/app.py\"] Compilers, headers and caches stay in the build stage; only the result is copied into the final stage. For Go or.NET apps the final image can be tens of MB instead of a GB. Build a specific stage with docker build --target build. (e.g. for running tests)."
+        },
+        {
+          "id": "term-dockerignore",
+          "term": ".dockerignore",
+          "def": "Lists files not sent to the build (.git, node_modules,.env). Faster builds and no leaked secrets.",
+          "detail": ".git.venv __pycache__/ node_modules/.env *.log dist/ Before building, Docker sends the build context (the folder) to the builder. Without a.dockerignore that includes.git history, virtual envs and secrets. Builds start faster (smaller context). COPY.. doesn't break the cache when irrelevant files change. Secrets like.env never end up in an image layer."
+        },
+        {
+          "id": "term-dockerd",
+          "term": "dockerd",
+          "def": "The Docker daemon. It exposes the API that the CLI and Compose call, and manages images, networks and volumes.",
+          "detail": "The Docker daemon runs as a background service (root by default) and exposes a REST API on /var/run/docker.sock (Linux) or a named pipe (Windows). Manages images, containers, networks, volumes and builds (via BuildKit). Delegates running containers to containerd. Access to the socket = root on the host. Never mount docker.sock into untrusted containers or expose the API over TCP without TLS. Rootless mode runs the daemon as a normal user for better security; Podman avoids a daemon entirely."
+        },
+        {
+          "id": "term-containerd-runc",
+          "term": "containerd / runc",
+          "def": "The lower-level runtimes Docker uses: containerd manages container lifecycles, runc creates the process following the OCI spec.",
+          "detail": "The container stack in layers: Layer Role docker CLI / Compose user interface dockerd high-level API: builds, networks, volumes containerd image pulling, storage, container lifecycle (CNCF project) runc low-level OCI runtime: sets up namespaces and cgroups, starts the process, exits Kubernetes talks to containerd directly through the CRI, skipping dockerd. That's why images built with Docker run unchanged on Kubernetes: they're standard OCI images. Alternative low-level runtimes: crun (faster), gVisor and Kata (stronger isolation)."
+        },
+        {
+          "id": "term-namespaces-cgroups",
+          "term": "namespaces / cgroups",
+          "def": "Linux kernel features behind containers: namespaces isolate what a process can see, cgroups limit what it can use.",
+          "detail": "Namespace Isolates pid process tree: the app sees itself as PID 1 net network interfaces, IPs, ports mnt filesystem mounts: the image's root filesystem uts hostname ipc shared memory, semaphores user UID mapping: root inside, unprivileged outside (rootless) cgroups limit and account resources: --memory 512m (exceed it and the kernel OOM-kills the process), --cpus 1.5 (throttled above it), PIDs and disk I/O. Seeing it yourself: docker run --rm alpine ps lists a single process, and docker stats shows each container's cgroup usage. Kubernetes requests and limits are translated into these same cgroup settings."
+        }
+      ],
+      "related": [
+        "kubernetes",
+        "redis",
+        "kafka"
+      ]
+    },
+    {
+      "slug": "kubernetes",
+      "url": "cheatsheets/kubernetes.html",
+      "title": "Kubernetes",
+      "aliases": [
+        "Kubernetes",
+        "K8s",
+        "k8s"
+      ],
+      "tagline": "You declare what should run; it keeps a fleet of machines making that true, forever.",
+      "asOf": "As of Nov 2026 · release line 1.36",
+      "description": "Kubernetes cheatsheet: architecture, animated deployment and self-healing walk-throughs, key concepts with deep dives, kubectl commands, trade-offs and alternatives.",
+      "tags": [
+        "container orchestration",
+        "k8s",
+        "containers",
+        "devops",
+        "cloud native",
+        "kubectl",
+        "helm",
+        "aks",
+        "eks",
+        "gke"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential commands & syntax"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-cluster",
+          "term": "cluster",
+          "def": "A set of machines (nodes) plus a control plane that manages them as one big computer for containers.",
+          "detail": "A cluster is the unit you create, upgrade and secure. You talk to it only through its API server; the machines behind it are interchangeable. Control plane: API server, etcd, scheduler, controller manager. Managed services (AKS, EKS, GKE) run and patch it for you. Worker nodes: where your pods actually run. Typical sizes Setting Nodes Laptop (kind, minikube) 1–3 containers pretending to be nodes Small production 3–10 nodes Large hundreds; the documented limit is 5,000 nodes Many companies run several clusters (dev, staging, prod, per region) rather than one giant one: a smaller blast radius and easier upgrades."
+        },
+        {
+          "id": "term-node",
+          "term": "node",
+          "def": "A worker machine (VM or physical) that runs pods. Each runs a kubelet, kube-proxy and a container runtime.",
+          "detail": "A node offers allocatable resources to pods: its total CPU and memory minus what is reserved for the OS and Kubernetes' own agents. On every node kubelet: the agent. Watches the API server for pods assigned to this node and starts or stops their containers. container runtime: usually containerd; pulls images and runs containers. kube-proxy (or a CNI like Cilium): implements Service routing on the node. Common sizes Production nodes are often 4–16 vCPU with 16–64 GiB of memory (e.g. Azure Standard_D4s_v5: 4 vCPU, 16 GiB). Several medium nodes usually beat one huge node: losing one costs less. Statuses: Ready, NotReady (kubelet stopped reporting), SchedulingDisabled (cordoned for maintenance)."
+        },
+        {
+          "id": "term-pod",
+          "term": "pod",
+          "def": "The smallest deployable unit: one or more containers that share an IP address and volumes and are always scheduled together.",
+          "detail": "You almost never create pods directly; a Deployment, StatefulSet, DaemonSet or Job creates them for you and replaces them when they die. Containers in one pod talk over localhost and can share volumes. Typical shape: one main container, optionally a sidecar (log shipper, proxy) and init containers that run first. Pods are ephemeral: a replacement gets a new name and a new IP. Reach them through a Service. Lifecycle phases Pending → Running → Succeeded / Failed. Common trouble states you'll see in kubectl get pods: ImagePullBackOff (wrong image or no registry access), CrashLoopBackOff (container keeps exiting), OOMKilled (exceeded memory limit)."
+        },
+        {
+          "id": "term-vcpu",
+          "term": "vCPU",
+          "def": "The CPU unit Kubernetes counts in: 1 CPU = one vCPU or hyperthread = 1000 millicores (1000m).",
+          "detail": "A vCPU is one virtual CPU as sold by a cloud provider: usually one hyperthread of a physical core. Kubernetes measures CPU in these units and lets you ask for fractions, written in millicores: 1000m = 1 vCPU, 250m = a quarter. Common values Request Typical workload 50m–100m sidecars, small agents, idle-most-of-the-time services 250m–500m a typical web API or worker replica 1 – 2 CPU-heavy services, JVM apps at startup, build jobs 4+ databases, ML inference, batch processing A node with 4 vCPU has roughly 3.8 vCPU allocatable after system reservations. The scheduler only places a pod where the sum of requests fits. CPU on a 4-vCPU node How it relates Requests reserve vCPU for scheduling; limits cap usage. Going over the CPU limit only slows the container (throttling); going over the memory limit kills it (OOMKilled). The HPA measures CPU usage as a percentage of the request, so a wrong request makes autoscaling wrong too. Node size in vCPU sets how many pods fit; cloud cost is mostly \"vCPU × hours\"."
+        },
+        {
+          "id": "term-requests-limits",
+          "term": "requests & limits",
+          "def": "Per-container CPU and memory settings: requests are reserved for scheduling, limits are the hard ceiling.",
+          "detail": "resources: requests: { cpu: 250m, memory: 256Mi } limits: { memory: 512Mi } Requests: what the scheduler adds up to decide if a pod fits on a node. Your guaranteed share. CPU limit: usage above it is throttled. Many teams set no CPU limit to avoid needless throttling, relying on requests for fairness. Memory limit: exceeding it gets the container killed (OOMKilled) and restarted. Always set one. Quality of Service classes Class When Evicted Guaranteed requests = limits for CPU and memory last Burstable requests set, lower than limits middle BestEffort nothing set first Memory units: Mi / Gi are powers of 2 (256Mi ≈ 268 MB); M / G are powers of 10."
+        },
+        {
+          "id": "term-deployment",
+          "term": "Deployment",
+          "def": "Declares how many replicas of a stateless pod should run and rolls out new versions gradually.",
+          "detail": "The workhorse object for web apps, APIs and workers. You change the image tag; the Deployment creates a new ReplicaSet and shifts pods over. Rolling update knobs maxSurge: 25%: how many extra pods may exist during a rollout. maxUnavailable: 25%: how many may be missing. Set to 0 for zero downtime. New pods must pass their readiness probe before old ones are removed. kubectl rollout undo deployment/web switches back to the previous ReplicaSet in seconds. Kubernetes keeps 10 old revisions by default. For stateful software with stable identities (databases, Kafka brokers) use a StatefulSet instead."
+        },
+        {
+          "id": "term-replicaset",
+          "term": "ReplicaSet",
+          "def": "Keeps exactly N identical pods running. Deployments create and manage ReplicaSets for you.",
+          "detail": "A ReplicaSet runs the simplest reconcile loop: count the pods matching my label selector; create or delete pods until the count equals replicas. You rarely touch them directly. During a rollout a Deployment owns two ReplicaSets, old and new, and scales one down while scaling the other up. Their names carry the pod-template hash: web-7d9f8c, and pods are named web-7d9f8c-x2k4q. Deleting a pod by hand is safe: the ReplicaSet notices the shortfall and creates a replacement within seconds."
+        },
+        {
+          "id": "term-service",
+          "term": "Service",
+          "def": "A stable virtual IP and DNS name that load-balances to the Ready pods matching a label selector.",
+          "detail": "Pods come and go with new IPs; a Service gives clients one address that never changes: web.shop.svc.cluster.local, or just web from the same namespace. Types Type Reachable from ClusterIP (default) inside the cluster only NodePort every node's IP on a port 30000–32767 LoadBalancer a cloud load balancer with a public or private IP Headless (clusterIP: None) DNS returns pod IPs directly (used by StatefulSets) Only pods passing their readiness probe are listed as endpoints, which is how rollouts and failures avoid sending traffic to broken pods."
+        },
+        {
+          "id": "term-ingress-gateway-api",
+          "term": "Ingress / Gateway API",
+          "def": "HTTP(S) routing from outside the cluster to Services by host name and path, with TLS termination.",
+          "detail": "Instead of one cloud load balancer per Service, a single entry point routes shop.example.com/api to the api Service and / to web. Ingress: the original API; needs an ingress controller (NGINX, Traefik, cloud-specific) installed in the cluster. Gateway API: the newer, more expressive successor (traffic splitting, header matching, roles for platform vs app teams). Prefer it for new setups. TLS certificates are usually issued automatically by cert-manager with Let's Encrypt."
+        },
+        {
+          "id": "term-namespace",
+          "term": "namespace",
+          "def": "A virtual folder inside a cluster for grouping and isolating objects, quotas and permissions.",
+          "detail": "Names must be unique only within a namespace, so team-a and team-b can both have a Service called api. Built-in: default, kube-system (cluster components), kube-public, kube-node-lease. Attach ResourceQuotas (max CPU/memory per team), RBAC roles and NetworkPolicies per namespace. Namespaces are not a security boundary by themselves: pods can still talk across them unless NetworkPolicies say otherwise. Common layouts: one namespace per team, per app, or per environment in a shared dev cluster. Select one with -n shop or set it as default for your context."
+        },
+        {
+          "id": "term-labels-selectors",
+          "term": "labels & selectors",
+          "def": "Key/value tags on objects (app=web) and the queries that pick objects by them. The glue of Kubernetes.",
+          "detail": "Kubernetes rarely references objects by name. A Service, ReplicaSet or NetworkPolicy finds its pods with a selector such as app=web,tier=frontend. metadata: labels: { app: web, version: \"1.4\", team: shop } --- selector: matchLabels: { app: web } Recommended keys: app.kubernetes.io/name, /version, /component, /part-of. Query from the CLI: kubectl get pods -l app=web. Gotcha: a typo in a selector means a Service with zero endpoints, silently. Check with kubectl get endpointslices -l kubernetes.io/service-name=web."
+        },
+        {
+          "id": "term-configmap-secret",
+          "term": "ConfigMap & Secret",
+          "def": "Configuration and credentials stored separately from the image and injected as env vars or files.",
+          "detail": "The same image runs in dev and prod; only its ConfigMaps and Secrets differ. ConfigMap: plain settings (feature flags, URLs, config files). Secret: passwords, tokens, TLS keys. Only base64-encoded, not encrypted, unless you enable encryption at rest. Restrict access with RBAC. Mounted as files they update in place after a short delay; as env vars they're read only at container start, so you need a rollout (kubectl rollout restart) to pick up changes. Production teams often sync secrets from a vault (Azure Key Vault, AWS Secrets Manager, HashiCorp Vault) with the External Secrets Operator."
+        },
+        {
+          "id": "term-persistentvolumeclaim",
+          "term": "PersistentVolumeClaim",
+          "def": "A pod's request for durable storage (\"10Gi, read-write\"), fulfilled by a PersistentVolume from a StorageClass.",
+          "detail": "Container filesystems disappear with the pod. A PVC asks for a disk that outlives it; the cluster provisions one dynamically (an Azure Disk, an EBS volume…) via a StorageClass. Access modes Mode Meaning Typical backend ReadWriteOnce one node mounts it read-write cloud block disks ReadWriteMany many nodes read-write NFS, Azure Files, EFS ReadOnlyMany many nodes read-only shared datasets Block disks are tied to one availability zone: a pod using one can only be rescheduled to nodes in that zone. Check the reclaimPolicy: Delete removes the disk with the claim."
+        },
+        {
+          "id": "term-statefulset",
+          "term": "StatefulSet",
+          "def": "Like a Deployment, but each pod gets a stable name, stable DNS and its own persistent volume.",
+          "detail": "Pods are named db-0, db-1, db-2, created in order and keep their name and disk across restarts. A headless Service gives each one a DNS name like db-0.db. Used for databases, Kafka brokers, Elasticsearch, ZooKeeper-style clusters: software where members are not interchangeable. Running databases on Kubernetes is possible but demanding (backups, upgrades, failover). Operators such as CloudNativePG or Strimzi automate it; managed cloud databases are often simpler."
+        },
+        {
+          "id": "term-daemonset",
+          "term": "DaemonSet",
+          "def": "Runs one copy of a pod on every node (or a chosen subset), for node-level agents.",
+          "detail": "When a node joins, the DaemonSet adds its pod there automatically; when it leaves, the pod goes with it. Typical uses: log collectors (Fluent Bit), metrics agents (node-exporter, Datadog agent), network plugins (Cilium), storage drivers. Use a nodeSelector or tolerations to target, say, only GPU nodes."
+        },
+        {
+          "id": "term-probes",
+          "term": "probes",
+          "def": "Health checks the kubelet runs: liveness restarts a stuck container, readiness controls traffic, startup protects slow boots.",
+          "detail": "Probe If it fails… Check readiness pod removed from Service endpoints (no restart) \"can I serve traffic now?\" (DB connected, cache warm) liveness container is restarted \"am I deadlocked?\" Keep it cheap and local startup other probes wait until it passes for apps that take a minute to boot readinessProbe: httpGet: { path: /healthz/ready, port: 8000 } periodSeconds: 5 Classic mistake: a liveness probe that checks the database. When the database is slow, every pod restarts at once and turns a blip into an outage."
+        },
+        {
+          "id": "term-hpa",
+          "term": "HPA",
+          "def": "Horizontal Pod Autoscaler: adds or removes replicas based on CPU, memory or custom metrics.",
+          "detail": "kubectl autoscale deployment web --cpu-percent=70 --min=2 --max=10 Every 15 s it computes desired = ceil(current × actual / target). With 3 pods at 140% of their CPU request and a 70% target, it scales to 6. Needs metrics-server and CPU requests on the pods, since utilisation is measured against them. Scales down slowly by design (5-minute stabilisation window) to avoid flapping. It adds pods, not machines: the Cluster Autoscaler or Karpenter adds nodes when pods stay Pending. KEDA scales on queue length, Kafka lag and more."
+        },
+        {
+          "id": "term-helm",
+          "term": "Helm",
+          "def": "The package manager for Kubernetes: templated YAML bundles (\"charts\") installed and upgraded as releases.",
+          "detail": "helm repo add bitnami https://charts.bitnami.com/bitnami helm install cache bitnami/redis -n shop --set auth.enabled=true helm upgrade cache bitnami/redis -f values-prod.yaml helm rollback cache 1 A chart is templates plus a values.yaml; you override values per environment. Helm records each install as a numbered revision you can roll back to. Alternatives: Kustomize (built into kubectl, patches plain YAML without templates) and GitOps tools like Argo CD or Flux that apply either from a Git repo."
+        }
+      ],
+      "related": [
+        "docker",
+        "kafka"
+      ]
+    },
+    {
+      "slug": "redis",
+      "url": "cheatsheets/redis.html",
+      "title": "Redis",
+      "aliases": [
+        "Redis"
+      ],
+      "tagline": "An in-memory data structure server: a key-value store that answers in microseconds.",
+      "asOf": "As of Nov 2026 · latest release line 8.10",
+      "description": "Redis cheatsheet: architecture, animated SET and cache-aside walk-throughs, key concepts, commands, trade-offs and alternatives.",
+      "tags": [
+        "cache",
+        "key-value",
+        "in-memory",
+        "nosql",
+        "database",
+        "session store",
+        "pub/sub",
+        "streams",
+        "valkey"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential commands & syntax"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-key",
+          "term": "key",
+          "def": "A binary-safe string that names a value, by convention namespaced with colons: user:1, cart:7. Max 512 MB, but keep keys short.",
+          "detail": "Keys are binary-safe strings. Redis has no tables or schemas, so the naming convention is your schema: object-type:id:field. Good Why user:1042 type + id, easy to SCAN MATCH user:* session:9f3c short, unique, set a TTL rl:{user:42}:2026-11-10T10:05 rate-limit bucket; {…} is a Cluster hash tag Keep keys short: with 100M keys, every extra 20 bytes is ~2 GB of RAM. Avoid unbounded patterns (one key per request) without a TTL."
+        },
+        {
+          "id": "term-keyspace",
+          "term": "keyspace",
+          "def": "The set of all keys in a database, stored in one big in-memory hash table. Lookups are O(1).",
+          "detail": "All keys of a database live in one big hash table, so GET, SET and DEL are O(1) whatever the size. Redis grows the table incrementally (rehashing a little on each command) to avoid long pauses. DBSIZE counts keys; INFO keyspace shows keys and expiring keys per database. Redis has 16 numbered databases (SELECT 0..15), but Cluster supports only db 0. Prefer key prefixes over database numbers. Scale: tens of millions of keys per instance are normal; the limit is RAM, not count."
+        },
+        {
+          "id": "term-data-types",
+          "term": "data types",
+          "def": "What a key holds: String, Hash, List, Set, Sorted set, Stream, Bitmap, HyperLogLog, Geo, JSON, Vector set. Each has its own commands.",
+          "detail": "Type Think of it as Typical use String bytes, number, JSON blob (≤ 512 MB) cache entries, counters, locks Hash a small object / dict user profile, session fields List linked list, push/pop at both ends queues, recent-items feeds Set unique unordered members tags, \"who liked this\" Sorted set members ordered by score leaderboards, scheduling, sliding windows Stream append-only log with consumer groups event streams, job queues with acks JSON, Vector set, HyperLogLog, Bitmap, Geo specialised structures documents, similarity search, unique counts, flags, \"nearby\" Pick the type by the operations you need: if you'd read-modify-write a JSON string to change one field, use a Hash instead."
+        },
+        {
+          "id": "term-ttl-expire",
+          "term": "TTL / EXPIRE",
+          "def": "A time-to-live on a key. When it runs out, Redis deletes the key. The basis of caching and sessions.",
+          "detail": "SET session:9f \"{...}\" EX 1800 # set with 30 min TTL EXPIRE cart:7 3600 # add/replace a TTL TTL cart:7 → 3597 # seconds left (-1 none, -2 missing) PERSIST cart:7 # remove the TTL Expired keys are removed two ways: lazily when someone touches them, and actively by a background job that samples keys with TTLs several times per second. Memory is therefore reclaimed slightly after expiry, not at the exact second. Common values Cache entries: 1–60 min, with random jitter to avoid stampedes. Sessions: 30 min to 24 h, refreshed on activity. One-time codes: 5–10 min. Gotcha: SET without EX / KEEPTTL on an existing key removes its TTL."
+        },
+        {
+          "id": "term-maxmemory-eviction",
+          "term": "maxmemory + eviction",
+          "def": "The RAM cap. When it is reached, the maxmemory-policy decides what to drop (e.g. allkeys-lru) or to reject writes (noeviction).",
+          "detail": "maxmemory caps the RAM Redis uses for data. When a write would exceed it, maxmemory-policy decides what happens. Policy Evicts Use for noeviction (default) nothing: writes fail with OOM data you can't lose (queues, primary data) allkeys-lru least recently used key pure caches (most common) allkeys-lfu least frequently used key caches with stable \"hot\" keys volatile-lru / volatile-ttl only keys with a TTL mixed cache + persistent data allkeys-lru in action Size it: set maxmemory to ~70–80% of the machine's RAM to leave room for fragmentation, replication buffers and fork during RDB saves."
+        },
+        {
+          "id": "term-atomicity",
+          "term": "atomicity",
+          "def": "Commands run one at a time on the main thread, so a single command like INCR never races with another.",
+          "detail": "Commands execute one at a time on the main thread, so INCR, SET NX, LPUSH or ZINCRBY can never interleave with another client's command. Two app servers incrementing the same counter never lose an update. But a sequence of commands from your app is not atomic: between your GET and SET another client can sneak in. Options: A single command that does it all (INCR, SET … NX GET, GETDEL). MULTI/EXEC with WATCH for optimistic locking. A Lua script or Function: the whole script runs atomically. Since Redis 6, network I/O can use extra threads, but command execution stays single-threaded, so atomicity is unchanged."
+        },
+        {
+          "id": "term-pipelining",
+          "term": "pipelining",
+          "def": "Send many commands without waiting for each reply. Cuts network round trips; usually the biggest client-side speedup.",
+          "detail": "Without pipelining each command waits for its reply: 1,000 commands × 0.5 ms round trip = 0.5 s, mostly waiting on the network. With a pipeline you send all 1,000, then read 1,000 replies: a few milliseconds. pipe = r.pipeline(transaction=False) for uid in user_ids: pipe.hgetall(f\"user:{uid}\") profiles = pipe.execute() Pipelining is a client-side batching trick, not a transaction: other clients' commands can still run in between. Keep batches to a few thousand commands to bound memory."
+        },
+        {
+          "id": "term-multi-exec",
+          "term": "MULTI / EXEC",
+          "def": "A transaction: queued commands run together with nothing interleaved. There is no rollback if one fails.",
+          "detail": "WATCH stock:42 GET stock:42 → \"3\" MULTI DECR stock:42 LPUSH orders \"…\" EXEC → nil if stock:42 changed since WATCH Commands are queued and run back-to-back with nothing interleaved. No rollback: if one command fails at runtime (wrong type), the others still apply. WATCH gives optimistic locking: EXEC aborts if a watched key changed; retry in a loop. In Cluster all keys must share a hash slot. For logic with conditions (\"decrement only if > 0\"), a Lua script is simpler than WATCH retries."
+        },
+        {
+          "id": "term-lua-functions",
+          "term": "Lua / Functions",
+          "def": "Server-side scripts that run atomically. Use them for read-modify-write logic, such as rate limiters.",
+          "detail": "A script runs entirely on the server, atomically, so it can read, decide and write in one step. Classic fixed-window rate limiter: -- KEYS[1] = rl:{user:42}:minute, ARGV[1] = limit local n = redis.call('INCR', KEYS[1]) if n == 1 then redis.call('EXPIRE', KEYS[1], 60) end return n <= tonumber(ARGV[1]) EVAL sends the script each time; EVALSHA reuses a cached one. Redis 7+ Functions (FUNCTION LOAD, FCALL) store named scripts in the server and persist them with the data. Keep scripts short: while one runs, every other client waits."
+        },
+        {
+          "id": "term-rdb",
+          "term": "RDB",
+          "def": "Point-in-time snapshot of the whole dataset to disk. Compact and fast to load, but you lose writes made since the last snapshot.",
+          "detail": "Redis forks; the child writes the whole dataset to dump.rdb while the parent keeps serving. Fork uses copy-on-write, so memory use can briefly grow under heavy writes. save 3600 1 300 100 60 10000 # snapshot after N changes in T seconds BGSAVE # snapshot now LASTSAVE # when was the last one Pros: compact file, fast restarts, perfect for backups (copy it to object storage). Cons: a crash loses every write since the last snapshot, often minutes. Replicas also bootstrap from an RDB sent by the primary."
+        },
+        {
+          "id": "term-aof",
+          "term": "AOF",
+          "def": "Append-only file: every write command is logged. With appendfsync everysec, at most about 1 second of writes is lost on a crash.",
+          "detail": "The append-only file logs every write command; on restart Redis replays it. appendfsync Data at risk on crash Speed always ~none slow (fsync per write) everysec (default) ~1 second fast, the usual choice no up to ~30 s (OS decides) fastest The log is rewritten in the background to stay compact. Modern Redis uses a multi-part AOF with an RDB base plus incremental files. Common production setup: AOF everysec + periodic RDB for backups."
+        },
+        {
+          "id": "term-replication",
+          "term": "replication",
+          "def": "Replicas keep an asynchronous copy of a primary. They serve reads and can be promoted if the primary fails.",
+          "detail": "A replica connects to the primary (REPLICAOF host 6379), receives an RDB snapshot, then a continuous stream of write commands. Asynchronous: the primary acknowledges the client before replicas have the write. A failover can lose the last few writes. WAIT 1 100 blocks until 1 replica has it (still not a guarantee). Replicas are read-only and can serve reads, but may lag a few ms behind. Typical setup: 1 primary + 1–2 replicas in different availability zones. Replication alone doesn't fail over automatically: that's Sentinel's or Cluster's job."
+        },
+        {
+          "id": "term-sentinel",
+          "term": "Sentinel",
+          "def": "Processes that monitor a primary and its replicas, run automatic failover and tell clients the new primary's address.",
+          "detail": "Sentinel is a separate process (run at least 3, on different machines) that watches a primary and its replicas. Sentinels ping the primary; if a quorum (e.g. 2 of 3) agrees it's down, they elect a leader Sentinel. The leader promotes the most up-to-date replica and reconfigures the others. Clients ask Sentinel \"who is the primary for mymaster?\" and reconnect. Use Sentinel when data fits on one machine and you need automatic failover. If you need to shard data across machines, use Cluster instead; it has failover built in. Managed services (ElastiCache, Azure Cache) handle this for you."
+        },
+        {
+          "id": "term-cluster-hash-slot",
+          "term": "Cluster / hash slot",
+          "def": "Redis Cluster shards keys over 16,384 slots (CRC16(key) mod 16384). {tags} in a key force related keys into the same slot.",
+          "detail": "Redis Cluster splits the keyspace into 16,384 hash slots: slot = CRC16(key) mod 16384. Each primary owns a range of slots; each primary has replicas for failover. Node Slots A 0 – 5460 B 5461 – 10922 C 10923 – 16383 Clients cache the slot map; a MOVED reply tells them the map changed. Multi-key commands (MGET, MULTI, Lua) need all keys in one slot. Force it with a hash tag: only {user:42} is hashed in cart:{user:42} and profile:{user:42}. Resharding moves slots between nodes online."
+        },
+        {
+          "id": "term-pub-sub-vs-streams",
+          "term": "Pub/Sub vs Streams",
+          "def": "Pub/Sub is fire-and-forget broadcast. Streams are a persistent, append-only log with consumer groups and acknowledgements.",
+          "detail": "Pub/Sub Streams Storage none: delivered and forgotten kept in a log (trim with MAXLEN) Offline consumers miss messages catch up from their last ID Load balancing every subscriber gets every message consumer groups split the work Acks / retries no XACK, pending list, XCLAIM Use for live notifications, cache invalidation, chat presence job queues, event sourcing, activity feeds Streams look a lot like a mini Kafka: IDs like 1731234567890-0 are timestamp-based offsets. For days of retention or very high volume, use Kafka itself."
+        }
+      ],
+      "related": [
+        "kafka",
+        "docker"
+      ]
+    }
+  ]
+}
