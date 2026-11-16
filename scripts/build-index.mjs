@@ -10,6 +10,7 @@
 // when one lists the other in <meta name="related">, or when they share tags.
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -83,6 +84,22 @@ function tagCodeBlocks(html) {
       .filter(Boolean).join(' ');
     return `<pre class="${cls}"><code class="${lang ? `language-${lang}` : 'language-none'}">${raw}</code></pre>`;
   });
+}
+
+/* Cache busting. python -m http.server sends no Cache-Control and GitHub Pages caches
+   assets for minutes, so a reader who already has the site can get fresh HTML with a
+   stale notebook.css or site.js — which looks like the feature simply not working.
+   Stamping the content hash into the URL makes every asset change a new URL. */
+const LOCAL_ASSETS = ['notebook.css', 'site.js', 'player.js'];
+const assetHash = Object.fromEntries(LOCAL_ASSETS.map(name => [
+  name,
+  createHash('sha1').update(readFileSync(join(ROOT, 'assets', name))).digest('hex').slice(0, 8),
+]));
+
+function stampAssets(html) {
+  return html.replace(
+    /(assets\/(notebook\.css|site\.js|player\.js))(\?v=[a-f0-9]+)?/g,
+    (_m, path, name) => `${path}?v=${assetHash[name]}`);
 }
 
 function ensurePrismAssets(html) {
@@ -196,7 +213,7 @@ for (const p of pages) {
     <!-- RELATED:END -->`;
   let html = RELATED_RE.test(p.html) ? p.html.replace(RELATED_RE, block) : p.html.replace(/\n\s*<\/main>/, `${block}\n  </main>`);
   if (!/href="#related"/.test(html)) html = html.replace(/(\n\s*)<\/nav>/, `$1  <a href="#related">Related</a>$1</nav>`);
-  html = ensurePrismAssets(tagCodeBlocks(html));
+  html = stampAssets(ensurePrismAssets(tagCodeBlocks(html)));
   write(join(SHEETS, p.file), html);
 }
 
@@ -218,7 +235,8 @@ const cards = index.pages.map(p => `      <a class="sheet-card" data-slug="${p.s
         <span class="asof">${esc(p.asOf)} · ${p.terms.length} terms</span>
       </a>`).join('\n');
 const homePath = join(ROOT, 'index.html');
-write(homePath, readFileSync(homePath, 'utf8').replace(/(<!-- CARDS:START -->)[\s\S]*?(\s*<!-- CARDS:END -->)/, `$1\n${cards}$2`));
+write(homePath, stampAssets(readFileSync(homePath, 'utf8')
+  .replace(/(<!-- CARDS:START -->)[\s\S]*?(\s*<!-- CARDS:END -->)/, `$1\n${cards}$2`)));
 
 if (check && stale) { console.error('Run: node scripts/build-index.mjs'); process.exit(1); }
 console.log(`${check ? 'Checked' : 'Built'} ${pages.length} cheatsheet(s):`);
