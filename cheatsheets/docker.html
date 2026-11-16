@@ -10,8 +10,12 @@
 <meta name="keywords" content="containers, container runtime, images, dockerfile, devops, docker compose, oci, podman">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="../assets/notebook.css">
-<script src="../assets/site.js" defer></script>
+<link rel="stylesheet" href="../assets/notebook.css?v=389a30cc">
+<script src="../assets/site.js?v=b55fb986" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
 </head>
 <body data-root="..">
 <div class="layout">
@@ -60,7 +64,7 @@
           <rect x="200" y="15" width="400" height="270" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
           <text x="400" y="34" font-size="13" font-weight="600" text-anchor="middle" fill="#23362e">Docker host · one Linux kernel</text>
           <g font-size="13" text-anchor="middle" fill="#23362e">
-            <rect x="215" y="48" width="170" height="48" rx="6" fill="#f9e3df" stroke="#c53b3b"/><text x="300" y="68" font-weight="600">dockerd</text><text x="300" y="86" font-size="11" fill="#5f6f66">daemon: images, networks, volumes</text>
+            <rect x="215" y="48" width="170" height="48" rx="6" fill="#f9e3df" stroke="#c53b3b"/><text x="300" y="68" font-weight="600">dockerd</text><text x="300" y="86" font-size="10.5" fill="#5f6f66">images · networks · volumes</text>
             <rect x="215" y="112" width="170" height="40" rx="6" fill="#e8ece2" stroke="#a9b5a6"/><text x="300" y="137">containerd</text>
             <rect x="215" y="168" width="170" height="40" rx="6" fill="#e8ece2" stroke="#a9b5a6"/><text x="300" y="187">runc</text><text x="300" y="201" font-size="11" fill="#5f6f66">creates the isolated process</text>
             <rect x="215" y="224" width="170" height="46" rx="6" fill="#fbf3c4" stroke="#d9c25a"/><text x="300" y="244">volumes · networks</text><text x="300" y="261" font-size="11" fill="#5f6f66">data and connectivity</text>
@@ -121,7 +125,7 @@
             <g font-size="11.5" text-anchor="middle" fill="#23362e">
               <g id="d-img-l" class="hidden"><rect x="632" y="196" width="141" height="24" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="702" y="212">image layers (read-only)</text></g>
               <g id="d-rw" class="hidden"><rect x="632" y="166" width="141" height="24" rx="4" fill="#fbf3c4" stroke="#d9c25a"/><text x="702" y="182">writable layer</text></g>
-              <g id="d-ns" class="hidden"><rect x="632" y="50" width="141" height="24" rx="4" fill="#fbfcf8" stroke="#2f6b3f"/><text x="702" y="66">namespaces: pid, net, mnt</text></g>
+              <g id="d-ns" class="hidden"><rect x="632" y="50" width="141" height="24" rx="4" fill="#fbfcf8" stroke="#2f6b3f"/><text x="702" y="66" font-size="9.5">namespaces: pid, net, mnt</text></g>
               <g id="d-cg" class="hidden"><rect x="632" y="80" width="141" height="24" rx="4" fill="#fbfcf8" stroke="#2f6b3f"/><text x="702" y="96">cgroups: CPU, memory</text></g>
               <g id="d-proc" class="hidden"><rect x="632" y="120" width="141" height="34" rx="4" fill="#2f6b3f"/><text x="702" y="142" fill="#fbfcf8" font-family="Fira Code, monospace" font-size="12">nginx · PID 1</text></g>
               <g id="d-port" class="hidden"><rect x="632" y="232" width="141" height="26" rx="13" fill="#c53b3b"/><text x="702" y="249" fill="#fbfcf8" font-family="Fira Code, monospace" font-size="11.5">host :8080 → :80</text></g>
@@ -233,7 +237,7 @@
 <li>Pin base images by digest in production Dockerfiles for fully reproducible builds; let a bot (Dependabot, Renovate) update the pin.</li></ul>
         </template></div>
         <div class="term"><b>volume</b><span>Storage managed by Docker that lives outside the container's writable layer, so data survives when the container is removed.</span><template class="term-detail" data-see="bind mount, container">
-<pre><code>docker volume create pgdata
+<pre class="language-bash"><code class="language-bash">docker volume create pgdata
 docker run -d -v pgdata:/var/lib/postgresql/data postgres:17</code></pre>
 <p>A named volume lives in Docker's storage area (<code>/var/lib/docker/volumes</code>), independent of any container. Remove and recreate the container and the data is still there.</p>
 <ul><li>Faster than bind mounts on Docker Desktop (stays inside the Linux VM).</li>
@@ -294,7 +298,7 @@ docker run -d -v pgdata:/var/lib/postgresql/data postgres:17</code></pre>
 <p>Great for development, CI and small single-host production. For many hosts, the same services move to Kubernetes manifests or Helm charts.</p>
         </template></div>
         <div class="term"><b>multi-stage build</b><span>Several <code>FROM</code> stages in one Dockerfile: compile in a big image, copy only the result into a small final image.</span><template class="term-detail" data-see="Dockerfile, image, layer">
-<pre><code>FROM python:3.13 AS build
+<pre class="language-docker line-numbers"><code class="language-docker">FROM python:3.13 AS build
 WORKDIR /src
 COPY requirements.txt .
 RUN pip wheel --wheel-dir /wheels -r requirements.txt
@@ -309,7 +313,7 @@ CMD ["python", "/app/app.py"]</code></pre>
 <p>Build a specific stage with <code>docker build --target build .</code> (e.g. for running tests).</p>
         </template></div>
         <div class="term"><b>.dockerignore</b><span>Lists files not sent to the build (<code>.git</code>, <code>node_modules</code>, <code>.env</code>). Faster builds and no leaked secrets.</span><template class="term-detail" data-see="build cache, Dockerfile">
-<pre><code>.git
+<pre class="language-none line-numbers"><code class="language-none">.git
 .venv
 __pycache__/
 node_modules/
@@ -355,31 +359,31 @@ dist/</code></pre>
       <h2>Essential commands &amp; syntax</h2>
       <div class="cmd-group">
         <h3>Run &amp; inspect</h3>
-        <div class="cmd"><pre><code>docker run -d --name web -p 8080:80 nginx:1.27</code></pre><div class="what">Start a container in the background with a name and a port mapping.</div></div>
-        <div class="cmd"><pre><code>docker run --rm -it python:3.13 bash</code></pre><div class="what">Throwaway interactive container, deleted on exit (<code>--rm</code>).</div></div>
-        <div class="cmd"><pre><code>docker ps -a</code></pre><div class="what">List containers, including stopped ones.</div></div>
-        <div class="cmd"><pre><code>docker logs -f web</code></pre><div class="what">Follow a container's stdout and stderr.</div></div>
-        <div class="cmd"><pre><code>docker exec -it web sh</code></pre><div class="what">Open a shell inside a running container.</div></div>
-        <div class="cmd"><pre><code>docker stop web &amp;&amp; docker rm web</code></pre><div class="what">Stop (SIGTERM, then SIGKILL after 10 s) and remove a container.</div></div>
-        <div class="cmd"><pre><code>docker stats · docker inspect web</code></pre><div class="what">Live CPU and memory per container; full JSON configuration of one.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">docker run -d --name web -p 8080:80 nginx:1.27</code></pre><div class="what">Start a container in the background with a name and a port mapping.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">docker run --rm -it python:3.13 bash</code></pre><div class="what">Throwaway interactive container, deleted on exit (<code>--rm</code>).</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">docker ps -a</code></pre><div class="what">List containers, including stopped ones.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">docker logs -f web</code></pre><div class="what">Follow a container's stdout and stderr.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">docker exec -it web sh</code></pre><div class="what">Open a shell inside a running container.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">docker stop web &amp;&amp; docker rm web</code></pre><div class="what">Stop (SIGTERM, then SIGKILL after 10 s) and remove a container.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">docker stats · docker inspect web</code></pre><div class="what">Live CPU and memory per container; full JSON configuration of one.</div></div>
       </div>
       <div class="cmd-group">
         <h3>Build &amp; ship</h3>
-        <div class="cmd"><pre><code>FROM python:3.13-slim AS base
+        <div class="cmd"><pre class="language-docker line-numbers"><code class="language-docker">FROM python:3.13-slim AS base
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 USER 1000
 CMD ["python", "app.py"]</code></pre><div class="what">A cache-friendly Python Dockerfile: dependencies before code, non-root user, exec-form <code>CMD</code>.</div></div>
-        <div class="cmd"><pre><code>docker build -t myapp:1.0 .</code></pre><div class="what">Build an image from the Dockerfile in the current folder.</div></div>
-        <div class="cmd"><pre><code>docker tag myapp:1.0 ghcr.io/acme/myapp:1.0
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">docker build -t myapp:1.0 .</code></pre><div class="what">Build an image from the Dockerfile in the current folder.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">docker tag myapp:1.0 ghcr.io/acme/myapp:1.0
 docker push ghcr.io/acme/myapp:1.0</code></pre><div class="what">Name the image for a registry and upload it (<code>docker login ghcr.io</code> first).</div></div>
-        <div class="cmd"><pre><code>docker image ls · docker history myapp:1.0</code></pre><div class="what">List local images; show the layers of one with their sizes.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">docker image ls · docker history myapp:1.0</code></pre><div class="what">List local images; show the layers of one with their sizes.</div></div>
       </div>
       <div class="cmd-group">
         <h3>Compose &amp; data</h3>
-        <div class="cmd"><pre><code>services:
+        <div class="cmd"><pre class="language-yaml line-numbers"><code class="language-yaml">services:
   api:
     build: .
     ports: ["8000:8000"]
@@ -390,11 +394,11 @@ docker push ghcr.io/acme/myapp:1.0</code></pre><div class="what">Name the image 
     volumes: [cache-data:/data]
 volumes:
   cache-data:</code></pre><div class="what"><code>compose.yaml</code>: an API plus a Redis cache, reachable by service name, with a named volume.</div></div>
-        <div class="cmd"><pre><code>docker compose up -d --build
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">docker compose up -d --build
 docker compose logs -f api
 docker compose down</code></pre><div class="what">Build and start everything, follow one service's logs, stop and remove the containers.</div></div>
-        <div class="cmd"><pre><code>docker volume ls · docker system prune</code></pre><div class="what">List volumes; free disk space from stopped containers, dangling images and unused networks.</div></div>
-        <div class="cmd"><pre><code>import docker
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">docker volume ls · docker system prune</code></pre><div class="what">List volumes; free disk space from stopped containers, dangling images and unused networks.</div></div>
+        <div class="cmd"><pre class="language-python"><code class="language-python">import docker
 client = docker.from_env()
 c = client.containers.run("redis:8", detach=True, ports={"6379/tcp": 6379})
 print(c.name, c.status)</code></pre><div class="what">Python SDK (<code>pip install docker</code>): the same API the CLI uses, handy for test fixtures.</div></div>
@@ -516,10 +520,20 @@ print(c.name, c.status)</code></pre><div class="what">Python SDK (<code>pip inst
             <span>An in-memory data structure server: a key-value store that answers in microseconds.</span>
             <small>Mentioned here in Essential commands &amp; syntax and Concrete use cases</small>
           </a>
+          <a class="related-card" href="caching-strategies.html">
+            <b>Caching strategies</b>
+            <span>Keep the answer near the question — and decide, up front, how wrong you are willing to be.</span>
+            <small>Mentioned here in Resources</small>
+          </a>
           <a class="related-card" href="kafka.html">
             <b>Apache Kafka</b>
             <span>A distributed, append-only log for events: write once, read by many, replay any time.</span>
             <small>Mentioned here in Concrete use cases</small>
+          </a>
+          <a class="related-card" href="rate-limiting.html">
+            <b>Rate limiting</b>
+            <span>Say no on purpose, before the system says no by falling over.</span>
+            <small>Mentioned here in Key concepts</small>
           </a>
       </div>
     </section>
@@ -527,7 +541,7 @@ print(c.name, c.status)</code></pre><div class="what">Python SDK (<code>pip inst
   </main>
 </div>
 
-<script src="../assets/player.js"></script>
+<script src="../assets/player.js?v=e098a7b2"></script>
 <script>
 /* ---------- Animation 1: docker run ---------- */
 createAnimation('anim-run', [

@@ -320,3 +320,128 @@
   }
   window.addEventListener('hashchange', () => { closeResults(); jumpToHash(); });
 })();
+
+/* ---------------------------------------------------------------------------
+   Code zoom modal.
+   Clicking a highlighted block reopens it larger, with line numbers and copy.
+   Click-to-open is skipped while the user is selecting text, so a block stays
+   readable and copyable in place; Enter/Space on a focused block works too.
+   --------------------------------------------------------------------------- */
+(function () {
+  const LANG_LABEL = {
+    csharp: 'C#', bash: 'Shell', sql: 'SQL', python: 'Python', markup: 'XML',
+    yaml: 'YAML', json: 'JSON', lua: 'Lua', docker: 'Dockerfile', bicep: 'Bicep',
+    graphql: 'GraphQL', none: 'Text',
+  };
+  let modal = null, backdrop = null, lastFocus = null;
+
+  const langOf = pre => (pre.className.match(/language-([\w-]+)/) || [, 'none'])[1];
+
+  function build() {
+    backdrop = document.createElement('div');
+    backdrop.className = 'cm-backdrop';
+    backdrop.hidden = true;
+
+    modal = document.createElement('div');
+    modal.className = 'code-modal';
+    modal.hidden = true;
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Code');
+    modal.innerHTML =
+      '<div class="cm-head"><span class="cm-lang"></span><span class="spacer"></span>' +
+      '<button type="button" class="cm-copy">Copy</button>' +
+      '<button type="button" class="cm-close">Close</button></div>' +
+      '<div class="cm-body"></div>';
+
+    document.body.append(backdrop, modal);
+    backdrop.addEventListener('click', close);
+    modal.querySelector('.cm-close').addEventListener('click', close);
+    modal.querySelector('.cm-copy').addEventListener('click', copy);
+    modal.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { e.preventDefault(); close(); }
+    });
+  }
+
+  function copy() {
+    const btn = modal.querySelector('.cm-copy');
+    const code = modal.querySelector('.cm-body code');
+    const text = code?.textContent ?? '';
+    const done = ok => {
+      if (!ok) selectCode();            // leave it selected so Ctrl+C still works
+      btn.textContent = ok ? 'Copied' : 'Selected — press Ctrl+C';
+      btn.dataset.done = ok ? '1' : '';
+      setTimeout(() => { btn.textContent = 'Copy'; btn.dataset.done = ''; }, 1800);
+    };
+    const selectCode = () => {
+      if (!code) return;
+      const r = document.createRange();
+      r.selectNodeContents(code);
+      const sel = window.getSelection();
+      sel.removeAllRanges(); sel.addRange(r);
+    };
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(() => done(true), () => done(false));
+    else done(false);
+  }
+
+  function open(pre) {
+    if (!modal) build();
+    lastFocus = document.activeElement;
+    const lang = langOf(pre);
+    modal.querySelector('.cm-lang').textContent = LANG_LABEL[lang] || lang;
+
+    // clone the already-highlighted markup rather than re-running Prism
+    const body = modal.querySelector('.cm-body');
+    body.innerHTML = '';
+    const copyPre = pre.cloneNode(true);
+    copyPre.removeAttribute('tabindex');
+    copyPre.removeAttribute('role');
+    copyPre.removeAttribute('aria-label');
+    body.append(copyPre);
+
+    backdrop.hidden = false;
+    modal.hidden = false;
+    document.body.classList.add('panel-open');
+    modal.querySelector('.cm-close').focus();
+  }
+
+  function close() {
+    if (!modal || modal.hidden) return;
+    modal.hidden = true;
+    backdrop.hidden = true;
+    document.body.classList.remove('panel-open');
+    if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
+  }
+
+  function wire(pre) {
+    if (pre.dataset.zoom) return;
+    pre.dataset.zoom = '1';
+    // Concept-panel code is cloned in from a <template> long after Prism's initial
+    // pass, so it arrives untokenised. Highlight it the moment it appears.
+    const code = pre.querySelector('code');
+    if (window.Prism && code && !code.querySelector('.token')) {
+      try { Prism.highlightElement(code); } catch (e) { /* language not loaded yet */ }
+    }
+    pre.tabIndex = 0;
+    pre.setAttribute('role', 'button');
+    pre.setAttribute('aria-label', 'Open this code larger');
+    pre.addEventListener('click', () => {
+      // let people select text in place without the modal hijacking the mouse-up
+      if ((window.getSelection()?.toString() || '').length) return;
+      open(pre);
+    });
+    pre.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(pre); }
+    });
+  }
+
+  const wireAll = root => (root || document).querySelectorAll('pre[class*="language-"]').forEach(wire);
+
+  wireAll();
+  // blocks inside concept panels are cloned in from <template> after load
+  new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => {
+    if (n.nodeType === 1) { if (n.matches?.('pre[class*="language-"]')) wire(n); else wireAll(n); }
+  }))).observe(document.body, { childList: true, subtree: true });
+
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+})();

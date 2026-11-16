@@ -1,0 +1,1025 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Caching strategies · Tech cheatsheets</title>
+<meta name="description" content="Caching strategies cheatsheet: cache-aside, read-through, write-through, write-behind and refresh-ahead, with animated walk-throughs of write paths, stampedes and invalidation races.">
+<meta name="aliases" content="Caching strategies, caching, cache patterns, cache-aside, write-through, write-behind">
+<meta name="related" content="rate-limiting, azure-api-management">
+<meta name="keywords" content="caching, cache-aside, write-through, write-behind, read-through, invalidation, ttl, eviction, cdn, performance">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../assets/notebook.css?v=389a30cc">
+<script src="../assets/site.js?v=b55fb986" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
+</head>
+<body data-root="..">
+<div class="layout">
+  <nav class="toc" aria-label="Sections">
+    <a href="#overview">Overview</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#concepts">Key concepts</a>
+    <a href="#commands">Commands</a>
+    <a href="#pros-cons">Pros &amp; cons</a>
+    <a href="#use-cases">Use cases</a>
+    <a href="#when">When to use</a>
+    <a href="#gotchas">Gotchas</a>
+    <a href="#alternatives">Alternatives</a>
+    <a href="#resources">Resources</a>
+    <a href="#related">Related</a>
+  </nav>
+
+  <main>
+    <header class="hero" id="overview">
+      <h1>Caching strategies</h1>
+      <p class="tagline">Keep the answer near the question &mdash; and decide, up front, how wrong you are willing to be.</p>
+      <span class="meta">As of Nov 2026 · patterns are timeless; the examples are .NET 9+, Redis and HTTP</span>
+      <p>A cache is a second copy of data, placed closer to the reader than the system of record. It converts a slow, expensive, contended operation &mdash; a join across three tables, a call to a partner API, rendering a PDF &mdash; into a key lookup that costs a fraction of a millisecond. Done well, it is the single highest-leverage performance change available to most systems.</p>
+      <p>The <b>strategy</b> is not "use Redis". It is the set of four decisions you make about that second copy: <b>who fills it</b> (cache-aside, read-through, refresh-ahead), <b>what happens on writes</b> (write-through, write-behind, write-around, or just invalidate), <b>when entries die</b> (TTL, eviction policy, explicit invalidation), and <b>how stale is too stale</b>. Get those wrong and a cache turns a correctness problem into an intermittent, unreproducible one.</p>
+      <p>Caches exist at every layer at once: CPU and ORM caches inside a process, an in-memory cache per instance, a shared distributed cache such as Redis, a CDN at the edge, and the browser. Each layer has its own hit ratio, its own staleness, and its own invalidation problem &mdash; which is why "just add a cache" is rarely a one-line change.</p>
+    </header>
+
+    <section id="architecture">
+      <h2>Architecture / mental model</h2>
+      <div class="diagram">
+        <svg viewBox="0 0 800 330" role="img" aria-label="Layers of caching from browser through CDN, in-process cache and distributed cache to the database, with typical latency and hit ratio at each layer">
+          <defs>
+            <marker id="ca-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+          </defs>
+          <text x="400" y="22" font-size="13" text-anchor="middle" fill="#5f6f66">each layer answers what it can and passes the rest down &mdash; a miss is only a miss for that layer</text>
+
+          <rect x="18" y="42" width="140" height="92" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="88" y="66" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Browser</text>
+          <text x="88" y="86" font-size="11.5" text-anchor="middle" fill="#5f6f66">Cache-Control</text>
+          <text x="88" y="103" font-size="11.5" text-anchor="middle" fill="#5f6f66">ETag revalidation</text>
+          <text x="88" y="124" font-size="12" text-anchor="middle" fill="#2f6b3f" font-weight="600">0 ms</text>
+
+          <rect x="178" y="42" width="140" height="92" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="248" y="66" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">CDN / edge</text>
+          <text x="248" y="86" font-size="11.5" text-anchor="middle" fill="#5f6f66">shared, per POP</text>
+          <text x="248" y="103" font-size="11.5" text-anchor="middle" fill="#5f6f66">purge by tag</text>
+          <text x="248" y="124" font-size="12" text-anchor="middle" fill="#2f6b3f" font-weight="600">5&ndash;30 ms</text>
+
+          <rect x="338" y="42" width="140" height="92" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+          <text x="408" y="66" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">In-process</text>
+          <text x="408" y="86" font-size="11.5" text-anchor="middle" fill="#5f6f66">per instance, not shared</text>
+          <text x="408" y="103" font-size="11.5" text-anchor="middle" fill="#5f6f66">MemoryCache</text>
+          <text x="408" y="124" font-size="12" text-anchor="middle" fill="#2f6b3f" font-weight="600">~0.1 &micro;s</text>
+
+          <rect x="498" y="42" width="140" height="92" rx="8" fill="#f9e3df" stroke="#c53b3b" stroke-width="1.5"/>
+          <text x="568" y="66" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Distributed</text>
+          <text x="568" y="86" font-size="11.5" text-anchor="middle" fill="#5f6f66">Redis &mdash; one truth</text>
+          <text x="568" y="103" font-size="11.5" text-anchor="middle" fill="#5f6f66">for the whole fleet</text>
+          <text x="568" y="124" font-size="12" text-anchor="middle" fill="#2f6b3f" font-weight="600">0.3&ndash;1 ms</text>
+
+          <rect x="658" y="42" width="124" height="92" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="720" y="66" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Database</text>
+          <text x="720" y="86" font-size="11.5" text-anchor="middle" fill="#5f6f66">system of record</text>
+          <text x="720" y="103" font-size="11.5" text-anchor="middle" fill="#5f6f66">always correct</text>
+          <text x="720" y="124" font-size="12" text-anchor="middle" fill="#c53b3b" font-weight="600">5&ndash;100 ms</text>
+
+          <g stroke="#5f6f66" stroke-width="1.5" fill="none" marker-end="url(#ca-arr)">
+            <line x1="158" y1="88" x2="174" y2="88"/><line x1="318" y1="88" x2="334" y2="88"/>
+            <line x1="478" y1="88" x2="494" y2="88"/><line x1="638" y1="88" x2="654" y2="88"/>
+          </g>
+
+          <text x="400" y="166" font-size="12.5" text-anchor="middle" fill="#23362e" font-weight="600">a 95% hit ratio sends 1 request in 20 down to the next layer</text>
+
+          <rect x="18" y="184" width="764" height="88" rx="8" fill="#fbfcf8" stroke="#d5dccf"/>
+          <text x="34" y="206" font-size="12.5" font-weight="600" fill="#23362e">The four decisions that make up a caching strategy</text>
+          <g font-size="12" fill="#5f6f66">
+            <text x="34" y="228"><tspan fill="#c53b3b" font-weight="600">1. Who fills it?</tspan>  cache-aside (your code) &middot; read-through (the cache) &middot; refresh-ahead (a timer)</text>
+            <text x="34" y="246"><tspan fill="#c53b3b" font-weight="600">2. What happens on write?</tspan>  write-through &middot; write-behind &middot; write-around &middot; invalidate-only</text>
+            <text x="34" y="264"><tspan fill="#c53b3b" font-weight="600">3. When do entries die?</tspan>  TTL &middot; eviction under memory pressure &middot; explicit invalidation</text>
+          </g>
+          <text x="34" y="296" font-size="12" fill="#5f6f66"><tspan fill="#c53b3b" font-weight="600">4. How stale is too stale?</tspan>  the staleness budget is a product decision, not a technical one</text>
+          <text class="hand" x="430" y="320" font-size="16" fill="#c53b3b">answer #4 first &mdash; the other three follow from it</text>
+        </svg>
+      </div>
+      <p class="caption">A cache is not a layer you add; it is four decisions you make. The last one &mdash; how stale a value may be &mdash; determines the other three.</p>
+    </section>
+
+        <section id="how-it-works">
+      <h2>How it works</h2>
+      <p style="margin:0 0 18px">Six patterns, all drawn in the same three boxes &mdash; your app, the cache, PostgreSQL &mdash; so you can see exactly which arrow moves and who waits. The first three are <b>read paths</b> (who fills the cache); the last three are <b>write paths</b> (what happens to the cache when data changes). A comparison follows at the end.</p>
+      <span class="note" style="margin:-8px 0 18px">watch the arrows: who talks to the database tells you almost everything</span>
+
+      <h3 style="margin-top:4px">Read paths &mdash; who fills the cache</h3>
+
+      <div class="anim" id="anim-aside">
+        <h3>1 &middot; Cache-aside (lazy loading)</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 270" role="img" aria-label="Animated cache-aside read where the application itself queries the database and populates the cache">
+            <defs>
+              <marker id="ca-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+            <rect id="ca-app" x="30" y="60" width="150" height="86" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="105" y="88" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Your app</text>
+            <text id="ca-app-sub" x="105" y="110" font-size="11.5" text-anchor="middle" fill="#5f6f66">idle</text>
+            <text id="ca-app-lat" x="105" y="131" font-size="12" text-anchor="middle" fill="#c53b3b" font-weight="600" font-family="Fira Code, monospace">&nbsp;</text>
+            <line x1="180" y1="92" x2="296" y2="92" stroke="#a9b5a6" stroke-width="1.5" marker-end="url(#ca-a)"/>
+            <text x="238" y="84" font-size="10.5" text-anchor="middle" fill="#5f6f66">1. look</text>
+            <path id="ca-arc" d="M105 146 Q 400 230 690 146" stroke="#c53b3b" stroke-width="1.5" fill="none" stroke-dasharray="5 4" marker-end="url(#ca-a)"/>
+            <text x="400" y="212" font-size="10.5" text-anchor="middle" fill="#c53b3b">2. on a miss, the app queries the database itself</text>
+            <rect id="ca-cache" x="300" y="50" width="190" height="106" rx="8" fill="#f9e3df" stroke="#c53b3b" stroke-width="1.5"/>
+            <text x="395" y="76" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Cache</text>
+            <text id="ca-cache-val" x="395" y="100" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">product:42 &rarr; (nil)</text>
+            <text id="ca-cache-sub" x="395" y="122" font-size="10.5" text-anchor="middle" fill="#5f6f66">knows nothing about the database</text>
+            <text id="ca-cache-ttl" x="395" y="142" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <rect id="ca-db" x="610" y="60" width="160" height="86" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="690" y="88" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">PostgreSQL</text>
+            <text id="ca-db-sub" x="690" y="110" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">price = 99</text>
+            <text id="ca-db-hits" x="690" y="131" font-size="11" text-anchor="middle" fill="#5f6f66">queries: 0</text>
+            <text id="ca-score" x="30" y="248" font-size="13" fill="#23362e" font-weight="600" font-family="Fira Code, monospace">client waited: &mdash;</text>
+            <text id="ca-note" class="hand hidden" x="330" y="252" font-size="15" fill="#c53b3b">a miss costs you the lookup *and* the query</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <div class="anim" id="anim-through">
+        <h3>2 &middot; Read-through</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 270" role="img" aria-label="Animated read-through where the cache itself loads the missing value from the database">
+            <defs>
+              <marker id="rt-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+            <rect id="rt-app" x="30" y="60" width="150" height="86" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="105" y="88" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Your app</text>
+            <text id="rt-app-sub" x="105" y="110" font-size="11.5" text-anchor="middle" fill="#5f6f66">idle</text>
+            <text id="rt-app-lat" x="105" y="131" font-size="12" text-anchor="middle" fill="#c53b3b" font-weight="600" font-family="Fira Code, monospace">&nbsp;</text>
+            <line x1="180" y1="92" x2="296" y2="92" stroke="#a9b5a6" stroke-width="1.5" marker-end="url(#rt-a)"/>
+            <text x="238" y="84" font-size="10.5" text-anchor="middle" fill="#5f6f66">the only call it makes</text>
+            <rect id="rt-cache" x="300" y="50" width="190" height="106" rx="8" fill="#f9e3df" stroke="#c53b3b" stroke-width="1.5"/>
+            <text x="395" y="76" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Cache + loader</text>
+            <text id="rt-cache-val" x="395" y="100" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">product:42 &rarr; (nil)</text>
+            <text id="rt-cache-sub" x="395" y="122" font-size="10.5" text-anchor="middle" fill="#5f6f66">the factory lives here</text>
+            <text id="rt-cache-flight" x="395" y="142" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <line id="rt-link" x1="490" y1="103" x2="606" y2="103" stroke="#a9b5a6" stroke-width="1.5" marker-end="url(#rt-a)"/>
+            <text x="548" y="95" font-size="10.5" text-anchor="middle" fill="#5f6f66">on a miss</text>
+            <rect id="rt-db" x="610" y="60" width="160" height="86" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="690" y="88" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">PostgreSQL</text>
+            <text id="rt-db-sub" x="690" y="110" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">price = 99</text>
+            <text id="rt-db-hits" x="690" y="131" font-size="11" text-anchor="middle" fill="#5f6f66">queries: 0</text>
+            <text id="rt-score" x="30" y="248" font-size="13" fill="#23362e" font-weight="600" font-family="Fira Code, monospace">client waited: &mdash;</text>
+            <text id="rt-note" class="hand hidden" x="330" y="252" font-size="15" fill="#c53b3b">500 callers, one query &mdash; that's the real win</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <div class="anim" id="anim-refresh">
+        <h3>3 &middot; Refresh-ahead</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 270" role="img" aria-label="Animated refresh-ahead where a background task recomputes a hot entry before it expires">
+            <defs>
+              <marker id="ra-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+              <marker id="ra-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2f6b3f"/></marker>
+            </defs>
+            <rect id="ra-app" x="30" y="60" width="150" height="86" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="105" y="88" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Your app</text>
+            <text id="ra-app-sub" x="105" y="110" font-size="11.5" text-anchor="middle" fill="#5f6f66">idle</text>
+            <text id="ra-app-lat" x="105" y="131" font-size="12" text-anchor="middle" fill="#c53b3b" font-weight="600" font-family="Fira Code, monospace">&nbsp;</text>
+            <line x1="180" y1="92" x2="296" y2="92" stroke="#a9b5a6" stroke-width="1.5" marker-end="url(#ra-a)"/>
+            <text x="238" y="84" font-size="10.5" text-anchor="middle" fill="#5f6f66">always a hit</text>
+            <rect id="ra-cache" x="300" y="50" width="190" height="106" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+            <text x="395" y="74" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Cache</text>
+            <text id="ra-cache-val" x="395" y="97" font-size="11.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">product:42 &rarr; 99</text>
+            <text id="ra-cache-ttl" x="395" y="118" font-size="11.5" text-anchor="middle" fill="#2f6b3f" font-weight="600" font-family="Fira Code, monospace">TTL 300 s</text>
+            <text id="ra-cache-sub" x="395" y="140" font-size="10.5" text-anchor="middle" fill="#5f6f66">nobody is waiting on this entry</text>
+            <line id="ra-link" class="hidden" x1="490" y1="103" x2="606" y2="103" stroke="#2f6b3f" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ra-g)"/>
+            <text id="ra-link-t" class="hidden" x="548" y="95" font-size="10.5" text-anchor="middle" fill="#2f6b3f">background</text>
+            <rect id="ra-db" x="610" y="60" width="160" height="86" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="690" y="88" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">PostgreSQL</text>
+            <text id="ra-db-sub" x="690" y="110" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">price = 99</text>
+            <text id="ra-db-hits" x="690" y="131" font-size="11" text-anchor="middle" fill="#5f6f66">queries: 0</text>
+            <text id="ra-clock" x="30" y="200" font-size="12" fill="#5f6f66" font-family="Fira Code, monospace">t = 0:00 since the entry was written</text>
+            <text id="ra-score" x="30" y="248" font-size="13" fill="#23362e" font-weight="600" font-family="Fira Code, monospace">client waited: &mdash;</text>
+            <text id="ra-note" class="hand hidden" x="330" y="252" font-size="15" fill="#c53b3b">no user ever pays for a miss &mdash; someone else does</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <h3>Write paths &mdash; what happens when the data changes</h3>
+
+      <div class="anim" id="anim-wthrough">
+        <h3>4 &middot; Write-through</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 270" role="img" aria-label="Animated write-through where the cache synchronously writes to the database before acknowledging">
+            <defs>
+              <marker id="wt-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+            <rect id="wt-app" x="30" y="60" width="150" height="86" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="105" y="88" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Your app</text>
+            <text id="wt-app-sub" x="105" y="110" font-size="11.5" text-anchor="middle" fill="#5f6f66">idle</text>
+            <text id="wt-app-lat" x="105" y="131" font-size="12" text-anchor="middle" fill="#c53b3b" font-weight="600" font-family="Fira Code, monospace">&nbsp;</text>
+            <line x1="180" y1="92" x2="296" y2="92" stroke="#a9b5a6" stroke-width="1.5" marker-end="url(#wt-a)"/>
+            <text x="238" y="84" font-size="10.5" text-anchor="middle" fill="#5f6f66">write price = 79</text>
+            <rect id="wt-cache" x="300" y="50" width="190" height="106" rx="8" fill="#f9e3df" stroke="#c53b3b" stroke-width="1.5"/>
+            <text x="395" y="76" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Cache</text>
+            <text id="wt-cache-val" x="395" y="100" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">product:42 &rarr; 99</text>
+            <text id="wt-cache-sub" x="395" y="124" font-size="10.5" text-anchor="middle" fill="#5f6f66">forwards every write, and waits</text>
+            <line id="wt-link" x1="490" y1="103" x2="606" y2="103" stroke="#a9b5a6" stroke-width="1.5" marker-end="url(#wt-a)"/>
+            <text id="wt-link-t" x="548" y="95" font-size="10.5" text-anchor="middle" fill="#5f6f66">synchronous</text>
+            <rect id="wt-db" x="610" y="60" width="160" height="86" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="690" y="88" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">PostgreSQL</text>
+            <text id="wt-db-sub" x="690" y="110" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">price = 99</text>
+            <text id="wt-db-hits" x="690" y="131" font-size="11" text-anchor="middle" fill="#5f6f66">committed: no</text>
+            <text id="wt-agree" x="30" y="200" font-size="12.5" fill="#2f6b3f" font-weight="600" font-family="Fira Code, monospace">cache and database agree: yes</text>
+            <text id="wt-score" x="30" y="248" font-size="13" fill="#23362e" font-weight="600" font-family="Fira Code, monospace">client waited: &mdash;</text>
+            <text id="wt-note" class="hand hidden" x="330" y="252" font-size="15" fill="#c53b3b">never wrong, never fast, and full of unread data</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <div class="anim" id="anim-wbehind">
+        <h3>5 &middot; Write-behind (write-back)</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 270" role="img" aria-label="Animated write-behind where the cache acknowledges immediately and flushes to the database later">
+            <defs>
+              <marker id="wb-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+            <rect id="wb-app" x="30" y="60" width="150" height="86" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="105" y="88" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Your app</text>
+            <text id="wb-app-sub" x="105" y="110" font-size="11.5" text-anchor="middle" fill="#5f6f66">idle</text>
+            <text id="wb-app-lat" x="105" y="131" font-size="12" text-anchor="middle" fill="#c53b3b" font-weight="600" font-family="Fira Code, monospace">&nbsp;</text>
+            <line x1="180" y1="92" x2="296" y2="92" stroke="#a9b5a6" stroke-width="1.5" marker-end="url(#wb-a)"/>
+            <text x="238" y="84" font-size="10.5" text-anchor="middle" fill="#5f6f66">write price = 79</text>
+            <rect id="wb-cache" x="300" y="50" width="190" height="106" rx="8" fill="#f9e3df" stroke="#c53b3b" stroke-width="1.5"/>
+            <text x="395" y="74" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Cache</text>
+            <text id="wb-cache-val" x="395" y="96" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">product:42 &rarr; 99</text>
+            <rect id="wb-dirty-box" class="hidden" x="316" y="110" width="158" height="34" rx="5" fill="#fbf3c4" stroke="#d9c25a"/>
+            <text id="wb-dirty" class="hidden" x="395" y="132" font-size="11" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">dirty buffer: empty</text>
+            <line id="wb-link" x1="490" y1="103" x2="606" y2="103" stroke="#d9c25a" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#wb-a)"/>
+            <text id="wb-link-t" x="548" y="95" font-size="10.5" text-anchor="middle" fill="#8a6a0c">every 200 ms</text>
+            <rect id="wb-db" x="610" y="60" width="160" height="86" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="690" y="88" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">PostgreSQL</text>
+            <text id="wb-db-sub" x="690" y="110" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">price = 99</text>
+            <text id="wb-db-hits" x="690" y="131" font-size="11" text-anchor="middle" fill="#5f6f66">writes: 0</text>
+            <text id="wb-agree" x="30" y="200" font-size="12.5" fill="#2f6b3f" font-weight="600" font-family="Fira Code, monospace">cache and database agree: yes</text>
+            <g id="wb-crash" class="hidden">
+              <rect x="300" y="50" width="190" height="106" rx="8" fill="none" stroke="#c53b3b" stroke-width="3" stroke-dasharray="6 4"/>
+              <text x="395" y="174" font-size="12.5" text-anchor="middle" fill="#c53b3b" font-weight="700">node dies</text>
+            </g>
+            <text id="wb-score" x="30" y="248" font-size="13" fill="#23362e" font-weight="600" font-family="Fira Code, monospace">client waited: &mdash;</text>
+            <text id="wb-note" class="hand hidden" x="330" y="252" font-size="15" fill="#c53b3b">50x faster, and it can lose the write it acknowledged</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <div class="anim" id="anim-waround">
+        <h3>6 &middot; Write-around (write, then invalidate)</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 270" role="img" aria-label="Animated write-around where the application writes to the database and deletes the cache key">
+            <defs>
+              <marker id="wa-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+              <marker id="wa-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#c53b3b"/></marker>
+            </defs>
+            <rect id="wa-app" x="30" y="60" width="150" height="86" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="105" y="88" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Your app</text>
+            <text id="wa-app-sub" x="105" y="110" font-size="11.5" text-anchor="middle" fill="#5f6f66">idle</text>
+            <text id="wa-app-lat" x="105" y="131" font-size="12" text-anchor="middle" fill="#c53b3b" font-weight="600" font-family="Fira Code, monospace">&nbsp;</text>
+            <path id="wa-arc" d="M105 146 Q 400 230 690 146" stroke="#5f6f66" stroke-width="1.5" fill="none" marker-end="url(#wa-a)"/>
+            <text x="400" y="212" font-size="10.5" text-anchor="middle" fill="#5f6f66">1. the write goes straight past the cache</text>
+            <line id="wa-del" class="hidden" x1="180" y1="86" x2="296" y2="86" stroke="#c53b3b" stroke-width="1.5" marker-end="url(#wa-r)"/>
+            <text id="wa-del-t" class="hidden" x="238" y="78" font-size="10.5" text-anchor="middle" fill="#c53b3b" font-family="Fira Code, monospace">2. DEL</text>
+            <rect id="wa-cache" x="300" y="50" width="190" height="106" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="395" y="78" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Cache</text>
+            <text id="wa-cache-val" x="395" y="102" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">product:42 &rarr; 99 (stale)</text>
+            <text id="wa-cache-sub" x="395" y="126" font-size="10.5" text-anchor="middle" fill="#5f6f66">not in the write path at all</text>
+            <rect id="wa-db" x="610" y="60" width="160" height="86" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="690" y="88" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">PostgreSQL</text>
+            <text id="wa-db-sub" x="690" y="110" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">price = 99</text>
+            <text id="wa-db-hits" x="690" y="131" font-size="11" text-anchor="middle" fill="#5f6f66">the system of record</text>
+            <text id="wa-score" x="30" y="248" font-size="13" fill="#23362e" font-weight="600" font-family="Fira Code, monospace">client waited: &mdash;</text>
+            <text id="wa-note" class="hand hidden" x="330" y="252" font-size="15" fill="#c53b3b">DEL, never SET &mdash; a delete can't be stale</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <h3 id="compare-patterns">Comparing them</h3>
+      <p>The read paths differ in <i>where the loading code lives</i> and <i>who pays for a miss</i>. The write paths differ in <i>what the cache holds afterwards</i> and <i>what you can lose</i>.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Pattern</th><th>Who talks to the database</th><th>Client waits</th><th>Cache ends up holding</th><th>Main risk</th><th>Reach for it when</th></tr></thead>
+          <tbody>
+            <tr><td><b>Cache-aside</b></td><td>your application code</td><td>miss ~16 ms, hit ~0.3 ms</td><td>only what someone asked for</td><td>a stampede, and the invalidation race</td><td>the default; you want the cache to be optional</td></tr>
+            <tr><td><b>Read-through</b></td><td>the cache library</td><td>same, but one loader per key</td><td>only what someone asked for</td><td>couples the cache to your data access</td><td>you want one implementation and free stampede protection</td></tr>
+            <tr><td><b>Refresh-ahead</b></td><td>a background task</td><td><b>never</b> pays a miss</td><td>whatever you decided is hot</td><td>wasted recomputation of cold keys</td><td>a small, known set of expensive hot keys</td></tr>
+            <tr><td><b>Write-through</b></td><td>the cache, synchronously</td><td>write ~16 ms</td><td>everything written, read or not</td><td>cache filled with write-only data</td><td>you need cache and source to never disagree</td></tr>
+            <tr><td><b>Write-behind</b></td><td>the cache, later, in batches</td><td>write ~0.3 ms</td><td>everything written, plus dirty state</td><td><b>acknowledged writes can be lost</b></td><td>counters and telemetry &mdash; never money</td></tr>
+            <tr class="self"><td><b>Write-around</b></td><td>your application code</td><td>write ~15 ms; next read is a miss</td><td>only what is actually read</td><td>the first read after a write is slow</td><td>writes outnumber reads; pairs with cache-aside</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:14px">The things that are easy to miss until you see them side by side:</p>
+      <ul>
+        <li><b>Cache-aside and read-through have the same read path.</b> The arrows differ only in who owns the loading code &mdash; your call site, or the cache library. The real difference shows up under concurrency: 500 simultaneous misses run 500 queries with cache-aside, and one with read-through.</li>
+        <li><b>Write-through and write-behind differ by one word: <i>await</i>.</b> That one word is the difference between a 16 ms write that can never be lost and a 0.3 ms write that can.</li>
+        <li><b>Write-around is the one that deletes rather than writes.</b> That is not laziness &mdash; a <code>DEL</code> is idempotent and can never be stale, while a <code>SET</code> can store a value you computed before someone else's update. The invalidation deep dive animates exactly that failure.</li>
+        <li>They compose. The common production combination is <b>cache-aside reads + write-around writes + a TTL as a backstop</b>, which is what most codebases end up with whether or not anyone named it.</li>
+      </ul>
+
+      <h3>The failure mode all three read paths share</h3>
+
+      <div class="anim" id="anim-stampede">
+        <h3>Cache stampede: one expiry, a thousand misses</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 320" role="img" aria-label="Animated cache stampede where an expiring key sends all concurrent requests to the database">
+            <defs>
+              <marker id="sp-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+            <rect id="sp-clients" x="24" y="70" width="150" height="130" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="99" y="96" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Traffic</text>
+            <text id="sp-rps" x="99" y="124" font-size="12.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">5,000 req/s</text>
+            <text x="99" y="146" font-size="11.5" text-anchor="middle" fill="#5f6f66">all asking for</text>
+            <text x="99" y="164" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">product:42</text>
+            <text id="sp-clients-sub" x="99" y="186" font-size="11.5" text-anchor="middle" fill="#2f6b3f" font-weight="600">served from cache</text>
+            <line x1="174" y1="135" x2="286" y2="135" stroke="#a9b5a6" stroke-width="1.5" marker-end="url(#sp-arr)"/>
+            <rect id="sp-cache" x="290" y="60" width="200" height="150" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+            <text x="390" y="86" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Cache</text>
+            <text id="sp-key" x="390" y="112" font-size="12" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">product:42 &rarr; {...}</text>
+            <text id="sp-ttl" x="390" y="136" font-size="12.5" text-anchor="middle" fill="#2f6b3f" font-weight="600" font-family="Fira Code, monospace">TTL 300 s</text>
+            <text id="sp-hit" x="390" y="162" font-size="12" text-anchor="middle" fill="#5f6f66">hit ratio 99.98%</text>
+            <rect id="sp-lock" class="hidden" x="306" y="172" width="168" height="28" rx="5" fill="#fbf3c4" stroke="#d9c25a"/>
+            <text id="sp-lock-t" class="hidden" x="390" y="191" font-size="11.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">lock held by req #1</text>
+            <line id="sp-link" x1="490" y1="135" x2="596" y2="135" stroke="#a9b5a6" stroke-width="1.5" marker-end="url(#sp-arr)"/>
+            <text id="sp-flow" x="543" y="124" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">~1 /s</text>
+            <rect id="sp-db" x="600" y="60" width="176" height="150" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="688" y="86" font-size="13.5" font-weight="600" text-anchor="middle" fill="#23362e">Database</text>
+            <text id="sp-dbload" x="688" y="116" font-size="13" text-anchor="middle" fill="#2f6b3f" font-weight="700" font-family="Fira Code, monospace">load: 2%</text>
+            <text id="sp-dblat" x="688" y="140" font-size="12" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">p99 12 ms</text>
+            <text id="sp-dbpool" x="688" y="166" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">pool 3 / 100</text>
+            <text id="sp-dbstate" x="688" y="190" font-size="11.5" text-anchor="middle" fill="#2f6b3f" font-weight="600">healthy</text>
+            <text id="sp-caption" x="400" y="248" font-size="13" text-anchor="middle" fill="#23362e">Steady state: the database barely notices the traffic.</text>
+            <g id="sp-fix" class="hidden">
+              <rect x="70" y="264" width="660" height="30" rx="6" fill="#e3eedc" stroke="#2f6b3f"/>
+              <text id="sp-fix-t" x="400" y="284" font-size="12.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">single-flight: one request refreshes, the other 499 wait on the same task</text>
+            </g>
+            <text id="sp-note" class="hand hidden" x="300" y="312" font-size="16" fill="#c53b3b">the higher the hit ratio, the harder the fall</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+    </section>
+
+    <section id="concepts">
+      <h2>Key concepts</h2>
+      <div class="terms">
+        <div class="term"><b>hit ratio</b><span>The fraction of lookups answered by the cache. It decides the average latency and, more importantly, how much load reaches the thing behind it.</span><template class="term-detail" data-see="cache-aside, TTL, cache stampede">
+<p>Hit ratio is the number that turns a cache from a vibe into a measurement. Average latency is <code>hit_ratio x hit_cost + (1 &minus; hit_ratio) x miss_cost</code>, and the miss cost usually dominates.</p>
+<h4>What the numbers actually mean</h4>
+<table><tr><th>Hit ratio</th><th>Avg latency (1 ms hit, 50 ms miss)</th><th>Load reaching the DB</th></tr>
+<tr><td>50%</td><td>25.5 ms</td><td>half of it</td></tr>
+<tr><td>90%</td><td>5.9 ms</td><td>1 in 10</td></tr>
+<tr><td>99%</td><td>1.5 ms</td><td>1 in 100</td></tr>
+<tr><td>99.9%</td><td>1.05 ms</td><td>1 in 1,000</td></tr></table>
+<p>Two consequences people miss. First, going from 90% to 99% halves the backend load again &mdash; the marginal value of hit ratio grows as it approaches 1. Second, a system tuned to run comfortably at a 99% hit ratio is running at <b>100x its sustainable load</b> if the cache ever empties, which is why a cold cache after a deploy or a flush can take the database down.</p>
+<p>Measure hits, misses and evictions separately. A falling hit ratio with rising evictions means the cache is too small; a falling hit ratio with stable evictions means your keys have too much cardinality or your TTLs are too short.</p>
+        </template></div>
+        <div class="term"><b>cache-aside</b><span>Also "lazy loading". Your code checks the cache, and on a miss reads the source and populates the cache itself. The cache knows nothing about the database.</span><template class="term-detail" data-see="read-through, invalidation, TTL, cache stampede">
+<p>The default pattern, and the one in almost every codebase. The application owns the whole flow:</p>
+<pre class="language-csharp line-numbers"><code class="language-csharp">var cached = await cache.GetAsync(key);
+if (cached is not null) return cached;          // hit
+
+var value = await db.LoadProductAsync(42);      // miss: go to the source
+await cache.SetAsync(key, value, ttl: 5min);    // populate for next time
+return value;</code></pre>
+<table><tr><th>Property</th><th>Consequence</th></tr>
+<tr><td>Only requested data is cached</td><td>no wasted memory on cold items</td></tr>
+<tr><td>Cache and DB models can differ</td><td>cache the rendered DTO, not the row</td></tr>
+<tr><td>A cache outage is survivable</td><td>every call just becomes a miss &mdash; if the DB can take it</td></tr>
+<tr><td>Every miss pays double</td><td>a failed lookup <i>plus</i> the real query</td></tr>
+<tr><td>Writes are your problem</td><td>you must invalidate, and the race is real</td></tr></table>
+<p>Pair it with write-side invalidation (delete the key, do not update it) and a TTL as a backstop for the invalidations you will inevitably miss.</p>
+        </template></div>
+        <div class="term"><b>read-through</b><span>The cache sits in front of the source and loads missing entries itself. Your code only ever talks to the cache.</span><template class="term-detail" data-see="cache-aside, refresh-ahead, write-through">
+<p>Same read path as cache-aside, but the "go and fetch it" logic lives in the cache library rather than in each call site. In .NET, <code>HybridCache.GetOrCreateAsync</code> is exactly this.</p>
+<pre class="language-csharp line-numbers"><code class="language-csharp">// the factory is only invoked on a miss, and only once per key
+var product = await hybridCache.GetOrCreateAsync(
+    $"product:{id}",
+    async ct =&gt; await db.LoadProductAsync(id, ct),
+    new HybridCacheEntryOptions { Expiration = TimeSpan.FromMinutes(5) });</code></pre>
+<h4>Why prefer it over hand-rolled cache-aside</h4>
+<ul><li>One implementation instead of one per call site, so the TTL, the serializer and the metrics are consistent.</li>
+<li>Stampede protection comes for free: concurrent callers for the same key await the same task.</li>
+<li>Caching a <code>null</code> result (negative caching) is handled once rather than forgotten everywhere.</li></ul>
+<p>The cost is coupling: your cache now needs to know how to load your data, which makes a cache library harder to swap and makes the loader's failures look like cache failures.</p>
+        </template></div>
+        <div class="term"><b>write-through</b><span>Writes go to the cache and to the source synchronously, before the caller is acknowledged. Cache and database never disagree.</span><template class="term-detail" data-see="write-behind, write-around, read-through, consistency">
+<p>The write path mirrors read-through: the cache is the only thing your code talks to, and it forwards the write to the source before returning.</p>
+<table><tr><th>Property</th><th>Effect</th></tr>
+<tr><td>Consistency</td><td>strong between cache and source &mdash; no stale window</td></tr>
+<tr><td>Write latency</td><td>cache write <i>plus</i> full source write (the slower of the two)</td></tr>
+<tr><td>Durability</td><td>same as the database: nothing is acknowledged before it is committed</td></tr>
+<tr><td>Cache contents</td><td>everything written, whether or not anyone reads it</td></tr></table>
+<p>The hidden cost is that last row: a write-heavy, read-light table fills the cache with entries nobody ever reads, evicting the ones people do. Combine write-through with a short TTL, or use write-around for data that is written far more often than it is read.</p>
+<p>See the first animation for the full write path, and what changes when the same write becomes write-behind.</p>
+        </template></div>
+        <div class="term"><b>write-behind</b><span>Also "write-back". The write is acknowledged as soon as the cache holds it, and flushed to the source later, usually in batches.</span><template class="term-detail" data-see="write-through, write-around, consistency">
+<p>The fastest write path and the only one that can <i>lose</i> data. The cache acknowledges, buffers the change as dirty, and a background flush writes it to the source after a delay or when a batch fills.</p>
+<table><tr><th>Knob</th><th>Typical</th><th>What it buys</th></tr>
+<tr><td>Flush interval</td><td>100 ms &ndash; 5 s</td><td>batching; longer means fewer, larger writes</td></tr>
+<tr><td>Batch size</td><td>100 &ndash; 10,000 rows</td><td>amortises round trips and index maintenance</td></tr>
+<tr><td>Data-loss window</td><td>= flush interval</td><td>exactly what you lose if the node dies</td></tr></table>
+<p>It wins when the same key is written repeatedly &mdash; a view counter hit 10,000 times a minute becomes one <code>UPDATE</code> instead of 10,000 &mdash; or when the source is slow and the write is not the user's last word on the subject.</p>
+<p>Never use it for data you cannot reconstruct: payments, orders, audit logs. "We lost 400 ms of writes" is an acceptable sentence about page-view counters and an unacceptable one about money. If you need both speed and durability, write to an append-only log such as Apache Kafka and project into the database asynchronously &mdash; same shape, but the buffer is durable.</p>
+        </template></div>
+        <div class="term"><b>write-around</b><span>Writes go straight to the source and simply invalidate (or skip) the cache. The entry is only populated when somebody actually reads it.</span><template class="term-detail" data-see="write-through, cache-aside, invalidation">
+<p>The quiet default for cache-aside systems: on a write, <code>DELETE</code> the key rather than updating it, and let the next reader repopulate.</p>
+<pre class="language-csharp"><code class="language-csharp">await db.UpdatePriceAsync(42, 79);
+await cache.RemoveAsync("product:42");   // not Set &mdash; see the invalidation race</code></pre>
+<table><tr><th>Compared to</th><th>Difference</th></tr>
+<tr><td>write-through</td><td>does not pollute the cache with write-only data; first read after a write is a miss</td></tr>
+<tr><td>updating the key in place</td><td>avoids writing a value you computed from a row you may have read before someone else's write</td></tr></table>
+<p>Delete, do not update. A delete is idempotent and always safe; a set can write a stale value computed moments ago, and that value then survives until its TTL. The invalidation deep dive animates exactly how that goes wrong.</p>
+        </template></div>
+        <div class="term"><b>refresh-ahead</b><span>Refresh popular entries <i>before</i> they expire, in the background, so that no user request ever pays for a miss.</span><template class="term-detail" data-see="stale-while-revalidate, cache stampede, TTL">
+<p>Two flavours. <b>Proactive</b>: a scheduled job recomputes a known set of hot keys on a timer. <b>Probabilistic</b>: on each read, refresh early with a probability that rises as the entry nears expiry &mdash; the "XFetch" trick.</p>
+<pre class="language-python"><code class="language-python"># refresh early, with increasing probability as the TTL runs out
+if now - delta * beta * log(random()) &gt;= expiry:
+    refresh_in_background(key)
+return cached_value</code></pre>
+<table><tr><th>Use it for</th><th>Not for</th></tr>
+<tr><td>a small, known set of hot keys (homepage, pricing, feature flags)</td><td>long-tail keys &mdash; you would refresh millions of entries nobody wants</td></tr>
+<tr><td>values that are expensive to compute (reports, aggregations)</td><td>values that change unpredictably: refresh-ahead still serves the previous one</td></tr></table>
+<p>The cost is wasted work: you recompute entries that might never be read again. That is a good trade for the top 100 keys and a terrible one for the next million.</p>
+        </template></div>
+        <div class="term"><b>TTL</b><span>Time to live: how long an entry may be served before it is discarded. The simplest, most robust correctness backstop you have.</span><template class="term-detail" data-see="invalidation, consistency, cache stampede, eviction policy">
+<p>A TTL is an admission that your invalidation will sometimes fail. It bounds the damage: however badly the invalidation goes, the wrong value disappears within the TTL.</p>
+<h4>Common values</h4>
+<table><tr><th>Data</th><th>TTL</th><th>Why</th></tr>
+<tr><td>Static assets (hashed filename)</td><td>1 year, <code>immutable</code></td><td>the name changes when the content does</td></tr>
+<tr><td>Product catalogue</td><td>5&ndash;60 min</td><td>changes rarely, staleness is cheap</td></tr>
+<tr><td>Prices, stock levels</td><td>10&ndash;60 s</td><td>wrong values cost money</td></tr>
+<tr><td>User session / permissions</td><td>1&ndash;15 min</td><td>a revoked permission must not linger</td></tr>
+<tr><td>Feature flags</td><td>5&ndash;30 s</td><td>a kill switch must actually kill</td></tr>
+<tr><td>Expensive report</td><td>1&ndash;24 h</td><td>cost dominates freshness</td></tr>
+<tr><td>Negative result (not found)</td><td>5&ndash;30 s</td><td>short, so a newly created item appears quickly</td></tr></table>
+<p>Always add jitter: <code>ttl = base + random(0, base * 0.1)</code>. Entries created together &mdash; by a deploy, a warm-up script or a bulk import &mdash; otherwise expire together and produce a synchronised stampede.</p>
+<p>Distinguish absolute expiry (dies at a fixed time, predictable) from sliding expiry (extends on each access, keeps hot items alive but can keep a stale value alive forever). Most caches, including .NET's <code>HybridCache</code>, let you set both: a sliding window with an absolute cap.</p>
+        </template></div>
+        <div class="term"><b>eviction policy</b><span>What gets thrown out when the cache is full: least recently used, least frequently used, FIFO, or something smarter. Eviction is not expiry.</span><template class="term-detail" data-see="TTL, hit ratio, key design">
+<p>Expiry is about correctness (this value is too old); eviction is about capacity (I need the space). A key can disappear for either reason, and your code must handle both identically.</p>
+<table><tr><th>Policy</th><th>Keeps</th><th>Weak against</th></tr>
+<tr><td>LRU</td><td>recently touched entries</td><td>a scan: one bulk job evicts your whole working set</td></tr>
+<tr><td>LFU</td><td>frequently touched entries</td><td>changing popularity; yesterday's hot key will not leave</td></tr>
+<tr><td>FIFO</td><td>nothing in particular</td><td>almost everything; simple but rarely best</td></tr>
+<tr><td>W-TinyLFU</td><td>frequency with a recency window</td><td>little &mdash; it is the modern default (Caffeine, many CDNs)</td></tr>
+<tr><td><code>noeviction</code></td><td>everything; writes fail instead</td><td>use for queues and primary data, never for a cache</td></tr></table>
+<p>In Redis the choice is <code>maxmemory-policy</code>: <code>allkeys-lru</code> for a pure cache, <code>volatile-lru</code> when the same instance also holds data that must not vanish. Watch <code>evicted_keys</code> &mdash; a non-zero and rising number means your cache is too small for its working set, and your hit ratio is paying for it.</p>
+        </template></div>
+        <div class="term"><b>invalidation</b><span>Removing or replacing an entry because the underlying data changed. The hard half of caching, and the source of the subtlest bugs.</span><template class="term-detail" data-see="write-around, TTL, consistency, key design">
+<p>Three strategies, in increasing order of effort and precision:</p>
+<table><tr><th>Strategy</th><th>Precision</th><th>Effort</th></tr>
+<tr><td>TTL only</td><td>coarse: wrong for up to the TTL</td><td>none</td></tr>
+<tr><td>Explicit delete on write</td><td>good, if you find every write path</td><td>medium, and easy to miss one</td></tr>
+<tr><td>Event-driven (CDC, outbox, change feed)</td><td>high: the database itself tells you</td><td>high, but it catches writes your code did not make</td></tr></table>
+<p>Tag-based invalidation ("drop everything tagged <code>product:42</code>") is what you want once one entity appears in many cached views &mdash; a product page, a category listing and a search result all go stale from one price change. <code>HybridCache.RemoveByTagAsync</code> and CDN surrogate keys both do this.</p>
+<div class="anim" id="inval-anim" data-steps="inval">
+  <h4>The cache-aside invalidation race</h4>
+  <div class="stage">
+    <svg viewBox="0 0 560 250" role="img" aria-label="Animated race between a slow reader and a writer that leaves a stale value in the cache">
+      <text x="12" y="22" font-size="12" font-weight="600" fill="#5f6f66">Timeline</text>
+      <text id="iv-s1" class="hidden" x="12" y="48" font-size="11.5" fill="#23362e" font-family="Fira Code, monospace">A: miss &rarr; SELECT price &rarr; reads 99</text>
+      <text id="iv-s2" class="hidden" x="12" y="76" font-size="11.5" fill="#23362e" font-family="Fira Code, monospace">B: UPDATE price = 79</text>
+      <text id="iv-s3" class="hidden" x="12" y="104" font-size="11.5" fill="#23362e" font-family="Fira Code, monospace">B: DEL product:42</text>
+      <text id="iv-s4" class="hidden" x="12" y="132" font-size="11.5" fill="#c53b3b" font-family="Fira Code, monospace">A: SET product:42 = 99  (stale!)</text>
+      <text id="iv-s5" class="hidden" x="12" y="160" font-size="11.5" fill="#c53b3b" font-family="Fira Code, monospace">C: GET product:42 &rarr; 99 for the next 5 min</text>
+      <rect x="330" y="30" width="218" height="46" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
+      <text x="439" y="50" font-size="11.5" text-anchor="middle" fill="#5f6f66">Cache</text>
+      <text id="iv-cache" x="439" y="68" font-size="12.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">(empty)</text>
+      <rect x="330" y="92" width="218" height="46" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
+      <text x="439" y="112" font-size="11.5" text-anchor="middle" fill="#5f6f66">Database</text>
+      <text id="iv-db" x="439" y="130" font-size="12.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">price = 99</text>
+      <text id="iv-verdict" class="hidden" x="439" y="162" font-size="12.5" text-anchor="middle" fill="#c53b3b" font-weight="700">cache and DB disagree</text>
+      <text id="iv-fix" class="hidden" x="12" y="196" font-size="11.5" fill="#2f6b3f" font-family="Fira Code, monospace">fix: short TTL + delete-on-write, or a version check on SET</text>
+      <text id="iv-note" class="hand hidden" x="12" y="232" font-size="15" fill="#c53b3b">the window is tiny. Your traffic is not.</text>
+    </svg>
+  </div>
+  <div class="controls"></div><div class="narration"></div>
+</div>
+<p>Note the shape of the bug: nobody did anything wrong, the operations were individually correct, and the window is a few milliseconds wide. At 5,000 requests per second, a few milliseconds happens constantly.</p>
+        </template></div>
+        <div class="term"><b>cache stampede</b><span>Also "dogpile" or "thundering herd". A hot key expires and every concurrent request misses at once, hitting the source with the full, uncached load.</span><template class="term-detail" data-see="TTL, stale-while-revalidate, refresh-ahead, hit ratio">
+<p>The counter-intuitive part: the better your hit ratio, the worse the stampede, because the source has been sized for the trickle it normally sees.</p>
+<h4>The four fixes, in order of preference</h4>
+<table><tr><th>Fix</th><th>How it works</th><th>Cost</th></tr>
+<tr><td>Single-flight / lock</td><td>one request recomputes, the rest await the same task</td><td>the waiters still wait once</td></tr>
+<tr><td>Stale-while-revalidate</td><td>serve the expired value, refresh in the background</td><td>a bounded extra staleness</td></tr>
+<tr><td>Probabilistic early refresh</td><td>recompute before expiry with rising probability</td><td>some wasted recomputation</td></tr>
+<tr><td>TTL jitter</td><td>spreads expiry so keys do not die together</td><td>none &mdash; always do this</td></tr></table>
+<p>In .NET, <code>HybridCache</code> gives you single-flight within an instance and across the distributed layer without extra code, which is the main reason to prefer it over a hand-written <code>IDistributedCache</code> wrapper. In Python or Go, a mutex keyed on the cache key does the same job for the in-process layer; a Redis <code>SET NX</code> lock covers the fleet.</p>
+<p>The second animation on this page walks through the failure and both fixes.</p>
+        </template></div>
+        <div class="term"><b>stale-while-revalidate</b><span>Serve the expired value immediately and refresh it in the background. Latency stays flat; the price is a bounded window of known staleness.</span><template class="term-detail" data-see="cache stampede, refresh-ahead, TTL">
+<p>An entry gets two lifetimes: <i>fresh</i> (serve without thinking) and <i>stale but usable</i> (serve, then refresh behind the scenes). It is the single most effective trick for keeping p99 latency flat.</p>
+<pre class="language-none"><code class="language-none">Cache-Control: max-age=60, stale-while-revalidate=300, stale-if-error=86400</code></pre>
+<table><tr><th>Directive</th><th>Means</th></tr>
+<tr><td><code>max-age=60</code></td><td>fresh for 60 s</td></tr>
+<tr><td><code>stale-while-revalidate=300</code></td><td>for the next 300 s, serve the old copy and refresh in the background</td></tr>
+<tr><td><code>stale-if-error=86400</code></td><td>if the origin is down, keep serving the old copy for a day</td></tr></table>
+<p><code>stale-if-error</code> deserves special mention: it turns your CDN into a last line of defence that keeps the site readable through a complete backend outage. It costs one header.</p>
+<p>Do not use it where staleness is a correctness bug &mdash; account balances, stock levels at checkout, permissions after a revocation.</p>
+        </template></div>
+        <div class="term"><b>negative caching</b><span>Caching the fact that something does not exist, so that repeated lookups for missing keys do not hammer the source.</span><template class="term-detail" data-see="cache-aside, TTL, key design">
+<p>Without it, every request for a non-existent id is a guaranteed miss, and an attacker who enumerates random ids gets a direct line to your database &mdash; a <i>cache penetration</i> attack.</p>
+<table><tr><th>Technique</th><th>Use when</th></tr>
+<tr><td>Cache a sentinel "not found" with a short TTL (5&ndash;30 s)</td><td>always, as a baseline</td></tr>
+<tr><td>Bloom filter in front of the cache</td><td>huge keyspace, many legitimate misses</td></tr>
+<tr><td>Validate the key shape before looking it up</td><td>ids with a checksum or known format &mdash; free and effective</td></tr></table>
+<p>Keep negative TTLs much shorter than positive ones: a user who just signed up should not be told "no such account" for five minutes because a page load beat the write.</p>
+<p>Be careful to distinguish "the source says it does not exist" from "the source timed out". Caching the second one turns a blip into a sustained outage.</p>
+        </template></div>
+        <div class="term"><b>cache hierarchy</b><span>Several caches in series &mdash; browser, CDN, in-process, distributed &mdash; each with its own hit ratio, TTL and invalidation story.</span><template class="term-detail" data-see="hit ratio, invalidation, consistency">
+<p>Latency per layer is what makes the hierarchy worth the complexity. The numbers below are the ones worth memorising:</p>
+<div class="figure"><svg viewBox="0 0 560 190" role="img" aria-label="Latency ladder from in-process cache to a cross-region database call">
+  <text x="12" y="20" font-size="12" font-weight="600" fill="#23362e">Typical cost of one lookup, log scale in spirit, not to scale</text>
+  <rect x="12" y="32" width="40" height="22" rx="4" fill="#e3eedc" stroke="#2f6b3f"/><text x="60" y="48" font-size="11.5" fill="#23362e" font-family="Fira Code, monospace">in-process dictionary ~ 100 ns</text>
+  <rect x="12" y="62" width="80" height="22" rx="4" fill="#e3eedc" stroke="#2f6b3f"/><text x="100" y="78" font-size="11.5" fill="#23362e" font-family="Fira Code, monospace">local Redis ~ 0.3 ms  (3,000x)</text>
+  <rect x="12" y="92" width="150" height="22" rx="4" fill="#fbf3c4" stroke="#d9c25a"/><text x="170" y="108" font-size="11.5" fill="#23362e" font-family="Fira Code, monospace">indexed DB query ~ 5 ms</text>
+  <rect x="12" y="122" width="260" height="22" rx="4" fill="#f9e3df" stroke="#c53b3b"/><text x="280" y="138" font-size="11.5" fill="#23362e" font-family="Fira Code, monospace">join + sort ~ 50 ms</text>
+  <rect x="12" y="152" width="400" height="22" rx="4" fill="#f9e3df" stroke="#c53b3b"/><text x="420" y="168" font-size="11.5" fill="#23362e" font-family="Fira Code, monospace">cross-region ~ 150 ms</text>
+</svg></div>
+<p>The trap is invalidation across layers. Deleting a key in Redis does nothing to the copy sitting in 40 process-local caches, so an in-process layer needs either a very short TTL (5&ndash;30 s) or a broadcast channel. .NET's <code>HybridCache</code> handles both tiers and propagates tag invalidation; Redis pub/sub or key-space notifications do it by hand.</p>
+<p>Rule: the further a layer is from the source, the shorter its TTL must be, because its invalidation is less reliable.</p>
+        </template></div>
+        <div class="term"><b>key design</b><span>The cache has no schema, so the key naming convention <i>is</i> the schema. It decides cardinality, invalidation granularity and hit ratio.</span><template class="term-detail" data-see="invalidation, hit ratio, eviction policy">
+<p>Include everything that changes the value, and nothing that does not. Each extra dimension multiplies the number of entries and divides the hit ratio.</p>
+<table><tr><th>Key</th><th>Verdict</th></tr>
+<tr><td><code>product:42:v3</code></td><td>good &mdash; the <code>v3</code> lets a schema change invalidate everything at once</td></tr>
+<tr><td><code>product:42:en-GB:eur</code></td><td>good if the rendered value really differs by locale and currency</td></tr>
+<tr><td><code>search:{query}:{page}:{sort}:{userId}</code></td><td>bad &mdash; <code>userId</code> makes every entry unique; hit ratio near zero</td></tr>
+<tr><td><code>product:42:{requestId}</code></td><td>catastrophic &mdash; unbounded cardinality, pure memory leak</td></tr></table>
+<p>Normalise before hashing: sort query parameters, lowercase, drop tracking parameters such as <code>utm_*</code>. A CDN that treats <code>?utm_source=x</code> as a distinct key caches your homepage a thousand times and hits none of them.</p>
+<p>Put a version segment in the prefix. When the serialized shape changes, bumping <code>v3</code> to <code>v4</code> invalidates everything instantly, with no scan and no risk of deserializing an old shape into a new type.</p>
+        </template></div>
+        <div class="term"><b>consistency</b><span>How far the cached copy may drift from the source, and for how long. This is a product decision wearing a technical costume.</span><template class="term-detail" data-see="TTL, invalidation, write-through, stale-while-revalidate">
+<p>Every cache is eventually consistent. The only question is the size of the window and who pays when it is exceeded.</p>
+<table><tr><th>Staleness budget</th><th>Strategy that fits</th></tr>
+<tr><td>Zero (money, permissions at the point of use)</td><td>do not cache, or write-through with explicit invalidation and read-your-writes</td></tr>
+<tr><td>Seconds</td><td>short TTL + delete-on-write; stale-while-revalidate off</td></tr>
+<tr><td>Minutes</td><td>cache-aside with a TTL, invalidation best-effort</td></tr>
+<tr><td>Hours</td><td>refresh-ahead or a scheduled rebuild; serve stale on error</td></tr></table>
+<p><b>Read-your-writes</b> deserves its own line. A user who edits their profile and immediately sees the old version assumes the save failed and does it again. Fix it by invalidating synchronously on the write path, or by bypassing the cache for the writer for a few seconds (a cookie or a request-scoped flag), even when every other reader gets a cached copy.</p>
+<p>Write the budget down per data type, next to the TTL. A TTL with no stated budget is a number somebody picked once and nobody can safely change.</p>
+        </template></div>
+        <div class="term"><b>HTTP caching</b><span>The cache you get for free: <code>Cache-Control</code>, <code>ETag</code> and conditional requests, honoured by browsers, proxies and CDNs without any code.</span><template class="term-detail" data-see="stale-while-revalidate, TTL, cache hierarchy">
+<p>Before adding a cache inside your application, check whether the response could simply be cacheable. The cheapest request is the one that never reaches your server.</p>
+<pre class="language-yaml"><code class="language-yaml">Cache-Control: public, max-age=300, stale-while-revalidate=600
+ETag: "a3f9c1"
+Vary: Accept-Encoding, Accept-Language</code></pre>
+<table><tr><th>Directive</th><th>Effect</th></tr>
+<tr><td><code>public</code> / <code>private</code></td><td>may a shared cache (CDN, proxy) store it, or only the browser?</td></tr>
+<tr><td><code>max-age=N</code></td><td>fresh for N seconds</td></tr>
+<tr><td><code>s-maxage=N</code></td><td>a different, usually longer, freshness just for shared caches</td></tr>
+<tr><td><code>no-store</code></td><td>never written to disk or memory &mdash; the one for personal data</td></tr>
+<tr><td><code>no-cache</code></td><td>may be stored, but must be revalidated first (not the same as <code>no-store</code>)</td></tr>
+<tr><td><code>must-revalidate</code></td><td>never serve stale once expired, even if the origin is unreachable</td></tr></table>
+<p>With an <code>ETag</code>, a revalidation that finds nothing changed returns <code>304 Not Modified</code> with no body &mdash; still a round trip, but a few hundred bytes instead of a few hundred kilobytes.</p>
+<p><code>Vary</code> is the footgun. <code>Vary: Cookie</code> on a page served to logged-in users makes every entry unique and the cache useless; worse, getting <code>Vary</code> wrong on a <code>public</code> response can serve one user's page to another.</p>
+        </template></div>
+      </div>
+    </section>
+
+    <section id="commands">
+      <h2>Essential commands &amp; syntax</h2>
+
+      <div class="cmd-group">
+        <h3>.NET &mdash; HybridCache (read-through, two tiers, stampede-safe)</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">builder.Services.AddStackExchangeRedisCache(o =&gt; o.Configuration = conn);
+builder.Services.AddHybridCache(o =&gt;
+{
+    o.DefaultEntryOptions = new HybridCacheEntryOptions
+    {
+        Expiration      = TimeSpan.FromMinutes(5),   // distributed (L2)
+        LocalCacheExpiration = TimeSpan.FromSeconds(20)  // in-process (L1)
+    };
+});</code></pre><div class="what">Registers the L1 + L2 cache. L1 keeps a short TTL because it cannot be invalidated reliably.</div></div>
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">var product = await cache.GetOrCreateAsync(
+    $"product:{id}:v3",
+    async ct =&gt; await db.LoadProductAsync(id, ct),
+    tags: [$"product:{id}"], cancellationToken: ct);</code></pre><div class="what">Read-through with built-in single-flight: 500 concurrent callers run the factory once.</div></div>
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">await cache.RemoveByTagAsync($"product:{id}");</code></pre><div class="what">Tag invalidation: drops every cached view derived from that product, across both tiers.</div></div>
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">await cache.SetAsync(key, value, new HybridCacheEntryOptions
+    { Expiration = TimeSpan.FromMinutes(5), Flags = HybridCacheEntryFlags.DisableLocalCache });</code></pre><div class="what">Writes to the distributed tier only &mdash; for values that must not linger in a process-local copy.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>.NET &mdash; the lower-level pieces</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">services.AddMemoryCache();
+cache.Set("flags", value, new MemoryCacheEntryOptions
+{
+    AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(30),
+    Size = 1
+});</code></pre><div class="what">In-process only. Set <code>SizeLimit</code> on the cache and <code>Size</code> per entry, or it grows until the process dies.</div></div>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">await distributed.SetStringAsync(key, json, new DistributedCacheEntryOptions
+{
+    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
+    SlidingExpiration = TimeSpan.FromMinutes(1)
+});</code></pre><div class="what">Classic cache-aside against Redis. No stampede protection &mdash; you add that yourself.</div></div>
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">app.UseOutputCache();
+app.MapGet("/products", Handler).CacheOutput(p =&gt; p.Expire(TimeSpan.FromSeconds(30)).Tag("products"));
+// later:  await outputCacheStore.EvictByTagAsync("products", ct);</code></pre><div class="what">Caches the whole rendered response server-side, with tag-based eviction.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Redis &mdash; the cache primitives</h3>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">SET product:42 "{...}" EX 300</code></pre><div class="what">Store with a 5-minute TTL. Add jitter to <code>300</code> so sibling keys do not expire together.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">SET lock:product:42 1 NX EX 10</code></pre><div class="what">Single-flight lock: only the first caller gets <code>OK</code> and rebuilds; the rest wait or serve stale.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">GET product:42
+TTL product:42
+DEL product:42</code></pre><div class="what">Read, check the remaining life, invalidate. <code>DEL</code> on write, never <code>SET</code>.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">CONFIG SET maxmemory 4gb
+CONFIG SET maxmemory-policy allkeys-lru</code></pre><div class="what">Cap the memory and choose what gets evicted. A pure cache wants <code>allkeys-lru</code> or <code>allkeys-lfu</code>.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">INFO stats | grep -E "keyspace_hits|keyspace_misses|evicted_keys"</code></pre><div class="what">The three numbers that tell you whether the cache is working, too small, or pointless.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>HTTP and CDN</h3>
+        <div class="cmd"><pre class="language-none"><code class="language-none">Cache-Control: public, max-age=60, stale-while-revalidate=600, stale-if-error=86400</code></pre><div class="what">Fresh for a minute, served stale while refreshing for ten, and kept alive for a day if the origin is down.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">Cache-Control: private, no-store</code></pre><div class="what">The correct header for anything personal. <code>no-cache</code> is not this.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">curl -sI https://example.com/api/products | grep -iE "cache-control|age|etag|x-cache"</code></pre><div class="what">Checks what is actually being sent and whether the CDN reports a hit. <code>Age</code> tells you how long it has been cached.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Python &mdash; cache-aside with stampede protection</h3>
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">import json, random, redis
+r = redis.Redis()
+
+def get_product(pid, ttl=300):
+    key = f"product:{pid}:v3"
+    if (hit := r.get(key)) is not None:
+        return json.loads(hit)
+    if r.set(f"lock:{key}", 1, nx=True, ex=10):          # single-flight
+        value = load_from_db(pid)
+        r.set(key, json.dumps(value), ex=ttl + random.randint(0, 30))  # jitter
+        r.delete(f"lock:{key}")
+        return value
+    time.sleep(0.05)                                      # someone else is rebuilding
+    return get_product(pid, ttl)</code></pre><div class="what">The whole pattern in one function: lookup, lock, load, jittered TTL, back off if another worker is already rebuilding.</div></div>
+      </div>
+    </section>
+
+    <section id="pros-cons">
+      <h2>Pros &amp; cons</h2>
+      <div class="cols">
+        <div class="col good"><h3>Pros</h3><ul>
+          <li>Latency improvements of 10&ndash;1000x on read paths, usually for a few dozen lines of code.</li>
+          <li>Takes load off the hardest component to scale: the database.</li>
+          <li>Defers expensive scaling work &mdash; a cache is far cheaper than a read replica or a shard.</li>
+          <li>Absorbs traffic spikes that would otherwise require autoscaling you cannot do fast enough.</li>
+          <li>With <code>stale-if-error</code>, it keeps the product readable through a complete backend outage.</li>
+          <li>Cuts cost directly when the cached thing is metered: a partner API, an LLM call, an egress charge.</li>
+        </ul></div>
+        <div class="col bad"><h3>Cons</h3><ul>
+          <li>Every cache introduces staleness, and staleness bugs are intermittent and hard to reproduce.</li>
+          <li>Invalidation is genuinely hard, and gets harder with each layer you add.</li>
+          <li>It hides a performance problem rather than fixing it &mdash; a missing index stays missing.</li>
+          <li>A cold or flushed cache can take down a system that has quietly been running at 50x its true capacity.</li>
+          <li>A distributed cache is one more thing to operate, secure, size and fail over.</li>
+          <li>Debugging gets harder: "works for me" now also means "my cache has a different copy".</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="use-cases">
+      <h2>Concrete use cases</h2>
+      <div class="cards">
+        <div class="card"><h3>Product catalogue on an e-commerce site</h3><p>The product page joins six tables and renders at 180 ms. Cache-aside against Redis with a 10-minute TTL takes it to 3 ms and removes 98% of the database read load. Writes from the back office publish an outbox event that deletes the key by tag, so a price change is visible in under a second rather than in ten minutes.</p></div>
+        <div class="card"><h3>Feature flags and configuration</h3><p>Every request reads a dozen flags. A process-local <code>MemoryCache</code> with a 15-second absolute TTL means the flag service sees four requests per minute per instance instead of thousands per second, and a kill switch still takes effect within 15 seconds &mdash; the staleness budget written into the design.</p></div>
+        <div class="card"><h3>Write-heavy counters</h3><p>A video platform counts views. Writing each view to the database would be 40,000 writes per second of contention on one row. The counter is incremented in Redis and flushed as a write-behind batch every two seconds, turning it into roughly one <code>UPDATE</code> per video per flush. Losing two seconds of view counts in a crash is acceptable; losing two seconds of payments would not be.</p></div>
+        <div class="card"><h3>Expensive third-party API</h3><p>A geocoding provider charges per call and takes 400 ms. Addresses barely change, so results are cached for 30 days keyed by the normalised address string, with negative results cached for an hour. The hit ratio settles at 94%, which is also a 94% reduction in the bill.</p></div>
+        <div class="card"><h3>CDN in front of an API</h3><p>A public read-only endpoint serves the same JSON to millions of clients. <code>Cache-Control: public, max-age=60, stale-while-revalidate=600</code> moves almost all of that traffic to the edge. Origin traffic becomes one request per point of presence per minute, and <code>stale-if-error</code> keeps the endpoint answering during a deploy that goes wrong.</p></div>
+      </div>
+    </section>
+
+    <section id="when">
+      <h2>When to use / when not to</h2>
+      <span class="note" style="margin:-6px 0 14px">Cache when reads outnumber writes and a slightly old answer is still a good answer.</span>
+      <div class="cols">
+        <div class="col good"><h3>Cache when&hellip;</h3><ul>
+          <li>The same value is read far more often than it changes &mdash; a read:write ratio above roughly 10:1.</li>
+          <li>Computing it is expensive: joins, aggregations, rendering, a remote call.</li>
+          <li>A value that is a few seconds or minutes old is still correct enough for the user.</li>
+          <li>Traffic is spiky and the source cannot be scaled up fast enough to follow it.</li>
+          <li>The source is metered or rate-limited and you need to stay under the cap.</li>
+          <li>You can name the invalidation trigger. If you cannot, at least pick a TTL you can defend.</li>
+        </ul></div>
+        <div class="col bad"><h3>Avoid it when&hellip;</h3><ul>
+          <li>Staleness is a correctness bug: balances, stock at checkout, permissions. Read the source, or use a <b>short-TTL write-through</b> with synchronous invalidation.</li>
+          <li>Every key is read once &mdash; per-request or per-user-session data. A cache here is pure overhead; fix the <b>query</b> instead.</li>
+          <li>The real problem is a missing index or an N+1. Fix the <b>query</b>; a cache just hides it until the cache misses.</li>
+          <li>The data is written far more often than read. Use <b>write-around</b>, or do not cache at all.</li>
+          <li>You would be caching personal data in a shared layer. Use <code>private, no-store</code> and <b>per-user in-memory</b> scope.</li>
+          <li>The source is already fast and not the bottleneck. Measure first; a cache in front of a 2 ms query buys nothing but bugs.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="gotchas">
+      <h2>Common mistakes &amp; gotchas</h2>
+      <div class="gotcha"><b>Updating the cache on write instead of deleting the key</b><span>Two concurrent writers, or a slow reader racing a writer, can leave the <i>older</i> value in the cache, where it survives until the TTL. The invalidation deep dive animates exactly how.</span><div class="fix">Fix: delete on write and let the next read repopulate. If you must write through, include a version or timestamp and only overwrite when yours is newer.</div></div>
+      <div class="gotcha"><b>No jitter on TTLs</b><span>Keys created together expire together. A warm-up script, a deploy or a bulk import produces a synchronised wave of misses that the database experiences as a traffic spike from nowhere.</span><div class="fix">Fix: <code>ttl = base + random(0, base * 0.1)</code> everywhere. It costs one line and removes a whole class of incident.</div></div>
+      <div class="gotcha"><b>No stampede protection on a hot key</b><span>The homepage key expires and 2,000 in-flight requests all miss, all run the same 300 ms query, and exhaust the connection pool. The cache was doing its job right up to the moment it stopped.</span><div class="fix">Fix: single-flight (<code>HybridCache</code> does it for you, or a Redis <code>SET NX</code> lock), plus stale-while-revalidate so nobody waits at all.</div></div>
+      <div class="gotcha"><b>An unbounded in-process cache</b><span><code>MemoryCache</code> with no <code>SizeLimit</code>, or a plain <code>ConcurrentDictionary</code> used as a cache, grows until the container is OOM-killed. It usually survives testing and dies in production on a long-running pod.</span><div class="fix">Fix: always set a size limit and an absolute expiry, and give every entry a <code>Size</code>. Track evictions: if they are zero and memory is climbing, the cache is not bounded.</div></div>
+      <div class="gotcha"><b>Caching per-user data under a shared key</b><span>A key like <code>dashboard:summary</code> that was written while user A was logged in gets served to user B. This is a data breach, not a bug, and CDNs make it a public one.</span><div class="fix">Fix: put the identity in the key, or mark the response <code>private, no-store</code>. Audit every <code>public</code> cache header on an authenticated route.</div></div>
+      <div class="gotcha"><b>Caching errors and timeouts</b><span>A dependency times out, the code caches the empty result for five minutes, and a 2-second blip becomes a 5-minute outage that recovers on its own just as you start investigating.</span><div class="fix">Fix: only cache successful responses, and cache deliberate "not found" results with a short, separate TTL. Never cache an exception or a timeout.</div></div>
+      <div class="gotcha"><b>No plan for a cold cache</b><span>A Redis failover, a flush or a deploy that bumps the key version sends 100% of traffic to a database sized for 2%. The cache coming back does not help, because the database is already saturated.</span><div class="fix">Fix: warm the top keys on startup, roll key-version changes gradually, and keep a concurrency limit in front of the database so a cold cache degrades instead of collapsing.</div></div>
+      <div class="gotcha"><b>Forgetting that serialized shapes change</b><span>A new field is added to the cached DTO, the old JSON deserializes into a type that no longer matches, and the service throws on every cache hit until the TTL drains.</span><div class="fix">Fix: put a version segment in every key (<code>product:42:v3</code>) and bump it in the same commit that changes the shape.</div></div>
+    </section>
+
+    <section id="alternatives">
+      <h2>Alternatives</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost</th><th>Key difference vs caching</th></tr></thead>
+          <tbody>
+            <tr class="self"><td><b>Caching</b></td><td>repeated reads of expensive, slowly changing data</td><td>Low&ndash;medium</td><td>cheap: memory</td><td>&mdash;</td></tr>
+            <tr><td><b>Fix the query / add an index</b></td><td>a slow path that is slow for a findable reason</td><td>Low</td><td>free</td><td>Makes the source genuinely fast instead of avoiding it; no staleness at all</td></tr>
+            <tr><td><b>Read replicas</b></td><td>read-heavy relational workloads</td><td>Medium</td><td>another database instance</td><td>Full query power on fresh-ish data; replication lag replaces TTL staleness</td></tr>
+            <tr><td><b>Materialized view</b></td><td>expensive aggregations over stable data</td><td>Medium</td><td>storage + refresh cost</td><td>Lives in the database, refreshed on a schedule; consistent and queryable</td></tr>
+            <tr><td><b>Precompute on write</b></td><td>fan-out-on-write feeds, leaderboards</td><td>Medium&ndash;high</td><td>write amplification</td><td>Reads are always ready and always correct; writes get much more expensive</td></tr>
+            <tr><td><b>CDN / edge cache</b></td><td>static assets and public responses</td><td>Low</td><td>bandwidth</td><td>Same idea, moved to the network edge; cannot cache personalised responses</td></tr>
+            <tr><td><b>Event-driven projections</b></td><td>read models that must stay close to the source</td><td>High</td><td>infrastructure</td><td>The source pushes changes (Apache Kafka, CDC) instead of the reader polling or expiring</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul style="margin-top:12px">
+        <li><b>Fix the query first.</b> A cache in front of an unindexed query is a liability you will discover on the day the cache is cold.</li>
+        <li><b>Pick read replicas</b> if you need full query flexibility on nearly-fresh data rather than key lookups.</li>
+        <li><b>Pick a materialized view</b> if the expensive thing is an aggregation and the database can refresh it for you.</li>
+        <li><b>Pick precompute-on-write</b> if reads vastly outnumber writes and staleness is unacceptable.</li>
+        <li><b>Pick event-driven projections</b> if invalidation keeps being the bug, and you would rather be told about changes than guess at TTLs.</li>
+        <li>These compose: a CDN in front of an application cache in front of an indexed query against a read replica is an ordinary production system.</li>
+      </ul>
+    </section>
+
+    <section id="resources">
+      <h2>Resources</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/aspnet/core/performance/caching/hybrid" target="_blank" rel="noopener">HybridCache in ASP.NET Core</a>: the two-tier, stampede-protected, tag-invalidating cache and how to migrate to it.</li>
+        <li><a href="https://learn.microsoft.com/azure/architecture/patterns/cache-aside" target="_blank" rel="noopener">Azure Architecture Center &mdash; Cache-Aside pattern</a>: the canonical write-up, with the consistency caveats spelled out.</li>
+        <li><a href="https://redis.io/docs/latest/develop/reference/eviction/" target="_blank" rel="noopener">Redis key eviction</a>: how <code>maxmemory-policy</code>, sampling and the LFU counter actually behave.</li>
+        <li><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Caching" target="_blank" rel="noopener">MDN &mdash; HTTP caching</a>: the authoritative reference for <code>Cache-Control</code>, <code>ETag</code>, <code>Vary</code> and revalidation.</li>
+        <li><a href="https://web.archive.org/web/20230125005150/https://www.vldb.org/pvldb/vol8/p886-vattani.pdf" target="_blank" rel="noopener">Optimal Probabilistic Cache Stampede Prevention (VLDB)</a>: the paper behind probabilistic early refresh, with the maths.</li>
+        <li><a href="https://github.com/ben-manes/caffeine/wiki/Efficiency" target="_blank" rel="noopener">Caffeine &mdash; cache efficiency</a>: hit-ratio comparisons of LRU, LFU and W-TinyLFU on real traces.</li>
+      </ul>
+    </section>
+    <!-- RELATED:START (generated by scripts/build-index.mjs, do not edit) -->
+    <section id="related">
+      <h2>Related pages</h2>
+      <div class="related-list">
+          <a class="related-card" href="redis.html">
+            <b>Redis</b>
+            <span>An in-memory data structure server: a key-value store that answers in microseconds.</span>
+            <small>Mentioned here in Overview, Key concepts, Essential commands &amp; syntax, Concrete use cases, Common mistakes &amp; gotchas and Resources · Redis mentions Caching strategies in Key concepts, Pros &amp; cons and Alternatives</small>
+          </a>
+          <a class="related-card" href="azure-api-management.html">
+            <b>Azure API Management</b>
+            <span>One front door for every API you own — and a place to put all the things that are not business logic.</span>
+            <small>Azure API Management mentions Caching strategies in Overview, Key concepts, Pros &amp; cons, When to use / when not to and Alternatives</small>
+          </a>
+          <a class="related-card" href="back-of-the-envelope.html">
+            <b>Back-of-the-envelope estimates</b>
+            <span>Be roughly right in five minutes instead of precisely wrong in two weeks.</span>
+            <small>Back-of-the-envelope estimates mentions Caching strategies in Key concepts</small>
+          </a>
+          <a class="related-card" href="rate-limiting.html">
+            <b>Rate limiting</b>
+            <span>Say no on purpose, before the system says no by falling over.</span>
+            <small>Closely related topic</small>
+          </a>
+          <a class="related-card" href="backend-for-frontend.html">
+            <b>Backend-for-Frontend</b>
+            <span>One backend per experience, so no client has to negotiate with a general-purpose API.</span>
+            <small>Backend-for-Frontend mentions Caching strategies in Overview, How it works, Key concepts and Alternatives</small>
+          </a>
+          <a class="related-card" href="kafka.html">
+            <b>Apache Kafka</b>
+            <span>A distributed, append-only log for events: write once, read by many, replay any time.</span>
+            <small>Mentioned here in Key concepts and Alternatives</small>
+          </a>
+      </div>
+    </section>
+    <!-- RELATED:END -->
+  </main>
+</div>
+
+<script src="../assets/player.js?v=e098a7b2"></script>
+<script>
+/* Six caching patterns drawn in the same three boxes, plus the stampede they all share. */
+const HOT = '#e3eedc', COLD = '#f9e3df', WARM = '#fbf3c4';
+
+/* ---------- 1. Cache-aside ---------- */
+createAnimation('anim-aside', [
+  { say: 'A request arrives for product 42. With <b>cache-aside</b> your application code owns the whole flow &mdash; it asks the cache first, and the cache has no idea a database exists.',
+    hl: ['ca-app'], text: { 'ca-app-sub': 'GET product:42' } },
+  { say: '<b>Miss.</b> The key is not there, and the cache says so in a fraction of a millisecond. That lookup was not free, and it bought nothing.',
+    unhl: ['ca-app'], hl: ['ca-cache'],
+    text: { 'ca-cache-val': 'product:42 → (nil)', 'ca-app-lat': '0.3 ms so far' } },
+  { say: 'So the app falls back to the database <b>itself</b> &mdash; note the dashed arrow going round the cache entirely. This is the step that distinguishes cache-aside from everything else.',
+    unhl: ['ca-cache'], hl: ['ca-db'],
+    text: { 'ca-app-sub': 'SELECT ... WHERE id = 42', 'ca-db-hits': 'queries: 1', 'ca-app-lat': '15 ms so far' } },
+  { say: 'The app gets the row back and writes it into the cache with a five-minute TTL. Again: the <i>app</i> does this, in your code, at every call site that reads a product.',
+    unhl: ['ca-db'], hl: ['ca-cache'],
+    text: { 'ca-cache-val': 'product:42 → 99', 'ca-cache-ttl': 'TTL 300 s', 'ca-cache-sub': 'populated by the application' } },
+  { say: 'Only now does the client get its answer. The miss cost <b>16 ms</b>: the failed lookup plus the real query plus the write-back. A miss is always more expensive than having no cache at all.',
+    unhl: ['ca-cache'],
+    text: { 'ca-app-sub': 'responds', 'ca-app-lat': '16 ms', 'ca-score': 'client waited: 16 ms · 1 database query' } },
+  { say: 'The next visitor asks for the same product and gets a <b>hit</b> &mdash; 0.3 ms, with the database untouched. That 50x gap, multiplied by the hit ratio, is the entire value of the pattern.',
+    hl: ['ca-cache'], fill: { 'ca-cache': HOT },
+    text: { 'ca-app-sub': 'GET product:42', 'ca-app-lat': '0.3 ms',
+            'ca-score': 'client waited: 0.3 ms · still 1 database query' } },
+  { say: 'Two properties worth keeping: only data somebody actually asked for is ever cached, and if the cache disappears entirely, every call simply becomes a miss &mdash; <i>provided the database can take the load</i>. That caveat is the whole of the stampede problem further down this page.',
+    show: ['ca-note'], unhl: ['ca-cache'],
+    text: { 'ca-cache-sub': 'optional — the app works without it' } },
+]);
+
+/* ---------- 2. Read-through ---------- */
+createAnimation('anim-through', [
+  { say: 'Same request, but now the loading code lives <b>inside the cache</b>. Your application calls one method and never mentions the database. In .NET this is <code>HybridCache.GetOrCreateAsync</code>.',
+    hl: ['rt-app'], text: { 'rt-app-sub': 'GetOrCreateAsync(...)' } },
+  { say: '<b>Miss.</b> Instead of returning <code>nil</code> to your code, the cache invokes the factory you handed it.',
+    unhl: ['rt-app'], hl: ['rt-cache'],
+    text: { 'rt-cache-val': 'product:42 → (nil)', 'rt-cache-sub': 'invoking the factory' } },
+  { say: 'The <b>cache</b> queries PostgreSQL, stores the result and returns it. The client waited the same 16 ms as cache-aside &mdash; the read path is genuinely identical. All that moved is where the code lives.',
+    hl: ['rt-db'],
+    text: { 'rt-db-hits': 'queries: 1', 'rt-cache-val': 'product:42 → 99', 'rt-app-lat': '16 ms',
+            'rt-score': 'client waited: 16 ms · 1 database query' } },
+  { say: 'Now the difference that matters. Five hundred requests for the same key arrive in the same hundred milliseconds, just after an expiry.',
+    unhl: ['rt-db', 'rt-cache'], hl: ['rt-app'],
+    text: { 'rt-app-sub': '500 concurrent callers', 'rt-cache-val': 'product:42 → (nil)' } },
+  { say: 'With <b>cache-aside</b> each of those 500 call sites independently discovers the miss and runs the query. Five hundred identical queries hit the database at once.',
+    unhl: ['rt-app'], fill: { 'rt-db': COLD },
+    text: { 'rt-db-hits': 'cache-aside: 500 queries', 'rt-score': 'cache-aside: 500 queries' } },
+  { say: 'With <b>read-through</b> the first caller starts the factory and the other 499 <i>await the same task</i>. One query. You get stampede protection without writing a single lock.',
+    fill: { 'rt-db': '#fbfcf8' }, hl: ['rt-cache'],
+    text: { 'rt-db-hits': 'read-through: 1 query', 'rt-cache-flight': 'in-flight: 1 shared task',
+            'rt-score': 'read-through: 1 query, 500 callers served' } },
+  { say: 'So: same latency, same arrows, one implementation instead of one per call site, and single-flight for free. The price is coupling &mdash; your cache now has to know how to load your data, which makes it harder to swap and makes loader failures look like cache failures.',
+    show: ['rt-note'], unhl: ['rt-cache'] },
+]);
+
+/* ---------- 3. Refresh-ahead ---------- */
+createAnimation('anim-refresh', [
+  { say: '<code>product:42</code> is on the homepage &mdash; expensive to compute and read constantly. It is cached with a five-minute TTL.',
+    hl: ['ra-cache'] },
+  { say: 'Four and a half minutes in, a reader arrives. Still a hit, served in 0.3 ms. Nothing unusual yet.',
+    unhl: ['ra-cache'], hl: ['ra-app'],
+    text: { 'ra-app-sub': 'GET product:42', 'ra-app-lat': '0.3 ms', 'ra-clock': 't = 4:30 — 30 s left on the TTL',
+            'ra-cache-ttl': 'TTL 30 s left', 'ra-score': 'client waited: 0.3 ms' } },
+  { say: 'But the entry is <b>close to expiry</b>, and that is the trigger. Rather than wait for it to die and make some unlucky user pay 16 ms, a background task starts recomputing it now.',
+    unhl: ['ra-app'], show: ['ra-link', 'ra-link-t'], hl: ['ra-db'],
+    text: { 'ra-db-hits': 'queries: 1 (background)', 'ra-cache-sub': 'refreshing behind the scenes' } },
+  { say: 'The reader was served the cached copy immediately and has already gone. Nobody is waiting on that query.',
+    unhl: ['ra-db'], text: { 'ra-app-sub': 'already responded' } },
+  { say: 'The fresh value replaces the old one with a full TTL again. The entry has now survived an expiry boundary that <b>no user ever felt</b>.',
+    hide: ['ra-link', 'ra-link-t'], hl: ['ra-cache'],
+    text: { 'ra-cache-val': 'product:42 → 99', 'ra-cache-ttl': 'TTL 300 s', 'ra-clock': 't = 0:00 — refreshed, nobody waited',
+            'ra-cache-sub': 'never went cold', 'ra-score': 'client waited: 0.3 ms · every time' } },
+  { say: 'And the bill: if nobody reads <code>product:42</code> again, that query was pure waste. Refresh-ahead trades <b>wasted recomputation</b> for <b>never paying a miss</b>, which is an excellent deal for your top hundred keys and a catastrophic one for the next million.',
+    unhl: ['ra-cache'], text: { 'ra-db-hits': 'queries: 1 per 5 min, forever' } },
+  { say: 'Compare it with <b>stale-while-revalidate</b>, which is the same idea moved half a step later: serve the entry <i>after</i> it expires while refreshing behind it. Refresh-ahead guesses which keys are worth pre-computing; stale-while-revalidate only ever refreshes keys that were actually just asked for.',
+    show: ['ra-note'] },
+]);
+
+/* ---------- 4. Write-through ---------- */
+createAnimation('anim-wthrough', [
+  { say: 'The back office changes a price from 99 to 79. In a <b>write-through</b> cache the application writes to the cache, never to the database directly.',
+    hl: ['wt-app'], text: { 'wt-app-sub': 'UPDATE price = 79' } },
+  { say: 'The cache stores the new value&hellip;',
+    unhl: ['wt-app'], hl: ['wt-cache'],
+    text: { 'wt-cache-val': 'product:42 → 79', 'wt-agree': 'cache and database agree: NOT YET' } },
+  { say: '&hellip;and immediately forwards it to PostgreSQL, <b>synchronously</b>, blocking on the commit. Nothing has been acknowledged to the caller yet.',
+    unhl: ['wt-cache'], hl: ['wt-db', 'wt-link'],
+    text: { 'wt-link-t': 'waiting on the commit', 'wt-app-lat': 'still waiting' } },
+  { say: 'The database commits. Only now does the cache acknowledge the write.',
+    unhl: ['wt-db', 'wt-link'], hl: ['wt-app'],
+    text: { 'wt-db-sub': 'price = 79', 'wt-db-hits': 'committed: yes', 'wt-app-sub': 'acknowledged',
+            'wt-app-lat': '16 ms', 'wt-agree': 'cache and database agree: yes',
+            'wt-score': 'client waited: 16 ms · nothing can be lost' } },
+  { say: 'A reader arriving at any instant &mdash; before, during or after &mdash; sees a consistent answer. There is no window in which the cache and the source disagree, which is the entire point of the pattern.',
+    unhl: ['wt-app'], fill: { 'wt-cache': HOT },
+    text: { 'wt-cache-sub': 'always agrees with the source' } },
+  { say: 'The cost is on the next line of the invoice. Write latency is the <i>database’s</i> latency plus the cache’s, on every single write &mdash; and the cache now contains everything that was ever written, whether or not anyone reads it.',
+    fill: { 'wt-cache': COLD },
+    text: { 'wt-cache-sub': 'also holds data nobody will ever read' } },
+  { say: 'That last point is the hidden tax: on a write-heavy, read-light table, write-through fills your cache with entries that will never be hit, evicting the ones that would have been. Pair it with a short TTL, or use write-around for data that is written far more often than it is read.',
+    show: ['wt-note'] },
+]);
+
+/* ---------- 5. Write-behind ---------- */
+createAnimation('anim-wbehind', [
+  { say: 'Exactly the same write &mdash; price 99 to 79 &mdash; but the cache is configured <b>write-behind</b>. Watch what the caller waits for.',
+    hl: ['wb-app'], text: { 'wb-app-sub': 'UPDATE price = 79' } },
+  { say: 'The cache stores the value and <b>acknowledges immediately</b>, in about 0.3 ms. The caller is already gone, and the database has not been touched.',
+    unhl: ['wb-app'], hl: ['wb-cache'], show: ['wb-dirty-box', 'wb-dirty'],
+    text: { 'wb-cache-val': 'product:42 → 79', 'wb-dirty': 'dirty: product:42',
+            'wb-app-sub': 'acknowledged', 'wb-app-lat': '0.3 ms',
+            'wb-agree': 'cache 79, database 99 — they disagree',
+            'wb-score': 'client waited: 0.3 ms · 50x faster than write-through' } },
+  { say: 'Readers are still correct, which surprises people: they read <i>through the cache</i>, so they see 79. The disagreement is invisible to anyone who goes through the front door.',
+    unhl: ['wb-cache'], text: { 'wb-cache-val': 'product:42 → 79 (readers see this)' } },
+  { say: 'Anyone who queries the database directly &mdash; a reporting job, a replica, an ETL pipeline &mdash; sees 99. That is the real-world consequence of the window, and it is how this pattern usually bites.',
+    hl: ['wb-db'], text: { 'wb-db-sub': 'price = 99 (reports see this)' } },
+  { say: 'A background flush drains the dirty buffer every 200 ms, batching as it goes. Fifty updates to the same key become <b>one</b> <code>UPDATE</code> &mdash; which is exactly why write-behind is so good for counters.',
+    unhl: ['wb-db'], hl: ['wb-link'],
+    text: { 'wb-db-sub': 'price = 79', 'wb-db-hits': 'writes: 1 (for 50 updates)',
+            'wb-dirty': 'dirty buffer: empty', 'wb-agree': 'cache and database agree: yes' } },
+  { say: 'But between the acknowledgement and the flush there is a window. If the cache node dies inside it, those writes never happened &mdash; and the caller was told they succeeded.',
+    unhl: ['wb-link'], show: ['wb-crash'],
+    text: { 'wb-dirty': 'dirty: 37 writes', 'wb-cache-val': 'product:42 → 49',
+            'wb-agree': 'cache and database agree: 37 writes lost' } },
+  { say: 'So the choice is one sentence long: <b>write-through pays database latency on every write and can never lose one; write-behind is fifty times faster and loses up to one flush interval.</b> View counters and telemetry: write-behind. Orders, payments, audit logs: never. If you need both, write to a durable log such as Apache Kafka and project into the database &mdash; same shape, but the buffer survives a crash.',
+    hide: ['wb-crash'], show: ['wb-note'] },
+]);
+
+/* ---------- 6. Write-around ---------- */
+createAnimation('anim-waround', [
+  { say: 'Same price change once more. With <b>write-around</b> the cache is not in the write path at all &mdash; the application writes straight to PostgreSQL.',
+    hl: ['wa-app'], text: { 'wa-app-sub': 'UPDATE price = 79' } },
+  { say: 'The database commits. The cache still holds the old value, 99, and right now it is serving it to everybody. This is the moment the pattern has to handle.',
+    unhl: ['wa-app'], hl: ['wa-db'],
+    text: { 'wa-db-sub': 'price = 79', 'wa-app-lat': '15 ms' },
+    fill: { 'wa-cache': COLD } },
+  { say: 'So the app invalidates the key. Note the command: <code>DEL</code>, <b>not</b> <code>SET</code>. It would be easy to write 79 into the cache here, and it would be wrong.',
+    unhl: ['wa-db'], show: ['wa-del', 'wa-del-t'], hl: ['wa-cache'],
+    text: { 'wa-cache-val': 'product:42 → (deleted)' } },
+  { say: 'Why delete rather than set? Because a <code>SET</code> writes a value <i>you</i> computed, possibly from a row you read before somebody else’s update &mdash; and that stale value then survives until the TTL. A delete is idempotent and can never be stale. An empty cache is always a correct cache.',
+    fill: { 'wa-cache': '#fbfcf8' },
+    text: { 'wa-cache-sub': 'empty — which is always a safe state', 'wa-score': 'client waited: 15 ms · cache untouched by the write' } },
+  { say: 'The next reader misses and repopulates from the database, exactly as in cache-aside. So the first read after a write is slow &mdash; that is the cost of this pattern, and the reason it is a bad fit for write-then-immediately-read flows.',
+    unhl: ['wa-cache'], hide: ['wa-del', 'wa-del-t'],
+    text: { 'wa-cache-val': 'product:42 → 79 (repopulated)', 'wa-app-sub': 'next read: miss + 16 ms',
+            'wa-score': 'first read after a write: 16 ms · then 0.3 ms' } },
+  { say: 'In exchange, nothing write-only ever enters the cache. On a table written far more often than it is read &mdash; an event log, an audit trail, a telemetry table &mdash; that is the difference between a useful cache and one full of entries nobody will ever ask for.',
+    fill: { 'wa-cache': HOT }, text: { 'wa-cache-sub': 'only ever holds data someone read' } },
+  { say: 'This is the write half of the cache-aside pattern, and the pair is what most production systems actually run: <b>read cache-aside, write around and delete, TTL as the backstop for the invalidations you miss</b>.',
+    show: ['wa-note'] },
+]);
+
+/* ---------- The stampede, shared by every read path ---------- */
+createAnimation('anim-stampede', [
+  { say: 'Steady state. <code>product:42</code> is cached with a 5-minute TTL, 5,000 requests a second are served from memory, and the database sees about one query every five minutes.',
+    hl: ['sp-cache'] },
+  { say: 'The TTL runs out. The key is gone &mdash; not because anything changed, just because five minutes passed. Every read path above hits this: cache-aside, read-through and even refresh-ahead if the key was not on its hot list.',
+    unhl: ['sp-cache'], text: { 'sp-key': 'product:42 → (nil)', 'sp-ttl': 'EXPIRED', 'sp-hit': 'miss' },
+    fill: { 'sp-cache': '#f9e3df' } },
+  { say: 'Every request now misses. Not one request &mdash; <b>all of them</b>, because 5,000 arrive per second and the rebuild takes 300 ms. Roughly 1,500 requests miss before the first one finishes.',
+    text: { 'sp-clients-sub': '1,500 concurrent misses', 'sp-flow': '5,000 /s' }, hl: ['sp-link'] },
+  { say: 'All of them run the same expensive query. The database goes from 2% to saturated in a single tick, and each slow query holds a connection from the pool.',
+    text: { 'sp-dbload': 'load: 100%', 'sp-dblat': 'p99 4,200 ms', 'sp-dbpool': 'pool 100 / 100', 'sp-dbstate': 'saturated' },
+    fill: { 'sp-db': '#f9e3df' }, hl: ['sp-db'], unhl: ['sp-link'] },
+  { say: 'Now it cascades. Queries queue, requests time out before they can populate the cache, the clients retry, and the retries miss too. The cache stays empty because nothing ever completes.',
+    text: { 'sp-clients-sub': 'timeouts + retries', 'sp-caption': 'The cache was carrying 100x the load the database can take. Nothing warned you.' },
+    show: ['sp-note'] },
+  { say: '<b>Fix 1 &mdash; single-flight.</b> The first request to miss takes a lock and rebuilds; everyone else awaits the same task instead of starting their own. This is what read-through gave you for free, and what cache-aside makes you build.',
+    show: ['sp-lock', 'sp-lock-t', 'sp-fix'], unhl: ['sp-db'],
+    fill: { 'sp-db': '#fbfcf8' },
+    text: { 'sp-dbload': 'load: 4%', 'sp-dblat': 'p99 14 ms', 'sp-dbpool': 'pool 4 / 100', 'sp-dbstate': 'healthy', 'sp-flow': '1 query' } },
+  { say: '<b>Fix 2 &mdash; stale-while-revalidate.</b> Better still: keep serving the expired value while one background task refreshes it. Nobody waits at all, and the only cost is a few hundred milliseconds of extra staleness.',
+    text: { 'sp-key': 'product:42 → {...} (stale)', 'sp-ttl': 'stale, refreshing', 'sp-hit': 'hit ratio 100%',
+            'sp-clients-sub': 'served instantly', 'sp-fix-t': 'stale-while-revalidate: serve the old value, refresh behind it' },
+    fill: { 'sp-cache': '#e3eedc' }, hide: ['sp-lock', 'sp-lock-t'] },
+  { say: '<b>And always: TTL jitter.</b> If a hundred keys were created by the same warm-up script, they expire in the same millisecond and you get this again, a hundred times over. <code>ttl = 300 + random(0, 30)</code> spreads them out for free.',
+    text: { 'sp-ttl': 'TTL 300 s + jitter', 'sp-key': 'product:42 → {...}', 'sp-caption': 'Single-flight bounds the damage. Stale-while-revalidate hides it. Jitter stops it happening at scale.',
+            'sp-fix-t': 'jitter: ttl = base + random(0, base * 0.1)' } },
+]);
+
+/* ---------- Key-concept animations ---------- */
+window.TERM_ANIMS = {
+  inval: [
+    { say: 'Request <b>A</b> asks for <code>product:42</code>, misses, and reads the database. It gets <code>99</code> &mdash; and then stalls for a few milliseconds: a GC pause, a slow serializer, a retry.',
+      show: ['iv-s1'] },
+    { say: 'In that window, request <b>B</b> updates the price to <code>79</code> and commits. The database is now correct.',
+      show: ['iv-s2'], text: { 'iv-db': 'price = 79' } },
+    { say: 'B then invalidates the cache the right way: <code>DEL product:42</code>. The cache is empty, which is always a safe state. Everything so far is correct.',
+      show: ['iv-s3'] },
+    { say: 'Now A wakes up and finishes its job: it writes the value it read <i>before</i> B’s update. The cache is repopulated with <code>99</code>.',
+      show: ['iv-s4'], text: { 'iv-cache': 'product:42 → 99' } },
+    { say: 'Every subsequent reader is served <code>99</code> until the TTL expires. Nobody did anything wrong, and nothing will tell you &mdash; the cache and the database simply disagree.',
+      show: ['iv-s5', 'iv-verdict'] },
+    { say: 'Fixes, in order of effort: a short TTL as a backstop, writing with a version check so A’s stale value loses, or delaying the delete slightly after the write so the loser is overwritten. The window is milliseconds wide &mdash; and at a few thousand requests a second you hit it every day.',
+      show: ['iv-fix', 'iv-note'] },
+  ],
+};
+</script>
+</body>
+</html>
