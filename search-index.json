@@ -171,9 +171,9 @@
         "redis",
         "caching-strategies",
         "rate-limiting",
+        "multitenancy",
         "azure-durable-functions",
-        "back-of-the-envelope",
-        "docker"
+        "back-of-the-envelope"
       ]
     },
     {
@@ -717,7 +717,180 @@
         "caching-strategies",
         "percentiles",
         "kafka",
-        "redis"
+        "redis",
+        "multitenancy"
+      ]
+    },
+    {
+      "slug": "backend-for-frontend",
+      "url": "cheatsheets/backend-for-frontend.html",
+      "title": "Backend-for-Frontend",
+      "aliases": [
+        "Backend-for-Frontend",
+        "BFF",
+        "backends for frontends",
+        "experience API"
+      ],
+      "tagline": "One backend per experience, so no client has to negotiate with a general-purpose API.",
+      "asOf": "As of Nov 2026 · the pattern is stable; examples are .NET 10 (LTS) and ASP.NET Core",
+      "description": "Backend-for-Frontend cheatsheet: animated comparison of one shared API, a BFF per client, gateway aggregation and GraphQL, with round-trip budgets, tail amplification, auth and ownership.",
+      "tags": [
+        "architecture",
+        "bff",
+        "api gateway",
+        "graphql",
+        "aggregation",
+        "mobile",
+        "frontend",
+        "microservices",
+        "latency"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Code & syntax"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-bff",
+          "term": "BFF",
+          "def": "A server-side component dedicated to one client, owned by that client's team and shaped around its screens rather than around domain resources.",
+          "detail": "Introduced at SoundCloud and named by Sam Newman. The defining property is not what it does — aggregation and shaping — but who owns it: it is part of the frontend that happens to run on a server. A BFF is A BFF is not one per experience (mobile, web, TV) one per microservice deployed with its client a shared platform component allowed to be ugly and specific a place for domain rules disposable when the client is retired a long-lived public API One per experience, not one per platform: if iOS and Android render the same screens from the same data, they share a BFF. Split them when the experiences genuinely diverge, not because the languages do. The honest test of whether you have a BFF or an API: when the mobile team needs a new field on a screen, do they write the code themselves and ship it today, or do they ask another team? If it is the second, it is not a BFF."
+        },
+        {
+          "id": "term-experience-api",
+          "term": "experience API",
+          "def": "An endpoint shaped like a screen — GET /mobile/home — rather than like a resource. The thing a BFF actually exposes.",
+          "detail": "Resource APIs are designed for generality; experience APIs are designed for one layout. That specificity is a feature, and it is why they must not be shared. Resource API Experience API GET /users/{id} GET /mobile/home GET /baskets/{id} GET /mobile/checkout returns everything about a thing returns everything on a screen stable, versioned, documented changes with the design // the response is the screen, in order { \"greeting\": \"Good evening, Davide\", \"basket\": { \"count\": 3, \"total\": \"€89.90\" }, \"panels\": [ { \"type\": \"recommendations\", \"items\": [ { \"id\":\"p1\", \"title\":\"…\", \"price\":\"€12\" } ] }, { \"type\": \"loyalty\", \"points\": 420, \"nextTier\": 80 } ] } Going further, some teams return the layout too — server-driven UI, where the BFF decides which panels appear and in what order. That lets you change a screen without an app release, at the cost of a client that is harder to reason about offline."
+        },
+        {
+          "id": "term-over-fetching",
+          "term": "over-fetching",
+          "def": "Receiving far more than the screen renders: the full user aggregate when you needed a name. Wasteful on mobile, and it ties you to a model you do not control.",
+          "detail": "A general-purpose endpoint has to return everything any consumer might need, so every consumer pays for the union of everyone's requirements. Screen needs GET /users/me returns display name, avatar URL profile, all addresses, preferences, consent history, linked accounts ~120 bytes 28 KB On a good connection nobody notices. On a congested mobile link, 180 KB of padding across six calls is seconds of waiting, and on a metered plan it is the user's money. The subtler cost: every field in that response is now something a client might start depending on, so the shape cannot change. A BFF breaks that by making the transport payload a private detail between the BFF and its own client."
+        },
+        {
+          "id": "term-under-fetching",
+          "term": "under-fetching",
+          "def": "The opposite: the response does not contain what you need next, so you make another call — and another. This is what turns one screen into six round trips.",
+          "detail": "Under-fetching is worse than over-fetching, because extra bytes cost bandwidth while extra calls cost latency, and latency does not improve with a better plan. GET /baskets/current -> { items: [ { productId: 42 }, { productId: 91 } ] } GET /catalogue/items?ids=42,91 -> names and images (needed the first call to know the ids) GET /pricing?ids=42,91 -> prices (and again) Those three calls are sequential: each needs an id from the one before. That is a dependent wave, and three waves on a 150 ms link is 450 ms before a pixel is drawn. Pattern Cost on mobile 6 parallel calls 1 wave — about 150 ms, if connection limits allow 6 calls in 3 dependent waves 450 ms minimum 1 call to a BFF 150 ms, with the waves happening at 5 ms each inside the datacenter The BFF does not remove the dependent waves; it moves them somewhere a round trip is thirty times cheaper."
+        },
+        {
+          "id": "term-chattiness",
+          "term": "chattiness",
+          "def": "The number of round trips a screen costs. On mobile this dominates everything else, so it is the number to design against.",
+          "detail": "Give every screen a round-trip budget and treat it like a performance requirement, because it is. Link Typical round trip 6 calls in 3 waves Datacenter-internal 0.5–5 ms ~15 ms Wired broadband 10–30 ms ~90 ms Good 4G/5G 50–100 ms ~300 ms Congested mobile, or rural 150–400 ms 450–1,200 ms Satellite 600 ms+ unusable Two corrections people make that do not help: HTTP/2 multiplexing removes the connection limit but not the dependency between waves, and a CDN helps only if the response is cacheable and shared. A dependent chain of calls is slow on principle. Budget one round trip per screen transition. If a screen needs two, there should be a reason written down."
+        },
+        {
+          "id": "term-aggregation",
+          "term": "aggregation",
+          "def": "Calling several services in parallel and combining the results. The BFF's main job, and the reason it belongs near the services rather than near the user.",
+          "detail": "The mechanics are unremarkable; the discipline is in what you do when one of them is slow or broken. var profile = _profile.GetAsync(userId, ct); var basket = _basket.GetAsync(userId, ct); var loyalty = _loyalty.GetAsync(userId, ct); await Task.WhenAll(profile, basket, loyalty); // one wave, not three Rule Why Start every independent call before awaiting any awaiting in sequence turns one wave into N Give every downstream call its own timeout otherwise the slowest defines your latency Degrade rather than fail where you can a home screen without recommendations still works Never let the BFF become a second hop to another BFF chains of aggregators multiply the tail Keep aggregation shallow. A BFF calling services is fine; a BFF calling a BFF calling services is a distributed system with a latency budget nobody is tracking."
+        },
+        {
+          "id": "term-response-shaping",
+          "term": "response shaping",
+          "def": "Returning exactly the fields the screen renders, in the structure it renders them. What turns 180 KB into 4 KB.",
+          "detail": "Shaping is more than projection. The BFF is the right place to do the formatting, ordering and conditional logic that would otherwise be duplicated in every client. Do in the BFF Leave to the services pick the fields this screen needs what the fields mean format currency and dates for the locale store amounts and instants flatten three responses into one object own their own models decide panel order and visibility business rules and invariants resize or pick an image variant hold the asset The boundary to hold: presentation logic belongs in the BFF, domain logic does not. \"Show the loyalty banner when tier is gold and the basket is non-empty\" is presentation. \"A gold tier requires 2,000 points\" is domain, and must live in the loyalty service or it will be wrong in one of your four clients."
+        },
+        {
+          "id": "term-ownership",
+          "term": "ownership",
+          "def": "The BFF is owned, deployed and on-called by the team that owns the client. This is the defining property, not an organisational detail.",
+          "detail": "Conway's Law applied on purpose. The reason the pattern works is that it removes a hand-off from the most frequently changing part of the system. Owned by the client team Owned by a platform team a new field ships today a new field is a ticket and a sprint deploys with the client release deploys on the platform's schedule free to be specific and ugly must stay general for all consumers deleted when the client is outlives everything, forever If your organisation will not let the client team run a service — no pipeline, no on-call, no budget — you will get a BFF owned by the platform team, which is just a second API with extra hops. In that case prefer gateway aggregation or GraphQL and save yourself the deployment. The same logic says: delete the BFF with the client. A \"legacy mobile BFF\" still running two years after the app was retired is a sign the ownership was never real."
+        },
+        {
+          "id": "term-tail-amplification",
+          "term": "tail amplification",
+          "def": "The BFF waits for the slowest of its downstream calls, so its p99 is much worse than any single service's. The cost of fan-out.",
+          "detail": "Moving the fan-out server-side does not remove the probability maths — it just moves it. If each of six calls is fast 99% of the time, the page is fast only 0.99 6 = 94% of the time. Downstream calls Chance the screen hits a p99 tail 1 1% 6 5.9% 10 9.6% 20 18% So a BFF fanning out to six services with a 500 ms p99 each has roughly a 6% chance of a slow screen — the services' p99 has become the screen's p94. The percentiles page covers the arithmetic and the defences in full. Three mitigations, in order: aggressive per-call timeouts with a degraded response, caching in the BFF so hot panels never fan out, and hedged requests for the one downstream that is genuinely erratic."
+        },
+        {
+          "id": "term-partial-failure",
+          "term": "partial failure",
+          "def": "One downstream is down, and the screen still renders without that panel. A BFF is the natural place to decide this, because it knows what the screen can live without.",
+          "detail": "A general-purpose API cannot make this decision — it does not know what the caller is drawing. A BFF does, and that is one of its strongest arguments. var recs = await Safe(() => _recs.GetAsync(userId, cts.Token), fallback: []); static async Task<T> Safe<T>(Func<Task<T>> call, T fallback) { try { return await call(); } catch (Exception ex) when (ex is TimeoutException or HttpRequestException) { return fallback; } // log it, count it, and carry on } Downstream If it fails profile fail the request — there is no screen without a user basket fail, or show an explicit error state recommendations omit the panel loyalty omit the panel Decide this per field, write it down, and emit a metric for every degradation. A BFF that silently drops panels is indistinguishable from a product decision, and you will find out months later that a panel has been missing for 4% of users."
+        },
+        {
+          "id": "term-caching-in-a-bff",
+          "term": "caching in a BFF",
+          "def": "The BFF is an excellent cache point: it knows the screen, the user and what may be shared. Done wrong, it is where you leak one user's data to another.",
+          "detail": "Three distinct things can be cached, and conflating them is the classic bug. Cache Key TTL Shared downstream data (catalogue, prices) resource id minutes Per-user downstream data (basket, loyalty) user id + resource seconds, or not at all The assembled screen user id + screen + locale + app version seconds Only the first row is safe to cache globally. Put the user id in the key for the other two, and never set Cache-Control: public on an authenticated response — a shared cache in front of the BFF will happily serve one user's home screen to the next. The caching strategies page covers the patterns and the invalidation traps; the only BFF-specific rule is that the cache key must contain every dimension that changes the screen, including the app version, because an old client and a new one expect different shapes."
+        },
+        {
+          "id": "term-authentication",
+          "term": "authentication",
+          "def": "The BFF sits between a browser or app and the services, which makes it the right place to swap a cookie for a token and to keep tokens off the client entirely.",
+          "detail": "For a browser SPA this is the strongest security argument for the pattern. Tokens in JavaScript are reachable by any script on the page; tokens in a BFF are not. Client Holds BFF does Browser SPA an HttpOnly, SameSite session cookie keeps the access and refresh tokens server-side and attaches them downstream Mobile app tokens in the platform keychain validates, then exchanges for a downstream token Partner client credentials not a BFF — use the public API This \"BFF pattern for SPAs\" is now the mainstream recommendation for browser applications precisely because it removes tokens from a place scripts can reach. In .NET, Duende.BFF packages it; the shape is a cookie in, a bearer token out. Do not let the BFF become an authorization service. It should check that the caller is who they claim and pass identity down; whether this user may read that order is the owning service's decision, and duplicating it in four BFFs guarantees a divergence."
+        },
+        {
+          "id": "term-versioning",
+          "term": "versioning",
+          "def": "A BFF can change as often as its client — but on mobile the old client never goes away, so it must serve several app versions at once.",
+          "detail": "Web is easy: ship the SPA and the BFF together and there is one version in the wild. Mobile is not: users on a two-year-old build still open the app, and you cannot force them to upgrade. Approach Good for Cost Additive-only changes almost everything fields accumulate Version in the path (/v2/mobile/home) a redesigned screen two code paths to maintain Branch on the app version header small divergences if statements that never get deleted Minimum supported version cutting the tail off a forced-upgrade screen and angry reviews Set a support window — \"the last four releases, or six months\" — before you need it, instrument the version distribution, and put a deletion date on every compatibility branch you add. Without that, a BFF accumulates version checks until it is harder to change than the general-purpose API it replaced."
+        },
+        {
+          "id": "term-duplication",
+          "term": "duplication",
+          "def": "Three BFFs calling the same five services will contain similar code. Some of that duplication is the price of the pattern; some of it is a mistake.",
+          "detail": "The instinct is to extract the common parts into a shared library, and that instinct, followed too far, recreates the coupling the BFFs were meant to remove. Share Duplicate generated service clients and DTOs aggregation logic auth middleware, tracing, logging response shapes resilience policies and defaults which panel to drop on failure the deployment template anything to do with a screen Rule of thumb: share things that are plumbing, duplicate things that are product. The moment a shared library needs a flag for \"but mobile wants it differently\", stop and copy the code instead. And watch the version lock: a shared library that every BFF must upgrade in lockstep reintroduces the coordinated release the pattern was adopted to avoid."
+        },
+        {
+          "id": "term-downstream-coupling",
+          "term": "downstream coupling",
+          "def": "The BFF depends on the services it calls, so their breaking changes become its problem. A thin BFF makes this manageable; a thick one does not.",
+          "detail": "You have added a layer, which means a change can now break in two places instead of one. Keep the layer thin enough that a downstream change is a mapping fix rather than a redesign. Keeps coupling cheap Makes it expensive generated clients from OpenAPI hand-written HTTP calls and anonymous JSON mapping at the edge, in one place downstream DTOs flowing through the BFF consumer-driven contract tests finding out in production no business rules in the BFF rules duplicated from the service Contract tests are the highest-value investment here: the BFF publishes what it needs from each service, and the service's pipeline fails if a change would break it. That turns \"we found out on Friday\" into a red build on the service team's own pull request."
+        },
+        {
+          "id": "term-graphql",
+          "term": "GraphQL",
+          "def": "The main alternative: one endpoint, a typed schema, and the client declares the shape. Solves over- and under-fetching without a backend per client.",
+          "detail": "GraphQL and the BFF pattern answer the same question. The differences are about who coordinates, and what it costs to operate. BFF GraphQL Shaping decided by the BFF's code the client's query New client build and run a new service write a new query Coordination none — each team owns its BFF the schema is shared and negotiated HTTP caching normal hard: one URL, usually POST Cost control you wrote the aggregation needs depth and complexity limits N+1 visible in your own code the default, until you add batching # one request, exactly the fields the screen draws query Home { me { displayName avatarUrl } basket { count total } recommendations(limit: 6) { id title price } } They combine well: a GraphQL BFF is one GraphQL server per client, with a schema shaped for that client. You keep declarative shaping and drop the organisation-wide schema negotiation, which is the part most teams find hardest."
+        }
+      ],
+      "related": [
+        "caching-strategies",
+        "modular-monolith",
+        "multitenancy",
+        "percentiles",
+        "rate-limiting"
       ]
     },
     {
@@ -898,8 +1071,8 @@
         "azure-api-management",
         "back-of-the-envelope",
         "rate-limiting",
-        "kafka",
-        "percentiles"
+        "backend-for-frontend",
+        "kafka"
       ]
     },
     {
@@ -1257,7 +1430,368 @@
         "rate-limiting",
         "azure-api-management",
         "kafka",
-        "azure-durable-functions"
+        "azure-durable-functions",
+        "multitenancy"
+      ]
+    },
+    {
+      "slug": "modular-monolith",
+      "url": "cheatsheets/modular-monolith.html",
+      "title": "Modular monolith",
+      "aliases": [
+        "Modular monolith",
+        "modulith",
+        "modular monoliths"
+      ],
+      "tagline": "One deployable, with walls the compiler actually enforces.",
+      "asOf": "As of Nov 2026 · the pattern is stable; examples are .NET 10 (LTS), ASP.NET Core and EF Core",
+      "description": "Modular monolith cheatsheet: modules, public contracts and enforced boundaries, with animated walk-throughs of a layered monolith, an in-process call, in-process events and extracting a module into a service.",
+      "tags": [
+        "architecture",
+        "modular monolith",
+        "monolith",
+        "microservices",
+        "bounded context",
+        "ddd",
+        "boundaries",
+        "dotnet",
+        "refactoring"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Code & structure"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-module",
+          "term": "module",
+          "def": "A business capability with its own code, its own data and a small public surface. The unit everything else on this page is about.",
+          "detail": "A module is named after something the business would recognise — Orders, Billing, Shipping, Catalogue — never after a technical layer. If you cannot explain a module to someone in sales, it is probably a layer in disguise. What a healthy module owns Owns Does not own its own tables, in its own schema another module's tables, even for a read its domain model and rules the HTTP shape other modules expose its public contract the implementation behind someone else's contract its own tests, runnable alone shared test fixtures that span modules Common sizes System Modules Early product, one team 3–6 Established SaaS 8–15 Large platform 20–40, often grouped If a module has one class it is not a module, it is a file. If it has four hundred, it is a monolith with a folder."
+        },
+        {
+          "id": "term-public-contract",
+          "term": "public contract",
+          "def": "The interface and DTOs a module exposes, usually in a project of their own that contains no implementation. The only legal way in.",
+          "detail": "Keeping contracts in a separate assembly is what lets other modules reference the shape without being able to reference the code. // Billing.Contracts (referenced by anyone) public interface IBillingApi { Task<ChargeResult> ChargeAsync(ChargeRequest request, CancellationToken ct); } public sealed record ChargeRequest(Guid OrderId, decimal Amount, string Currency); public sealed record ChargeResult(bool Succeeded, string? TransactionId, string? Reason); // Billing (referenced by nobody but the composition root) internal sealed class BillingService: IBillingApi { /* ... */ } Rule Why Contracts reference nothing but primitives and each other otherwise the dependency leaks through the contract Use records or DTOs, never your domain entities an exposed entity makes your internal model a public API Keep the surface small — a handful of methods a 40-method contract is the internals with extra steps Version it like a public API once a module is extracted at that point it genuinely is one A good test: could you implement this contract a second time, over HTTP, without changing the caller? If not, it is leaking implementation. Animation 4 depends on the answer being yes."
+        },
+        {
+          "id": "term-internals",
+          "term": "internals",
+          "def": "Everything behind the contract: services, repositories, entities, mappers. Marked internal so other modules physically cannot reference them.",
+          "detail": "In .NET, internal is scoped to the assembly, so \"one module = one project\" is what makes the keyword do real work. This is the cheapest boundary enforcement available: it costs nothing and the compiler never forgets. Visibility Use for public only what lives in the contracts project internal everything else in the module — make this the default internal + InternalsVisibleTo the module's own test project, and nothing else <!-- Billing.csproj --> <ItemGroup> <InternalsVisibleTo Include=\"Billing.Tests\" /> </ItemGroup> Watch for the quiet leak: a public class added \"just for a test\" or \"just for the controller\". Once one exists, the next one is easier. Making internal the habit, and the test project the only exception, keeps it honest."
+        },
+        {
+          "id": "term-boundary-enforcement",
+          "term": "boundary enforcement",
+          "def": "Making a violation fail the build rather than depend on someone noticing it in review. Without this, a modular monolith decays into a layered one.",
+          "detail": "Three layers of enforcement, cheapest first. Use all three; they catch different things. Mechanism Catches Cost internal + one project per module any reference to another module's implementation free Project reference discipline a module referencing another module's project at all free, but needs review Architecture tests everything else: namespaces, cycles, layering, naming a test project [Fact] public void Modules_talk_only_through_contracts() { var result = Types.InAssembly(typeof(OrderService).Assembly) .Should().NotHaveDependencyOn(\"Billing\") // the implementation .GetResult(); Assert.True(result.IsSuccessful, string.Join(\", \", result.FailingTypeNames ?? [])); } NetArchTest and ArchUnitNET are the usual choices in .NET; ArchUnit in Java; import-linter in Python. Write the first rule on day one, when there is nothing to fix. Retrofitting enforcement onto a year-old codebase means a hundred failures and a decision to disable the test."
+        },
+        {
+          "id": "term-module-owned-schema",
+          "term": "module-owned schema",
+          "def": "Each module owns its tables and nobody else reads them directly. The database is where modular monoliths most often leak.",
+          "detail": "Code boundaries are easy to enforce and easy to bypass through the database. If Orders runs SELECT * FROM billing.invoices, the modules are coupled no matter how clean the C# looks. Level How Strength Naming convention table prefixes, orders_* weak — nothing enforces it Schema per module orders., billing. good, and it survives extraction Schema + per-module database user grants only on its own schema strong — the database refuses the query Database per module separate connection strings strongest, and you lose cross-module transactions // one DbContext per module, each mapping only its own tables protected override void OnModelCreating(ModelBuilder b) => b.HasDefaultSchema(\"billing\"); Foreign keys across modules are the subtle version of the same leak. Prefer storing the other module's id as a plain value with no database-level constraint — it is the only shape that survives the module becoming a service."
+        },
+        {
+          "id": "term-in-process-messaging",
+          "term": "in-process messaging",
+          "def": "Publishing an event instead of calling an interface. Removes the compile-time reference, at the cost of making the flow harder to follow.",
+          "detail": "With a direct call, Orders names Billing. With an event, Orders names only the fact that something happened, and the bus decides who cares. // Orders, knowing nothing about who listens await _bus.PublishAsync(new OrderPlaced(order.Id, order.Total, order.Currency), ct); // Billing, in its own module internal sealed class ChargeOnOrderPlaced: INotificationHandler<OrderPlaced> { public Task Handle(OrderPlaced e, CancellationToken ct) => _billing.ChargeAsync(...); } Use a direct call when Use an event when you need the result to continue you do not care about the outcome there is exactly one correct handler several modules react, and the list will grow the step must be inside the transaction the step can be retried later you want a readable stack trace you want the publisher not to know the subscribers Events are not automatically better. A codebase where every interaction is an event has traded named dependencies for invisible ones, and \"what happens when an order is placed?\" becomes a search problem. Reach for a contract first and an event when there is genuinely more than one interested party."
+        },
+        {
+          "id": "term-transaction-boundary",
+          "term": "transaction boundary",
+          "def": "The thing a modular monolith still has and microservices do not: several modules writing inside one database transaction.",
+          "detail": "This is the single largest practical advantage of staying in one process, and the thing people miss most after splitting. Dispatch Transaction On handler failure Direct call shared with the caller everything rolls back Synchronous event shared with the publisher everything rolls back, including the order Event after commit separate the order stands, the handler must be retried Outbox, then dispatch the write is in the transaction, the work is not at-least-once delivery, so handlers must be idempotent Decide this per interaction, not globally. \"Reserve stock\" probably belongs inside the order's transaction; \"send a confirmation email\" certainly does not, and putting it there means a mail outage rolls back orders. The outbox is worth building early even inside a monolith: it is the only option that is both atomic with your write and safe to retry, and it is exactly what you will need on the day a module leaves the process."
+        },
+        {
+          "id": "term-bounded-context",
+          "term": "bounded context",
+          "def": "The DDD idea underneath: a boundary within which a word means exactly one thing. Modules work when they follow these seams.",
+          "detail": "\"Customer\" means different things in different places, and a design that forces one shared definition produces a model that serves nobody. Context What \"customer\" means Orders a delivery address and a basket Billing a payment method and a tax status Support a contact history and an entitlement Marketing a consent record and a segment Each module keeps its own small model of the customer, keyed by a shared id. That duplication looks wasteful and is not: it is what lets Billing add a tax field without a conversation with four other teams. Finding the seams: look at where the language changes, where different people are accountable, and where change tends to arrive together. Do not look at the entity-relationship diagram — it will tell you everything is connected, because it is."
+        },
+        {
+          "id": "term-vertical-slice",
+          "term": "vertical slice",
+          "def": "Organising a module's code by feature — request, handler, validation, data access together — rather than by technical layer.",
+          "detail": "Layers inside a module recreate the original problem at a smaller scale. A vertical slice keeps everything one feature needs in one folder. Billing/ Features/ ChargeCard/ ChargeCardCommand.cs // request ChargeCardHandler.cs // the whole use case ChargeCardValidator.cs RefundCharge/ ... Contracts/ -> the public surface Persistence/ -> the DbContext, shared by the slices By layer By feature a change touches 4 folders a change touches 1 abstractions shared by everything abstractions only where there is a second caller easy to find \"all repositories\" easy to find \"everything about refunds\" You rarely need to see all the repositories at once. You constantly need to see everything about refunds."
+        },
+        {
+          "id": "term-composition-root",
+          "term": "composition root",
+          "def": "The single place that knows every module's implementation and wires it up. The only code allowed to reference everything.",
+          "detail": "Each module exposes one registration method; the host calls them and knows nothing else. This is what keeps the host thin and makes animation 4 a one-line change. // Billing/ModuleRegistration.cs — the module's only public class besides its contract public static class BillingModule { public static IServiceCollection AddBilling(this IServiceCollection services, IConfiguration cfg) { services.AddScoped<IBillingApi, BillingService>(); // internal type, registered here services.AddDbContext<BillingDbContext>(o => o.UseNpgsql(cfg.GetConnectionString(\"Default\"))); return services; } } // Program.cs — the composition root builder.Services.AddOrders(cfg).AddBilling(cfg).AddShipping(cfg); The host project is the one place with a reference to every module, which is fine — it contains no logic. Your architecture test should assert exactly that: the host may depend on everything, and nothing may depend on the host."
+        },
+        {
+          "id": "term-shared-kernel",
+          "term": "shared kernel",
+          "def": "The small set of types genuinely common to every module: ids, money, dates, result types. Useful, and the most abused project in the solution.",
+          "detail": "Every solution grows a Common or Shared project, and it is where modularity goes to die — because everything references it, anything inside it couples every module together. Belongs in the shared kernel Does not Money, TenantId, Result<T> Customer, Order, Invoice a clock abstraction a repository base class cross-cutting attributes business rules of any kind strongly-typed id primitives \"helpers\" nobody can describe Rule of thumb: if adding a field to a shared type would make you think about more than one module, it does not belong there. Keep it small enough that you could read the whole project in ten minutes, and add an architecture test asserting it depends on nothing."
+        },
+        {
+          "id": "term-anti-corruption-layer",
+          "term": "anti-corruption layer",
+          "def": "A translation layer at a module's edge so another context's model — or a legacy system's — does not leak into yours.",
+          "detail": "When a module must consume something it does not control, translate at the boundary rather than letting the foreign shape spread inward. // inside Shipping: the legacy courier's model stops here internal sealed class CourierAntiCorruption(ILegacyCourierClient legacy): ICourierGateway { public async Task<Shipment> BookAsync(ShipmentRequest r, CancellationToken ct) { var raw = await legacy.CreateConsignmentAsync(ToLegacyDto(r), ct); return new Shipment(raw.ConsignmentNo, ParseStatus(raw.Stat), raw.Eta ?? DateOnly.MaxValue); } } Put one in front of Because a legacy system you are strangling its model is the thing you are trying to escape a third-party API their breaking change should touch one file another module whose model is a poor fit translation is cheaper than a shared compromise model The cost is real — a mapping layer nobody enjoys writing. The benefit is that a change in the foreign model produces one compile error in one class instead of forty across the module."
+        },
+        {
+          "id": "term-extraction-path",
+          "term": "extraction path",
+          "def": "Turning a module into a service by implementing its existing contract remotely. The reason to build a modular monolith even if you believe you will end up distributed.",
+          "detail": "If the module is genuinely encapsulated, extraction is mechanical rather than archaeological. Write a second implementation of the contract that calls the remote service. Move the module's data to its own database; remove any cross-schema queries that have crept in. Replace the in-process registration with the remote one — one line in the composition root. Deal with the consequences: timeouts, retries, idempotency, and the transaction you no longer have. // before services.AddScoped<IBillingApi, BillingService>(); // after services.AddHttpClient<IBillingApi, HttpBillingApi>(c => c.BaseAddress = new(cfg[\"Billing:Url\"]!)); Step 4 is the hard one What it costs the call can now fail or hang timeouts, retries, a circuit breaker at-least-once delivery idempotency keys on every write no shared transaction a saga with compensation Note what you are really doing: deferring that bill until you have evidence you need to pay it. Extract when a module has a genuinely different scaling profile, a different release cadence, or a team that needs to ship without you — not because the module count got large."
+        },
+        {
+          "id": "term-cyclic-dependencies",
+          "term": "cyclic dependencies",
+          "def": "Orders needs Billing and Billing needs Orders. The most common sign that two modules are really one, or that one is missing.",
+          "detail": "Project references make cycles impossible to compile in .NET, which is a feature: the compiler refuses before you can create the mess. The question is what to do when you hit one. Fix When it is right Invert one direction with an event the reverse call is a notification, not a question Move the shared concept into a third module both really depend on a concept neither owns Merge the two modules they change together every single time — the boundary was wrong Pass data in rather than calling back the callee only needed a value, not a dependency The one fix to avoid is a shared \"Common\" project that both reference, holding the logic neither wanted to own. That turns a visible cycle into an invisible one. A cycle is information. It is telling you the seam is in the wrong place, and in a modular monolith that is cheap to act on."
+        },
+        {
+          "id": "term-testing-per-module",
+          "term": "testing per module",
+          "def": "Each module gets its own test project that exercises it through its contract, with no other module loaded.",
+          "detail": "If a module's tests need three other modules running, the boundary is decorative. Testability is the most honest measure of modularity you have. Level Scope Typical count Unit a handler or domain rule, no I/O hundreds per module Module integration the module through its contract, real database tens per module Architecture boundaries, cycles, visibility a handful, solution-wide End to end the whole host, a few critical journeys as few as you can live with Module integration tests are the sweet spot here and the thing microservices make expensive: a real database with Testcontainers, the module's own registration method, and the contract as the entry point. No HTTP, no other module, no mocking your own code."
+        },
+        {
+          "id": "term-observability-per-module",
+          "term": "observability per module",
+          "def": "Tagging logs, traces and metrics with the module that produced them, so you can answer \"which part is slow\" without process boundaries to separate them.",
+          "detail": "In microservices the service name does this for free. In a monolith you have to add it on purpose, and it is what tells you which module is worth extracting. // one meter and one activity source per module static readonly ActivitySource Activity = new(\"Shop.Billing\"); static readonly Meter Meter = new(\"Shop.Billing\"); using var span = Activity.StartActivity(\"ChargeCard\"); span?.SetTag(\"module\", \"billing\"); Tag everything with So you can ask module which module owns this error budget module + endpoint which module dominates p99 (see the percentiles page) module on database spans which module is hammering the database Do this early. When someone proposes extracting a module, the honest answer comes from this data — and without it the decision gets made on architecture diagrams and enthusiasm instead."
+        }
+      ],
+      "related": [
+        "backend-for-frontend",
+        "multitenancy",
+        "percentiles"
+      ]
+    },
+    {
+      "slug": "multitenancy",
+      "url": "cheatsheets/multitenancy.html",
+      "title": "Multitenancy strategies",
+      "aliases": [
+        "Multitenancy strategies",
+        "multitenancy",
+        "multi-tenancy",
+        "multi-tenant",
+        "tenant isolation"
+      ],
+      "tagline": "One system, many customers — the only real question is where you draw the isolation line.",
+      "asOf": "As of Nov 2026 · the strategies are stable; examples are .NET 10 (LTS), EF Core and PostgreSQL",
+      "description": "Multitenancy cheatsheet: animated comparison of shared schema, schema per tenant, database per tenant and sharded pools, with tenant resolution, noisy neighbours, migrations, restores and cross-tenant leaks.",
+      "tags": [
+        "multitenancy",
+        "saas",
+        "tenant isolation",
+        "sharding",
+        "row level security",
+        "ef core",
+        "database per tenant",
+        "noisy neighbour"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Code & syntax"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-tenant",
+          "term": "tenant",
+          "def": "The unit of isolation and usually of billing: a customer organisation, not a user. Getting this definition wrong is expensive to undo.",
+          "detail": "A tenant is the boundary inside which data may be shared and across which it must not be. Almost always a company, not a person — users belong to tenants. Decision Ask Can a user belong to two tenants? consultants, agencies, parent companies — usually yes, and retrofitting it is painful Can a tenant have sub-units? departments, regions, franchises — a hierarchy you cannot add later for free Is the tenant the billing entity? often, but not always — one contract can cover many tenants Can data move between tenants? mergers and demergers happen; decide now whether it is supported or manual Model the tenant id as a strongly-typed value from day one, not a bare Guid or string. It appears in every table, every cache key, every log line and every metric, and a type the compiler can check stops it being swapped with a user id in a method call. The single most important early decision is to make everything tenant-aware from the first commit. Adding a tenant column to a production schema with forty tables and no filtering is a project, not a change."
+        },
+        {
+          "id": "term-tenant-resolution",
+          "term": "tenant resolution",
+          "def": "Deciding which tenant a request belongs to, before anything touches data. The first middleware in the pipeline, and a security boundary.",
+          "detail": "Resolution has to happen early, be unambiguous, and be impossible for the caller to forge. Strategy Example Notes Subdomain acme.app.com clean URLs and easy cookie scoping; needs wildcard DNS and certificates Path segment app.com/acme/... simplest to deploy; every route carries the tenant Token claim tid in the JWT the trustworthy one — signed by your identity provider Header X-Tenant-Id fine service-to-service, never from a browser The rule that prevents the worst class of bug: resolve from the token, and treat anything in the URL as a hint to be validated against it. If the host says acme and the token says globex, that is a 403, not a judgement call. var fromToken = user.FindFirstValue(\"tid\"); var fromHost = HostToTenant(ctx.Request.Host); if (fromHost is not null && fromHost != fromToken) return Results.Forbid(); Make an unresolved tenant a hard failure. A request with no tenant must never fall through to a default, because the default will eventually be \"all of them\"."
+        },
+        {
+          "id": "term-discriminator-column",
+          "term": "discriminator column",
+          "def": "A tenant_id on every tenant-owned table. The entire isolation mechanism of the shared-schema model.",
+          "detail": "Cheap, simple and completely dependent on every single query remembering to use it. Detail Guidance Place in the index first column of every index — (tenant_id, created_at), not the reverse Nullability never nullable; a null tenant is a row nobody owns Composite keys include it in the primary key for tables you may shard or extract later Foreign keys include tenant_id in the FK so a child cannot point at another tenant's parent Type short and fixed — it is on every row of every table That first row matters more than it looks: an index on (created_at) alone makes every tenant scan every other tenant's rows before filtering. With thousands of tenants that is the difference between a 2 ms query and a 2 second one. The composite foreign key trick is underused and free: FOREIGN KEY (tenant_id, order_id) makes a cross-tenant reference impossible at the database level, so a bug produces a constraint violation instead of a leak."
+        },
+        {
+          "id": "term-global-query-filter",
+          "term": "global query filter",
+          "def": "Applying the tenant predicate automatically in the ORM so no developer has to remember it. Necessary, and not sufficient.",
+          "detail": "In EF Core one line per entity makes the filter implicit on every LINQ query. protected override void OnModelCreating(ModelBuilder b) { b.Entity<Invoice>().HasQueryFilter(i => i.TenantId == _tenant.Id); b.Entity<Customer>().HasQueryFilter(c => c.TenantId == _tenant.Id); } Where it does not reach Bypass Risk IgnoreQueryFilters() deliberate, and sometimes correct — ban it outside an audited helper FromSqlRaw and Dapper no filter at all; the developer must write the predicate Stored procedures and views outside the ORM entirely Background jobs no request, so often no tenant in scope — a very common leak Admin and reporting tools frequently built with the filter off \"temporarily\" How a cross-tenant leak actually happens So: use global filters, and do not rely on them alone. The database-level backstop in the next concept is what turns a leak into an empty result set."
+        },
+        {
+          "id": "term-row-level-security",
+          "term": "row-level security",
+          "def": "The database enforcing the tenant predicate itself, so a forgotten filter returns nothing instead of everything. The backstop worth the setup.",
+          "detail": "PostgreSQL, SQL Server and others can attach a policy to a table that is applied to every statement, whatever issued it — ORM, raw SQL, a psql session or a stored procedure. ALTER TABLE invoices ENABLE ROW LEVEL SECURITY; ALTER TABLE invoices FORCE ROW LEVEL SECURITY; -- applies to the table owner too CREATE POLICY tenant_isolation ON invoices USING (tenant_id = current_setting('app.tenant_id', true)::uuid); // set it once per connection, from resolved tenant context await using var cmd = conn.CreateCommand(); cmd.CommandText = \"SELECT set_config('app.tenant_id', $1, false)\"; cmd.Parameters.Add(new NpgsqlParameter { Value = tenant.Id.ToString() }); await cmd.ExecuteNonQueryAsync(ct); Watch out for Why Connection pooling the setting must be applied on every checkout, or a connection carries the previous tenant's context The table owner policies are bypassed by the owner unless you add FORCE Migration users they need BYPASSRLS, so keep that account out of the application Query plans the predicate is added to every statement — index for it The cost is a few hours of setup and some care with pooling. The benefit is that the most common and most damaging bug in a shared-schema system becomes structurally impossible, including in the raw SQL and the admin tool nobody reviewed."
+        },
+        {
+          "id": "term-shared-schema",
+          "term": "shared schema",
+          "def": "One database, one set of tables, every tenant's rows together. The cheapest model and the default starting point.",
+          "detail": "Everything is shared, so everything is cheap: one migration, one backup, one connection pool, one set of dashboards — and an idle tenant costs essentially nothing. Property Value Tenants per database tens of thousands, comfortably Onboarding an INSERT — instant, free, no provisioning Migration one run, seconds Isolation a predicate — as strong as your weakest query Per-tenant restore painful: restore a copy, extract rows, reconcile keys The two things that eventually push people off it are the per-tenant restore and the compliance conversation. \"Can you guarantee our data is not in the same table as our competitor's?\" has no good answer here, however correct your filtering is. Start here anyway unless you already know otherwise. Design the tenant catalogue and route every query through tenant context from day one, and moving to pools later is a routing change rather than a rewrite."
+        },
+        {
+          "id": "term-schema-per-tenant",
+          "term": "schema per tenant",
+          "def": "One database, one schema per tenant, each with its own copy of the tables. A middle ground that gets squeezed from both sides.",
+          "detail": "Better isolation than a predicate — a missing filter returns the current tenant's data rather than everyone's — without a database per customer. Gains Costs no tenant column, no filter to forget a migration per schema on every release restore one schema connection pooling fragments, or search_path is reset per checkout per-tenant customisation is possible per-tenant customisation becomes a support nightmare easier compliance conversation still one instance, so a noisy neighbour still hurts The practical ceiling is low. Thousands of schemas × forty tables is hundreds of thousands of objects, and PostgreSQL's catalogue, pg_dump and your migration tool all slow down noticeably. Several hundred tenants is a realistic limit. Be honest about why you are choosing it. If the reason is isolation, database-per-tenant gives you more; if the reason is cost, shared schema gives you more. It fits when the tenant count is small and bounded — an enterprise product with fifty customers — and rarely otherwise."
+        },
+        {
+          "id": "term-database-per-tenant",
+          "term": "database per tenant",
+          "def": "Each tenant gets its own database. The strongest isolation, the simplest restore, and a cost that scales with your customer count.",
+          "detail": "A leak now requires connecting to the wrong database, which is a very different class of mistake from forgetting a WHERE clause. What it unlocks Detail Per-tenant restore point-in-time restore of one customer, with no effect on anyone else Data residency that tenant's database lives in their region, full stop Per-tenant encryption keys including customer-managed keys, which some contracts require Noisy neighbour contained by construction Offboarding hand over a backup, then drop the database What it costs Detail Money a floor price per database; 2,000 idle tenants still cost 2,000 databases Migrations N runs, with partial failure and version skew to manage Connections a pool per tenant, so an app instance cannot hold them all open Onboarding minutes to provision, not milliseconds Cross-tenant reporting needs a separate warehouse — you cannot GROUP BY across databases Elastic pools and serverless tiers soften the cost by sharing compute across many small databases, which is what makes this viable at a few thousand tenants rather than a few hundred."
+        },
+        {
+          "id": "term-pooled-model",
+          "term": "pooled model",
+          "def": "Tenants grouped into a handful of shared-schema databases, with the option to promote a big tenant to its own. Where most SaaS converges.",
+          "detail": "The insight is that isolation does not have to be uniform. Small tenants share, big or demanding ones do not, and the code is identical in both cases because routing is a catalogue lookup. Decision Typical Tenants per shard 100–1,000, sized by the blast radius you accept Assignment least-loaded at signup, not a hash — you want to be able to move tenants Promotion trigger a tenant exceeding a share of shard resources, or buying an isolation tier Migration fan-out one run per shard — tens, not thousands Rebalancing copy, verify, flip the catalogue row, keep the old copy for a day Do not hash tenants to shards. A hash is one line of code and makes moving a tenant impossible without changing the function, which is exactly the operation you will need most. An explicit mapping row is the whole point. The price is machinery: the catalogue, a per-shard migration runner, and tooling to move a tenant between shards with verification. Build the catalogue early — even a single-shard system with a catalogue can become a pooled one without touching application code."
+        },
+        {
+          "id": "term-tenant-catalogue",
+          "term": "tenant catalogue",
+          "def": "The small shared table mapping each tenant to where it lives, plus its plan, region and status. The one piece every strategy needs.",
+          "detail": "It is a routing table, and it is the thing that makes changing strategy later a configuration change rather than a rewrite. tenant_id | slug | shard | status | region | plan ----------+---------+------------+-----------+---------+------- a1f2… | acme | shard-01 | active | eu-west | pro b3c4… | globex | dedicated | active | us-east | enterprise c5d6… | initech | shard-02 | suspended | eu-west | free Operational note Guidance It is on every request path cache it aggressively, with a short TTL and an explicit invalidation on change It is a single point of failure replicate it; a catalogue outage is a total outage It holds no tenant data just routing and status — keep it that way status is load-bearing suspended, migrating and read-only all need to be honoured before any query runs Build this on day one even with a single shared database, where every row says shard-01. It costs an afternoon, and it is the difference between \"add a shard\" and \"re-architect\"."
+        },
+        {
+          "id": "term-noisy-neighbour",
+          "term": "noisy neighbour",
+          "def": "One tenant consuming shared resources and degrading everyone else. The problem isolation is really protecting against.",
+          "detail": "It is rarely malice. It is a customer importing three years of history, or running an unbounded report, or integrating badly. Resource How one tenant exhausts it Mitigation Connection pool a long transaction holds connections per-tenant concurrency limits, short statement timeouts CPU and I/O a big import or a missing index separate shard, resource governor, async job queue per tenant Cache a large tenant evicts everyone else's hot keys per-tenant cache budgets or key prefixes with separate limits Background workers 10,000 queued jobs from one tenant fair queuing — round-robin across tenants, not FIFO Rate limits one tenant uses the global budget limit per tenant, never globally — see the rate limiting page The one most teams miss is fair queuing in background work. A FIFO queue means one tenant's bulk import delays every other tenant's exports for an hour, and no amount of database isolation helps. Round-robin over tenants with a per-tenant cap fixes it. Measure per tenant before you need to: queries, CPU seconds, queue depth, storage. Without those metrics the answer to \"who is causing this?\" is a guess, and the answer to \"should this tenant be promoted to its own database?\" is unknowable."
+        },
+        {
+          "id": "term-per-tenant-migration",
+          "term": "per-tenant migration",
+          "def": "Running schema changes across N schemas or N databases. The hidden operational cost that caps how far the isolated models scale.",
+          "detail": "With a shared schema a release is one migration. With 2,000 tenant databases it is 2,000, some of which will fail, while the application is running code that expects the new shape. Problem Approach It takes hours run in parallel with a bounded worker pool, and make it resumable Some fail record a schema version per tenant, retry only the failures Version skew while it runs expand and contract: deploy code that works with both shapes, migrate, then remove the old path A tenant is mid-migration the catalogue status gates traffic for that tenant only New tenants during a release provision from the latest schema, not from a stale template Expand and contract is not optional here. A release that requires every tenant to be migrated before any request can be served is a release with an outage in it, and with thousands of tenants that outage is measured in hours. Track a schema version per tenant in the catalogue and alert on drift. A tenant that silently missed three migrations is a bug report you will receive in six months and will not be able to reproduce."
+        },
+        {
+          "id": "term-restore-granularity",
+          "term": "restore granularity",
+          "def": "Can you restore one tenant to yesterday without touching anyone else? Nobody asks until a customer deletes something important.",
+          "detail": "This is the question that most often changes an architecture decision after the fact, because the answer in a shared schema is genuinely bad. Model Restoring one tenant Shared schema restore the whole backup to a side instance, extract that tenant's rows, reconcile identity columns and foreign keys, re-import. Hours, and risky. Schema per tenant restore one schema from a dump. Straightforward. Database per tenant point-in-time restore of one database. Minutes, and routine. Pooled restore the shard to a side instance, then extract as above — but across hundreds of tenants, not thousands. Two cheap mitigations for a shared schema, worth adding early: soft deletes with a retention window, so the common case (\"we deleted the wrong project\") never needs a restore at all; and a per-tenant export endpoint you can also use as the input to a re-import. Whatever your model, rehearse it. A restore procedure nobody has run is a document, not a capability, and you will be reading it for the first time during an incident with a customer on the phone."
+        },
+        {
+          "id": "term-data-residency",
+          "term": "data residency",
+          "def": "Contractual or legal requirements that a tenant's data stays in a region. A requirement that effectively picks your strategy for you.",
+          "detail": "If one tenant's data must stay in the EU, that tenant cannot share a database with a tenant whose data is in the US. The isolation boundary and the geography boundary have to agree. Requirement Implies Region per tenant at minimum a shard per region; realistically a database per tenant for the strict ones Customer-managed encryption keys database per tenant — you cannot key one table by row \"Not physically co-located with competitors\" database per tenant, and a diagram for the auditor Right to erasure within 30 days deleting rows is enough, but backups must age out too Keep the region in the tenant catalogue and resolve it before any data access, including in background jobs and in the analytics pipeline — the warehouse is where residency rules are most often quietly broken. Watch the edges: logs, traces, metrics, email, exports and support tooling all carry tenant data out of the region if nobody checks. A compliant database behind a global log aggregator is not compliant."
+        },
+        {
+          "id": "term-tenant-aware-caching",
+          "term": "tenant-aware caching",
+          "def": "Every cache key carries the tenant. Miss this and you serve one customer's data to another from memory rather than from the database.",
+          "detail": "The database defences do not reach the cache. A correct query whose result is cached under product:42 is a leak the moment a second tenant asks for product 42. // never var key = $\"invoice:{id}\"; // always var key = $\"t:{tenant.Id}:invoice:{id}\"; Also carries tenant state Watch for In-memory caches a static dictionary with no tenant in the key — the classic Output and response caches VaryBy must include the tenant CDN never cache an authenticated multi-tenant response as public Compiled queries and lookups reference data that differs per tenant Background job state a worker reusing a cached tenant context between jobs Enforce it rather than remembering it: wrap your cache client so the key is composed from ambient tenant context and a raw key cannot be passed in. Then add a test that fails if any key is produced without a tenant prefix. The caching strategies page covers key design in general; the multi-tenant addition is simply that the tenant is never optional."
+        },
+        {
+          "id": "term-per-tenant-limits",
+          "term": "per-tenant limits",
+          "def": "Quotas and rate limits keyed on the tenant, so one customer cannot consume the capacity the others are paying for.",
+          "detail": "A global rate limit protects the system and distributes the pain randomly. A per-tenant limit protects tenants from each other, which is the thing you actually promised. Limit Keyed on Typical API requests tenant, then plan 60/min free, 600/min pro, negotiated for enterprise Concurrent heavy jobs tenant 1–5, whatever the plan says Storage tenant soft limit with an alert, hard limit at 2x Background queue share tenant fair round-robin, with a cap per tenant Query timeout tenant tier shorter on shared shards than on dedicated The tenant id is the natural counter key, and the plan from the catalogue is the natural limit — which makes the whole thing a lookup plus a token bucket. The rate limiting page covers the algorithms; here the only addition is that the key must be the tenant and the limit must come from the tenant's plan. Return limit headers and expose usage in the product. A tenant that can see it is approaching a limit upgrades; a tenant that is silently throttled files a support ticket saying your product is slow."
+        },
+        {
+          "id": "term-provisioning",
+          "term": "provisioning",
+          "def": "Creating everything a new tenant needs. Cheap in a shared schema, a workflow of its own once tenants get their own storage.",
+          "detail": "Onboarding cost is a direct function of the strategy, and it determines whether self-service signup is even possible. Model Onboarding Self-service? Shared schema an INSERT — milliseconds yes, trivially Schema per tenant create schema, run migrations — seconds yes, with a progress screen Database per tenant provision, migrate, seed — minutes only asynchronously Pooled pick a shard, insert — milliseconds yes Make provisioning idempotent and resumable. It is a multi-step workflow that creates a database, runs migrations, seeds reference data, creates the first admin user and sends an email — and it will fail halfway at some point. A durable workflow fits this exactly. Seed data deserves attention: every tenant needs the same reference data, and divergence between what provisioning creates today and what it created two years ago is a long-lived source of bugs. Derive seeds from the same migrations, not from a copied template database."
+        },
+        {
+          "id": "term-tenant-lifecycle",
+          "term": "tenant lifecycle",
+          "def": "Suspend, reactivate, export, delete. The operations nobody designs up front and everybody needs within the first year.",
+          "detail": "A tenant is not just created. It stops paying, comes back, asks for its data, or demands deletion — and each of those is a code path. State Behaviour active normal suspended no API access, data retained, billing stopped — usually reversible for 30–90 days read-only past the plan limit or in a payment dispute; exports still work migrating being moved between shards; writes paused or dual-written pending-deletion a grace period, then hard delete Honour the status before the query, in the same middleware that resolves the tenant. A suspended tenant whose background jobs keep running is a billing problem and sometimes a legal one. Build export early. It is required for GDPR-style portability, it is the best possible answer to \"can we have our data?\", and it doubles as your per-tenant backup in a shared-schema system where a real restore is hard. Deletion must cover backups, logs, caches, search indexes, the warehouse and any third-party processor. \"We deleted the rows\" is not deletion, and the gap between those two statements is where compliance findings come from."
+        },
+        {
+          "id": "term-cost-per-tenant",
+          "term": "cost per tenant",
+          "def": "What one tenant costs you per month. The number that decides whether your pricing works and which tenants deserve isolation.",
+          "detail": "Isolation is bought with money, so the decision needs an actual figure rather than a preference. Model Rough floor per tenant per month Shared schema cents — storage and a share of compute Pooled (200 per shard) a few cents to a euro Schema per tenant similar to pooled, plus migration time Database per tenant (elastic pool) a few euros Database per tenant (provisioned) tens of euros — whether or not the tenant logs in The arithmetic that matters: a free tier on database-per-tenant at, say, €15 a month means 1,000 free tenants cost €15,000 a month before anyone pays you. That single calculation is why free and small tenants live in pools and only paying enterprise customers get dedicated storage. Instrument it: storage, queries, CPU seconds, egress and background job time per tenant. Without those, pricing is guesswork and \"this customer is unprofitable\" is an opinion. The back-of-the-envelope page covers how to turn these per-unit numbers into a monthly figure before you build anything."
+        }
+      ],
+      "related": [
+        "backend-for-frontend",
+        "modular-monolith",
+        "back-of-the-envelope",
+        "caching-strategies",
+        "kubernetes",
+        "rate-limiting"
       ]
     },
     {
@@ -1437,7 +1971,9 @@
       "related": [
         "rate-limiting",
         "back-of-the-envelope",
-        "caching-strategies"
+        "backend-for-frontend",
+        "caching-strategies",
+        "modular-monolith"
       ]
     },
     {
