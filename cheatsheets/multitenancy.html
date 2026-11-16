@@ -12,6 +12,10 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="../assets/notebook.css">
 <script src="../assets/site.js" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
 </head>
 <body data-root="..">
 <div class="layout">
@@ -312,7 +316,7 @@
 <tr><td>Token claim</td><td><code>tid</code> in the JWT</td><td><b>the trustworthy one</b> &mdash; signed by your identity provider</td></tr>
 <tr><td>Header</td><td><code>X-Tenant-Id</code></td><td>fine service-to-service, never from a browser</td></tr></table>
 <p>The rule that prevents the worst class of bug: <b>resolve from the token, and treat anything in the URL as a hint to be validated against it</b>. If the host says <code>acme</code> and the token says <code>globex</code>, that is a <code>403</code>, not a judgement call.</p>
-<pre><code>var fromToken = user.FindFirstValue("tid");
+<pre class="language-csharp"><code class="language-csharp">var fromToken = user.FindFirstValue("tid");
 var fromHost  = HostToTenant(ctx.Request.Host);
 if (fromHost is not null &amp;&amp; fromHost != fromToken) return Results.Forbid();</code></pre>
 <p>Make an unresolved tenant a hard failure. A request with no tenant must never fall through to a default, because the default will eventually be "all of them".</p>
@@ -330,7 +334,7 @@ if (fromHost is not null &amp;&amp; fromHost != fromToken) return Results.Forbid
         </template></div>
         <div class="term"><b>global query filter</b><span>Applying the tenant predicate automatically in the ORM so no developer has to remember it. Necessary, and not sufficient.</span><template class="term-detail" data-see="discriminator column, row-level security, tenant resolution">
 <p>In EF Core one line per entity makes the filter implicit on every LINQ query.</p>
-<pre><code>protected override void OnModelCreating(ModelBuilder b)
+<pre class="language-csharp line-numbers"><code class="language-csharp">protected override void OnModelCreating(ModelBuilder b)
 {
     b.Entity&lt;Invoice&gt;().HasQueryFilter(i =&gt; i.TenantId == _tenant.Id);
     b.Entity&lt;Customer&gt;().HasQueryFilter(c =&gt; c.TenantId == _tenant.Id);
@@ -368,12 +372,12 @@ if (fromHost is not null &amp;&amp; fromHost != fromToken) return Results.Forbid
         </template></div>
         <div class="term"><b>row-level security</b><span>The database enforcing the tenant predicate itself, so a forgotten filter returns nothing instead of everything. The backstop worth the setup.</span><template class="term-detail" data-see="global query filter, discriminator column, shared schema">
 <p>PostgreSQL, SQL Server and others can attach a policy to a table that is applied to every statement, whatever issued it &mdash; ORM, raw SQL, a psql session or a stored procedure.</p>
-<pre><code>ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
+<pre class="language-sql line-numbers"><code class="language-sql">ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE invoices FORCE ROW LEVEL SECURITY;      -- applies to the table owner too
 
 CREATE POLICY tenant_isolation ON invoices
   USING (tenant_id = current_setting('app.tenant_id', true)::uuid);</code></pre>
-<pre><code>// set it once per connection, from resolved tenant context
+<pre class="language-csharp line-numbers"><code class="language-csharp">// set it once per connection, from resolved tenant context
 await using var cmd = conn.CreateCommand();
 cmd.CommandText = "SELECT set_config('app.tenant_id', $1, false)";
 cmd.Parameters.Add(new NpgsqlParameter { Value = tenant.Id.ToString() });
@@ -435,7 +439,7 @@ await cmd.ExecuteNonQueryAsync(ct);</code></pre>
         </template></div>
         <div class="term"><b>tenant catalogue</b><span>The small shared table mapping each tenant to where it lives, plus its plan, region and status. The one piece every strategy needs.</span><template class="term-detail" data-see="pooled model, tenant resolution, provisioning">
 <p>It is a routing table, and it is the thing that makes changing strategy later a configuration change rather than a rewrite.</p>
-<pre><code>tenant_id | slug    | shard      | status    | region  | plan
+<pre class="language-none line-numbers"><code class="language-none">tenant_id | slug    | shard      | status    | region  | plan
 ----------+---------+------------+-----------+---------+-------
  a1f2…    | acme    | shard-01   | active    | eu-west | pro
  b3c4…    | globex  | dedicated  | active    | us-east | enterprise
@@ -491,7 +495,7 @@ await cmd.ExecuteNonQueryAsync(ct);</code></pre>
         </template></div>
         <div class="term"><b>tenant-aware caching</b><span>Every cache key carries the tenant. Miss this and you serve one customer's data to another from memory rather than from the database.</span><template class="term-detail" data-see="per-tenant limits, noisy neighbour, global query filter">
 <p>The database defences do not reach the cache. A correct query whose result is cached under <code>product:42</code> is a leak the moment a second tenant asks for product 42.</p>
-<pre><code>// never
+<pre class="language-csharp"><code class="language-csharp">// never
 var key = $"invoice:{id}";
 // always
 var key = $"t:{tenant.Id}:invoice:{id}";</code></pre>
@@ -556,7 +560,7 @@ var key = $"t:{tenant.Id}:invoice:{id}";</code></pre>
 
       <div class="cmd-group">
         <h3>Resolving the tenant</h3>
-        <div class="cmd"><pre><code>app.Use(async (ctx, next) =&gt;
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">app.Use(async (ctx, next) =&gt;
 {
     var fromToken = ctx.User.FindFirstValue("tid");
     var fromHost  = ctx.Request.Host.Host.Split('.') is [var slug, _, _] ? slug : null;
@@ -568,7 +572,7 @@ var key = $"t:{tenant.Id}:invoice:{id}";</code></pre>
     ctx.RequestServices.GetRequiredService&lt;TenantContext&gt;().Set(fromToken);
     await next();
 });</code></pre><div class="what">Trust the signed token, treat the URL as a claim to verify. An unresolved tenant is a hard failure, never a default.</div></div>
-        <div class="cmd"><pre><code>builder.Services.AddMultiTenant&lt;AppTenantInfo&gt;()
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">builder.Services.AddMultiTenant&lt;AppTenantInfo&gt;()
     .WithHostStrategy("__tenant__.*")
     .WithClaimStrategy("tid")
     .WithEFCoreStore&lt;CatalogueDbContext, AppTenantInfo&gt;()
@@ -577,38 +581,38 @@ var key = $"t:{tenant.Id}:invoice:{id}";</code></pre>
 
       <div class="cmd-group">
         <h3>Shared schema: filter, index, and the database backstop</h3>
-        <div class="cmd"><pre><code>protected override void OnModelCreating(ModelBuilder b)
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">protected override void OnModelCreating(ModelBuilder b)
 {
     b.Entity&lt;Invoice&gt;().HasQueryFilter(i =&gt; i.TenantId == _tenant.Id);
     b.Entity&lt;Invoice&gt;().HasIndex(i =&gt; new { i.TenantId, i.CreatedAt });   // tenant first
 }</code></pre><div class="what">The filter is applied to every LINQ query. The index order is what keeps it fast with thousands of tenants.</div></div>
-        <div class="cmd"><pre><code>public override int SaveChanges()
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">public override int SaveChanges()
 {
     foreach (var e in ChangeTracker.Entries&lt;ITenantOwned&gt;().Where(e =&gt; e.State == EntityState.Added))
         e.Entity.TenantId = _tenant.Id;                 // never trust the caller to set it
     return base.SaveChanges();
 }</code></pre><div class="what">Stamp the tenant on insert. A client-supplied <code>tenantId</code> in a request body is an attack, not a convenience.</div></div>
-        <div class="cmd"><pre><code>ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
+        <div class="cmd"><pre class="language-sql"><code class="language-sql">ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE invoices FORCE  ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON invoices
   USING (tenant_id = current_setting('app.tenant_id', true)::uuid);</code></pre><div class="what">The backstop: raw SQL, Dapper, a stored procedure or a psql session all get filtered. <code>FORCE</code> makes it apply to the table owner too.</div></div>
-        <div class="cmd"><pre><code>-- must run on every pooled connection checkout, not once at startup
+        <div class="cmd"><pre class="language-sql"><code class="language-sql">-- must run on every pooled connection checkout, not once at startup
 SELECT set_config('app.tenant_id', @tenantId, false);</code></pre><div class="what">The classic row-level-security bug: a pooled connection keeps the previous request's tenant setting.</div></div>
-        <div class="cmd"><pre><code>ALTER TABLE order_lines
+        <div class="cmd"><pre class="language-sql"><code class="language-sql">ALTER TABLE order_lines
   ADD CONSTRAINT fk_order_lines_order
   FOREIGN KEY (tenant_id, order_id) REFERENCES orders (tenant_id, id);</code></pre><div class="what">A composite foreign key makes a cross-tenant reference a constraint violation instead of a leak.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>Schema and database per tenant</h3>
-        <div class="cmd"><pre><code>protected override void OnModelCreating(ModelBuilder b)
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">protected override void OnModelCreating(ModelBuilder b)
     =&gt; b.HasDefaultSchema(_tenant.Schema);              // "acme", "globex", …</code></pre><div class="what">Schema per tenant: no tenant column and no filter, because the namespace does the work.</div></div>
-        <div class="cmd"><pre><code>builder.Services.AddDbContext&lt;AppDbContext&gt;((sp, o) =&gt;
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">builder.Services.AddDbContext&lt;AppDbContext&gt;((sp, o) =&gt;
 {
     var tenant = sp.GetRequiredService&lt;TenantContext&gt;().Current;
     o.UseNpgsql(tenant.ConnectionString);               // from the catalogue
 });</code></pre><div class="what">Database per tenant: isolation is the connection string, resolved per request from the catalogue.</div></div>
-        <div class="cmd"><pre><code>await Parallel.ForEachAsync(tenants, new ParallelOptions { MaxDegreeOfParallelism = 8 },
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">await Parallel.ForEachAsync(tenants, new ParallelOptions { MaxDegreeOfParallelism = 8 },
     async (t, ct) =&gt;
     {
         await using var db = Factory.For(t);
@@ -619,7 +623,7 @@ SELECT set_config('app.tenant_id', @tenantId, false);</code></pre><div class="wh
 
       <div class="cmd-group">
         <h3>The catalogue and pooled routing</h3>
-        <div class="cmd"><pre><code>CREATE TABLE tenants (
+        <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">CREATE TABLE tenants (
   tenant_id  uuid PRIMARY KEY,
   slug       text UNIQUE NOT NULL,
   shard      text NOT NULL,              -- 'shard-01' or 'dedicated'
@@ -628,12 +632,12 @@ SELECT set_config('app.tenant_id', @tenantId, false);</code></pre><div class="wh
   plan       text NOT NULL,
   schema_version int NOT NULL
 );</code></pre><div class="what">The whole routing layer. Build it on day one, even when every row says <code>shard-01</code>.</div></div>
-        <div class="cmd"><pre><code>var tenant = await cache.GetOrCreateAsync($"tenant:{slug}",
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">var tenant = await cache.GetOrCreateAsync($"tenant:{slug}",
     async _ =&gt; await catalogue.FindAsync(slug), TimeSpan.FromMinutes(5));
 
 if (tenant.Status is "suspended") return Results.StatusCode(402);
 if (tenant.Status is "migrating") return Results.StatusCode(503);</code></pre><div class="what">The catalogue is on every request, so cache it &mdash; and honour the status before any query runs.</div></div>
-        <div class="cmd"><pre><code># move a tenant between shards
+        <div class="cmd"><pre class="language-bash line-numbers"><code class="language-bash"># move a tenant between shards
 1. set status = 'migrating'        # writes pause or dual-write
 2. copy rows to the target shard
 3. verify counts and checksums
@@ -643,12 +647,12 @@ if (tenant.Status is "migrating") return Results.StatusCode(503);</code></pre><d
 
       <div class="cmd-group">
         <h3>Everything else that must be tenant-aware</h3>
-        <div class="cmd"><pre><code>var key = $"t:{tenant.Id}:invoice:{id}";               // never "invoice:{id}"</code></pre><div class="what">The cache does not inherit your query filter. Wrap the cache client so a key without a tenant cannot be built.</div></div>
-        <div class="cmd"><pre><code>&lt;rate-limit-by-key calls="600" renewal-period="60"
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">var key = $"t:{tenant.Id}:invoice:{id}";               // never "invoice:{id}"</code></pre><div class="what">The cache does not inherit your query filter. Wrap the cache client so a key without a tenant cannot be built.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">&lt;rate-limit-by-key calls="600" renewal-period="60"
     counter-key="@(context.Request.Headers.GetValueOrDefault("X-Tenant-Id",""))" /&gt;</code></pre><div class="what">Limit per tenant, with the number from the tenant's plan. A global limit lets one tenant spend everyone's budget.</div></div>
-        <div class="cmd"><pre><code>using var _ = logger.BeginScope(new Dictionary&lt;string, object&gt; { ["TenantId"] = tenant.Id });
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">using var _ = logger.BeginScope(new Dictionary&lt;string, object&gt; { ["TenantId"] = tenant.Id });
 Meter.CreateCounter&lt;long&gt;("api.requests").Add(1, new KeyValuePair&lt;string, object?&gt;("tenant", tenant.Id));</code></pre><div class="what">Per-tenant logs and metrics are how you answer "who is causing this?" and "should this tenant be promoted?"</div></div>
-        <div class="cmd"><pre><code>// background jobs have no request, so nothing resolves the tenant for you
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// background jobs have no request, so nothing resolves the tenant for you
 foreach (var tenantId in await catalogue.ActiveTenantIdsAsync(ct))
 {
     using var scope = scopeFactory.CreateScope();

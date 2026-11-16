@@ -41,6 +41,60 @@ const list = (html, name) => one(html, new RegExp(`<meta name="${name}" content=
 
 const RELATED_RE = /\n?[ \t]*<!-- RELATED:START[\s\S]*?<!-- RELATED:END -->/;
 
+/* ---------- Code blocks: language tagging + Prism assets ----------
+   Authored blocks are plain `<pre><code>`; this adds the language class Prism needs
+   and the line-number gutter. Already-tagged blocks carry attributes on <pre>, so the
+   regex skips them and re-running is a no-op. To re-detect a block, delete its class. */
+const PRISM = '1.29.0';
+const PRISM_CDN = `https://cdnjs.cloudflare.com/ajax/libs/prism/${PRISM}`;
+const LINE_NUMBER_MIN = 5;   // 1-4 line snippets read better without a gutter
+
+function detectLang(raw) {
+  const s = decodeEnt(raw).trim();
+  const first = s.split('\n')[0].trim();
+  const SHELL = 'curl|docker|docker-compose|kubectl|helm|kind|minikube|az|aws|gcloud|func|dotnet|git|npm|npx|node|wrk2?|k6|ab|psql|mysql|redis-cli|kafka-[\\w.-]+\\.sh|promtool|jq|sed|grep|awk|echo|export|make|cd|ls|open|mkdir|rm|cp|mv|chmod|tar|ssh|scp';
+
+  if (/^<\?xml/.test(first) || (/^</.test(first) && /<\/[a-zA-Z-]+>/.test(s))) return 'markup';
+  if (/^\s*\{/m.test(s) && /"[\w-]+"\s*:/.test(s) && !/\b(var|await|public|new)\b/.test(s)) return 'json';
+  if (/^FROM\s+\S+/m.test(s)) return 'docker';
+  if (/^(local |redis\.call)/m.test(s) || /\bredis\.call\(/.test(s)) return 'lua';
+  if (/^(query|mutation|fragment)\s+\w*\s*\{/.test(first)) return 'graphql';
+  if (/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|WITH|GRANT)\b/m.test(s)) return 'sql';
+  if (/\b(public|private|internal|protected)\s+(static\s+|sealed\s+|async\s+|override\s+|readonly\s+)*(class|record|interface|void|Task|string|int|bool|var|IServiceCollection)\b/.test(s)
+      || /\[(Function|HttpTrigger|ActivityTrigger|OrchestrationTrigger|Fact|EntityTrigger|DurableClient)\b/.test(s)) return 'csharp';
+  if (/^resource\s+\w+\s+'[\w.@/-]+'\s*=/m.test(s)) return 'bicep';
+  if (/^\s*(def|import|from|class)\s+\w/m.test(s) && !/[;{]\s*$/m.test(s)) return 'python';
+  if (/\bprint\(f?["']/.test(s)) return 'python';
+  if (/\[[^\]]*\bfor\s+\w+\s+in\s+[^\]]*\]/.test(s)) return 'python';
+  if (/^\s*(for|if|while|with)\b.*:\s*$/m.test(s) && !/[;{]\s*$/m.test(s)) return 'python';
+  if (/;/.test(s) && /(\bawait\b|\bvar\s|=>|\bnew\s*[\w({]|\busing\s+\w|\bpublic\b|\basync\b|\b(builder|services|app)\.[A-Z])/.test(s)) return 'csharp';
+  if (new RegExp(`^(\\$|#\\s|${SHELL})\\b`).test(first) || new RegExp(`^\\s*(${SHELL})\\s`, 'm').test(s)) return 'bash';
+  if (/^\s*(SET|GET|DEL|INCR|EXPIRE|TTL|ZADD|ZCARD|ZREMRANGEBYSCORE|CONFIG|INFO|EVALSHA|CL\.THROTTLE|PERSIST|DBSIZE)\b/m.test(s)) return 'bash';
+  if ((s.match(/^\s*[\w.-]+\s*:(\s|$)/gm) || []).length >= 2 && !/;/.test(s) && !/^\s*</.test(first)
+      && !/\b(function|return|await|var)\b/.test(s)) return 'yaml';
+  return null;   // formulas, header lines, directory trees, sample output: leave them plain
+}
+
+function tagCodeBlocks(html) {
+  return html.replace(/<pre><code>([\s\S]*?)<\/code><\/pre>/g, (whole, raw) => {
+    const lang = detectLang(raw);
+    const lines = decodeEnt(raw).replace(/\s+$/, '').split('\n').length;
+    const cls = [lang ? `language-${lang}` : 'language-none', lines >= LINE_NUMBER_MIN ? 'line-numbers' : '']
+      .filter(Boolean).join(' ');
+    return `<pre class="${cls}"><code class="${lang ? `language-${lang}` : 'language-none'}">${raw}</code></pre>`;
+  });
+}
+
+function ensurePrismAssets(html) {
+  if (html.includes('prism-core.min.js')) return html;
+  const tags = `
+<link rel="stylesheet" href="${PRISM_CDN}/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="${PRISM_CDN}/components/prism-core.min.js" defer></script>
+<script src="${PRISM_CDN}/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="${PRISM_CDN}/plugins/line-numbers/prism-line-numbers.min.js" defer></script>`;
+  return html.replace(/(<script src="\.\.\/assets\/site\.js" defer><\/script>)/, `$1${tags}`);
+}
+
 /* ---------- 1. Parse pages ---------- */
 const files = readdirSync(SHEETS).filter(f => f.endsWith('.html')).sort();
 const pages = files.map(file => {
@@ -142,6 +196,7 @@ for (const p of pages) {
     <!-- RELATED:END -->`;
   let html = RELATED_RE.test(p.html) ? p.html.replace(RELATED_RE, block) : p.html.replace(/\n\s*<\/main>/, `${block}\n  </main>`);
   if (!/href="#related"/.test(html)) html = html.replace(/(\n\s*)<\/nav>/, `$1  <a href="#related">Related</a>$1</nav>`);
+  html = ensurePrismAssets(tagCodeBlocks(html));
   write(join(SHEETS, p.file), html);
 }
 

@@ -12,6 +12,10 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="../assets/notebook.css">
 <script src="../assets/site.js" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
 </head>
 <body data-root="..">
 <div class="layout">
@@ -312,7 +316,7 @@
 <tr><td><code>GET /baskets/{id}</code></td><td><code>GET /mobile/checkout</code></td></tr>
 <tr><td>returns everything about a thing</td><td>returns everything on a screen</td></tr>
 <tr><td>stable, versioned, documented</td><td>changes with the design</td></tr></table>
-<pre><code>// the response is the screen, in order
+<pre class="language-json line-numbers"><code class="language-json">// the response is the screen, in order
 {
   "greeting":  "Good evening, Davide",
   "basket":    { "count": 3, "total": "€89.90" },
@@ -333,7 +337,7 @@
         </template></div>
         <div class="term"><b>under-fetching</b><span>The opposite: the response does not contain what you need next, so you make another call &mdash; and another. This is what turns one screen into six round trips.</span><template class="term-detail" data-see="over-fetching, chattiness, aggregation">
 <p>Under-fetching is worse than over-fetching, because extra bytes cost bandwidth while extra calls cost <em>latency</em>, and latency does not improve with a better plan.</p>
-<pre><code>GET /baskets/current        -> { items: [ { productId: 42 }, { productId: 91 } ] }
+<pre class="language-bash"><code class="language-bash">GET /baskets/current        -> { items: [ { productId: 42 }, { productId: 91 } ] }
 GET /catalogue/items?ids=42,91   -> names and images   (needed the first call to know the ids)
 GET /pricing?ids=42,91           -> prices             (and again)</code></pre>
 <p>Those three calls are <b>sequential</b>: each needs an id from the one before. That is a dependent wave, and three waves on a 150 ms link is 450 ms before a pixel is drawn.</p>
@@ -356,7 +360,7 @@ GET /pricing?ids=42,91           -> prices             (and again)</code></pre>
         </template></div>
         <div class="term"><b>aggregation</b><span>Calling several services in parallel and combining the results. The BFF's main job, and the reason it belongs near the services rather than near the user.</span><template class="term-detail" data-see="chattiness, tail amplification, partial failure">
 <p>The mechanics are unremarkable; the discipline is in what you do when one of them is slow or broken.</p>
-<pre><code>var profile = _profile.GetAsync(userId, ct);
+<pre class="language-csharp"><code class="language-csharp">var profile = _profile.GetAsync(userId, ct);
 var basket  = _basket.GetAsync(userId, ct);
 var loyalty = _loyalty.GetAsync(userId, ct);
 await Task.WhenAll(profile, basket, loyalty);      // one wave, not three</code></pre>
@@ -399,7 +403,7 @@ await Task.WhenAll(profile, basket, loyalty);      // one wave, not three</code>
         </template></div>
         <div class="term"><b>partial failure</b><span>One downstream is down, and the screen still renders without that panel. A BFF is the natural place to decide this, because it knows what the screen can live without.</span><template class="term-detail" data-see="tail amplification, aggregation, response shaping">
 <p>A general-purpose API cannot make this decision &mdash; it does not know what the caller is drawing. A BFF does, and that is one of its strongest arguments.</p>
-<pre><code>var recs = await Safe(() =&gt; _recs.GetAsync(userId, cts.Token), fallback: []);
+<pre class="language-csharp line-numbers"><code class="language-csharp">var recs = await Safe(() =&gt; _recs.GetAsync(userId, cts.Token), fallback: []);
 
 static async Task&lt;T&gt; Safe&lt;T&gt;(Func&lt;Task&lt;T&gt;&gt; call, T fallback)
 {
@@ -469,7 +473,7 @@ static async Task&lt;T&gt; Safe&lt;T&gt;(Func&lt;Task&lt;T&gt;&gt; call, T fallb
 <tr><td>HTTP caching</td><td>normal</td><td>hard: one URL, usually POST</td></tr>
 <tr><td>Cost control</td><td>you wrote the aggregation</td><td>needs depth and complexity limits</td></tr>
 <tr><td>N+1</td><td>visible in your own code</td><td>the default, until you add batching</td></tr></table>
-<pre><code># one request, exactly the fields the screen draws
+<pre class="language-bash line-numbers"><code class="language-bash"># one request, exactly the fields the screen draws
 query Home {
   me { displayName avatarUrl }
   basket { count total }
@@ -485,7 +489,7 @@ query Home {
 
       <div class="cmd-group">
         <h3>A BFF endpoint, end to end</h3>
-        <div class="cmd"><pre><code>app.MapGet("/mobile/home", async (
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">app.MapGet("/mobile/home", async (
     ClaimsPrincipal user, IProfileApi profile, IBasketApi basket,
     IRecommendationApi recs, ILoyaltyApi loyalty, CancellationToken ct) =&gt;
 {
@@ -503,26 +507,26 @@ query Home {
         Basket:   new(basketTask.Result.Items.Count, Money(basketTask.Result.Total)),
         Panels:   BuildPanels(recsTask.Result, loyaltyTask.Result)));
 }).RequireAuthorization();</code></pre><div class="what">One wave of parallel calls, optional panels degraded safely, and a response shaped like the screen.</div></div>
-        <div class="cmd"><pre><code>static async Task&lt;T&gt; Safe&lt;T&gt;(Func&lt;Task&lt;T&gt;&gt; call, T fallback)
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">static async Task&lt;T&gt; Safe&lt;T&gt;(Func&lt;Task&lt;T&gt;&gt; call, T fallback)
 {
     try { return await call(); }
     catch (Exception ex) when (ex is TimeoutException or HttpRequestException)
     { return fallback; }
 }</code></pre><div class="what">The whole of partial failure. Log and count every fallback, or missing panels become invisible.</div></div>
-        <div class="cmd"><pre><code>builder.Services.AddHttpClient&lt;IRecommendationApi, RecommendationApi&gt;(c =&gt;
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">builder.Services.AddHttpClient&lt;IRecommendationApi, RecommendationApi&gt;(c =&gt;
 {
     c.BaseAddress = new Uri(cfg["Services:Recommendations"]!);
     c.Timeout = TimeSpan.FromMilliseconds(300);     // shorter than your own SLO
 })
 .AddStandardResilienceHandler();</code></pre><div class="what">A tight per-downstream timeout is what stops one slow service defining the screen's latency.</div></div>
-        <div class="cmd"><pre><code>app.MapGet("/mobile/home", Handler)
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">app.MapGet("/mobile/home", Handler)
    .CacheOutput(p =&gt; p.Expire(TimeSpan.FromSeconds(15)).VaryByValue(ctx =&gt;
         new KeyValuePair&lt;string,string&gt;("u", ctx.User.GetUserId())));</code></pre><div class="what">Caching an authenticated screen: the user id must be in the key, or you serve one user's home page to another.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>Browser SPA: cookie in, token out</h3>
-        <div class="cmd"><pre><code>builder.Services.AddBff();
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">builder.Services.AddBff();
 builder.Services.AddAuthentication(o =&gt;
 {
     o.DefaultScheme          = CookieAuthenticationDefaults.AuthenticationScheme;
@@ -530,7 +534,7 @@ builder.Services.AddAuthentication(o =&gt;
 })
 .AddCookie(o =&gt; { o.Cookie.HttpOnly = true; o.Cookie.SameSite = SameSiteMode.Strict; })
 .AddOpenIdConnect("oidc", o =&gt; { o.ResponseType = "code"; o.SaveTokens = true; });</code></pre><div class="what">The browser holds only an <code>HttpOnly</code> cookie; the access token never reaches JavaScript.</div></div>
-        <div class="cmd"><pre><code>app.UseAuthentication();
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">app.UseAuthentication();
 app.UseBff();
 app.UseAuthorization();
 app.MapBffManagementEndpoints();                     // /bff/login, /bff/logout, /bff/user
@@ -540,7 +544,7 @@ app.MapRemoteBffApiEndpoint("/api/orders", "https://orders.internal")
 
       <div class="cmd-group">
         <h3>Gateway aggregation, for comparison</h3>
-        <div class="cmd"><pre><code>&lt;!-- Azure API Management: composition by policy --&gt;
+        <div class="cmd"><pre class="language-markup line-numbers"><code class="language-markup">&lt;!-- Azure API Management: composition by policy --&gt;
 &lt;send-request mode="new" response-variable-name="profile" timeout="2"&gt;
   &lt;set-url&gt;@($"https://profile.internal/users/{context.User.Id}")&lt;/set-url&gt;
 &lt;/send-request&gt;
@@ -550,18 +554,18 @@ app.MapRemoteBffApiEndpoint("/api/orders", "https://orders.internal")
       return new JObject(new JProperty("name", p["displayName"])).ToString();
   }&lt;/set-body&gt;
 &lt;/return-response&gt;</code></pre><div class="what">Perfectly workable for simple composition &mdash; and the moment it needs a real rule, you are writing C# inside XML.</div></div>
-        <div class="cmd"><pre><code># YARP: routing and transforms, no aggregation
+        <div class="cmd"><pre class="language-bash"><code class="language-bash"># YARP: routing and transforms, no aggregation
 "Routes": { "orders": { "ClusterId": "orders", "Match": { "Path": "/api/orders/{**rest}" } } }</code></pre><div class="what">A reverse proxy handles routing and cross-cutting concerns. Aggregation is not its job.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>GraphQL, for comparison</h3>
-        <div class="cmd"><pre><code>query Home {
+        <div class="cmd"><pre class="language-graphql line-numbers"><code class="language-graphql">query Home {
   me { displayName avatarUrl }
   basket { count total }
   recommendations(limit: 6) { id title price }
 }</code></pre><div class="what">One request, one round trip, and only the fields the screen draws.</div></div>
-        <div class="cmd"><pre><code>builder.Services
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">builder.Services
     .AddGraphQLServer()
     .AddQueryType&lt;Query&gt;()
     .AddDataLoader&lt;ProductByIdDataLoader&gt;()          // batching: the N+1 fix
@@ -572,9 +576,9 @@ app.MapRemoteBffApiEndpoint("/api/orders", "https://orders.internal")
 
       <div class="cmd-group">
         <h3>Measuring it</h3>
-        <div class="cmd"><pre><code>curl -w 'dns:%{time_namelookup} connect:%{time_connect} ttfb:%{time_starttransfer} total:%{time_total} size:%{size_download}\n' \
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">curl -w 'dns:%{time_namelookup} connect:%{time_connect} ttfb:%{time_starttransfer} total:%{time_total} size:%{size_download}\n' \
      -o /dev/null -s https://bff.example.com/mobile/home -H "Authorization: Bearer $TOKEN"</code></pre><div class="what">The two numbers that matter for a screen: time to first byte and bytes downloaded.</div></div>
-        <div class="cmd"><pre><code>// tag every downstream call so you can see which one owns the tail
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">// tag every downstream call so you can see which one owns the tail
 using var span = Activity.Current?.Source.StartActivity("downstream.recommendations");
 span?.SetTag("bff.screen", "mobile.home");</code></pre><div class="what">With fan-out, the aggregate p99 tells you nothing. You need per-downstream percentiles to find the culprit.</div></div>
       </div>

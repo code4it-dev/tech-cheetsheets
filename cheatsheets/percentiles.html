@@ -12,6 +12,10 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="../assets/notebook.css">
 <script src="../assets/site.js" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
 </head>
 <body data-root="..">
 <div class="layout">
@@ -249,7 +253,7 @@
 <table><tr><th>Method</th><th>Index for p<i>q</i> of <i>n</i> samples</th><th>Used by</th></tr>
 <tr><td>Nearest rank</td><td><code>ceil(q/100 x n)</code>, no interpolation</td><td>most monitoring tools; always a real observed value</td></tr>
 <tr><td>Linear interpolation</td><td>interpolates between neighbours</td><td>NumPy, SQL <code>PERCENTILE_CONT</code>, Excel</td></tr></table>
-<pre><code>samples = [38, 39, 40, 41, 42, 43, 44, 44, 45, 46,
+<pre class="language-none"><code class="language-none">samples = [38, 39, 40, 41, 42, 43, 44, 44, 45, 46,
            47, 48, 49, 51, 52, 55, 62, 120, 310, 2100]
 # nearest rank: ceil(0.90 * 20) = 18  ->  samples[17] = 120 ms</code></pre>
 <p>The difference matters only at the extremes and with small samples, but it is enough to make two dashboards disagree about the same data. When comparing numbers across tools, check the method before concluding that something regressed.</p>
@@ -299,7 +303,7 @@
         </template></div>
         <div class="term"><b>histogram and buckets</b><span>How percentiles are actually computed at scale: count observations into predefined ranges, then interpolate. Cheap, aggregatable, approximate.</span><template class="term-detail" data-see="quantile estimation, percentiles don't average, aggregation window">
 <p>Storing every measurement is impossible at volume, so systems store counts per bucket. The percentile is then interpolated inside whichever bucket contains the target rank.</p>
-<pre><code>le="0.005"  12043        # 12,043 requests took <= 5 ms
+<pre class="language-none line-numbers"><code class="language-none">le="0.005"  12043        # 12,043 requests took <= 5 ms
 le="0.01"   45110
 le="0.025"  98400
 le="0.05"   99850
@@ -332,7 +336,7 @@ le="+Inf"  100000</code></pre>
 <tr><td>True fleet p99</td><td>1,000,000</td><td>~55 ms</td></tr></table>
 <p>The average suggests the whole fleet is catastrophically slow; the truth is that 1% of traffic is. Reverse the request counts and the average is equally wrong in the other direction.</p>
 <p>The fix is always the same: aggregate the <b>raw distributions</b> &mdash; sum the histogram buckets, merge the sketches &mdash; and compute the percentile once over the total.</p>
-<pre><code># right: sum the buckets, then take the quantile
+<pre class="language-bash line-numbers"><code class="language-bash"># right: sum the buckets, then take the quantile
 histogram_quantile(0.99, sum by (le) (rate(http_duration_seconds_bucket[5m])))
 
 # wrong: a quantile per instance, then averaged
@@ -422,7 +426,7 @@ avg(histogram_quantile(0.99, rate(http_duration_seconds_bucket[5m])))</code></pr
         </template></div>
         <div class="term"><b>SLI and SLO</b><span>An indicator is what you measure; an objective is the target. Latency SLOs are almost always expressed as a percentile over a window.</span><template class="term-detail" data-see="error budget, aggregation window, p90 / p95 / p99">
 <p>A well-formed latency SLO names the percentile, the threshold, the window and the scope.</p>
-<pre><code>99% of GET /orders/{id} requests complete in under 300 ms,
+<pre class="language-none"><code class="language-none">99% of GET /orders/{id} requests complete in under 300 ms,
 measured at the gateway, over a rolling 28-day window.</code></pre>
 <table><tr><th>Part</th><th>Why it must be stated</th></tr>
 <tr><td>Percentile and threshold</td><td>"fast" is not measurable</td></tr>
@@ -469,36 +473,36 @@ measured at the gateway, over a rolling 28-day window.</code></pre>
 
       <div class="cmd-group">
         <h3>Prometheus / PromQL</h3>
-        <div class="cmd"><pre><code>histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))</code></pre><div class="what">The correct fleet-wide p99: sum the buckets across instances <em>first</em>, then take the quantile.</div></div>
-        <div class="cmd"><pre><code>histogram_quantile(0.99, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m])))</code></pre><div class="what">p99 per route. Keep <code>le</code> in the <code>by</code> clause or the query silently returns nothing useful.</div></div>
-        <div class="cmd"><pre><code>sum(rate(http_request_duration_seconds_bucket{le="0.3"}[28d]))
+        <div class="cmd"><pre class="language-none"><code class="language-none">histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))</code></pre><div class="what">The correct fleet-wide p99: sum the buckets across instances <em>first</em>, then take the quantile.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">histogram_quantile(0.99, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m])))</code></pre><div class="what">p99 per route. Keep <code>le</code> in the <code>by</code> clause or the query silently returns nothing useful.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">sum(rate(http_request_duration_seconds_bucket{le="0.3"}[28d]))
   / sum(rate(http_request_duration_seconds_count[28d]))</code></pre><div class="what">Threshold SLO: the fraction of requests under 300 ms. Easier to alert on than a percentile value.</div></div>
-        <div class="cmd"><pre><code># in the exporter: buckets around the SLO, not the defaults
+        <div class="cmd"><pre class="language-bash"><code class="language-bash"># in the exporter: buckets around the SLO, not the defaults
 buckets = [.005, .01, .025, .05, .1, .2, .3, .5, 1, 2, 5, 10]</code></pre><div class="what">A boundary exactly at your SLO threshold (0.3) is what makes the query above exact.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>Azure Monitor / Application Insights (KQL)</h3>
-        <div class="cmd"><pre><code>requests
+        <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">requests
 | where timestamp &gt; ago(1d) and name == "GET /orders/{id}"
 | summarize count(), p50=percentile(duration,50), p95=percentile(duration,95),
             p99=percentile(duration,99) by bin(timestamp, 15m)
 | render timechart</code></pre><div class="what">Percentiles over 15-minute bins. Keep <code>count()</code> next to them so you can spot bins with too few samples.</div></div>
-        <div class="cmd"><pre><code>requests
+        <div class="cmd"><pre class="language-none"><code class="language-none">requests
 | summarize good=countif(duration &lt; 300), total=count()
 | extend slo = 100.0 * good / total</code></pre><div class="what">The threshold form of the same SLO, which is what an error budget is computed from.</div></div>
-        <div class="cmd"><pre><code>requests | where duration &gt; 2000 | project timestamp, name, duration, operation_Id</code></pre><div class="what">The point of percentiles is to find these. Take the <code>operation_Id</code> into the end-to-end transaction view.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">requests | where duration &gt; 2000 | project timestamp, name, duration, operation_Id</code></pre><div class="what">The point of percentiles is to find these. Take the <code>operation_Id</code> into the end-to-end transaction view.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>Python</h3>
-        <div class="cmd"><pre><code>import numpy as np
+        <div class="cmd"><pre class="language-python"><code class="language-python">import numpy as np
 d = np.array(latencies_ms)
 print(np.percentile(d, [50, 90, 95, 99]))     # linear interpolation
 print(np.percentile(d, 99, method="lower"))    # nearest rank, a real observation</code></pre><div class="what">Two methods, two answers. <code>method="lower"</code> matches what most monitoring tools report.</div></div>
-        <div class="cmd"><pre><code>import statistics
+        <div class="cmd"><pre class="language-python"><code class="language-python">import statistics
 statistics.median(d), statistics.mean(d)       # compare them: the gap is the tail</code></pre><div class="what">If the mean is far above the median, the distribution is long-tailed and the mean is the wrong summary.</div></div>
-        <div class="cmd"><pre><code>from hdrh.histogram import HdrHistogram
+        <div class="cmd"><pre class="language-python"><code class="language-python">from hdrh.histogram import HdrHistogram
 h = HdrHistogram(1, 60_000, 3)                 # 1 ms .. 60 s, 3 significant digits
 for v in latencies_ms: h.record_value(int(v))
 h.get_value_at_percentile(99.9)</code></pre><div class="what">Constant memory, mergeable across threads and processes, accurate deep into the tail.</div></div>
@@ -506,30 +510,30 @@ h.get_value_at_percentile(99.9)</code></pre><div class="what">Constant memory, m
 
       <div class="cmd-group">
         <h3>.NET</h3>
-        <div class="cmd"><pre><code>static readonly Meter Meter = new("Contoso.Orders");
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">static readonly Meter Meter = new("Contoso.Orders");
 static readonly Histogram&lt;double&gt; Duration =
     Meter.CreateHistogram&lt;double&gt;("orders.request.duration", unit: "ms");
 
 Duration.Record(sw.Elapsed.TotalMilliseconds, new KeyValuePair&lt;string, object?&gt;("route", "orders/{id}"));</code></pre><div class="what">Records into a histogram instrument; OpenTelemetry exports the buckets and the backend computes percentiles.</div></div>
-        <div class="cmd"><pre><code>.AddView("orders.request.duration", new ExplicitBucketHistogramConfiguration
+        <div class="cmd"><pre class="language-none"><code class="language-none">.AddView("orders.request.duration", new ExplicitBucketHistogramConfiguration
     { Boundaries = [5, 10, 25, 50, 100, 200, 300, 500, 1000, 2000, 5000] })</code></pre><div class="what">Overrides the default buckets so there is a boundary at your SLO threshold.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>SQL</h3>
-        <div class="cmd"><pre><code>SELECT DISTINCT
+        <div class="cmd"><pre class="language-docker"><code class="language-docker">SELECT DISTINCT
   PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY duration_ms) OVER () AS p50,
   PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY duration_ms) OVER () AS p99
 FROM request_log WHERE ts &gt; now() - interval '1 day';</code></pre><div class="what"><code>PERCENTILE_CONT</code> interpolates; <code>PERCENTILE_DISC</code> returns an actual observed row.</div></div>
-        <div class="cmd"><pre><code>SELECT route, count(*) AS n,
+        <div class="cmd"><pre class="language-docker"><code class="language-docker">SELECT route, count(*) AS n,
        percentile_disc(0.99) WITHIN GROUP (ORDER BY duration_ms) AS p99
 FROM request_log GROUP BY route HAVING count(*) &gt; 1000;</code></pre><div class="what">The <code>HAVING</code> clause is the point: do not report a p99 computed from too few rows.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>Load testing without coordinated omission</h3>
-        <div class="cmd"><pre><code>wrk2 -t4 -c100 -d60s -R2000 --latency https://api.contoso.com/orders/1</code></pre><div class="what"><code>-R</code> fixes the request <em>rate</em> rather than waiting for responses, so queueing delay is actually measured.</div></div>
-        <div class="cmd"><pre><code>k6 run --vus 50 --duration 60s script.js   # then read p(95), p(99) from the summary</code></pre><div class="what">Use a constant-arrival-rate executor rather than a fixed number of iterations, for the same reason.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">wrk2 -t4 -c100 -d60s -R2000 --latency https://api.contoso.com/orders/1</code></pre><div class="what"><code>-R</code> fixes the request <em>rate</em> rather than waiting for responses, so queueing delay is actually measured.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">k6 run --vus 50 --duration 60s script.js   # then read p(95), p(99) from the summary</code></pre><div class="what">Use a constant-arrival-rate executor rather than a fixed number of iterations, for the same reason.</div></div>
       </div>
     </section>
 

@@ -11,6 +11,10 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="../assets/notebook.css">
 <script src="../assets/site.js" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
 </head>
 <body data-root="..">
 <div class="layout">
@@ -218,7 +222,7 @@
 <p>Pick the type by the <b>operations</b> you need: if you'd read-modify-write a JSON string to change one field, use a Hash instead.</p>
         </template></div>
         <div class="term"><b>TTL / EXPIRE</b><span>A time-to-live on a key. When it runs out, Redis deletes the key. The basis of caching and sessions.</span><template class="term-detail" data-see="maxmemory + eviction, key">
-<pre><code>SET session:9f "{...}" EX 1800     # set with 30 min TTL
+<pre class="language-bash"><code class="language-bash">SET session:9f "{...}" EX 1800     # set with 30 min TTL
 EXPIRE cart:7 3600                  # add/replace a TTL
 TTL cart:7      → 3597              # seconds left (-1 none, -2 missing)
 PERSIST cart:7                      # remove the TTL</code></pre>
@@ -265,14 +269,14 @@ PERSIST cart:7                      # remove the TTL</code></pre>
         </template></div>
         <div class="term"><b>pipelining</b><span>Send many commands without waiting for each reply. Cuts network round trips; usually the biggest client-side speedup.</span><template class="term-detail" data-see="atomicity, MULTI / EXEC">
 <p>Without pipelining each command waits for its reply: 1,000 commands × 0.5 ms round trip = 0.5 s, mostly waiting on the network. With a pipeline you send all 1,000, then read 1,000 replies: a few milliseconds.</p>
-<pre><code>pipe = r.pipeline(transaction=False)
+<pre class="language-python"><code class="language-python">pipe = r.pipeline(transaction=False)
 for uid in user_ids:
     pipe.hgetall(f"user:{uid}")
 profiles = pipe.execute()</code></pre>
 <p>Pipelining is a client-side batching trick, not a transaction: other clients' commands can still run in between. Keep batches to a few thousand commands to bound memory.</p>
         </template></div>
         <div class="term"><b>MULTI / EXEC</b><span>A transaction: queued commands run together with nothing interleaved. There is no rollback if one fails.</span><template class="term-detail" data-see="atomicity, Lua / Functions, pipelining">
-<pre><code>WATCH stock:42
+<pre class="language-bash line-numbers"><code class="language-bash">WATCH stock:42
 GET stock:42            → "3"
 MULTI
 DECR stock:42
@@ -286,7 +290,7 @@ EXEC                    → nil if stock:42 changed since WATCH</code></pre>
         </template></div>
         <div class="term"><b>Lua / Functions</b><span>Server-side scripts that run atomically. Use them for read-modify-write logic, such as rate limiters.</span><template class="term-detail" data-see="atomicity, MULTI / EXEC">
 <p>A script runs entirely on the server, atomically, so it can read, decide and write in one step. Classic fixed-window rate limiter:</p>
-<pre><code>-- KEYS[1] = rl:{user:42}:minute, ARGV[1] = limit
+<pre class="language-lua"><code class="language-lua">-- KEYS[1] = rl:{user:42}:minute, ARGV[1] = limit
 local n = redis.call('INCR', KEYS[1])
 if n == 1 then redis.call('EXPIRE', KEYS[1], 60) end
 return n &lt;= tonumber(ARGV[1])</code></pre>
@@ -295,7 +299,7 @@ return n &lt;= tonumber(ARGV[1])</code></pre>
         </template></div>
         <div class="term"><b>RDB</b><span>Point-in-time snapshot of the whole dataset to disk. Compact and fast to load, but you lose writes made since the last snapshot.</span><template class="term-detail" data-see="AOF, replication">
 <p>Redis forks; the child writes the whole dataset to <code>dump.rdb</code> while the parent keeps serving. Fork uses copy-on-write, so memory use can briefly grow under heavy writes.</p>
-<pre><code>save 3600 1 300 100 60 10000   # snapshot after N changes in T seconds
+<pre class="language-none"><code class="language-none">save 3600 1 300 100 60 10000   # snapshot after N changes in T seconds
 BGSAVE                         # snapshot now
 LASTSAVE                       # when was the last one</code></pre>
 <p><b>Pros</b>: compact file, fast restarts, perfect for backups (copy it to object storage). <b>Cons</b>: a crash loses every write since the last snapshot, often minutes.</p>
@@ -346,42 +350,42 @@ LASTSAVE                       # when was the last one</code></pre>
       <h2>Essential commands &amp; syntax</h2>
       <div class="cmd-group">
         <h3>Setup</h3>
-        <div class="cmd"><pre><code>docker run -d --name redis -p 6379:6379 redis:8</code></pre><div class="what">Run a local Redis server.</div></div>
-        <div class="cmd"><pre><code>redis-cli -h localhost -p 6379 PING</code></pre><div class="what">Connect from the CLI. Answers <code>PONG</code>.</div></div>
-        <div class="cmd"><pre><code>import redis
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">docker run -d --name redis -p 6379:6379 redis:8</code></pre><div class="what">Run a local Redis server.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">redis-cli -h localhost -p 6379 PING</code></pre><div class="what">Connect from the CLI. Answers <code>PONG</code>.</div></div>
+        <div class="cmd"><pre class="language-python"><code class="language-python">import redis
 r = redis.Redis(decode_responses=True)
 r.set("user:1", "Ada", ex=60)</code></pre><div class="what">Python (<code>pip install redis</code>). <code>decode_responses</code> returns <code>str</code> instead of <code>bytes</code>.</div></div>
       </div>
       <div class="cmd-group">
         <h3>Keys &amp; strings</h3>
-        <div class="cmd"><pre><code>SET session:9f "{...}" EX 1800 NX</code></pre><div class="what">Set with a 30-minute TTL, only if the key does not exist. <code>NX</code> also gives you a simple lock.</div></div>
-        <div class="cmd"><pre><code>GET session:9f</code></pre><div class="what">Read a value. Returns <code>(nil)</code> if it is missing or expired.</div></div>
-        <div class="cmd"><pre><code>INCR views:home</code></pre><div class="what">Atomic counter. Also <code>INCRBY</code> and <code>DECR</code>.</div></div>
-        <div class="cmd"><pre><code>EXPIRE cart:7 3600 · TTL cart:7</code></pre><div class="what">Set or inspect a TTL in seconds. <code>-1</code> means no TTL, <code>-2</code> means no key.</div></div>
-        <div class="cmd"><pre><code>UNLINK big:key</code></pre><div class="what">Delete without blocking: memory is freed in the background. Prefer it over <code>DEL</code> for large keys.</div></div>
-        <div class="cmd"><pre><code>SCAN 0 MATCH user:* COUNT 100</code></pre><div class="what">Iterate keys incrementally. Never use <code>KEYS *</code> in production.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">SET session:9f "{...}" EX 1800 NX</code></pre><div class="what">Set with a 30-minute TTL, only if the key does not exist. <code>NX</code> also gives you a simple lock.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">GET session:9f</code></pre><div class="what">Read a value. Returns <code>(nil)</code> if it is missing or expired.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">INCR views:home</code></pre><div class="what">Atomic counter. Also <code>INCRBY</code> and <code>DECR</code>.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">EXPIRE cart:7 3600 · TTL cart:7</code></pre><div class="what">Set or inspect a TTL in seconds. <code>-1</code> means no TTL, <code>-2</code> means no key.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">UNLINK big:key</code></pre><div class="what">Delete without blocking: memory is freed in the background. Prefer it over <code>DEL</code> for large keys.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">SCAN 0 MATCH user:* COUNT 100</code></pre><div class="what">Iterate keys incrementally. Never use <code>KEYS *</code> in production.</div></div>
       </div>
       <div class="cmd-group">
         <h3>Data structures</h3>
-        <div class="cmd"><pre><code>HSET user:1 name Ada role admin
+        <div class="cmd"><pre class="language-none"><code class="language-none">HSET user:1 name Ada role admin
 HGETALL user:1</code></pre><div class="what">Hash: an object with fields. Update one field without rewriting the rest.</div></div>
-        <div class="cmd"><pre><code>LPUSH jobs '{"id":42}'
+        <div class="cmd"><pre class="language-none"><code class="language-none">LPUSH jobs '{"id":42}'
 BRPOP jobs 0</code></pre><div class="what">List as a queue. <code>BRPOP</code> blocks until a job arrives.</div></div>
-        <div class="cmd"><pre><code>SADD tags:42 redis cache
+        <div class="cmd"><pre class="language-none"><code class="language-none">SADD tags:42 redis cache
 SISMEMBER tags:42 redis</code></pre><div class="what">Set: unique members and O(1) membership tests.</div></div>
-        <div class="cmd"><pre><code>ZADD board 1500 ada 1320 bob
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">ZADD board 1500 ada 1320 bob
 ZRANGE board 0 9 REV WITHSCORES</code></pre><div class="what">Sorted set: the top-10 leaderboard in one call.</div></div>
-        <div class="cmd"><pre><code>XADD orders * id 42 total 19.90
+        <div class="cmd"><pre class="language-none"><code class="language-none">XADD orders * id 42 total 19.90
 XREADGROUP GROUP billing w1 COUNT 10 STREAMS orders &gt;</code></pre><div class="what">Stream: a durable event log consumed by groups, with <code>XACK</code> to acknowledge.</div></div>
-        <div class="cmd"><pre><code>PUBLISH chat:room1 "hi" · SUBSCRIBE chat:room1</code></pre><div class="what">Pub/Sub: live fan-out. Clients that are not connected miss the message.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">PUBLISH chat:room1 "hi" · SUBSCRIBE chat:room1</code></pre><div class="what">Pub/Sub: live fan-out. Clients that are not connected miss the message.</div></div>
       </div>
       <div class="cmd-group">
         <h3>Inspect &amp; debug</h3>
-        <div class="cmd"><pre><code>INFO memory</code></pre><div class="what">Used memory, fragmentation and peak usage. <code>INFO</code> alone shows every section.</div></div>
-        <div class="cmd"><pre><code>SLOWLOG GET 10</code></pre><div class="what">The 10 slowest recent commands. Usually the first stop when latency rises.</div></div>
-        <div class="cmd"><pre><code>redis-cli --bigkeys</code></pre><div class="what">Finds the largest keys per type. Big keys cause latency spikes.</div></div>
-        <div class="cmd"><pre><code>CONFIG GET maxmemory-policy</code></pre><div class="what">Shows the eviction policy. Check it before you rely on Redis as a cache.</div></div>
-        <div class="cmd"><pre><code>MONITOR</code></pre><div class="what">Streams every command the server receives. Use it in development only: it is expensive.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">INFO memory</code></pre><div class="what">Used memory, fragmentation and peak usage. <code>INFO</code> alone shows every section.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">SLOWLOG GET 10</code></pre><div class="what">The 10 slowest recent commands. Usually the first stop when latency rises.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">redis-cli --bigkeys</code></pre><div class="what">Finds the largest keys per type. Big keys cause latency spikes.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">CONFIG GET maxmemory-policy</code></pre><div class="what">Shows the eviction policy. Check it before you rely on Redis as a cache.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">MONITOR</code></pre><div class="what">Streams every command the server receives. Use it in development only: it is expensive.</div></div>
       </div>
     </section>
 

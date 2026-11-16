@@ -12,6 +12,10 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="../assets/notebook.css">
 <script src="../assets/site.js" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
 </head>
 <body data-root="..">
 <div class="layout">
@@ -299,7 +303,7 @@
         </template></div>
         <div class="term"><b>public contract</b><span>The interface and DTOs a module exposes, usually in a project of their own that contains no implementation. The only legal way in.</span><template class="term-detail" data-see="module, internals, boundary enforcement, extraction path">
 <p>Keeping contracts in a separate assembly is what lets other modules reference the <em>shape</em> without being able to reference the <em>code</em>.</p>
-<pre><code>// Billing.Contracts  (referenced by anyone)
+<pre class="language-csharp line-numbers"><code class="language-csharp">// Billing.Contracts  (referenced by anyone)
 public interface IBillingApi
 {
     Task&lt;ChargeResult&gt; ChargeAsync(ChargeRequest request, CancellationToken ct);
@@ -322,7 +326,7 @@ internal sealed class BillingService : IBillingApi { /* ... */ }</code></pre>
 <tr><td><code>public</code></td><td>only what lives in the contracts project</td></tr>
 <tr><td><code>internal</code></td><td>everything else in the module &mdash; make this the default</td></tr>
 <tr><td><code>internal</code> + <code>InternalsVisibleTo</code></td><td>the module's own test project, and nothing else</td></tr></table>
-<pre><code>&lt;!-- Billing.csproj --&gt;
+<pre class="language-markup"><code class="language-markup">&lt;!-- Billing.csproj --&gt;
 &lt;ItemGroup&gt;
   &lt;InternalsVisibleTo Include="Billing.Tests" /&gt;
 &lt;/ItemGroup&gt;</code></pre>
@@ -334,7 +338,7 @@ internal sealed class BillingService : IBillingApi { /* ... */ }</code></pre>
 <tr><td><code>internal</code> + one project per module</td><td>any reference to another module's implementation</td><td>free</td></tr>
 <tr><td>Project reference discipline</td><td>a module referencing another module's project at all</td><td>free, but needs review</td></tr>
 <tr><td>Architecture tests</td><td>everything else: namespaces, cycles, layering, naming</td><td>a test project</td></tr></table>
-<pre><code>[Fact]
+<pre class="language-csharp line-numbers"><code class="language-csharp">[Fact]
 public void Modules_talk_only_through_contracts()
 {
     var result = Types.InAssembly(typeof(OrderService).Assembly)
@@ -352,14 +356,14 @@ public void Modules_talk_only_through_contracts()
 <tr><td>Schema per module</td><td><code>orders.</code>, <code>billing.</code></td><td>good, and it survives extraction</td></tr>
 <tr><td>Schema + per-module database user</td><td>grants only on its own schema</td><td><b>strong</b> &mdash; the database refuses the query</td></tr>
 <tr><td>Database per module</td><td>separate connection strings</td><td>strongest, and you lose cross-module transactions</td></tr></table>
-<pre><code>// one DbContext per module, each mapping only its own tables
+<pre class="language-csharp"><code class="language-csharp">// one DbContext per module, each mapping only its own tables
 protected override void OnModelCreating(ModelBuilder b)
     =&gt; b.HasDefaultSchema("billing");</code></pre>
 <p>Foreign keys across modules are the subtle version of the same leak. Prefer storing the other module's id as a plain value with no database-level constraint &mdash; it is the only shape that survives the module becoming a service.</p>
         </template></div>
         <div class="term"><b>in-process messaging</b><span>Publishing an event instead of calling an interface. Removes the compile-time reference, at the cost of making the flow harder to follow.</span><template class="term-detail" data-see="transaction boundary, public contract, module">
 <p>With a direct call, Orders names Billing. With an event, Orders names only the fact that something happened, and the bus decides who cares.</p>
-<pre><code>// Orders, knowing nothing about who listens
+<pre class="language-csharp line-numbers"><code class="language-csharp">// Orders, knowing nothing about who listens
 await _bus.PublishAsync(new OrderPlaced(order.Id, order.Total, order.Currency), ct);
 
 // Billing, in its own module
@@ -396,7 +400,7 @@ internal sealed class ChargeOnOrderPlaced : INotificationHandler&lt;OrderPlaced&
         </template></div>
         <div class="term"><b>vertical slice</b><span>Organising a module's code by feature &mdash; request, handler, validation, data access together &mdash; rather than by technical layer.</span><template class="term-detail" data-see="module, composition root">
 <p>Layers inside a module recreate the original problem at a smaller scale. A vertical slice keeps everything one feature needs in one folder.</p>
-<pre><code>Billing/
+<pre class="language-none line-numbers"><code class="language-none">Billing/
   Features/
     ChargeCard/
       ChargeCardCommand.cs      // request
@@ -414,7 +418,7 @@ internal sealed class ChargeOnOrderPlaced : INotificationHandler&lt;OrderPlaced&
         </template></div>
         <div class="term"><b>composition root</b><span>The single place that knows every module's implementation and wires it up. The only code allowed to reference everything.</span><template class="term-detail" data-see="public contract, extraction path, module">
 <p>Each module exposes one registration method; the host calls them and knows nothing else. This is what keeps the host thin and makes animation 4 a one-line change.</p>
-<pre><code>// Billing/ModuleRegistration.cs  &mdash; the module's only public class besides its contract
+<pre class="language-csharp line-numbers"><code class="language-csharp">// Billing/ModuleRegistration.cs  &mdash; the module's only public class besides its contract
 public static class BillingModule
 {
     public static IServiceCollection AddBilling(this IServiceCollection services, IConfiguration cfg)
@@ -440,7 +444,7 @@ builder.Services.AddOrders(cfg).AddBilling(cfg).AddShipping(cfg);</code></pre>
         </template></div>
         <div class="term"><b>anti-corruption layer</b><span>A translation layer at a module's edge so another context's model &mdash; or a legacy system's &mdash; does not leak into yours.</span><template class="term-detail" data-see="bounded context, public contract, shared kernel">
 <p>When a module must consume something it does not control, translate at the boundary rather than letting the foreign shape spread inward.</p>
-<pre><code>// inside Shipping: the legacy courier's model stops here
+<pre class="language-csharp line-numbers"><code class="language-csharp">// inside Shipping: the legacy courier's model stops here
 internal sealed class CourierAntiCorruption(ILegacyCourierClient legacy) : ICourierGateway
 {
     public async Task&lt;Shipment&gt; BookAsync(ShipmentRequest r, CancellationToken ct)
@@ -461,7 +465,7 @@ internal sealed class CourierAntiCorruption(ILegacyCourierClient legacy) : ICour
 <li>Move the module's data to its own database; remove any cross-schema queries that have crept in.</li>
 <li>Replace the in-process registration with the remote one &mdash; one line in the composition root.</li>
 <li>Deal with the consequences: timeouts, retries, idempotency, and the transaction you no longer have.</li></ol>
-<pre><code>// before
+<pre class="language-csharp"><code class="language-csharp">// before
 services.AddScoped&lt;IBillingApi, BillingService&gt;();
 // after
 services.AddHttpClient&lt;IBillingApi, HttpBillingApi&gt;(c =&gt; c.BaseAddress = new(cfg["Billing:Url"]!));</code></pre>
@@ -492,7 +496,7 @@ services.AddHttpClient&lt;IBillingApi, HttpBillingApi&gt;(c =&gt; c.BaseAddress 
         </template></div>
         <div class="term"><b>observability per module</b><span>Tagging logs, traces and metrics with the module that produced them, so you can answer "which part is slow" without process boundaries to separate them.</span><template class="term-detail" data-see="module, extraction path">
 <p>In microservices the service name does this for free. In a monolith you have to add it on purpose, and it is what tells you which module is worth extracting.</p>
-<pre><code>// one meter and one activity source per module
+<pre class="language-csharp line-numbers"><code class="language-csharp">// one meter and one activity source per module
 static readonly ActivitySource Activity = new("Shop.Billing");
 static readonly Meter Meter = new("Shop.Billing");
 
@@ -512,7 +516,7 @@ span?.SetTag("module", "billing");</code></pre>
 
       <div class="cmd-group">
         <h3>Solution layout</h3>
-        <div class="cmd"><pre><code>src/
+        <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">src/
   Shop.Host/                 // composition root: references every module, contains no logic
   Shop.SharedKernel/         // Money, TenantId, Result&lt;T&gt; — tiny, depends on nothing
   Modules/
@@ -526,11 +530,11 @@ span?.SetTag("module", "billing");</code></pre>
       Billing.Tests/
 tests/
   Shop.ArchitectureTests/    // the rules that keep the above true</code></pre><div class="what">Two projects per module plus tests. The split between <code>.Contracts</code> and the implementation is what makes <code>internal</code> meaningful.</div></div>
-        <div class="cmd"><pre><code>dotnet new classlib -o src/Modules/Billing/Billing.Contracts
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">dotnet new classlib -o src/Modules/Billing/Billing.Contracts
 dotnet new classlib -o src/Modules/Billing/Billing
 dotnet add src/Modules/Billing/Billing reference src/Modules/Billing/Billing.Contracts
 dotnet add src/Modules/Orders/Orders reference src/Modules/Billing/Billing.Contracts</code></pre><div class="what">Orders references Billing's <em>contracts</em> only. It must never reference <code>Billing</code> itself.</div></div>
-        <div class="cmd"><pre><code>&lt;!-- Directory.Build.props — make internal the default habit --&gt;
+        <div class="cmd"><pre class="language-markup line-numbers"><code class="language-markup">&lt;!-- Directory.Build.props — make internal the default habit --&gt;
 &lt;PropertyGroup&gt;
   &lt;TreatWarningsAsErrors&gt;true&lt;/TreatWarningsAsErrors&gt;
   &lt;EnforceCodeStyleInBuild&gt;true&lt;/EnforceCodeStyleInBuild&gt;
@@ -539,7 +543,7 @@ dotnet add src/Modules/Orders/Orders reference src/Modules/Billing/Billing.Contr
 
       <div class="cmd-group">
         <h3>The boundary, in code</h3>
-        <div class="cmd"><pre><code>// Billing.Contracts — public
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// Billing.Contracts — public
 public interface IBillingApi
 {
     Task&lt;ChargeResult&gt; ChargeAsync(ChargeRequest request, CancellationToken ct);
@@ -550,7 +554,7 @@ internal sealed class BillingService(BillingDbContext db, ILogger&lt;BillingServ
 {
     public async Task&lt;ChargeResult&gt; ChargeAsync(ChargeRequest r, CancellationToken ct) { /* ... */ }
 }</code></pre><div class="what">The only type anyone outside Billing can name is the interface.</div></div>
-        <div class="cmd"><pre><code>public static class BillingModule
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">public static class BillingModule
 {
     public static IServiceCollection AddBilling(this IServiceCollection s, IConfiguration cfg)
     {
@@ -559,11 +563,11 @@ internal sealed class BillingService(BillingDbContext db, ILogger&lt;BillingServ
         return s;
     }
 }</code></pre><div class="what">One registration method per module. The host calls it and learns nothing else about Billing.</div></div>
-        <div class="cmd"><pre><code>builder.Services
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">builder.Services
     .AddOrders(builder.Configuration)
     .AddBilling(builder.Configuration)
     .AddShipping(builder.Configuration);</code></pre><div class="what">The entire composition root. Swapping a module for a remote implementation is a change on one of these lines.</div></div>
-        <div class="cmd"><pre><code>protected override void OnModelCreating(ModelBuilder b)
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">protected override void OnModelCreating(ModelBuilder b)
 {
     b.HasDefaultSchema("billing");
     b.ApplyConfigurationsFromAssembly(typeof(BillingDbContext).Assembly);
@@ -572,8 +576,8 @@ internal sealed class BillingService(BillingDbContext db, ILogger&lt;BillingServ
 
       <div class="cmd-group">
         <h3>Architecture tests &mdash; the rules that keep it true</h3>
-        <div class="cmd"><pre><code>dotnet add tests/Shop.ArchitectureTests package NetArchTest.Rules</code></pre><div class="what">NetArchTest or ArchUnitNET. Add this on day one, while there is nothing to fix.</div></div>
-        <div class="cmd"><pre><code>[Fact]
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">dotnet add tests/Shop.ArchitectureTests package NetArchTest.Rules</code></pre><div class="what">NetArchTest or ArchUnitNET. Add this on day one, while there is nothing to fix.</div></div>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">[Fact]
 public void Orders_does_not_depend_on_Billing_internals()
 {
     var result = Types.InAssembly(typeof(OrderService).Assembly)
@@ -581,11 +585,11 @@ public void Orders_does_not_depend_on_Billing_internals()
         .GetResult();
     Assert.True(result.IsSuccessful, string.Join(", ", result.FailingTypeNames ?? []));
 }</code></pre><div class="what">The rule that makes the whole pattern real. Everything else is a convention.</div></div>
-        <div class="cmd"><pre><code>[Fact]
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">[Fact]
 public void Nothing_depends_on_the_host() =&gt;
     Assert.True(Types.InAssemblies(ModuleAssemblies)
         .Should().NotHaveDependencyOn("Shop.Host").GetResult().IsSuccessful);</code></pre><div class="what">The host may know everything; nothing may know the host.</div></div>
-        <div class="cmd"><pre><code>[Fact]
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">[Fact]
 public void Module_types_are_internal() =&gt;
     Assert.Empty(Types.InAssembly(typeof(BillingService).Assembly)
         .That().ArePublic().And().DoNotHaveName(nameof(BillingModule))
@@ -594,7 +598,7 @@ public void Module_types_are_internal() =&gt;
 
       <div class="cmd-group">
         <h3>Events, when a contract is the wrong shape</h3>
-        <div class="cmd"><pre><code>// Orders publishes a fact and names nobody
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// Orders publishes a fact and names nobody
 await _publisher.Publish(new OrderPlaced(order.Id, order.Total), ct);
 
 // Billing subscribes, in its own module
@@ -602,7 +606,7 @@ internal sealed class ChargeOnOrderPlaced(IBillingApi billing) : INotificationHa
 {
     public Task Handle(OrderPlaced e, CancellationToken ct) =&gt; billing.ChargeAsync(new(e.OrderId, e.Total, "EUR"), ct);
 }</code></pre><div class="what">In-process dispatch, no serialization, no broker. The event type lives in the publisher's contracts project.</div></div>
-        <div class="cmd"><pre><code>// outbox: atomic with the write, dispatched after commit
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">// outbox: atomic with the write, dispatched after commit
 db.Outbox.Add(new OutboxMessage(typeof(OrderPlaced).FullName!, JsonSerializer.Serialize(evt)));
 await db.SaveChangesAsync(ct);    // order + event committed together</code></pre><div class="what">The only pattern that is both atomic with your write and safe to retry &mdash; and exactly what you need when the module leaves the process.</div></div>
       </div>

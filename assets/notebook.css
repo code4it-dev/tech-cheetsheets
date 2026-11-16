@@ -296,3 +296,102 @@ body.panel-open { overflow: hidden; }
 /* Concept cards: name on its own line, definition below */
 .term > b { display: block; width: fit-content; margin-bottom: 4px; }
 .home .lede { margin-bottom: 28px; }
+
+/* ============================================================
+   Code: ruled listing + syntax highlighting + zoom modal
+   Blocks are tagged by scripts/build-index.mjs; Prism does the tokens.
+   ============================================================ */
+:root { --rule: #d7e0d2; --code-line: 21px; }
+
+/* --- the listing itself --------------------------------------------- */
+pre[class*="language-"],
+.cmd pre[class*="language-"],
+.tp-body pre[class*="language-"] {
+  position: relative;
+  background: var(--surface);
+  background-image: repeating-linear-gradient(to bottom,
+    transparent 0, transparent calc(var(--code-line) - 1px),
+    var(--rule) calc(var(--code-line) - 1px), var(--rule) var(--code-line));
+  background-position: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  cursor: zoom-in;
+}
+pre[class*="language-"] > code,
+pre[class*="language-"] { font-family: var(--mono); font-size: 13px; line-height: var(--code-line); tab-size: 4; }
+pre[class*="language-"] > code { display: block; background: none; padding: 0; }
+pre[class*="language-"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* line-number gutter (markup comes from the Prism line-numbers plugin) */
+pre[class*="language-"].line-numbers { padding-left: 3.5em; }
+pre[class*="language-"].line-numbers > .line-numbers-rows {
+  left: -3.5em; width: 3em; border-right: 1px solid var(--border); padding-top: 0;
+}
+pre[class*="language-"].line-numbers > .line-numbers-rows > span::before {
+  color: #a3b2a8; padding-right: 11px; font-size: 12px;
+}
+
+/* the hint that a block can be opened */
+pre[class*="language-"]::after {
+  content: "⤢";
+  position: absolute; top: 5px; right: 8px;
+  font-family: var(--sans); font-size: 13px; line-height: 1;
+  color: var(--muted); opacity: 0; transition: opacity .15s ease;
+  pointer-events: none;
+}
+pre[class*="language-"]:hover::after,
+pre[class*="language-"]:focus-visible::after { opacity: .75; }
+
+/* --- token palette: the notebook's own ink --------------------------- */
+code[class*="language-"], pre[class*="language-"] { color: var(--text); text-shadow: none; }
+.token.comment, .token.prolog, .token.doctype, .token.cdata { color: #7d8c83; font-style: italic; }
+.token.punctuation { color: #7d8c83; }
+.token.keyword, .token.boolean, .token.atrule, .token.important, .token.selector { color: var(--good); font-weight: 600; }
+.token.string, .token.char, .token.attr-value, .token.regex, .token.inserted { color: var(--bad); }
+.token.number, .token.constant, .token.symbol { color: var(--warn); }
+.token.function, .token.class-name, .token.builtin { color: #1f4f6b; font-weight: 500; }
+.token.operator, .token.entity, .token.url { color: var(--muted); background: none; }
+.token.property, .token.tag, .token.attr-name, .token.variable, .token.key { color: #1f4f6b; }
+.token.namespace { opacity: .7; }
+.token.deleted { color: var(--bad); text-decoration: line-through; }
+
+/* --- the zoom modal --------------------------------------------------- */
+.cm-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(35, 54, 46, .42); animation: tp-fade .2s ease; }
+.code-modal {
+  position: fixed; z-index: 51; inset: 50% auto auto 50%; transform: translate(-50%, -50%);
+  width: min(1100px, calc(100vw - 32px)); max-height: 88vh; max-height: 88dvh;
+  display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 18px 50px -18px rgba(35, 54, 46, .6); animation: tp-fade .2s ease;
+}
+.cm-backdrop[hidden], .code-modal[hidden] { display: none; }
+.cm-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 16px; border-bottom: 1px solid var(--border); }
+.cm-lang { font-family: var(--mono); font-size: 12px; letter-spacing: .04em; color: var(--muted); text-transform: uppercase; }
+.cm-head .spacer { flex: 1; }
+.cm-head button {
+  font: inherit; font-size: 13px; font-family: var(--sans); color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+  padding: 4px 12px; cursor: pointer;
+}
+.cm-head button:hover, .cm-head button:focus-visible { background: var(--code-bg); }
+.cm-copy[data-done="1"] { color: var(--good); border-color: var(--good); }
+.cm-body { overflow: auto; padding: 14px 16px 18px; }
+.cm-body pre[class*="language-"] {
+  cursor: auto; border: 0; border-radius: 0; background-position: 0 0; padding: 0 0 0 3.5em;
+  --code-line: 25px;
+}
+.cm-body pre[class*="language-"]:not(.line-numbers) { padding-left: 0; }
+.cm-body pre[class*="language-"] > code,
+.cm-body pre[class*="language-"] { font-size: 15px; line-height: var(--code-line); }
+.cm-body pre[class*="language-"]::after { content: none; }
+.cm-body pre[class*="language-"].line-numbers > .line-numbers-rows > span::before { font-size: 13px; }
+
+@media (max-width: 760px) {
+  .code-modal { width: 100%; inset: auto 0 0 0; transform: none; max-height: 90vh; max-height: 90dvh;
+    border-radius: 14px 14px 0 0; animation-name: tp-up; }
+  .cm-body pre[class*="language-"] { --code-line: 22px; }
+  .cm-body pre[class*="language-"] > code,
+  .cm-body pre[class*="language-"] { font-size: 13.5px; }
+}
+@media (prefers-reduced-motion: reduce) { .code-modal, .cm-backdrop { animation: none; } }

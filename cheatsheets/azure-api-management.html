@@ -12,6 +12,10 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="../assets/notebook.css">
 <script src="../assets/site.js" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
 </head>
 <body data-root="..">
 <div class="layout">
@@ -244,7 +248,7 @@
         </template></div>
         <div class="term"><b>policy pipeline</b><span>Four sections &mdash; <code>inbound</code>, <code>backend</code>, <code>outbound</code>, <code>on-error</code> &mdash; evaluated in order on every request. This is where APIM does its work.</span><template class="term-detail" data-see="policy expressions, policy scope, response caching, validate-jwt">
 <p>A policy document is XML, and the order of elements <i>is</i> the order of execution.</p>
-<pre><code>&lt;policies&gt;
+<pre class="language-markup line-numbers"><code class="language-markup">&lt;policies&gt;
   &lt;inbound&gt;
     &lt;base /&gt;                                  &lt;!-- inherit the outer scope first --&gt;
     &lt;validate-jwt header-name="Authorization" failed-validation-httpcode="401"&gt;
@@ -293,7 +297,7 @@
         </template></div>
         <div class="term"><b>policy expressions</b><span>Inline C# in <code>@(...)</code> or <code>@{ ... }</code> with access to <code>context</code>. The escape hatch that makes policies programmable.</span><template class="term-detail" data-see="policy pipeline, named values, subscription">
 <p>Single-statement expressions use <code>@(...)</code>; multi-statement blocks use <code>@{ ... }</code> and must <code>return</code> a value.</p>
-<pre><code>&lt;set-header name="X-Tenant" exists-action="override"&gt;
+<pre class="language-markup line-numbers"><code class="language-markup">&lt;set-header name="X-Tenant" exists-action="override"&gt;
   &lt;value&gt;@(context.User?.Email?.Split('@')[1] ?? "unknown")&lt;/value&gt;
 &lt;/set-header&gt;
 
@@ -332,7 +336,7 @@
         </template></div>
         <div class="term"><b>validate-jwt</b><span>The inbound policy that verifies a bearer token's signature, issuer, audience, expiry and claims &mdash; before your backend sees the request.</span><template class="term-detail" data-see="policy pipeline, subscription, backend authentication">
 <p>APIM fetches and caches the signing keys from the OpenID configuration endpoint, so validation costs no network call per request.</p>
-<pre><code>&lt;validate-jwt header-name="Authorization" require-scheme="Bearer"
+<pre class="language-markup line-numbers"><code class="language-markup">&lt;validate-jwt header-name="Authorization" require-scheme="Bearer"
               failed-validation-httpcode="401"
               failed-validation-error-message="Invalid or missing token"&gt;
   &lt;openid-config url="https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration" /&gt;
@@ -351,7 +355,7 @@
         </template></div>
         <div class="term"><b>rate limits and quota</b><span><code>rate-limit</code> protects against bursts over seconds; <code>quota</code> enforces a volume over days or months. They solve different problems.</span><template class="term-detail" data-see="product, subscription, policy expressions">
 <p>Both come in a plain and a <code>-by-key</code> form. The <code>-by-key</code> variants let you choose the counter yourself, which is almost always what you want.</p>
-<pre><code>&lt;rate-limit-by-key calls="600" renewal-period="60"
+<pre class="language-none line-numbers"><code class="language-none">&lt;rate-limit-by-key calls="600" renewal-period="60"
     counter-key="@(context.Subscription?.Id ?? context.Request.IpAddress)"
     remaining-calls-header-name="RateLimit-Remaining"
     retry-after-header-name="Retry-After" /&gt;
@@ -367,7 +371,7 @@
         </template></div>
         <div class="term"><b>response caching</b><span>Either the built-in <code>cache-lookup</code> / <code>cache-store</code> pair, or fine-grained <code>cache-lookup-value</code> for arbitrary values. Served from the gateway, so the backend is never called.</span><template class="term-detail" data-see="policy pipeline, policy expressions, policy scope">
 <p>The simple form caches whole responses keyed on URL plus whatever you vary by:</p>
-<pre><code>&lt;inbound&gt;
+<pre class="language-markup line-numbers"><code class="language-markup">&lt;inbound&gt;
   &lt;cache-lookup downstream-caching-type="none" must-revalidate="true"
                 vary-by-developer="false" vary-by-developer-groups="false"&gt;
     &lt;vary-by-header&gt;Accept-Language&lt;/vary-by-header&gt;
@@ -385,7 +389,7 @@
         </template></div>
         <div class="term"><b>backend</b><span>A named, reusable target: a URL, credentials and optionally a pool with load balancing and a circuit breaker. Referenced by <code>set-backend-service</code>.</span><template class="term-detail" data-see="backend authentication, named values, api and operation">
 <p>Defining a backend entity rather than hard-coding a URL in each policy gives you one place to change the target, and unlocks pools.</p>
-<pre><code>&lt;set-backend-service backend-id="orders-pool" /&gt;</code></pre>
+<pre class="language-none"><code class="language-none">&lt;set-backend-service backend-id="orders-pool" /&gt;</code></pre>
 <table><tr><th>Pool feature</th><th>What it does</th></tr>
 <tr><td><code>priority</code></td><td>lower numbers are used first; higher ones are failover targets</td></tr>
 <tr><td><code>weight</code></td><td>splits traffic within a priority group &mdash; useful for canaries</td></tr>
@@ -395,7 +399,7 @@
         </template></div>
         <div class="term"><b>backend authentication</b><span>How the gateway proves itself to your API: managed identity, client certificate, or a secret from a named value. Never a key the client supplied.</span><template class="term-detail" data-see="named values, backend, validate-jwt">
 <p>The gateway is a confidential client, so it can hold credentials a browser or mobile app cannot. Use that.</p>
-<pre><code>&lt;!-- best: no secret exists anywhere --&gt;
+<pre class="language-markup line-numbers"><code class="language-markup">&lt;!-- best: no secret exists anywhere --&gt;
 &lt;authentication-managed-identity resource="api://contoso-orders" /&gt;
 
 &lt;!-- for backends that require mutual TLS --&gt;
@@ -412,7 +416,7 @@
         </template></div>
         <div class="term"><b>named values</b><span>The configuration store: plain strings, secrets, or references to Key Vault, usable in any policy as <code>{{name}}</code>.</span><template class="term-detail" data-see="backend authentication, policy expressions">
 <p>They keep environment-specific values out of policy XML, so the same policy document deploys unchanged to dev, test and production.</p>
-<pre><code>&lt;set-backend-service base-url="{{orders-backend-url}}" /&gt;
+<pre class="language-markup"><code class="language-markup">&lt;set-backend-service base-url="{{orders-backend-url}}" /&gt;
 &lt;set-header name="X-Api-Key"&gt;&lt;value&gt;{{orders-backend-key}}&lt;/value&gt;&lt;/set-header&gt;</code></pre>
 <table><tr><th>Type</th><th>Stored</th><th>Use for</th></tr>
 <tr><td>Plain</td><td>visible in the portal and API</td><td>URLs, tenant ids, feature switches</td></tr>
@@ -503,29 +507,29 @@
 
       <div class="cmd-group">
         <h3>Policies you will write on day one</h3>
-        <div class="cmd"><pre><code>&lt;cors allow-credentials="false"&gt;
+        <div class="cmd"><pre class="language-markup line-numbers"><code class="language-markup">&lt;cors allow-credentials="false"&gt;
   &lt;allowed-origins&gt;&lt;origin&gt;https://app.contoso.com&lt;/origin&gt;&lt;/allowed-origins&gt;
   &lt;allowed-methods&gt;&lt;method&gt;GET&lt;/method&gt;&lt;method&gt;POST&lt;/method&gt;&lt;/allowed-methods&gt;
   &lt;allowed-headers&gt;&lt;header&gt;*&lt;/header&gt;&lt;/allowed-headers&gt;
 &lt;/cors&gt;</code></pre><div class="what">Global inbound CORS. The developer portal's try-it console needs this too.</div></div>
-        <div class="cmd"><pre><code>&lt;validate-jwt header-name="Authorization" failed-validation-httpcode="401"&gt;
+        <div class="cmd"><pre class="language-markup"><code class="language-markup">&lt;validate-jwt header-name="Authorization" failed-validation-httpcode="401"&gt;
   &lt;openid-config url="https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration" /&gt;
   &lt;audiences&gt;&lt;audience&gt;api://contoso-orders&lt;/audience&gt;&lt;/audiences&gt;
 &lt;/validate-jwt&gt;</code></pre><div class="what">Rejects unauthenticated calls at the edge. Always set <code>audiences</code>.</div></div>
-        <div class="cmd"><pre><code>&lt;rate-limit-by-key calls="600" renewal-period="60"
+        <div class="cmd"><pre class="language-none"><code class="language-none">&lt;rate-limit-by-key calls="600" renewal-period="60"
     counter-key="@(context.Subscription?.Id ?? context.Request.IpAddress)"
     retry-after-header-name="Retry-After" /&gt;</code></pre><div class="what">Per-subscription throttle, falling back to the caller's IP for anonymous APIs.</div></div>
-        <div class="cmd"><pre><code>&lt;set-backend-service backend-id="orders-pool" /&gt;
+        <div class="cmd"><pre class="language-none"><code class="language-none">&lt;set-backend-service backend-id="orders-pool" /&gt;
 &lt;rewrite-uri template="/api/v3/order?id={orderId}" /&gt;
 &lt;authentication-managed-identity resource="api://contoso-orders" /&gt;</code></pre><div class="what">Routes to a pooled backend, reshapes the URL and authenticates with no stored secret.</div></div>
-        <div class="cmd"><pre><code>&lt;set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" /&gt;
+        <div class="cmd"><pre class="language-none"><code class="language-none">&lt;set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" /&gt;
 &lt;set-header name="Authorization" exists-action="delete" /&gt;</code></pre><div class="what">Strips the client's credentials so they never reach the backend.</div></div>
-        <div class="cmd"><pre><code>&lt;return-response&gt;
+        <div class="cmd"><pre class="language-markup line-numbers"><code class="language-markup">&lt;return-response&gt;
   &lt;set-status code="200" reason="OK" /&gt;
   &lt;set-header name="Content-Type"&gt;&lt;value&gt;application/json&lt;/value&gt;&lt;/set-header&gt;
   &lt;set-body&gt;{"id":10427,"status":"shipped"}&lt;/set-body&gt;
 &lt;/return-response&gt;</code></pre><div class="what">A mock response: front-end teams can build against the API before the backend exists.</div></div>
-        <div class="cmd"><pre><code>&lt;on-error&gt;
+        <div class="cmd"><pre class="language-markup line-numbers"><code class="language-markup">&lt;on-error&gt;
   &lt;base /&gt;
   &lt;return-response&gt;
     &lt;set-status code="502" reason="Bad Gateway" /&gt;
@@ -536,30 +540,30 @@
 
       <div class="cmd-group">
         <h3>Azure CLI</h3>
-        <div class="cmd"><pre><code>az apim create -g rg-apis -n contoso-apim -l westeurope \
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">az apim create -g rg-apis -n contoso-apim -l westeurope \
   --publisher-email apis@contoso.com --publisher-name Contoso --sku-name Developer</code></pre><div class="what">Creates an instance. Classic tiers take 30&ndash;45 minutes &mdash; start it and go do something else.</div></div>
-        <div class="cmd"><pre><code>az apim api import -g rg-apis -n contoso-apim --path orders \
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">az apim api import -g rg-apis -n contoso-apim --path orders \
   --specification-format OpenApi --specification-path ./orders.openapi.json --api-id orders</code></pre><div class="what">Imports an API from OpenAPI, bringing operations, schemas and descriptions with it.</div></div>
-        <div class="cmd"><pre><code>az apim api policy import -g rg-apis -n contoso-apim --api-id orders \
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">az apim api policy import -g rg-apis -n contoso-apim --api-id orders \
   --policy-format xml --value "@policies/orders.xml"</code></pre><div class="what">Applies an API-scoped policy document from a file in source control.</div></div>
-        <div class="cmd"><pre><code>az apim nv create -g rg-apis -n contoso-apim --named-value-id orders-backend-key \
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">az apim nv create -g rg-apis -n contoso-apim --named-value-id orders-backend-key \
   --display-name orders-backend-key --secret true \
   --value-from-key-vault "https://kv-contoso.vault.azure.net/secrets/orders-key"</code></pre><div class="what">Creates a Key Vault-backed named value so no secret lives in APIM itself.</div></div>
-        <div class="cmd"><pre><code>az apim show -g rg-apis -n contoso-apim --query "publicIPAddresses"</code></pre><div class="what">The IP partners will allow-list. It changes if you change tier &mdash; keep that in mind.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">az apim show -g rg-apis -n contoso-apim --query "publicIPAddresses"</code></pre><div class="what">The IP partners will allow-list. It changes if you change tier &mdash; keep that in mind.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>Calling and testing</h3>
-        <div class="cmd"><pre><code>curl -s https://contoso.azure-api.net/orders/10427 \
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">curl -s https://contoso.azure-api.net/orders/10427 \
   -H "Ocp-Apim-Subscription-Key: $KEY" -H "Authorization: Bearer $TOKEN"</code></pre><div class="what">A normal call: subscription key for metering, bearer token for identity.</div></div>
-        <div class="cmd"><pre><code>curl -s "https://contoso.azure-api.net/orders;rev=2/10427" -H "Ocp-Apim-Subscription-Key: $KEY"</code></pre><div class="what">Calls a non-current revision directly, to test it before promoting.</div></div>
-        <div class="cmd"><pre><code>curl -sD - https://contoso.azure-api.net/orders/10427 -o /dev/null \
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">curl -s "https://contoso.azure-api.net/orders;rev=2/10427" -H "Ocp-Apim-Subscription-Key: $KEY"</code></pre><div class="what">Calls a non-current revision directly, to test it before promoting.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">curl -sD - https://contoso.azure-api.net/orders/10427 -o /dev/null \
   -H "Ocp-Apim-Subscription-Key: $KEY" | grep -iE "ratelimit|retry-after|x-cache"</code></pre><div class="what">Checks that your throttle and cache headers actually reach the client.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>Infrastructure as code (Bicep)</h3>
-        <div class="cmd"><pre><code>resource pool 'Microsoft.ApiManagement/service/backends@2023-09-01-preview' = {
+        <div class="cmd"><pre class="language-bicep line-numbers"><code class="language-bicep">resource pool 'Microsoft.ApiManagement/service/backends@2023-09-01-preview' = {
   parent: apim
   name: 'orders-pool'
   properties: {
@@ -572,7 +576,7 @@
       tripDuration: 'PT1M' } ] }
   }
 }</code></pre><div class="what">A load-balanced pool with failover and a circuit breaker &mdash; the configuration behind the second animation.</div></div>
-        <div class="cmd"><pre><code>git clone https://github.com/Azure/apiops</code></pre><div class="what">APIOps: extracts an APIM instance into files and promotes them through environments. The usual answer to "how do we stop editing production in the portal".</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">git clone https://github.com/Azure/apiops</code></pre><div class="what">APIOps: extracts an APIM instance into files and promotes them through environments. The usual answer to "how do we stop editing production in the portal".</div></div>
       </div>
     </section>
 

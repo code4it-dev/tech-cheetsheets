@@ -12,6 +12,10 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="../assets/notebook.css">
 <script src="../assets/site.js" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
 </head>
 <body data-root="..">
 <div class="layout">
@@ -255,7 +259,7 @@
           </ul>
         </template></div>
         <div class="term"><b>requests &amp; limits</b><span>Per-container CPU and memory settings: requests are reserved for scheduling, limits are the hard ceiling.</span><template class="term-detail" data-see="vCPU, node, HPA, pod">
-          <pre><code>resources:
+          <pre class="language-yaml"><code class="language-yaml">resources:
   requests: { cpu: 250m, memory: 256Mi }
   limits:   { memory: 512Mi }</code></pre>
           <ul>
@@ -314,7 +318,7 @@
         </template></div>
         <div class="term"><b>labels &amp; selectors</b><span>Key/value tags on objects (<code>app=web</code>) and the queries that pick objects by them. The glue of Kubernetes.</span><template class="term-detail" data-see="Service, ReplicaSet, Deployment">
           <p>Kubernetes rarely references objects by name. A Service, ReplicaSet or NetworkPolicy finds its pods with a <b>selector</b> such as <code>app=web,tier=frontend</code>.</p>
-          <pre><code>metadata:
+          <pre class="language-yaml line-numbers"><code class="language-yaml">metadata:
   labels: { app: web, version: "1.4", team: shop }
 ---
 selector:
@@ -353,13 +357,13 @@ selector:
             <tr><td><b>liveness</b></td><td>container is restarted</td><td>"am I deadlocked?" Keep it cheap and local</td></tr>
             <tr><td><b>startup</b></td><td>other probes wait until it passes</td><td>for apps that take a minute to boot</td></tr>
           </table>
-          <pre><code>readinessProbe:
+          <pre class="language-yaml"><code class="language-yaml">readinessProbe:
   httpGet: { path: /healthz/ready, port: 8000 }
   periodSeconds: 5</code></pre>
           <p>Classic mistake: a liveness probe that checks the database. When the database is slow, every pod restarts at once and turns a blip into an outage.</p>
         </template></div>
         <div class="term"><b>HPA</b><span>Horizontal Pod Autoscaler: adds or removes replicas based on CPU, memory or custom metrics.</span><template class="term-detail" data-see="vCPU, requests &amp; limits, Deployment">
-          <pre><code>kubectl autoscale deployment web --cpu-percent=70 --min=2 --max=10</code></pre>
+          <pre class="language-bash"><code class="language-bash">kubectl autoscale deployment web --cpu-percent=70 --min=2 --max=10</code></pre>
           <p>Every 15 s it computes <code>desired = ceil(current × actual / target)</code>. With 3 pods at 140% of their CPU <b>request</b> and a 70% target, it scales to 6.</p>
           <ul>
             <li>Needs metrics-server and CPU <b>requests</b> on the pods, since utilisation is measured against them.</li>
@@ -368,7 +372,7 @@ selector:
           </ul>
         </template></div>
         <div class="term"><b>Helm</b><span>The package manager for Kubernetes: templated YAML bundles ("charts") installed and upgraded as releases.</span><template class="term-detail" data-see="namespace, Deployment, ConfigMap &amp; Secret">
-          <pre><code>helm repo add bitnami https://charts.bitnami.com/bitnami
+          <pre class="language-bash"><code class="language-bash">helm repo add bitnami https://charts.bitnami.com/bitnami
 helm install cache bitnami/redis -n shop --set auth.enabled=true
 helm upgrade cache bitnami/redis -f values-prod.yaml
 helm rollback cache 1</code></pre>
@@ -382,14 +386,14 @@ helm rollback cache 1</code></pre>
       <h2>Essential commands &amp; syntax</h2>
       <div class="cmd-group">
         <h3>Setup &amp; context</h3>
-        <div class="cmd"><pre><code>kind create cluster --name dev</code></pre><div class="what">Local cluster running inside Docker containers (also: minikube, k3d, Docker Desktop's built-in Kubernetes).</div></div>
-        <div class="cmd"><pre><code>kubectl config get-contexts
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">kind create cluster --name dev</code></pre><div class="what">Local cluster running inside Docker containers (also: minikube, k3d, Docker Desktop's built-in Kubernetes).</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">kubectl config get-contexts
 kubectl config use-context dev</code></pre><div class="what">List clusters you can talk to and switch between them. Always check before running destructive commands.</div></div>
-        <div class="cmd"><pre><code>kubectl config set-context --current --namespace=shop</code></pre><div class="what">Default namespace for later commands, instead of typing <code>-n shop</code> each time.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">kubectl config set-context --current --namespace=shop</code></pre><div class="what">Default namespace for later commands, instead of typing <code>-n shop</code> each time.</div></div>
       </div>
       <div class="cmd-group">
         <h3>Deploy</h3>
-        <div class="cmd"><pre><code>apiVersion: apps/v1
+        <div class="cmd"><pre class="language-yaml line-numbers"><code class="language-yaml">apiVersion: apps/v1
 kind: Deployment
 metadata: { name: web }
 spec:
@@ -412,22 +416,22 @@ metadata: { name: web }
 spec:
   selector: { app: web }
   ports: [{ port: 80, targetPort: 8000 }]</code></pre><div class="what"><code>web.yaml</code>: a Deployment with resource requests plus a Service in front of it.</div></div>
-        <div class="cmd"><pre><code>kubectl apply -f web.yaml</code></pre><div class="what">Create or update objects to match the file. Safe to run repeatedly.</div></div>
-        <div class="cmd"><pre><code>kubectl set image deployment/web web=ghcr.io/acme/web:1.5
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">kubectl apply -f web.yaml</code></pre><div class="what">Create or update objects to match the file. Safe to run repeatedly.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">kubectl set image deployment/web web=ghcr.io/acme/web:1.5
 kubectl rollout status deployment/web
 kubectl rollout undo deployment/web</code></pre><div class="what">Roll out a new image, watch it, and roll back if something's wrong.</div></div>
-        <div class="cmd"><pre><code>kubectl scale deployment/web --replicas=5</code></pre><div class="what">Change the replica count by hand (an HPA would override it).</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">kubectl scale deployment/web --replicas=5</code></pre><div class="what">Change the replica count by hand (an HPA would override it).</div></div>
       </div>
       <div class="cmd-group">
         <h3>Inspect &amp; debug</h3>
-        <div class="cmd"><pre><code>kubectl get pods -o wide · kubectl get all -A</code></pre><div class="what">Pods with their node and IP; everything in every namespace.</div></div>
-        <div class="cmd"><pre><code>kubectl describe pod web-7d9f8c-x2k4q</code></pre><div class="what">Details and <b>Events</b> at the bottom: why it's Pending, failing probes, image pull errors.</div></div>
-        <div class="cmd"><pre><code>kubectl logs -f deploy/web --previous</code></pre><div class="what">Follow logs; <code>--previous</code> shows the crashed container's last run.</div></div>
-        <div class="cmd"><pre><code>kubectl exec -it deploy/web -- sh</code></pre><div class="what">Shell inside a running container.</div></div>
-        <div class="cmd"><pre><code>kubectl port-forward svc/web 8080:80</code></pre><div class="what">Reach a Service from your laptop at <code>localhost:8080</code>, no Ingress needed.</div></div>
-        <div class="cmd"><pre><code>kubectl get events --sort-by=.lastTimestamp
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">kubectl get pods -o wide · kubectl get all -A</code></pre><div class="what">Pods with their node and IP; everything in every namespace.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">kubectl describe pod web-7d9f8c-x2k4q</code></pre><div class="what">Details and <b>Events</b> at the bottom: why it's Pending, failing probes, image pull errors.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">kubectl logs -f deploy/web --previous</code></pre><div class="what">Follow logs; <code>--previous</code> shows the crashed container's last run.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">kubectl exec -it deploy/web -- sh</code></pre><div class="what">Shell inside a running container.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">kubectl port-forward svc/web 8080:80</code></pre><div class="what">Reach a Service from your laptop at <code>localhost:8080</code>, no Ingress needed.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">kubectl get events --sort-by=.lastTimestamp
 kubectl top pods</code></pre><div class="what">Recent cluster events in order; live CPU and memory usage (needs metrics-server).</div></div>
-        <div class="cmd"><pre><code>from kubernetes import client, config
+        <div class="cmd"><pre class="language-python"><code class="language-python">from kubernetes import client, config
 config.load_kube_config()
 for p in client.CoreV1Api().list_namespaced_pod("shop").items:
     print(p.metadata.name, p.status.phase)</code></pre><div class="what">Python client (<code>pip install kubernetes</code>), using the same kubeconfig as kubectl.</div></div>

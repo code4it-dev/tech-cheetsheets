@@ -12,6 +12,10 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="../assets/notebook.css">
 <script src="../assets/site.js" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
 </head>
 <body data-root="..">
 <div class="layout">
@@ -345,7 +349,7 @@
       <div class="terms">
         <div class="term"><b>orchestrator function</b><span>The workflow itself, written as sequential code. It decides what to call and in what order, and is replayed from the start every time it resumes.</span><template class="term-detail" data-see="determinism, replay, activity function, history">
 <p>An orchestrator is a function with a <code>TaskOrchestrationContext</code> (isolated worker) or <code>IDurableOrchestrationContext</code> (in-process). Everything it awaits must come from that context, because only context calls are recorded in the history.</p>
-<pre><code>[Function(nameof(ProcessOrder))]
+<pre class="language-csharp line-numbers"><code class="language-csharp">[Function(nameof(ProcessOrder))]
 public static async Task&lt;Receipt&gt; ProcessOrder(
     [OrchestrationTrigger] TaskOrchestrationContext ctx)
 {
@@ -369,7 +373,7 @@ public static async Task&lt;Receipt&gt; ProcessOrder(
         </template></div>
         <div class="term"><b>activity function</b><span>A single unit of real work: call an API, write to a database, send an email. Ordinary code, no determinism rules, executed at least once.</span><template class="term-detail" data-see="orchestrator function, retry policy, determinism">
 <p>Activities are where all the I/O lives. They receive one serializable input, return one serializable output, and know nothing about the workflow they belong to.</p>
-<pre><code>[Function("ChargeCard")]
+<pre class="language-csharp line-numbers"><code class="language-csharp">[Function("ChargeCard")]
 public static async Task&lt;PaymentResult&gt; ChargeCard(
     [ActivityTrigger] Order order, FunctionContext ctx)
 {
@@ -384,7 +388,7 @@ public static async Task&lt;PaymentResult&gt; ChargeCard(
         </template></div>
         <div class="term"><b>client function</b><span>Any ordinary function &mdash; HTTP, queue, timer &mdash; that starts, queries, terminates or raises events against orchestration instances.</span><template class="term-detail" data-see="instance id, status and management, external events">
 <p>The client is the only way in. It gets a <code>DurableTaskClient</code> through a binding and uses it to drive instances.</p>
-<pre><code>[Function("StartOrder")]
+<pre class="language-csharp line-numbers"><code class="language-csharp">[Function("StartOrder")]
 public static async Task&lt;HttpResponseData&gt; Start(
     [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequestData req,
     [DurableClient] DurableTaskClient client)
@@ -405,7 +409,7 @@ public static async Task&lt;HttpResponseData&gt; Start(
         </template></div>
         <div class="term"><b>entity function</b><span>A small, addressable piece of durable state &mdash; a counter, a cart, a device shadow &mdash; that processes operations one at a time per entity key.</span><template class="term-detail" data-see="orchestrator function, task hub">
 <p>Entities are the actor model inside Durable Functions. Each entity has an id (<code>"Counter@device-42"</code>), holds serializable state, and the runtime guarantees that its operations execute serially, so you never need a lock.</p>
-<pre><code>public class Counter : TaskEntity&lt;int&gt;
+<pre class="language-csharp line-numbers"><code class="language-csharp">public class Counter : TaskEntity&lt;int&gt;
 {
     public void Add(int amount) =&gt; State += amount;
     public int Get() =&gt; State;
@@ -448,7 +452,7 @@ public static async Task&lt;HttpResponseData&gt; Start(
         </template></div>
         <div class="term"><b>history</b><span>The append-only list of events for one instance: what was scheduled, what completed, what failed. It is the only state the workflow has.</span><template class="term-detail" data-see="replay, task hub, storage backend">
 <p>Event sourcing, applied to a function call stack. A completed two-activity orchestration looks like this:</p>
-<pre><code>1  OrchestratorStarted
+<pre class="language-none line-numbers"><code class="language-none">1  OrchestratorStarted
 2  ExecutionStarted        name=ProcessOrder  input={...}
 3  TaskScheduled           name=ChargeCard
 4  OrchestratorCompleted
@@ -478,7 +482,7 @@ public static async Task&lt;HttpResponseData&gt; Start(
         </template></div>
         <div class="term"><b>task hub</b><span>The named container for all the queues, tables and blobs an application uses. Two apps sharing a task hub will steal each other's work.</span><template class="term-detail" data-see="history, storage backend, instance id">
 <p>Configured in <code>host.json</code>, it namespaces everything in the backend:</p>
-<pre><code>{ "extensions": { "durableTask": { "hubName": "OrdersHubProd" } } }</code></pre>
+<pre class="language-json"><code class="language-json">{ "extensions": { "durableTask": { "hubName": "OrdersHubProd" } } }</code></pre>
 <table><tr><th>Situation</th><th>What to do</th></tr>
 <tr><td>Dev, test and prod sharing a storage account</td><td>a different <code>hubName</code> each &mdash; or, better, separate accounts</td></tr>
 <tr><td>Several developers running locally against one account</td><td><code>"hubName": "%UserName%Hub"</code> (the setting supports app-setting substitution)</td></tr>
@@ -488,7 +492,7 @@ public static async Task&lt;HttpResponseData&gt; Start(
         </template></div>
         <div class="term"><b>instance id</b><span>The unique key of one orchestration run. Supply your own to get deduplication for free.</span><template class="term-detail" data-see="client function, status and management, activity function">
 <p>By default it is a GUID. Pass your own and the task hub enforces uniqueness, which turns "start a workflow" into an idempotent operation:</p>
-<pre><code>// if order 10427 is already being processed, this throws instead of
+<pre class="language-csharp line-numbers"><code class="language-csharp">// if order 10427 is already being processed, this throws instead of
 // starting a second, parallel workflow for the same order
 await client.ScheduleNewOrchestrationInstanceAsync(
     nameof(ProcessOrder), order,
@@ -501,7 +505,7 @@ await client.ScheduleNewOrchestrationInstanceAsync(
         </template></div>
         <div class="term"><b>durable timers</b><span><code>ctx.CreateTimer()</code> instead of <code>Task.Delay</code>. The orchestrator unloads and is woken at the deadline &mdash; minutes, days or months later.</span><template class="term-detail" data-see="external events, replay, determinism">
 <p>A durable timer is a scheduled message, not a sleeping thread. Nothing is in memory while it waits, so a 30-day timer costs nothing but a row.</p>
-<pre><code>using var cts = new CancellationTokenSource();
+<pre class="language-csharp line-numbers"><code class="language-csharp">using var cts = new CancellationTokenSource();
 var approval = ctx.WaitForExternalEvent&lt;bool&gt;("Approved");
 var timeout  = ctx.CreateTimer(ctx.CurrentUtcDateTime.AddDays(3), cts.Token);
 
@@ -522,7 +526,7 @@ else
         </template></div>
         <div class="term"><b>external events</b><span><code>WaitForExternalEvent</code> parks the orchestration until something outside &mdash; a human, a webhook, another system &mdash; raises a named event.</span><template class="term-detail" data-see="durable timers, client function, instance id">
 <p>This is what makes human-in-the-loop workflows trivial. The orchestrator awaits a named event; any client raises it by instance id.</p>
-<pre><code>// in the orchestrator
+<pre class="language-csharp line-numbers"><code class="language-csharp">// in the orchestrator
 var decision = await ctx.WaitForExternalEvent&lt;ApprovalDecision&gt;("ApprovalReceived");
 
 // anywhere else, days later
@@ -536,7 +540,7 @@ await client.RaiseEventAsync(instanceId, "ApprovalReceived", new ApprovalDecisio
         </template></div>
         <div class="term"><b>fan-out / fan-in</b><span>Schedule many activities without awaiting, then <code>Task.WhenAll</code>. The platform parallelises across every available worker.</span><template class="term-detail" data-see="orchestrator function, sub-orchestration, retry policy">
 <p>The pattern Durable Functions makes almost free, and the main reason to pick it over a chain of queue-triggered functions.</p>
-<pre><code>var tasks = files.Select(f =&gt; ctx.CallActivityAsync&lt;long&gt;("ProcessFile", f)).ToList();
+<pre class="language-csharp"><code class="language-csharp">var tasks = files.Select(f =&gt; ctx.CallActivityAsync&lt;long&gt;("ProcessFile", f)).ToList();
 long[] sizes = await Task.WhenAll(tasks);
 await ctx.CallActivityAsync("WriteSummary", sizes.Sum());</code></pre>
 <table><tr><th>Scale</th><th>Guidance</th></tr>
@@ -547,7 +551,7 @@ await ctx.CallActivityAsync("WriteSummary", sizes.Sum());</code></pre>
         </template></div>
         <div class="term"><b>sub-orchestration</b><span>An orchestrator calling another orchestrator. The unit of composition, and the way to keep any single history small.</span><template class="term-detail" data-see="fan-out / fan-in, history, ContinueAsNew">
 <p>A sub-orchestration has its own instance, its own history and its own lifetime; the parent awaits it exactly like an activity.</p>
-<pre><code>var results = await Task.WhenAll(
+<pre class="language-csharp"><code class="language-csharp">var results = await Task.WhenAll(
     regions.Select(r =&gt; ctx.CallSubOrchestratorAsync&lt;RegionReport&gt;(
         nameof(ProcessRegion), input: r,
         options: new SubOrchestrationOptions { InstanceId = $"{ctx.InstanceId}:{r}" })));</code></pre>
@@ -560,7 +564,7 @@ await ctx.CallActivityAsync("WriteSummary", sizes.Sum());</code></pre>
         </template></div>
         <div class="term"><b>ContinueAsNew</b><span>Restart the orchestration with fresh input and an empty history. The only correct way to write an eternal or long-looping workflow.</span><template class="term-detail" data-see="history, replay, durable timers">
 <p>Because every replay re-reads the whole history, a loop that runs forever eventually makes replay unbearably slow and then fails outright. <code>ContinueAsNew</code> truncates it.</p>
-<pre><code>[Function(nameof(MonitorDevice))]
+<pre class="language-csharp line-numbers"><code class="language-csharp">[Function(nameof(MonitorDevice))]
 public static async Task MonitorDevice([OrchestrationTrigger] TaskOrchestrationContext ctx)
 {
     var state = ctx.GetInput&lt;MonitorState&gt;()!;
@@ -583,7 +587,7 @@ public static async Task MonitorDevice([OrchestrationTrigger] TaskOrchestrationC
         </template></div>
         <div class="term"><b>retry policy</b><span>Declarative retries on an activity or sub-orchestration call: attempts, delay, backoff, timeout. The orchestrator owns them, so they survive a crash.</span><template class="term-detail" data-see="activity function, sub-orchestration, durable timers">
 <p>Retries are recorded in the history, which means a retry schedule survives the worker that started it dying. That is the difference from an in-process retry library.</p>
-<pre><code>var options = TaskOptions.FromRetryPolicy(new RetryPolicy(
+<pre class="language-csharp line-numbers"><code class="language-csharp">var options = TaskOptions.FromRetryPolicy(new RetryPolicy(
     maxNumberOfAttempts: 5,
     firstRetryInterval: TimeSpan.FromSeconds(5),
     backoffCoefficient: 2.0,                        // 5s, 10s, 20s, 40s
@@ -641,12 +645,12 @@ await ctx.CallActivityAsync("CallPartnerApi", payload, options);</code></pre>
 
       <div class="cmd-group">
         <h3>Project setup (.NET isolated worker)</h3>
-        <div class="cmd"><pre><code>func init OrdersWorkflow --worker-runtime dotnet-isolated
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">func init OrdersWorkflow --worker-runtime dotnet-isolated
 cd OrdersWorkflow
 dotnet add package Microsoft.Azure.Functions.Worker.Extensions.DurableTask
 dotnet add package Microsoft.DurableTask.Analyzers</code></pre><div class="what">New Functions app with the Durable extension and the analyzers that catch non-determinism at build time.</div></div>
-        <div class="cmd"><pre><code>func start</code></pre><div class="what">Runs locally. With <code>"AzureWebJobsStorage": "UseDevelopmentStorage=true"</code> it uses Azurite for the task hub.</div></div>
-        <div class="cmd"><pre><code>{ "extensions": { "durableTask": {
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">func start</code></pre><div class="what">Runs locally. With <code>"AzureWebJobsStorage": "UseDevelopmentStorage=true"</code> it uses Azurite for the task hub.</div></div>
+        <div class="cmd"><pre class="language-json"><code class="language-json">{ "extensions": { "durableTask": {
     "hubName": "%TaskHubName%",
     "maxConcurrentActivityFunctions": 10,
     "maxConcurrentOrchestratorFunctions": 5 } } }</code></pre><div class="what"><code>host.json</code>: per-environment hub name, and the two concurrency knobs that matter most.</div></div>
@@ -654,27 +658,27 @@ dotnet add package Microsoft.DurableTask.Analyzers</code></pre><div class="what"
 
       <div class="cmd-group">
         <h3>The patterns, in C#</h3>
-        <div class="cmd"><pre><code>// function chaining
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">// function chaining
 var a = await ctx.CallActivityAsync&lt;string&gt;("StepOne", input);
 var b = await ctx.CallActivityAsync&lt;string&gt;("StepTwo", a);
 return await ctx.CallActivityAsync&lt;string&gt;("StepThree", b);</code></pre><div class="what">Sequential steps where each depends on the previous result.</div></div>
-        <div class="cmd"><pre><code>// fan-out / fan-in
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">// fan-out / fan-in
 var tasks = items.Select(i =&gt; ctx.CallActivityAsync&lt;long&gt;("Process", i)).ToList();
 var results = await Task.WhenAll(tasks);</code></pre><div class="what">Parallel work across every available worker, then aggregation.</div></div>
-        <div class="cmd"><pre><code>// human interaction with a deadline
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// human interaction with a deadline
 using var cts = new CancellationTokenSource();
 var approval = ctx.WaitForExternalEvent&lt;bool&gt;("Approved");
 var timeout  = ctx.CreateTimer(ctx.CurrentUtcDateTime.AddDays(3), cts.Token);
 if (approval == await Task.WhenAny(approval, timeout)) { cts.Cancel(); /* ... */ }</code></pre><div class="what">Waits up to three days for an approval, escalating on timeout. Cancel the loser.</div></div>
-        <div class="cmd"><pre><code>// saga: compensate on failure
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">// saga: compensate on failure
 try { await ctx.CallActivityAsync("ReserveStock", o); await ctx.CallActivityAsync("ChargeCard", o); }
 catch (TaskFailedException) { await ctx.CallActivityAsync("ReleaseStock", o); throw; }</code></pre><div class="what">Compensation is just a catch block, replayed as durably as the forward path.</div></div>
-        <div class="cmd"><pre><code>ctx.SetCustomStatus(new { step = "awaiting-approval", since = ctx.CurrentUtcDateTime });</code></pre><div class="what">Attaches progress to the instance so a status query shows something meaningful.</div></div>
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">ctx.SetCustomStatus(new { step = "awaiting-approval", since = ctx.CurrentUtcDateTime });</code></pre><div class="what">Attaches progress to the instance so a status query shows something meaningful.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>Python</h3>
-        <div class="cmd"><pre><code>import azure.durable_functions as df
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">import azure.durable_functions as df
 
 def orchestrator(context: df.DurableOrchestrationContext):
     order = context.get_input()
@@ -683,18 +687,18 @@ def orchestrator(context: df.DurableOrchestrationContext):
     return {"payment": payment, "tracking": tracking}
 
 main = df.Orchestrator.create(orchestrator)</code></pre><div class="what">Same model with generators: every <code>yield</code> is a durable await, and the function is replayed identically.</div></div>
-        <div class="cmd"><pre><code>tasks = [context.call_activity("Process", i) for i in items]
+        <div class="cmd"><pre class="language-python"><code class="language-python">tasks = [context.call_activity("Process", i) for i in items]
 results = yield context.task_all(tasks)</code></pre><div class="what">Fan-out / fan-in in Python: <code>task_all</code> and <code>task_any</code> replace <code>WhenAll</code> and <code>WhenAny</code>.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>Operating instances (HTTP management API)</h3>
-        <div class="cmd"><pre><code>curl -s "$BASE/runtime/webhooks/durabletask/instances/order-10427?code=$KEY&amp;showHistory=true"</code></pre><div class="what">Full status plus the event history &mdash; the first thing to look at when a workflow misbehaves.</div></div>
-        <div class="cmd"><pre><code>curl -X POST "$BASE/runtime/webhooks/durabletask/instances/order-10427/raiseEvent/Approved?code=$KEY" \
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">curl -s "$BASE/runtime/webhooks/durabletask/instances/order-10427?code=$KEY&amp;showHistory=true"</code></pre><div class="what">Full status plus the event history &mdash; the first thing to look at when a workflow misbehaves.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">curl -X POST "$BASE/runtime/webhooks/durabletask/instances/order-10427/raiseEvent/Approved?code=$KEY" \
   -H "Content-Type: application/json" -d 'true'</code></pre><div class="what">Delivers an external event to a parked orchestration.</div></div>
-        <div class="cmd"><pre><code>curl -X POST ".../instances/order-10427/terminate?reason=duplicate&amp;code=$KEY"
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">curl -X POST ".../instances/order-10427/terminate?reason=duplicate&amp;code=$KEY"
 curl -X POST ".../instances/order-10427/suspend?reason=upstream-outage&amp;code=$KEY"</code></pre><div class="what">Terminate kills the instance; suspend pauses it so you can resume once a dependency recovers.</div></div>
-        <div class="cmd"><pre><code>curl -X DELETE ".../instances?createdTimeTo=2026-09-01T00:00:00Z&amp;runtimeStatus=Completed&amp;code=$KEY"</code></pre><div class="what">Purges old completed instances. Schedule this &mdash; history is kept forever otherwise.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">curl -X DELETE ".../instances?createdTimeTo=2026-09-01T00:00:00Z&amp;runtimeStatus=Completed&amp;code=$KEY"</code></pre><div class="what">Purges old completed instances. Schedule this &mdash; history is kept forever otherwise.</div></div>
       </div>
     </section>
 

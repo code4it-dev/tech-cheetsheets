@@ -12,6 +12,10 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="../assets/notebook.css">
 <script src="../assets/site.js" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
 </head>
 <body data-root="..">
 <div class="layout">
@@ -391,7 +395,7 @@
         </template></div>
         <div class="term"><b>cache-aside</b><span>Also "lazy loading". Your code checks the cache, and on a miss reads the source and populates the cache itself. The cache knows nothing about the database.</span><template class="term-detail" data-see="read-through, invalidation, TTL, cache stampede">
 <p>The default pattern, and the one in almost every codebase. The application owns the whole flow:</p>
-<pre><code>var cached = await cache.GetAsync(key);
+<pre class="language-csharp line-numbers"><code class="language-csharp">var cached = await cache.GetAsync(key);
 if (cached is not null) return cached;          // hit
 
 var value = await db.LoadProductAsync(42);      // miss: go to the source
@@ -407,7 +411,7 @@ return value;</code></pre>
         </template></div>
         <div class="term"><b>read-through</b><span>The cache sits in front of the source and loads missing entries itself. Your code only ever talks to the cache.</span><template class="term-detail" data-see="cache-aside, refresh-ahead, write-through">
 <p>Same read path as cache-aside, but the "go and fetch it" logic lives in the cache library rather than in each call site. In .NET, <code>HybridCache.GetOrCreateAsync</code> is exactly this.</p>
-<pre><code>// the factory is only invoked on a miss, and only once per key
+<pre class="language-csharp line-numbers"><code class="language-csharp">// the factory is only invoked on a miss, and only once per key
 var product = await hybridCache.GetOrCreateAsync(
     $"product:{id}",
     async ct =&gt; await db.LoadProductAsync(id, ct),
@@ -439,7 +443,7 @@ var product = await hybridCache.GetOrCreateAsync(
         </template></div>
         <div class="term"><b>write-around</b><span>Writes go straight to the source and simply invalidate (or skip) the cache. The entry is only populated when somebody actually reads it.</span><template class="term-detail" data-see="write-through, cache-aside, invalidation">
 <p>The quiet default for cache-aside systems: on a write, <code>DELETE</code> the key rather than updating it, and let the next reader repopulate.</p>
-<pre><code>await db.UpdatePriceAsync(42, 79);
+<pre class="language-csharp"><code class="language-csharp">await db.UpdatePriceAsync(42, 79);
 await cache.RemoveAsync("product:42");   // not Set &mdash; see the invalidation race</code></pre>
 <table><tr><th>Compared to</th><th>Difference</th></tr>
 <tr><td>write-through</td><td>does not pollute the cache with write-only data; first read after a write is a miss</td></tr>
@@ -448,7 +452,7 @@ await cache.RemoveAsync("product:42");   // not Set &mdash; see the invalidation
         </template></div>
         <div class="term"><b>refresh-ahead</b><span>Refresh popular entries <i>before</i> they expire, in the background, so that no user request ever pays for a miss.</span><template class="term-detail" data-see="stale-while-revalidate, cache stampede, TTL">
 <p>Two flavours. <b>Proactive</b>: a scheduled job recomputes a known set of hot keys on a timer. <b>Probabilistic</b>: on each read, refresh early with a probability that rises as the entry nears expiry &mdash; the "XFetch" trick.</p>
-<pre><code># refresh early, with increasing probability as the TTL runs out
+<pre class="language-python"><code class="language-python"># refresh early, with increasing probability as the TTL runs out
 if now - delta * beta * log(random()) &gt;= expiry:
     refresh_in_background(key)
 return cached_value</code></pre>
@@ -526,7 +530,7 @@ return cached_value</code></pre>
         </template></div>
         <div class="term"><b>stale-while-revalidate</b><span>Serve the expired value immediately and refresh it in the background. Latency stays flat; the price is a bounded window of known staleness.</span><template class="term-detail" data-see="cache stampede, refresh-ahead, TTL">
 <p>An entry gets two lifetimes: <i>fresh</i> (serve without thinking) and <i>stale but usable</i> (serve, then refresh behind the scenes). It is the single most effective trick for keeping p99 latency flat.</p>
-<pre><code>Cache-Control: max-age=60, stale-while-revalidate=300, stale-if-error=86400</code></pre>
+<pre class="language-none"><code class="language-none">Cache-Control: max-age=60, stale-while-revalidate=300, stale-if-error=86400</code></pre>
 <table><tr><th>Directive</th><th>Means</th></tr>
 <tr><td><code>max-age=60</code></td><td>fresh for 60 s</td></tr>
 <tr><td><code>stale-while-revalidate=300</code></td><td>for the next 300 s, serve the old copy and refresh in the background</td></tr>
@@ -578,7 +582,7 @@ return cached_value</code></pre>
         </template></div>
         <div class="term"><b>HTTP caching</b><span>The cache you get for free: <code>Cache-Control</code>, <code>ETag</code> and conditional requests, honoured by browsers, proxies and CDNs without any code.</span><template class="term-detail" data-see="stale-while-revalidate, TTL, cache hierarchy">
 <p>Before adding a cache inside your application, check whether the response could simply be cacheable. The cheapest request is the one that never reaches your server.</p>
-<pre><code>Cache-Control: public, max-age=300, stale-while-revalidate=600
+<pre class="language-yaml"><code class="language-yaml">Cache-Control: public, max-age=300, stale-while-revalidate=600
 ETag: "a3f9c1"
 Vary: Accept-Encoding, Accept-Language</code></pre>
 <table><tr><th>Directive</th><th>Effect</th></tr>
@@ -599,7 +603,7 @@ Vary: Accept-Encoding, Accept-Language</code></pre>
 
       <div class="cmd-group">
         <h3>.NET &mdash; HybridCache (read-through, two tiers, stampede-safe)</h3>
-        <div class="cmd"><pre><code>builder.Services.AddStackExchangeRedisCache(o =&gt; o.Configuration = conn);
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">builder.Services.AddStackExchangeRedisCache(o =&gt; o.Configuration = conn);
 builder.Services.AddHybridCache(o =&gt;
 {
     o.DefaultEntryOptions = new HybridCacheEntryOptions
@@ -608,55 +612,55 @@ builder.Services.AddHybridCache(o =&gt;
         LocalCacheExpiration = TimeSpan.FromSeconds(20)  // in-process (L1)
     };
 });</code></pre><div class="what">Registers the L1 + L2 cache. L1 keeps a short TTL because it cannot be invalidated reliably.</div></div>
-        <div class="cmd"><pre><code>var product = await cache.GetOrCreateAsync(
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">var product = await cache.GetOrCreateAsync(
     $"product:{id}:v3",
     async ct =&gt; await db.LoadProductAsync(id, ct),
     tags: [$"product:{id}"], cancellationToken: ct);</code></pre><div class="what">Read-through with built-in single-flight: 500 concurrent callers run the factory once.</div></div>
-        <div class="cmd"><pre><code>await cache.RemoveByTagAsync($"product:{id}");</code></pre><div class="what">Tag invalidation: drops every cached view derived from that product, across both tiers.</div></div>
-        <div class="cmd"><pre><code>await cache.SetAsync(key, value, new HybridCacheEntryOptions
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">await cache.RemoveByTagAsync($"product:{id}");</code></pre><div class="what">Tag invalidation: drops every cached view derived from that product, across both tiers.</div></div>
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">await cache.SetAsync(key, value, new HybridCacheEntryOptions
     { Expiration = TimeSpan.FromMinutes(5), Flags = HybridCacheEntryFlags.DisableLocalCache });</code></pre><div class="what">Writes to the distributed tier only &mdash; for values that must not linger in a process-local copy.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>.NET &mdash; the lower-level pieces</h3>
-        <div class="cmd"><pre><code>services.AddMemoryCache();
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">services.AddMemoryCache();
 cache.Set("flags", value, new MemoryCacheEntryOptions
 {
     AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(30),
     Size = 1
 });</code></pre><div class="what">In-process only. Set <code>SizeLimit</code> on the cache and <code>Size</code> per entry, or it grows until the process dies.</div></div>
-        <div class="cmd"><pre><code>await distributed.SetStringAsync(key, json, new DistributedCacheEntryOptions
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">await distributed.SetStringAsync(key, json, new DistributedCacheEntryOptions
 {
     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
     SlidingExpiration = TimeSpan.FromMinutes(1)
 });</code></pre><div class="what">Classic cache-aside against Redis. No stampede protection &mdash; you add that yourself.</div></div>
-        <div class="cmd"><pre><code>app.UseOutputCache();
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">app.UseOutputCache();
 app.MapGet("/products", Handler).CacheOutput(p =&gt; p.Expire(TimeSpan.FromSeconds(30)).Tag("products"));
 // later:  await outputCacheStore.EvictByTagAsync("products", ct);</code></pre><div class="what">Caches the whole rendered response server-side, with tag-based eviction.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>Redis &mdash; the cache primitives</h3>
-        <div class="cmd"><pre><code>SET product:42 "{...}" EX 300</code></pre><div class="what">Store with a 5-minute TTL. Add jitter to <code>300</code> so sibling keys do not expire together.</div></div>
-        <div class="cmd"><pre><code>SET lock:product:42 1 NX EX 10</code></pre><div class="what">Single-flight lock: only the first caller gets <code>OK</code> and rebuilds; the rest wait or serve stale.</div></div>
-        <div class="cmd"><pre><code>GET product:42
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">SET product:42 "{...}" EX 300</code></pre><div class="what">Store with a 5-minute TTL. Add jitter to <code>300</code> so sibling keys do not expire together.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">SET lock:product:42 1 NX EX 10</code></pre><div class="what">Single-flight lock: only the first caller gets <code>OK</code> and rebuilds; the rest wait or serve stale.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">GET product:42
 TTL product:42
 DEL product:42</code></pre><div class="what">Read, check the remaining life, invalidate. <code>DEL</code> on write, never <code>SET</code>.</div></div>
-        <div class="cmd"><pre><code>CONFIG SET maxmemory 4gb
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">CONFIG SET maxmemory 4gb
 CONFIG SET maxmemory-policy allkeys-lru</code></pre><div class="what">Cap the memory and choose what gets evicted. A pure cache wants <code>allkeys-lru</code> or <code>allkeys-lfu</code>.</div></div>
-        <div class="cmd"><pre><code>INFO stats | grep -E "keyspace_hits|keyspace_misses|evicted_keys"</code></pre><div class="what">The three numbers that tell you whether the cache is working, too small, or pointless.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">INFO stats | grep -E "keyspace_hits|keyspace_misses|evicted_keys"</code></pre><div class="what">The three numbers that tell you whether the cache is working, too small, or pointless.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>HTTP and CDN</h3>
-        <div class="cmd"><pre><code>Cache-Control: public, max-age=60, stale-while-revalidate=600, stale-if-error=86400</code></pre><div class="what">Fresh for a minute, served stale while refreshing for ten, and kept alive for a day if the origin is down.</div></div>
-        <div class="cmd"><pre><code>Cache-Control: private, no-store</code></pre><div class="what">The correct header for anything personal. <code>no-cache</code> is not this.</div></div>
-        <div class="cmd"><pre><code>curl -sI https://example.com/api/products | grep -iE "cache-control|age|etag|x-cache"</code></pre><div class="what">Checks what is actually being sent and whether the CDN reports a hit. <code>Age</code> tells you how long it has been cached.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">Cache-Control: public, max-age=60, stale-while-revalidate=600, stale-if-error=86400</code></pre><div class="what">Fresh for a minute, served stale while refreshing for ten, and kept alive for a day if the origin is down.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">Cache-Control: private, no-store</code></pre><div class="what">The correct header for anything personal. <code>no-cache</code> is not this.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">curl -sI https://example.com/api/products | grep -iE "cache-control|age|etag|x-cache"</code></pre><div class="what">Checks what is actually being sent and whether the CDN reports a hit. <code>Age</code> tells you how long it has been cached.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>Python &mdash; cache-aside with stampede protection</h3>
-        <div class="cmd"><pre><code>import json, random, redis
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">import json, random, redis
 r = redis.Redis()
 
 def get_product(pid, ttl=300):

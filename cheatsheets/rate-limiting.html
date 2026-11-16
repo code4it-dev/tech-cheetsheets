@@ -12,6 +12,10 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="../assets/notebook.css">
 <script src="../assets/site.js" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
 </head>
 <body data-root="..">
 <div class="layout">
@@ -359,7 +363,7 @@
         </template></div>
         <div class="term"><b>fixed window counter</b><span>One counter per clock period: <code>INCR</code> a key named after the current minute, reject above the limit, let it expire. The cheapest correct-ish option.</span><template class="term-detail" data-see="sliding window counter, sliding window log, limit and window">
 <p>Two operations per request and one key per active caller per period. The key name <i>is</i> the window, so expiry does the cleanup for you.</p>
-<pre><code>key = f"rl:{user}:{int(time.time() // 60)}"
+<pre class="language-none"><code class="language-none">key = f"rl:{user}:{int(time.time() // 60)}"
 n = r.incr(key)
 if n == 1: r.expire(key, 120)
 allowed = n &lt;= limit</code></pre>
@@ -374,7 +378,7 @@ allowed = n &lt;= limit</code></pre>
         </template></div>
         <div class="term"><b>sliding window log</b><span>Store the timestamp of every request, drop the ones older than the window, count what is left. Exact, and the most expensive.</span><template class="term-detail" data-see="sliding window counter, fixed window counter, distributed counters">
 <p>Keep a sorted set per caller, scored by timestamp. On each request: remove entries older than <code>now &minus; window</code>, count, add the new entry if under the limit.</p>
-<pre><code>ZREMRANGEBYSCORE rl:acme 0 (now-60000)
+<pre class="language-bash"><code class="language-bash">ZREMRANGEBYSCORE rl:acme 0 (now-60000)
 ZCARD rl:acme                    -- how many in the last 60 s
 ZADD rl:acme now now:req-id      -- only if under the limit
 EXPIRE rl:acme 60</code></pre>
@@ -387,7 +391,7 @@ EXPIRE rl:acme 60</code></pre>
         </template></div>
         <div class="term"><b>sliding window counter</b><span>Two fixed windows, weighted: <code>prev x overlap + current</code>. Nearly as accurate as the log, at the cost of a fixed window.</span><template class="term-detail" data-see="fixed window counter, sliding window log">
 <p>Keep the current window's counter and the previous one's. Estimate the count over the trailing window by assuming the previous window's requests were spread evenly through it.</p>
-<pre><code>elapsed = now % 60                       # seconds into the current minute
+<pre class="language-none"><code class="language-none">elapsed = now % 60                       # seconds into the current minute
 overlap = (60 - elapsed) / 60            # how much of prev is still in range
 estimate = prev * overlap + current
 allowed  = estimate &lt; limit</code></pre>
@@ -417,7 +421,7 @@ allowed  = estimate &lt; limit</code></pre>
         </template></div>
         <div class="term"><b>GCRA</b><span>Generic Cell Rate Algorithm: a leaky bucket stored as a single timestamp, the "theoretical arrival time". One field, exact, no boundary burst.</span><template class="term-detail" data-see="token bucket, leaky bucket, distributed counters">
 <p>Borrowed from ATM networking. Instead of a level that decays, store the <b>theoretical arrival time</b> (TAT) of the next permitted request. With an emission interval <code>T = period / limit</code> and a burst tolerance <code>tau = (burst &minus; 1) x T</code>:</p>
-<pre><code>if now &lt; tat - tau:      reject, retry after (tat - tau) - now
+<pre class="language-none"><code class="language-none">if now &lt; tat - tau:      reject, retry after (tat - tau) - now
 else:                    tat = max(now, tat) + T ; allow</code></pre>
 <h4>Why it is nice</h4>
 <ul><li>One value per key instead of a counter plus a timestamp: a single <code>GET</code>/<code>SET</code>, trivially atomic.</li>
@@ -438,7 +442,7 @@ else:                    tat = max(now, tat) + T ; allow</code></pre>
         </template></div>
         <div class="term"><b>429 and Retry-After</b><span>The HTTP contract: status <code>429</code>, a <code>Retry-After</code> header in seconds, and <code>RateLimit-*</code> headers so clients can self-regulate before being rejected.</span><template class="term-detail" data-see="jitter, limit and window">
 <p>A rejection that does not say when to come back forces clients to guess, and they guess badly. The IETF <code>RateLimit</code> header fields give a standard shape:</p>
-<pre><code>HTTP/1.1 429 Too Many Requests
+<pre class="language-yaml line-numbers"><code class="language-yaml">HTTP/1.1 429 Too Many Requests
 Retry-After: 7
 RateLimit-Limit: 100
 RateLimit-Remaining: 0
@@ -451,7 +455,7 @@ RateLimit-Reset: 7</code></pre>
         </template></div>
         <div class="term"><b>distributed counters</b><span>With <i>n</i> instances behind a load balancer the counter must be shared and the check must be atomic, usually one Redis round trip running a Lua script.</span><template class="term-detail" data-see="local vs centralized, quota key, fixed window counter">
 <p>Read-then-write across the network is a race: two instances both read 99, both allow, and a limit of 100 passes 101. The check and the increment must be one operation.</p>
-<pre><code>-- token bucket, atomic, one round trip
+<pre class="language-lua line-numbers"><code class="language-lua">-- token bucket, atomic, one round trip
 local t   = redis.call('HMGET', KEYS[1], 'tokens', 'ts')
 local now, rate, cap = tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3])
 local tokens = math.min(cap, (tonumber(t[1]) or cap) + (now - (tonumber(t[2]) or now)) * rate)
@@ -520,7 +524,7 @@ return {1, 0}</code></pre>
         </template></div>
         <div class="term"><b>jitter</b><span>Randomness added to retry delays and to window or cache expiry so that clients do not all come back at the same instant.</span><template class="term-detail" data-see="429 and Retry-After, fixed window counter, burst">
 <p>Without jitter, a limiter <i>creates</i> the herd it is meant to prevent: every rejected client is told the same reset time, sleeps the same number of seconds, and returns in the same millisecond.</p>
-<pre><code>// exponential backoff with full jitter
+<pre class="language-none"><code class="language-none">// exponential backoff with full jitter
 delay = random(0, min(cap, base * 2 ** attempt))</code></pre>
 <table><tr><th>Strategy</th><th>Spread</th><th>Verdict</th></tr>
 <tr><td>Fixed delay</td><td>none</td><td>synchronises the herd</td></tr>
@@ -537,7 +541,7 @@ delay = random(0, min(cap, base * 2 ** attempt))</code></pre>
 
       <div class="cmd-group">
         <h3>ASP.NET Core (built-in middleware)</h3>
-        <div class="cmd"><pre><code>builder.Services.AddRateLimiter(o =&gt;
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">builder.Services.AddRateLimiter(o =&gt;
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     o.AddFixedWindowLimiter("fixed", opt =&gt;
@@ -548,20 +552,20 @@ delay = random(0, min(cap, base * 2 ** attempt))</code></pre>
     });
 });
 app.UseRateLimiter();</code></pre><div class="what">A fixed-window limiter named <code>fixed</code> that rejects instead of queueing.</div></div>
-        <div class="cmd"><pre><code>o.AddTokenBucketLimiter("burst", opt =&gt;
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">o.AddTokenBucketLimiter("burst", opt =&gt;
 {
     opt.TokenLimit = 20;                               // burst capacity
     opt.TokensPerPeriod = 5;                           // sustained rate
     opt.ReplenishmentPeriod = TimeSpan.FromSeconds(1);
     opt.AutoReplenishment = true;
 });</code></pre><div class="what">Token bucket: 5 requests/second sustained, up to 20 in a burst.</div></div>
-        <div class="cmd"><pre><code>o.AddPolicy("per-tenant", ctx =&gt; RateLimitPartition.GetSlidingWindowLimiter(
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">o.AddPolicy("per-tenant", ctx =&gt; RateLimitPartition.GetSlidingWindowLimiter(
     partitionKey: ctx.User.FindFirst("tenant")?.Value
                   ?? ctx.Connection.RemoteIpAddress!.ToString(),
     _ =&gt; new SlidingWindowRateLimiterOptions
          { PermitLimit = 600, Window = TimeSpan.FromMinutes(1), SegmentsPerWindow = 6 }));</code></pre><div class="what">A sliding window partitioned per tenant, falling back to the caller's IP.</div></div>
-        <div class="cmd"><pre><code>app.MapGet("/reports/{id}", Handler).RequireRateLimiting("per-tenant");</code></pre><div class="what">Applies a named policy to one endpoint; <code>[EnableRateLimiting]</code> does the same on controllers.</div></div>
-        <div class="cmd"><pre><code>o.OnRejected = async (ctx, _) =&gt;
+        <div class="cmd"><pre class="language-csharp"><code class="language-csharp">app.MapGet("/reports/{id}", Handler).RequireRateLimiting("per-tenant");</code></pre><div class="what">Applies a named policy to one endpoint; <code>[EnableRateLimiting]</code> does the same on controllers.</div></div>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">o.OnRejected = async (ctx, _) =&gt;
 {
     if (ctx.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retry))
         ctx.HttpContext.Response.Headers.RetryAfter = ((int)retry.TotalSeconds).ToString();
@@ -570,34 +574,34 @@ app.UseRateLimiter();</code></pre><div class="what">A fixed-window limiter named
 
       <div class="cmd-group">
         <h3>Redis (shared counters across instances)</h3>
-        <div class="cmd"><pre><code>INCR rl:acme:202611101005
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">INCR rl:acme:202611101005
 EXPIRE rl:acme:202611101005 120 NX</code></pre><div class="what">Fixed window: one counter per minute, self-cleaning. <code>NX</code> keeps the first TTL.</div></div>
-        <div class="cmd"><pre><code>ZREMRANGEBYSCORE rl:acme 0 1762770000000
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">ZREMRANGEBYSCORE rl:acme 0 1762770000000
 ZCARD rl:acme
 ZADD rl:acme 1762770060000 1762770060000-7f3a</code></pre><div class="what">Sliding window log: trim, count, record. Wrap it in a Lua script to make it atomic.</div></div>
-        <div class="cmd"><pre><code>CL.THROTTLE rl:acme 15 30 60 1
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">CL.THROTTLE rl:acme 15 30 60 1
 # -&gt; 0 16 30 -1 2   (allowed, remaining, limit, retry_after, reset_after)</code></pre><div class="what">GCRA in one command via the <code>redis-cell</code> module: burst 15, 30 per 60 s.</div></div>
-        <div class="cmd"><pre><code>EVALSHA $sha 1 rl:acme $(date +%s) 5 20</code></pre><div class="what">Runs the token-bucket Lua script atomically: one round trip, no race.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash">EVALSHA $sha 1 rl:acme $(date +%s) 5 20</code></pre><div class="what">Runs the token-bucket Lua script atomically: one round trip, no race.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>Edge and proxy</h3>
-        <div class="cmd"><pre><code>limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+        <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
 server {
   location /api/ {
     limit_req zone=api burst=20 nodelay;
     limit_req_status 429;
   }
 }</code></pre><div class="what">nginx leaky bucket: 10 r/s per IP, 20 burst served immediately with <code>nodelay</code>. A 10 MB zone holds roughly 160k addresses.</div></div>
-        <div class="cmd"><pre><code>limit_req zone=api burst=20;      # without nodelay</code></pre><div class="what">Same limit, but the burst is <em>queued</em> and released at 10 r/s: the shaping form of a leaky bucket.</div></div>
-        <div class="cmd"><pre><code>&lt;rate-limit-by-key calls="600" renewal-period="60"
+        <div class="cmd"><pre class="language-none"><code class="language-none">limit_req zone=api burst=20;      # without nodelay</code></pre><div class="what">Same limit, but the burst is <em>queued</em> and released at 10 r/s: the shaping form of a leaky bucket.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">&lt;rate-limit-by-key calls="600" renewal-period="60"
     counter-key="@(context.Subscription.Id)"
     remaining-calls-header-name="RateLimit-Remaining" /&gt;</code></pre><div class="what">An Azure API Management policy: a per-subscription limit enforced before your code runs.</div></div>
       </div>
 
       <div class="cmd-group">
         <h3>Python, client side (living with someone else's limit)</h3>
-        <div class="cmd"><pre><code>import random, time, httpx
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">import random, time, httpx
 
 def call(url, attempt=0):
     r = httpx.get(url)
@@ -606,7 +610,7 @@ def call(url, attempt=0):
         time.sleep(random.uniform(0, wait))      # full jitter
         return call(url, attempt + 1)
     return r</code></pre><div class="what">Honours <code>Retry-After</code>, falls back to exponential backoff, jitters so retries never synchronise, and gives up.</div></div>
-        <div class="cmd"><pre><code>r.headers["RateLimit-Remaining"]   # slow down before you are rejected</code></pre><div class="what">Read the budget on successful responses: the cheapest way to never see a 429.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">r.headers["RateLimit-Remaining"]   # slow down before you are rejected</code></pre><div class="what">Read the budget on successful responses: the cheapest way to never see a 429.</div></div>
       </div>
     </section>
 
