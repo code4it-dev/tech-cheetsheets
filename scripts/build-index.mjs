@@ -69,10 +69,14 @@ function detectLang(raw) {
   if (/\[[^\]]*\bfor\s+\w+\s+in\s+[^\]]*\]/.test(s)) return 'python';
   if (/^\s*(for|if|while|with)\b.*:\s*$/m.test(s) && !/[;{]\s*$/m.test(s)) return 'python';
   if (/;/.test(s) && /(\bawait\b|\bvar\s|=>|\bnew\s*[\w({]|\busing\s+\w|\bpublic\b|\basync\b|\b(builder|services|app)\.[A-Z])/.test(s)) return 'csharp';
+  // PromQL before bash: these often open with a '#' comment, which looks like shell
+  if (/\b(sum|rate|irate|increase|avg_over_time|histogram_quantile)\s*\(/.test(s) && /\[\d+[smhdwy]\]/.test(s)) return 'promql';
   if (new RegExp(`^(\\$|#\\s|${SHELL})\\b`).test(first) || new RegExp(`^\\s*(${SHELL})\\s`, 'm').test(s)) return 'bash';
   if (/^\s*(SET|GET|DEL|INCR|EXPIRE|TTL|ZADD|ZCARD|ZREMRANGEBYSCORE|CONFIG|INFO|EVALSHA|CL\.THROTTLE|PERSIST|DBSIZE)\b/m.test(s)) return 'bash';
-  if ((s.match(/^\s*[\w.-]+\s*:(\s|$)/gm) || []).length >= 2 && !/;/.test(s) && !/^\s*</.test(first)
-      && !/\b(function|return|await|var)\b/.test(s)) return 'yaml';
+  // YAML: several key: lines. A spaced ' = ' means it is prose arithmetic, not YAML
+  // (compose env vars are FOO=bar, unspaced, so they still pass).
+  if ((s.match(/^\s*[\w.-]+\s*:(\s|$)/gm) || []).length >= 2 && !/;/.test(s) && !/\s=\s/.test(s)
+      && !/^\s*</.test(first) && !/\b(function|return|await|var)\b/.test(s)) return 'yaml';
   return null;   // formulas, header lines, directory trees, sample output: leave them plain
 }
 

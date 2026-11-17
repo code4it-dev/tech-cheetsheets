@@ -336,7 +336,7 @@ le="+Inf"  100000</code></pre>
 <tr><td>True fleet p99</td><td>1,000,000</td><td>~55 ms</td></tr></table>
 <p>The average suggests the whole fleet is catastrophically slow; the truth is that 1% of traffic is. Reverse the request counts and the average is equally wrong in the other direction.</p>
 <p>The fix is always the same: aggregate the <b>raw distributions</b> &mdash; sum the histogram buckets, merge the sketches &mdash; and compute the percentile once over the total.</p>
-<pre class="language-bash line-numbers"><code class="language-bash"># right: sum the buckets, then take the quantile
+<pre class="language-promql line-numbers"><code class="language-promql"># right: sum the buckets, then take the quantile
 histogram_quantile(0.99, sum by (le) (rate(http_duration_seconds_bucket[5m])))
 
 # wrong: a quantile per instance, then averaged
@@ -473,9 +473,9 @@ measured at the gateway, over a rolling 28-day window.</code></pre>
 
       <div class="cmd-group">
         <h3>Prometheus / PromQL</h3>
-        <div class="cmd"><pre class="language-none"><code class="language-none">histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))</code></pre><div class="what">The correct fleet-wide p99: sum the buckets across instances <em>first</em>, then take the quantile.</div></div>
-        <div class="cmd"><pre class="language-none"><code class="language-none">histogram_quantile(0.99, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m])))</code></pre><div class="what">p99 per route. Keep <code>le</code> in the <code>by</code> clause or the query silently returns nothing useful.</div></div>
-        <div class="cmd"><pre class="language-none"><code class="language-none">sum(rate(http_request_duration_seconds_bucket{le="0.3"}[28d]))
+        <div class="cmd"><pre class="language-promql"><code class="language-promql">histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))</code></pre><div class="what">The correct fleet-wide p99: sum the buckets across instances <em>first</em>, then take the quantile.</div></div>
+        <div class="cmd"><pre class="language-promql"><code class="language-promql">histogram_quantile(0.99, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m])))</code></pre><div class="what">p99 per route. Keep <code>le</code> in the <code>by</code> clause or the query silently returns nothing useful.</div></div>
+        <div class="cmd"><pre class="language-promql"><code class="language-promql">sum(rate(http_request_duration_seconds_bucket{le="0.3"}[28d]))
   / sum(rate(http_request_duration_seconds_count[28d]))</code></pre><div class="what">Threshold SLO: the fraction of requests under 300 ms. Easier to alert on than a percentile value.</div></div>
         <div class="cmd"><pre class="language-bash"><code class="language-bash"># in the exporter: buckets around the SLO, not the defaults
 buckets = [.005, .01, .025, .05, .1, .2, .3, .5, 1, 2, 5, 10]</code></pre><div class="what">A boundary exactly at your SLO threshold (0.3) is what makes the query above exact.</div></div>
@@ -645,6 +645,11 @@ FROM request_log GROUP BY route HAVING count(*) &gt; 1000;</code></pre><div clas
     <section id="related">
       <h2>Related pages</h2>
       <div class="related-list">
+          <a class="related-card" href="littles-law.html">
+            <b>Little's Law</b>
+            <span>How many are inside = how fast they arrive × how long they stay. That's the whole thing.</span>
+            <small>Mentioned here in Concrete use cases · Little's Law mentions Percentiles in Key concepts, Pros &amp; cons and Common mistakes &amp; gotchas · Shared tags: latency</small>
+          </a>
           <a class="related-card" href="rate-limiting.html">
             <b>Rate limiting</b>
             <span>Say no on purpose, before the system says no by falling over.</span>
