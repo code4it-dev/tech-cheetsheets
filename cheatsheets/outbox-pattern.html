@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Outbox pattern · Tech cheatsheets</title>
+<meta name="description" content="Transactional outbox cheatsheet: why the dual write loses or invents events, how one table and a relay fix it, and what at-least-once delivery then demands of consumers.">
+<meta name="aliases" content="Outbox pattern, transactional outbox, outbox, dual write, dual-write problem, inbox pattern, idempotent consumer">
+<meta name="related" content="cqrs, kafka, domain-driven-design, database-performance, azure-durable-functions">
+<meta name="keywords" content="outbox, transactional outbox, dual write, messaging, cdc, debezium, kafka, idempotency, microservices, reliability">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../assets/notebook.css?v=389a30cc">
+<script src="../assets/site.js?v=b55fb986" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
+</head>
+<body data-root="..">
+<div class="layout">
+  <nav class="toc" aria-label="Sections">
+    <a href="#overview">Overview</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#concepts">Key concepts</a>
+    <a href="#commands">Code patterns</a>
+    <a href="#pros-cons">Pros &amp; cons</a>
+    <a href="#use-cases">Use cases</a>
+    <a href="#when">When to use</a>
+    <a href="#gotchas">Gotchas</a>
+    <a href="#alternatives">Alternatives</a>
+    <a href="#resources">Resources</a>
+    <a href="#related">Related</a>
+  </nav>
+
+  <main>
+    <header class="hero" id="overview">
+      <h1>Outbox pattern</h1>
+      <p class="tagline">You cannot commit a database and a broker together. So write the message as a row, and let it ride along.</p>
+      <span class="meta">As of Nov 2026 · examples use PostgreSQL, Kafka and Debezium; the idea is engine-agnostic</span>
+      <p>Almost every service that owns data also has to tell someone about it: save the order <em>and</em> publish <code>OrderPlaced</code>. These are two different systems with two different transaction managers, so "do both or neither" is not something you can simply write down. This is the <b>dual write problem</b>, and left alone it produces two failures that are both silent: an event that was never published, and an event published for work that then rolled back.</p>
+      <p>The transactional outbox removes the second system from the critical path. The event is written as an ordinary row into an <code>outbox</code> table in the <em>same transaction</em> as the state change, so it is atomic by construction &mdash; one commit, one database, no new guarantees needed. A separate <b>relay</b> then reads that table and publishes to the broker, retrying until it succeeds.</p>
+      <p>What you buy is that no event is ever lost and no event is ever invented. What you pay is that delivery becomes <b>at-least-once</b>: the relay can crash after publishing and before marking the row sent, so every consumer must be idempotent. That trade &mdash; duplicates instead of losses &mdash; is almost always the right one, because duplicates can be detected and losses cannot.</p>
+    </header>
+
+    <section id="architecture">
+      <h2>Architecture / mental model</h2>
+      <div class="diagram">
+        <svg viewBox="0 0 800 330" role="img" aria-label="A service writing state and an outbox row in one transaction, a relay publishing to a broker, and a consumer deduplicating with an inbox table">
+          <defs>
+            <marker id="ob-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+          </defs>
+          <text x="400" y="22" font-size="12.5" text-anchor="middle" fill="#5f6f66">one transaction on the left, retries in the middle, deduplication on the right</text>
+
+          <rect x="20" y="44" width="150" height="76" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="95" y="72" font-size="12.5" text-anchor="middle" fill="#23362e" font-weight="700">order service</text>
+          <text x="95" y="94" font-size="11" text-anchor="middle" fill="#5f6f66">handles PlaceOrder</text>
+          <text x="95" y="110" font-size="11" text-anchor="middle" fill="#5f6f66">never calls the broker</text>
+          <line x1="174" y1="110" x2="204" y2="134" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#ob-arr)"/>
+
+          <rect x="208" y="60" width="224" height="186" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="2"/>
+          <text x="320" y="82" font-size="12.5" text-anchor="middle" fill="#2f6b3f" font-weight="700">ONE transaction</text>
+          <rect x="226" y="96" width="188" height="56" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
+          <text x="320" y="118" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">orders</text>
+          <text x="320" y="138" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">INSERT order 42</text>
+          <rect x="226" y="164" width="188" height="56" rx="6" fill="#fbf3c4" stroke="#d9c25a"/>
+          <text x="320" y="186" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">outbox</text>
+          <text x="320" y="206" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">INSERT OrderPlaced</text>
+          <text x="320" y="238" font-size="11" text-anchor="middle" fill="#2f6b3f">both, or neither</text>
+
+          <line x1="436" y1="153" x2="466" y2="153" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#ob-arr)"/>
+
+          <rect x="470" y="110" width="140" height="86" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="540" y="136" font-size="12.5" text-anchor="middle" fill="#23362e" font-weight="700">relay</text>
+          <text x="540" y="156" font-size="10.5" text-anchor="middle" fill="#5f6f66">poller or CDC</text>
+          <text x="540" y="174" font-size="10.5" text-anchor="middle" fill="#5f6f66">retries forever</text>
+          <text x="540" y="190" font-size="10.5" text-anchor="middle" fill="#c53b3b">at-least-once</text>
+
+          <line x1="614" y1="153" x2="644" y2="153" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#ob-arr)"/>
+
+          <rect x="648" y="44" width="132" height="76" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="714" y="72" font-size="12.5" text-anchor="middle" fill="#23362e" font-weight="700">broker</text>
+          <text x="714" y="94" font-size="10.5" text-anchor="middle" fill="#5f6f66">Kafka, SQS,</text>
+          <text x="714" y="110" font-size="10.5" text-anchor="middle" fill="#5f6f66">Service Bus…</text>
+          <line x1="714" y1="124" x2="714" y2="144" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#ob-arr)"/>
+
+          <rect x="648" y="148" width="132" height="98" rx="8" fill="#f9e3df" stroke="#e6b3ad" stroke-width="1.5"/>
+          <text x="714" y="172" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">consumer</text>
+          <text x="714" y="194" font-size="10.5" text-anchor="middle" fill="#5f6f66">inbox table:</text>
+          <text x="714" y="210" font-size="10.5" text-anchor="middle" fill="#5f6f66">seen this id?</text>
+          <text x="714" y="232" font-size="10.5" text-anchor="middle" fill="#c53b3b">must be idempotent</text>
+
+          <text class="hand" x="26" y="286" font-size="16" fill="#c53b3b">the broker is never called inside your transaction &mdash; that is the whole trick</text>
+          <text class="hand" x="26" y="310" font-size="16" fill="#c53b3b">duplicates are normal. losses are not.</text>
+        </svg>
+      </div>
+      <p class="caption">The message becomes data first and a message second. Everything after the commit is retryable, because the fact is already durable.</p>
+    </section>
+
+    <section id="how-it-works">
+      <h2>How it works</h2>
+      <p style="margin:0 0 18px">The first animation is the problem: both orderings of a dual write fail, in different and equally silent ways. The second is the relay doing its job, and what at-least-once then demands from everyone downstream.</p>
+      <span class="note" style="margin:-8px 0 18px">there is no ordering of two commits that is safe &mdash; stop looking for one</span>
+
+      <div class="anim" id="anim-dual">
+        <h3>1 &middot; Both ways of doing a dual write are broken</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 300" role="img" aria-label="A service committing to a database and publishing to a broker, failing in both orderings, then fixed with an outbox row">
+            <defs>
+              <marker id="dw-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+            <text id="dw-step" x="400" y="22" font-size="12.5" text-anchor="middle" fill="#5f6f66">attempt A &mdash; commit the database first, then publish</text>
+
+            <rect id="dw-svc" x="20" y="92" width="170" height="92" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="105" y="122" font-size="12.5" text-anchor="middle" fill="#23362e" font-weight="700">order service</text>
+            <text id="dw-svct" x="105" y="146" font-size="11" text-anchor="middle" fill="#5f6f66">handling PlaceOrder</text>
+            <text id="dw-svct2" x="105" y="166" font-size="11" text-anchor="middle" fill="#5f6f66">&nbsp;</text>
+
+            <line x1="194" y1="112" x2="286" y2="112" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#dw-arr)"/>
+            <text x="240" y="104" font-size="10.5" text-anchor="middle" fill="#5f6f66">1</text>
+            <line x1="194" y1="166" x2="556" y2="166" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#dw-arr)"/>
+            <text x="380" y="182" font-size="10.5" text-anchor="middle" fill="#5f6f66">2</text>
+
+            <rect id="dw-db" x="290" y="60" width="230" height="132" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="405" y="84" font-size="12.5" text-anchor="middle" fill="#23362e" font-weight="700">database</text>
+            <text id="dw-dbt" x="405" y="110" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">orders: empty</text>
+            <g id="dw-ob" class="hidden">
+              <rect x="306" y="128" width="198" height="46" rx="5" fill="#fbf3c4" stroke="#d9c25a"/>
+              <text x="405" y="147" font-size="11" text-anchor="middle" fill="#23362e" font-weight="600">outbox</text>
+              <text id="dw-obt" x="405" y="165" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">&mdash;</text>
+            </g>
+
+            <rect id="dw-br" x="560" y="60" width="220" height="132" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="670" y="84" font-size="12.5" text-anchor="middle" fill="#23362e" font-weight="700">broker</text>
+            <text id="dw-brt" x="670" y="110" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">topic: empty</text>
+            <text id="dw-brt2" x="670" y="136" font-size="11" text-anchor="middle" fill="#5f6f66">shipping is waiting</text>
+
+            <rect id="dw-verd" x="20" y="226" width="760" height="54" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text id="dw-v" x="400" y="250" font-size="12.5" text-anchor="middle" fill="#23362e" font-weight="700">two systems, two commits, no shared transaction</text>
+            <text id="dw-vs" x="400" y="270" font-size="11" text-anchor="middle" fill="#5f6f66">whatever order you choose, there is a moment where one has happened and the other has not</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <div class="anim" id="anim-relay">
+        <h3>2 &middot; The relay, duplicates, and the inbox that absorbs them</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 320" role="img" aria-label="A relay polling an outbox table, publishing to a broker, crashing before marking sent, and a consumer deduplicating by message id">
+            <defs>
+              <marker id="rl-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+
+            <rect id="rl-tbl" x="20" y="44" width="250" height="186" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+            <text x="145" y="66" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">outbox table</text>
+            <g id="rl-r1"><rect x="36" y="80" width="218" height="34" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text id="rl-r1t" x="46" y="101" font-size="10.5" fill="#23362e" font-family="Fira Code, monospace">1 OrderPlaced  sent=f</text></g>
+            <g id="rl-r2"><rect x="36" y="122" width="218" height="34" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text id="rl-r2t" x="46" y="143" font-size="10.5" fill="#23362e" font-family="Fira Code, monospace">2 ItemAdded    sent=f</text></g>
+            <g id="rl-r3"><rect x="36" y="164" width="218" height="34" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text id="rl-r3t" x="46" y="185" font-size="10.5" fill="#23362e" font-family="Fira Code, monospace">3 OrderShipped sent=f</text></g>
+            <text id="rl-lag" x="145" y="218" font-size="10.5" text-anchor="middle" fill="#5f6f66">oldest unsent: 0.2 s</text>
+
+            <line x1="274" y1="130" x2="306" y2="130" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#rl-arr)"/>
+
+            <rect id="rl-relay" x="310" y="84" width="150" height="92" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="385" y="110" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">relay</text>
+            <text id="rl-rt" x="385" y="134" font-size="10.5" text-anchor="middle" fill="#5f6f66">idle</text>
+            <text id="rl-rt2" x="385" y="154" font-size="10.5" text-anchor="middle" fill="#5f6f66">&nbsp;</text>
+
+            <line x1="464" y1="130" x2="496" y2="130" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#rl-arr)"/>
+
+            <rect id="rl-br" x="500" y="84" width="140" height="92" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="570" y="110" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">broker</text>
+            <text id="rl-brt" x="570" y="134" font-size="10.5" text-anchor="middle" fill="#5f6f66">empty</text>
+            <text id="rl-brt2" x="570" y="154" font-size="10.5" text-anchor="middle" fill="#5f6f66">&nbsp;</text>
+
+            <line x1="644" y1="130" x2="676" y2="130" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#rl-arr)"/>
+
+            <rect id="rl-cons" x="660" y="44" width="124" height="186" rx="8" fill="#f9e3df" stroke="#e6b3ad" stroke-width="1.5"/>
+            <text x="722" y="68" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">consumer</text>
+            <text x="722" y="92" font-size="10.5" text-anchor="middle" fill="#5f6f66">inbox:</text>
+            <text id="rl-in1" x="722" y="112" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">&mdash;</text>
+            <text id="rl-in2" x="722" y="132" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rl-ct" x="722" y="166" font-size="10.5" text-anchor="middle" fill="#5f6f66">shipments: 0</text>
+            <text id="rl-ct2" x="722" y="192" font-size="10.5" text-anchor="middle" fill="#5f6f66">&nbsp;</text>
+
+            <rect id="rl-note" x="20" y="252" width="764" height="52" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+            <text id="rl-n" x="402" y="275" font-size="12.5" text-anchor="middle" fill="#2f6b3f" font-weight="700">the event is already durable &mdash; everything from here on is just retrying</text>
+            <text id="rl-n2" x="402" y="294" font-size="11" text-anchor="middle" fill="#5f6f66">which is why the relay is allowed to be stupid, slow, and restarted at any moment</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+    </section>
+
+    <section id="concepts">
+      <h2>Key concepts</h2>
+      <div class="terms">
+        <div class="term"><b>Dual write</b><span>Writing to two systems that cannot share a transaction — the problem the outbox exists to remove.</span><template class="term-detail" data-see="Outbox table, Two-phase commit, Relay">
+          <p>Save the row, then publish the message. Or publish, then save. Either way there is a window in which one has happened and the other has not, and a crash, a timeout or a rollback inside that window leaves the two systems permanently disagreeing.</p>
+          <p>What makes it dangerous is that both failure modes are silent: nothing throws, no alert fires, and the inconsistency is discovered days later by a customer. Retrying does not help, because the process that would retry is the one that died.</p>
+          <h4>Both orderings fail</h4>
+          <table>
+            <tr><th>Order</th><th>Failure</th><th>Result</th></tr>
+            <tr><td>Commit, then publish</td><td>crash before publish</td><td>event lost &mdash; nobody reacts</td></tr>
+            <tr><td>Publish, then commit</td><td>transaction rolls back</td><td>phantom event &mdash; others react to nothing</td></tr>
+            <tr><td>Publish inside the transaction</td><td>broker slow or down</td><td>long transaction, locks held, both fail together</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>The first animation walks through all three.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Outbox table</b><span>An ordinary table in the service's own database where outgoing messages are inserted inside the business transaction.</span><template class="term-detail" data-see="Dual write, Relay, Retention">
+          <p>Keep it boring: a monotonic id for ordering, a stable message id for deduplication, the aggregate id for partitioning, a type, a JSON payload, a timestamp, and either a <code>sent_at</code> column or nothing at all if you are using change data capture.</p>
+          <p>Because it is in the same database as the state, the insert joins the same transaction automatically. There is no new protocol and no new failure mode &mdash; if the business change commits, the message exists; if it rolls back, the message never existed.</p>
+          <h4>Columns that earn their place</h4>
+          <table>
+            <tr><th>Column</th><th>Why</th></tr>
+            <tr><td><code>id bigserial</code></td><td>publication order</td></tr>
+            <tr><td><code>message_id uuid</code></td><td>consumer deduplication key</td></tr>
+            <tr><td><code>aggregate_id</code></td><td>partition key &mdash; preserves per-entity order</td></tr>
+            <tr><td><code>type</code>, <code>payload jsonb</code></td><td>routing and body</td></tr>
+            <tr><td><code>occurred_at</code>, <code>sent_at</code></td><td>lag metric and cleanup</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>In an event-sourced service the event store already <em>is</em> the outbox.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Relay</b><span>The separate process that reads unsent outbox rows and publishes them to the broker, retrying until it succeeds.</span><template class="term-detail" data-see="Polling publisher, Change data capture, At-least-once">
+          <p>The relay is deliberately dumb: it has no business logic, it is restartable at any moment, and its only state is "which rows have I published". That is what makes the pattern robust &mdash; the durable fact is already committed, so the relay failing is an availability problem, never a correctness one.</p>
+          <p>Run it either as a sidecar beside the service, as a separate deployment, or not at all if you use CDC and let the connector be your relay.</p>
+          <h4>Where to run it</h4>
+          <table>
+            <tr><th>Option</th><th>Trade-off</th></tr>
+            <tr><td>In the service process</td><td>simplest; competes for the same resources</td></tr>
+            <tr><td>Sidecar container</td><td>isolated, scales with the pod</td></tr>
+            <tr><td>Separate deployment</td><td>scaled independently; one more thing to run</td></tr>
+            <tr><td>CDC connector</td><td>no code at all; a platform dependency</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Several relay instances can run safely with <code>SKIP LOCKED</code>, shown in the <b>polling publisher</b> animation.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Polling publisher</b><span>The simplest relay: periodically select unsent rows, publish them, mark them sent.</span><template class="term-detail" data-see="Relay, Change data capture, Lag">
+          <p>A loop with <code>SELECT ... WHERE sent_at IS NULL ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED</code> is enough for most systems. <code>SKIP LOCKED</code> is what lets several relay instances run concurrently without stepping on each other &mdash; each grabs a different batch instead of blocking.</p>
+          <p>Polling adds latency equal to half the poll interval, and constant query load even when idle. <code>LISTEN</code>/<code>NOTIFY</code> (or an in-process signal after commit) removes the latency while keeping the poll as a safety net.</p>
+          <div class="anim" id="sk-anim" data-steps="sk"><h4>Two relays, one table, no collisions</h4>
+            <div class="stage">
+              <svg viewBox="0 0 560 210" role="img" aria-label="Two relay workers claiming different batches of outbox rows using SKIP LOCKED">
+                <text x="280" y="24" font-size="11.5" text-anchor="middle" fill="#5f6f66">SELECT … FOR UPDATE SKIP LOCKED</text>
+                <rect x="30" y="40" width="240" height="150" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+                <text x="150" y="60" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="700">outbox</text>
+                <g id="sk-r1"><rect x="44" y="72" width="212" height="26" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text id="sk-r1t" x="54" y="90" font-size="10.5" fill="#23362e" font-family="Fira Code, monospace">row 1 · free</text></g>
+                <g id="sk-r2"><rect x="44" y="104" width="212" height="26" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text id="sk-r2t" x="54" y="122" font-size="10.5" fill="#23362e" font-family="Fira Code, monospace">row 2 · free</text></g>
+                <g id="sk-r3"><rect x="44" y="136" width="212" height="26" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text id="sk-r3t" x="54" y="154" font-size="10.5" fill="#23362e" font-family="Fira Code, monospace">row 3 · free</text></g>
+                <rect id="sk-w1" x="320" y="52" width="200" height="54" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+                <text x="420" y="74" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">relay A</text>
+                <text id="sk-w1t" x="420" y="94" font-size="10.5" text-anchor="middle" fill="#5f6f66">idle</text>
+                <rect id="sk-w2" x="320" y="124" width="200" height="54" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+                <text x="420" y="146" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">relay B</text>
+                <text id="sk-w2t" x="420" y="166" font-size="10.5" text-anchor="middle" fill="#5f6f66">idle</text>
+              </svg>
+            </div><div class="controls"></div><div class="narration"></div></div>
+          <h4>How it relates</h4>
+          <ul><li>Batch size and poll interval are the two knobs that trade throughput against latency.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Change data capture</b><span>Tailing the database's own replication log instead of polling, so the outbox is published with no extra queries.</span><template class="term-detail" data-see="Relay, Polling publisher, Outbox table">
+          <p>Debezium and similar connectors read the write-ahead log and emit a message for every committed row change. Point one at your outbox table and the relay disappears: no polling load, latency in the low milliseconds, and ordering guaranteed by the log itself. Debezium even ships an "outbox event router" that unwraps the row into a properly shaped event.</p>
+          <p>The cost is a platform dependency &mdash; Kafka Connect or equivalent &mdash; plus replication slots that will quietly bloat your database if a connector stops consuming.</p>
+          <h4>Polling versus CDC</h4>
+          <table>
+            <tr><th></th><th>Polling</th><th>CDC</th></tr>
+            <tr><td>Latency</td><td>half the interval</td><td>milliseconds</td></tr>
+            <tr><td>DB load</td><td>constant queries</td><td>log reading only</td></tr>
+            <tr><td>Ops cost</td><td>a loop you own</td><td>a connector cluster</td></tr>
+            <tr><td>Risk</td><td>slow when backlogged</td><td>stale slot bloats the DB</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>CDC is also how read-model projections are commonly fed.</li></ul>
+        </template></div>
+
+        <div class="term"><b>At-least-once</b><span>The delivery guarantee an outbox gives you: every message arrives, and some arrive more than once.</span><template class="term-detail" data-see="Idempotent consumer, Inbox table, Relay">
+          <p>The relay publishes, then marks the row sent. If it dies between those two steps the row is still unsent, so after restart it publishes again. That gap cannot be closed &mdash; closing it would require exactly the dual-write guarantee the pattern was invented to avoid.</p>
+          <p>So duplicates are not an edge case to be surprised by; they are part of the contract. The good news is that a duplicate is detectable (the message id is the same) while a lost message is not.</p>
+          <h4>The guarantees</h4>
+          <table>
+            <tr><th>Guarantee</th><th>Means</th></tr>
+            <tr><td>At-most-once</td><td>never duplicated, may be lost</td></tr>
+            <tr><td>At-least-once</td><td>never lost, may be duplicated</td></tr>
+            <tr><td>"Exactly-once"</td><td>at-least-once plus deduplication at the consumer</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>"Exactly-once processing" is achievable; exactly-once <em>delivery</em> is not.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Idempotent consumer</b><span>A consumer for which processing the same message twice has the same effect as processing it once.</span><template class="term-detail" data-see="At-least-once, Inbox table, Message id">
+          <p>This is non-negotiable with an outbox. The cheapest version is a naturally idempotent handler: setting a status to <code>shipped</code> is safe to repeat, incrementing a counter is not. When the operation is not naturally idempotent, record the message id and skip anything already seen.</p>
+          <p>Idempotency must cover side effects too. A handler that sends an email is not idempotent just because its database write is.</p>
+          <h4>Making a handler safe</h4>
+          <table>
+            <tr><th>Operation</th><th>Approach</th></tr>
+            <tr><td>Set a status</td><td>already idempotent</td></tr>
+            <tr><td>Insert a row</td><td>upsert on a natural key</td></tr>
+            <tr><td>Increment a total</td><td>inbox table, or store absolute values</td></tr>
+            <tr><td>Send an email / charge a card</td><td>idempotency key at the provider</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>The last steps of the second animation show a duplicate hitting an inbox and being dropped.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Inbox table</b><span>The mirror image of the outbox: the consumer records processed message ids, in the same transaction as its own state change.</span><template class="term-detail" data-see="Idempotent consumer, Message id, Outbox table">
+          <p>On receipt, insert the message id into <code>inbox</code>; if the insert violates the primary key, this message has already been handled and you acknowledge it without doing anything. Doing that insert in the same transaction as the business change is what makes "process exactly once" true in effect, even though delivery was at-least-once.</p>
+          <p>Give the table a retention policy &mdash; typically a few days, longer than any plausible redelivery &mdash; or it grows forever.</p>
+          <h4>Shape</h4>
+          <table>
+            <tr><th>Column</th><th>Note</th></tr>
+            <tr><td><code>message_id</code> PK</td><td>the deduplication key</td></tr>
+            <tr><td><code>processed_at</code></td><td>for retention</td></tr>
+            <tr><td><code>handler</code></td><td>if several handlers consume the same topic</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Outbox plus inbox is the full "transactional messaging" pair.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Message id</b><span>A stable identifier generated once, when the outbox row is written — never when it is published.</span><template class="term-detail" data-see="Inbox table, Idempotent consumer, At-least-once">
+          <p>If the relay generated the id at publish time, a republished row would carry a new id and no consumer could tell it was a duplicate. Generating it inside the business transaction makes the id part of the durable fact.</p>
+          <p>Prefer a UUIDv7 or similar time-ordered identifier: unique, sortable, and it doubles as a debugging handle you can trace from the producing transaction to the consuming one.</p>
+          <h4>Also worth carrying</h4>
+          <table>
+            <tr><th>Field</th><th>Use</th></tr>
+            <tr><td><code>message_id</code></td><td>deduplication</td></tr>
+            <tr><td><code>correlation_id</code></td><td>tracing across services</td></tr>
+            <tr><td><code>causation_id</code></td><td>which message caused this one</td></tr>
+            <tr><td><code>schema version</code></td><td>safe payload evolution</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Propagating trace context through the outbox is the only way distributed tracing survives the asynchronous hop.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Ordering</b><span>Messages are published in outbox id order, and keyed by aggregate id so a consumer sees one entity's events in sequence.</span><template class="term-detail" data-see="Outbox table, Relay, Message id">
+          <p>Global ordering across a whole service is neither achievable nor useful. Per-aggregate ordering is both: publish with <code>aggregate_id</code> as the partition key so <code>OrderPlaced</code> always reaches a consumer before <code>OrderShipped</code> for that order.</p>
+          <p>Two things quietly break this: running several relay instances that publish concurrently across the same aggregate, and retries that reorder a failed message behind a later one. Partition the relay by aggregate, or accept out-of-order delivery and make handlers tolerate it.</p>
+          <h4>Ordering choices</h4>
+          <table>
+            <tr><th>Scope</th><th>Feasible</th><th>Cost</th></tr>
+            <tr><td>Per aggregate</td><td>yes</td><td>partition key</td></tr>
+            <tr><td>Per topic</td><td>only with one partition</td><td>no parallelism</td></tr>
+            <tr><td>Global</td><td>effectively no</td><td>&mdash;</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Handlers that tolerate out-of-order arrival (version checks, state machines) are far cheaper than strict ordering.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Lag</b><span>The age of the oldest unsent outbox row — the one metric that tells you the pattern is working.</span><template class="term-detail" data-see="Relay, Retention, Poison message">
+          <p>Everything else can look healthy while the relay is dead: the API returns 200, the database commits, the business logic is fine. Only the outbox backlog reveals that nobody downstream has heard anything for twenty minutes.</p>
+          <p>Alert on the <em>age</em> of the oldest unsent row rather than the row count, because a slow trickle of unsendable messages matters more than a large burst that is draining normally.</p>
+          <h4>What to export</h4>
+          <table>
+            <tr><th>Metric</th><th>Healthy</th></tr>
+            <tr><td>Age of oldest unsent row</td><td>under a few seconds</td></tr>
+            <tr><td>Unsent row count</td><td>bounded, draining</td></tr>
+            <tr><td>Publish errors per minute</td><td>zero, or retrying</td></tr>
+            <tr><td>Table size</td><td>flat &mdash; cleanup is running</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Rising lag with zero errors usually means a poison message at the head of the queue.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Poison message</b><span>A row the relay can never publish, which blocks everything behind it if the relay insists on order.</span><template class="term-detail" data-see="Lag, Relay, Ordering">
+          <p>A payload too large for the broker, an unserialisable field, a topic that no longer exists. The relay retries, fails, retries &mdash; and if it publishes strictly in id order, the whole outbox stops behind one bad row while lag climbs and errors stay constant.</p>
+          <p>Give up after a bounded number of attempts: move the row to a dead-letter table, record why, alert, and continue. Losing ordering for one aggregate is better than losing delivery for all of them.</p>
+          <h4>Handling</h4>
+          <table>
+            <tr><th>Step</th><th>Action</th></tr>
+            <tr><td>Retry</td><td>exponential backoff, bounded</td></tr>
+            <tr><td>Give up</td><td>move to <code>outbox_dead</code> with the error</td></tr>
+            <tr><td>Alert</td><td>a human must see it</td></tr>
+            <tr><td>Replay</td><td>fix and re-insert, keeping the message id</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Keeping the original message id on replay means consumers still deduplicate correctly.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Retention</b><span>Deleting published rows, so the outbox does not quietly become the largest table in the database.</span><template class="term-detail" data-see="Outbox table, Lag">
+          <p>A busy service writes millions of outbox rows a week. Left alone they bloat the table, slow the relay's own query, and inflate backups. Delete or archive rows once they are published and old enough to be past any replay you would realistically want.</p>
+          <p>Deleting in small batches avoids long locks; partitioning the outbox by day turns cleanup into dropping a partition, which is instant.</p>
+          <h4>Approaches</h4>
+          <table>
+            <tr><th>Approach</th><th>Note</th></tr>
+            <tr><td>Delete sent rows after N days</td><td>batch it; watch for bloat</td></tr>
+            <tr><td>Partition by day and drop</td><td>instant, no vacuum debt</td></tr>
+            <tr><td>Delete immediately after publish</td><td>simplest; no replay possible</td></tr>
+            <tr><td>Archive to object storage</td><td>when the events have audit value</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Partitioned retention is the same trick used on any large append-only table.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Two-phase commit</b><span>The distributed protocol that would make a dual write atomic — and the reason almost nobody uses one.</span><template class="term-detail" data-see="Dual write, Outbox table">
+          <p>XA/2PC genuinely solves the problem: a coordinator asks both resource managers to prepare, then tells both to commit. In practice it is slow, requires locks held across a network round trip, is unsupported by most modern brokers (Kafka has no XA), and has a blocking failure mode when the coordinator dies mid-protocol.</p>
+          <p>Worse, it couples availability: if the broker is down, your database writes fail too. The outbox deliberately refuses that coupling &mdash; your service keeps working and the messages go out when the broker returns.</p>
+          <h4>Why the outbox wins</h4>
+          <table>
+            <tr><th></th><th>2PC</th><th>Outbox</th></tr>
+            <tr><td>Broker support</td><td>rare</td><td>any</td></tr>
+            <tr><td>Latency</td><td>high</td><td>unchanged</td></tr>
+            <tr><td>Availability coupling</td><td>yes</td><td>no</td></tr>
+            <tr><td>Duplicates</td><td>no</td><td>yes &mdash; handled at the consumer</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>The outbox trades a strong guarantee for a weaker one plus a cheap consumer-side fix.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Listen to yourself</b><span>A variant where the producing service also consumes its own published event, instead of updating state directly.</span><template class="term-detail" data-see="Outbox table, Idempotent consumer, Relay">
+          <p>Rather than writing state and an outbox row, the service writes only the event, publishes it, and updates its own state when it consumes it back. Every service &mdash; including the producer &mdash; then runs the same code path, and there is exactly one source of truth for "what happened".</p>
+          <p>The price is that the producer's own state is eventually consistent with its own API, which surprises callers who expect to read back what they just wrote. It fits command-heavy, event-driven systems and fits poorly behind a synchronous CRUD API.</p>
+          <h4>Compared</h4>
+          <table>
+            <tr><th></th><th>Outbox</th><th>Listen to yourself</th></tr>
+            <tr><td>Own state after commit</td><td>immediately current</td><td>eventually current</td></tr>
+            <tr><td>Code paths</td><td>two</td><td>one</td></tr>
+            <tr><td>Fits</td><td>most services</td><td>event-driven cores</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>It has the same read-your-own-writes consequences as a CQRS read model.</li></ul>
+        </template></div>
+      </div>
+    </section>
+
+    <section id="commands">
+      <h2>Essential code patterns</h2>
+      <div class="cmd-group">
+        <h3>The table</h3>
+        <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">CREATE TABLE outbox (
+    id            bigserial PRIMARY KEY,       -- publication order
+    message_id    uuid        NOT NULL UNIQUE, -- consumer dedup key
+    aggregate_id  uuid        NOT NULL,        -- partition key
+    type          text        NOT NULL,
+    payload       jsonb       NOT NULL,
+    occurred_at   timestamptz NOT NULL DEFAULT now(),
+    sent_at       timestamptz,
+    attempts      int         NOT NULL DEFAULT 0
+);
+
+CREATE INDEX ix_outbox_unsent ON outbox (id) WHERE sent_at IS NULL;</code></pre><div class="what">A partial index on unsent rows keeps the relay's query fast even when the table holds millions of published rows.</div></div>
+        <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">BEGIN;
+  INSERT INTO orders (id, customer_id, total) VALUES (...);
+  INSERT INTO outbox (message_id, aggregate_id, type, payload)
+       VALUES (gen_random_uuid(), $order_id, 'OrderPlaced', $payload);
+COMMIT;        -- both rows, or neither. no broker involved.</code></pre><div class="what">The entire pattern in four lines: the message becomes data, committed atomically with the state it describes.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>The relay</h3>
+        <div class="cmd"><pre class="language-docker line-numbers"><code class="language-docker">BEGIN;
+SELECT id, message_id, aggregate_id, type, payload
+FROM   outbox
+WHERE  sent_at IS NULL
+ORDER  BY id
+LIMIT  100
+FOR UPDATE SKIP LOCKED;     -- lets several relay instances run safely
+-- publish each row, then:
+UPDATE outbox SET sent_at = now() WHERE id = ANY($ids);
+COMMIT;</code></pre><div class="what">Publish first, mark second. A crash in between republishes — at-least-once, which is the guarantee you want.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">-- wake the relay immediately instead of waiting for the next poll
+NOTIFY outbox_new;
+-- relay: LISTEN outbox_new, and keep a 1s poll as a safety net</code></pre><div class="what">Removes polling latency without removing the poll — the poll is what recovers after a missed notification.</div></div>
+        <div class="cmd"><pre class="language-docker"><code class="language-docker">-- the metric that matters
+SELECT now() - min(occurred_at) AS oldest_unsent
+FROM   outbox WHERE sent_at IS NULL;</code></pre><div class="what">Alert on the age of the oldest unsent row. Everything else can look healthy while nothing is being delivered.</div></div>
+        <div class="cmd"><pre class="language-sql"><code class="language-sql">-- retention: delete published rows in small batches
+DELETE FROM outbox
+WHERE id IN (SELECT id FROM outbox
+             WHERE sent_at &lt; now() - interval '7 days' LIMIT 10000);</code></pre><div class="what">Or partition the outbox by day and drop partitions — instant, and no vacuum debt.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>C#</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">public async Task Handle(PlaceOrder cmd, CancellationToken ct)
+{
+    var order = Order.Place(cmd.CartId, cmd.CustomerId);
+    db.Orders.Add(order);
+
+    foreach (var e in order.ReleaseEvents())
+        db.Outbox.Add(new OutboxRow {
+            MessageId   = Guid.CreateVersion7(),
+            AggregateId = order.Id,
+            Type        = e.GetType().Name,
+            Payload     = JsonSerializer.Serialize(e),
+        });
+
+    await db.SaveChangesAsync(ct);   // ONE transaction — no broker call here
+}</code></pre><div class="what">The handler never touches the broker. An EF Core SaveChanges interceptor can add the outbox rows automatically so nobody can forget.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Consumer side: the inbox</h3>
+        <div class="cmd"><pre class="language-sql"><code class="language-sql">CREATE TABLE inbox (
+    message_id   uuid PRIMARY KEY,
+    processed_at timestamptz NOT NULL DEFAULT now()
+);</code></pre><div class="what">One column does the work: the primary key is the deduplication.</div></div>
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">def handle(msg, conn):
+    with conn.transaction():
+        inserted = conn.execute(
+            "INSERT INTO inbox (message_id) VALUES (%s) ON CONFLICT DO NOTHING",
+            (msg.message_id,),
+        ).rowcount
+        if not inserted:
+            return                      # already processed — ack and move on
+        create_shipment(conn, msg)      # same transaction as the dedup marker</code></pre><div class="what">Dedup marker and business change commit together, which turns at-least-once delivery into exactly-once processing.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>No relay at all: CDC</h3>
+        <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">{
+  "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+  "table.include.list": "public.outbox",
+  "transforms": "outbox",
+  "transforms.outbox.type":
+      "io.debezium.transforms.outbox.EventRouter",
+  "transforms.outbox.route.by.field": "type",
+  "transforms.outbox.table.field.event.key": "aggregate_id"
+}</code></pre><div class="what">Debezium's outbox event router tails the WAL, unwraps each row into a proper event and keys it by aggregate — no polling, millisecond latency, no relay code.</div></div>
+      </div>
+    </section>
+
+    <section id="pros-cons">
+      <h2>Pros &amp; cons</h2>
+      <div class="cols">
+        <div class="col good"><h3>Pros</h3><ul>
+          <li>No event is ever lost and no event is ever published for work that rolled back.</li>
+          <li>Uses only a local transaction &mdash; no distributed protocol, no 2PC, no new guarantees from the broker.</li>
+          <li>The service keeps working when the broker is down; messages drain when it returns.</li>
+          <li>The broker call leaves the request path, so latency and tail latency improve.</li>
+          <li>Works with any broker and any database that has transactions.</li>
+          <li>The outbox doubles as an audit trail and a replay source while rows are retained.</li>
+        </ul></div>
+        <div class="col bad"><h3>Cons</h3><ul>
+          <li>Delivery becomes at-least-once, so every consumer must be idempotent &mdash; including ones other teams own.</li>
+          <li>Another moving part to run, monitor and alert on: the relay and its lag.</li>
+          <li>Publication latency grows by the poll interval unless you use CDC or notifications.</li>
+          <li>The table grows fast and needs real retention, or it becomes your largest table.</li>
+          <li>Strict ordering needs care once more than one relay instance runs.</li>
+          <li>Does not help across two databases &mdash; that is a saga, not an outbox.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="use-cases">
+      <h2>Concrete use cases</h2>
+      <div class="cards">
+        <div class="card"><h3>Orders that never reached shipping</h3><p>A handful of orders a week are paid for and never shipped. The handler commits the order and then publishes, and the gap between those two statements is exactly where the pod gets rescheduled. An outbox row written in the same transaction removes the gap entirely.</p></div>
+        <div class="card"><h3>Shipments for orders that do not exist</h3><p>The opposite bug: the service publishes first so the event is never lost, and then a unique-constraint violation rolls the order back. Downstream, a shipment and an invoice already exist for nothing. The outbox makes a rolled-back transaction leave no trace.</p></div>
+        <div class="card"><h3>Broker outage without an incident</h3><p>Kafka is unavailable for twenty minutes. Because nothing in the request path talks to it, the API keeps serving 200s and the outbox simply grows; when the broker returns the relay drains the backlog in order. The only visible signal was the lag metric.</p></div>
+        <div class="card"><h3>Feeding a CQRS read model</h3><p>A projection must never miss an event or it is permanently wrong. Reading from the outbox (directly or via CDC) guarantees the projector sees every committed change, and the message id gives it a free deduplication key.</p></div>
+        <div class="card"><h3>Tail latency in the request path</h3><p>p99 checkout latency is dominated by an occasional slow broker publish. Moving the publish out of the transaction and into the relay takes the broker off the critical path; p99 drops to the database's own numbers.</p></div>
+      </div>
+    </section>
+
+    <section id="when">
+      <h2>When to use / when not to</h2>
+      <span class="note" style="margin:-6px 0 14px">if a commit and a publish appear in the same method, you already need this</span>
+      <div class="cols">
+        <div class="col good"><h3>Use it when…</h3><ul>
+          <li>A state change in your database must reliably result in a message to someone else.</li>
+          <li>Losing an event would cause real, hard-to-detect inconsistency &mdash; money, stock, shipments.</li>
+          <li>You want to stay available when the broker is not.</li>
+          <li>You are feeding a read model or a projection that must not miss anything.</li>
+          <li>You already have a transactional database next to the thing emitting events.</li>
+        </ul></div>
+        <div class="col bad"><h3>Avoid it when…</h3><ul>
+          <li>Losing the occasional message is genuinely fine &mdash; metrics, analytics pings. Use <b>fire-and-forget publishing</b>.</li>
+          <li>The service has no database. Use <b>the broker as the system of record</b>, or an idempotent retry from the caller.</li>
+          <li>You are event-sourced already. Use <b>the event store as the outbox</b>; a second copy adds nothing.</li>
+          <li>The work spans two services' databases and must be undone on failure. Use <b>a saga with compensating actions</b>.</li>
+          <li>Consumers genuinely cannot be made idempotent and duplicates are unacceptable. Use <b>a broker with transactional producers</b> within one cluster, and accept the narrower scope.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="gotchas">
+      <h2>Common mistakes &amp; gotchas</h2>
+      <div class="gotcha"><b>Publishing inside the transaction</b><span>Calling the broker before <code>COMMIT</code> feels atomic and is not: the publish can succeed and the transaction still roll back, and meanwhile the broker's latency is holding your database locks.</span><div class="fix">Fix: never call the broker inside a transaction. Write the row, commit, and let the relay do the network work.</div></div>
+      <div class="gotcha"><b>Generating the message id at publish time</b><span>A republished row then carries a new id, so consumers cannot recognise the duplicate and every at-least-once delivery becomes a real duplicate.</span><div class="fix">Fix: generate the id when the outbox row is written, inside the business transaction, and never change it &mdash; including on replay from a dead-letter table.</div></div>
+      <div class="gotcha"><b>Assuming consumers are idempotent</b><span>The pattern guarantees delivery, not deduplication. A consumer that increments a balance will drift quietly after every relay restart.</span><div class="fix">Fix: make it an explicit contract. Ship an inbox table or upsert-by-key in every consumer, and test by replaying the same message twice.</div></div>
+      <div class="gotcha"><b>No retention policy</b><span>The outbox becomes the biggest table in the database, the relay's own query slows down, backups grow, and autovacuum falls behind.</span><div class="fix">Fix: delete published rows in batches after a few days, or partition by day and drop partitions. Decide this on day one.</div></div>
+      <div class="gotcha"><b>Not monitoring lag</b><span>Every other signal stays green while the relay is crash-looping: the API returns 200, the database commits, the business logic is fine &mdash; and nobody downstream has heard anything for an hour.</span><div class="fix">Fix: alert on the age of the oldest unsent row. It is the only metric that observes this failure.</div></div>
+      <div class="gotcha"><b>One poison row blocking everything</b><span>A payload the broker rejects is retried forever, and strict ordering means the entire backlog stops behind it while error counts look constant.</span><div class="fix">Fix: bound the retries, move the row to a dead-letter table with the error, alert, and keep going.</div></div>
+      <div class="gotcha"><b>Several relays destroying ordering</b><span>Two instances publish rows 5 and 6 concurrently, and the consumer sees <code>OrderShipped</code> before <code>OrderPlaced</code>.</span><div class="fix">Fix: partition relay work by aggregate id, or make handlers tolerate out-of-order arrival with version checks. <code>SKIP LOCKED</code> prevents collisions, not reordering.</div></div>
+      <div class="gotcha"><b>Expecting it to coordinate two services</b><span>An outbox makes <em>your</em> database and your messages atomic. It does nothing about a remote service that accepted a call and then failed.</span><div class="fix">Fix: for multi-service workflows use a saga with explicit compensating actions; the outbox is how each step of that saga publishes reliably.</div></div>
+    </section>
+
+    <section id="alternatives">
+      <h2>Alternatives</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs the outbox</th></tr></thead>
+          <tbody>
+            <tr class="self"><td><b>Transactional outbox</b></td><td>reliable events from a service that owns a database</td><td>Medium</td><td>free; a relay to run</td><td>&mdash;</td></tr>
+            <tr><td><b>Dual write</b></td><td>nothing, honestly</td><td>Low</td><td>free</td><td>Simplest and silently wrong; loses or invents events</td></tr>
+            <tr><td><b>Two-phase commit (XA)</b></td><td>legacy brokers and XA databases</td><td>High</td><td>free; heavy</td><td>True atomicity, at the cost of latency, blocking and coupled availability</td></tr>
+            <tr><td><b>Change data capture only</b></td><td>publishing from existing tables</td><td>Medium</td><td>a connector cluster</td><td>No outbox table; events mirror rows, so you publish your schema rather than your intent</td></tr>
+            <tr><td><b>Event sourcing</b></td><td>services where history is the model</td><td>High</td><td>free; real ops cost</td><td>The event store <em>is</em> the outbox; no second write at all</td></tr>
+            <tr><td><b>Broker transactions</b></td><td>Kafka-to-Kafka pipelines</td><td>Medium</td><td>free</td><td>Atomic within one broker cluster; does not include your database</td></tr>
+            <tr><td><b>Listen to yourself</b></td><td>event-driven cores</td><td>Medium</td><td>free</td><td>Only the event is written; own state becomes eventually consistent</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul style="margin-top:12px">
+        <li><b>Pick CDC on your business tables</b> if you only need to mirror data and can live with publishing your schema shape.</li>
+        <li><b>Pick event sourcing</b> if you already store events &mdash; then skip the outbox entirely.</li>
+        <li><b>Pick broker transactions</b> for read-process-write pipelines that never leave the broker.</li>
+        <li><b>Pick a saga</b> when the problem is coordinating several services, not publishing reliably from one.</li>
+        <li><b>Pick 2PC</b> only if you are already in an XA world and cannot make consumers idempotent.</li>
+      </ul>
+    </section>
+
+    <section id="resources">
+      <h2>Resources</h2>
+      <ul>
+        <li><a href="https://microservices.io/patterns/data/transactional-outbox.html" target="_blank" rel="noopener">microservices.io &mdash; Transactional outbox</a>: the canonical pattern description with its related patterns.</li>
+        <li><a href="https://debezium.io/documentation/reference/stable/transformations/outbox-event-router.html" target="_blank" rel="noopener">Debezium &mdash; Outbox Event Router</a>: the CDC relay, configuration and expected table shape.</li>
+        <li><a href="https://debezium.io/blog/2019/02/19/reliable-microservices-data-exchange-with-the-outbox-pattern/" target="_blank" rel="noopener">Reliable data exchange with the outbox pattern</a>: the article that popularised the CDC variant, with a full worked example.</li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/architecture/best-practices/transactional-outbox-cosmos" target="_blank" rel="noopener">Azure Architecture Center &mdash; Transactional outbox</a>: the same pattern written up for a managed cloud stack.</li>
+        <li><a href="https://microservices.io/patterns/data/idempotent-consumer.html" target="_blank" rel="noopener">microservices.io &mdash; Idempotent consumer</a>: the other half of the contract, which the outbox obliges you to implement.</li>
+      </ul>
+    </section>
+    <!-- RELATED:START (generated by scripts/build-index.mjs, do not edit) -->
+    <section id="related">
+      <h2>Related pages</h2>
+      <div class="related-list">
+          <a class="related-card" href="cqrs.html">
+            <b>CQRS</b>
+            <span>Writes and reads want opposite things from a schema. Stop making one model do both jobs badly.</span>
+            <small>Mentioned here in Key concepts, Concrete use cases and When to use / when not to · CQRS mentions Outbox pattern in Key concepts, Essential code patterns, Pros &amp; cons, Common mistakes &amp; gotchas and Resources</small>
+          </a>
+          <a class="related-card" href="domain-driven-design.html">
+            <b>Domain-Driven Design</b>
+            <span>Model the business, not the database — and stop pretending one word means the same thing everywhere.</span>
+            <small>Mentioned here in Key concepts, Essential code patterns and Common mistakes &amp; gotchas · Domain-Driven Design mentions Outbox pattern in Common mistakes &amp; gotchas</small>
+          </a>
+          <a class="related-card" href="kafka.html">
+            <b>Apache Kafka</b>
+            <span>A distributed, append-only log for events: write once, read by many, replay any time.</span>
+            <small>Mentioned here in Overview, Key concepts and Concrete use cases · Shared tags: cdc, microservices</small>
+          </a>
+          <a class="related-card" href="database-performance.html">
+            <b>Database performance</b>
+            <span>Index, then query, then schema, then cache, then replicate, then partition — and only then shard.</span>
+            <small>Mentioned here in Key concepts, Essential code patterns and Common mistakes &amp; gotchas</small>
+          </a>
+          <a class="related-card" href="sidecar-pattern.html">
+            <b>Sidecar pattern</b>
+            <span>Put the cross-cutting concern in a container next door, not in every application's dependency list.</span>
+            <small>Mentioned here in Key concepts</small>
+          </a>
+          <a class="related-card" href="azure-durable-functions.html">
+            <b>Azure Durable Functions</b>
+            <span>Write a long-running workflow as ordinary code, and let replay make it survive restarts.</span>
+            <small>Closely related topic</small>
+          </a>
+      </div>
+    </section>
+    <!-- RELATED:END -->
+  </main>
+</div>
+
+<script src="../assets/player.js?v=e098a7b2"></script>
+<script>
+createAnimation('anim-dual', [
+  { say: 'The order service must do two things when an order is placed: store it, and tell the shipping service. Two systems, two transaction managers, no way to commit them together.', hl: ['dw-svc'] },
+  { say: 'Attempt A: commit the database first. Order 42 is now durable — whatever happens next, the order exists.', unhl: ['dw-svc'], hl: ['dw-db'], text: { 'dw-dbt': 'orders: 42 ✓', 'dw-svct2': 'about to publish…' }, fill: { 'dw-dbt': '#2f6b3f' } },
+  { say: 'The pod is rescheduled before the publish call. The order exists and nobody will ever be told about it: no shipment, no invoice, no error anywhere. The customer finds out instead of you.', unhl: ['dw-db'], hl: ['dw-br'], text: { 'dw-svct': 'process killed', 'dw-svct2': 'publish never happened', 'dw-brt': 'topic: empty', 'dw-v': 'attempt A: the event is lost, silently and permanently' }, fill: { 'dw-svct': '#c53b3b', 'dw-v': '#c53b3b', 'dw-verd': '#f9e3df' } },
+  { say: 'So try the other order. Attempt B: publish first, so the event can never be lost.', unhl: ['dw-br'], text: { 'dw-step': 'attempt B — publish first, then commit the database', 'dw-dbt': 'orders: empty', 'dw-brt': 'topic: OrderPlaced(42) ✓', 'dw-svct': 'handling PlaceOrder', 'dw-svct2': 'published, now committing…', 'dw-v': 'two systems, two commits, no shared transaction' }, fill: { 'dw-dbt': '#5f6f66', 'dw-brt': '#2f6b3f', 'dw-svct': '#5f6f66', 'dw-v': '#23362e', 'dw-verd': '#e8ece2' } },
+  { say: 'The transaction then fails — a unique violation, a deadlock, a timeout — and rolls back. Shipping now creates a shipment for an order that does not exist. This is worse than losing it, because the damage spreads.', hl: ['dw-db'], text: { 'dw-dbt': 'ROLLBACK — no order 42', 'dw-brt2': 'shipping already reacted', 'dw-v': 'attempt B: a phantom event for work that never happened' }, fill: { 'dw-dbt': '#c53b3b', 'dw-brt2': '#c53b3b', 'dw-v': '#c53b3b', 'dw-verd': '#f9e3df' } },
+  { say: 'There is no third ordering. Publishing <em>inside</em> the transaction is worse still: the broker\'s latency is now holding your row locks, and if the broker is down your database writes fail with it.', unhl: ['dw-db'], text: { 'dw-v': 'and publishing inside the transaction couples your availability to the broker' } },
+  { say: 'Two-phase commit would solve it in theory. In practice Kafka has no XA, the protocol blocks when the coordinator dies, and it ties your uptime to the broker\'s. Almost nobody chooses it.', text: { 'dw-v': '2PC: real atomicity, at a price nearly everyone refuses' } },
+  { say: 'The outbox sidesteps the whole problem: write the message as a <em>row</em>, in your own database, in the same transaction as the order. One commit, one system — atomic by construction, no new protocol.', show: ['dw-ob'], hl: ['dw-db'], text: { 'dw-dbt': 'orders: 42 ✓', 'dw-obt': 'OrderPlaced(42) unsent', 'dw-step': 'the outbox — one transaction, one database', 'dw-brt': 'topic: empty', 'dw-brt2': 'not involved yet', 'dw-v': 'both rows commit together, or neither does' }, fill: { 'dw-dbt': '#2f6b3f', 'dw-brt': '#5f6f66', 'dw-brt2': '#5f6f66', 'dw-v': '#2f6b3f', 'dw-verd': '#e3eedc' } },
+  { say: 'A separate relay publishes that row afterwards and retries until it succeeds. If it crashes, the row is still sitting there. The fact was durable the moment the order committed — everything after is just delivery.', unhl: ['dw-db'], hl: ['dw-br'], text: { 'dw-obt': 'OrderPlaced(42) sent ✓', 'dw-brt': 'topic: OrderPlaced(42) ✓', 'dw-brt2': 'shipping reacts — correctly', 'dw-v': 'nothing lost, nothing invented — at the cost of possible duplicates' }, fill: { 'dw-brt': '#2f6b3f' } },
+]);
+
+createAnimation('anim-relay', [
+  { say: 'Three rows sit in the outbox, all unsent. They were written by three different business transactions that have already committed, so these facts are durable regardless of what happens next.', hl: ['rl-tbl'] },
+  { say: 'The relay polls for unsent rows in id order, claiming a batch with <code>FOR UPDATE SKIP LOCKED</code> — which is what lets a second relay instance take different rows instead of blocking on these.', unhl: ['rl-tbl'], hl: ['rl-relay'], text: { 'rl-rt': 'claimed row 1', 'rl-rt2': 'SKIP LOCKED batch' } },
+  { say: 'It publishes row 1 to the broker, keyed by aggregate id so every event for order 42 lands on the same partition and stays in order.', unhl: ['rl-relay'], hl: ['rl-br'], text: { 'rl-brt': 'OrderPlaced(42)', 'rl-brt2': 'key = order 42' } },
+  { say: 'Then — and only then — it marks the row sent. Publish first, mark second: the ordering is deliberate, and it is why nothing can be lost.', unhl: ['rl-br'], text: { 'rl-r1t': '1 OrderPlaced  sent=t', 'rl-rt': 'marked row 1 sent' }, fill: { 'rl-r1t': '#2f6b3f' } },
+  { say: 'Now the failure that defines the pattern. The relay publishes row 2 — and dies before the UPDATE lands.', hl: ['rl-relay'], text: { 'rl-brt': 'ItemAdded(42)', 'rl-rt': 'crashed', 'rl-rt2': 'before marking sent' }, fill: { 'rl-rt': '#c53b3b' } },
+  { say: 'On restart, row 2 is still <code>sent=f</code>, so it is published again. The consumer receives <code>ItemAdded</code> twice. This gap cannot be closed — closing it would need exactly the dual-write guarantee we gave up.', unhl: ['rl-relay'], hl: ['rl-br'], text: { 'rl-rt': 'restarted', 'rl-rt2': 'republishing row 2', 'rl-brt2': 'ItemAdded delivered twice' }, fill: { 'rl-rt': '#5f6f66', 'rl-brt2': '#c53b3b', 'rl-n': 'at-least-once: never lost, sometimes duplicated' } },
+  { say: 'So the consumer absorbs it. Each message id is inserted into an inbox table in the <em>same transaction</em> as the business change; the second insert conflicts, the handler returns early, and the shipment is created exactly once.', unhl: ['rl-br'], hl: ['rl-cons'], text: { 'rl-in1': 'msg a1b2 ✓', 'rl-in2': 'msg c3d4 ✓ (dup dropped)', 'rl-ct': 'shipments: 1', 'rl-ct2': 'duplicate ignored', 'rl-n': 'at-least-once delivery + idempotent consumer = exactly-once processing' }, fill: { 'rl-ct2': '#2f6b3f', 'rl-n': '#2f6b3f' } },
+  { say: 'Row 3 goes out normally and the backlog drains. Note what never happened: no business code called the broker, and no transaction waited on the network.', unhl: ['rl-cons'], text: { 'rl-r2t': '2 ItemAdded    sent=t', 'rl-r3t': '3 OrderShipped sent=t', 'rl-brt': 'OrderShipped(42)', 'rl-brt2': 'all delivered', 'rl-ct': 'shipments: 1 · shipped', 'rl-lag': 'oldest unsent: none' }, fill: { 'rl-r2t': '#2f6b3f', 'rl-r3t': '#2f6b3f', 'rl-brt2': '#5f6f66' } },
+  { say: 'If the broker had been down, nothing visible would have broken: the API keeps returning 200 and the rows simply accumulate. That is the pattern\'s best property and its most dangerous one.', hl: ['rl-tbl'], text: { 'rl-r1t': '… 40,000 rows unsent', 'rl-lag': 'oldest unsent: 22 min', 'rl-n': 'everything looks healthy while nobody downstream hears anything' }, fill: { 'rl-lag': '#c53b3b', 'rl-n': '#c53b3b', 'rl-note': '#f9e3df' } },
+  { say: 'Hence the one metric to alert on: the age of the oldest unsent row. And the one chore not to skip: delete published rows, or the outbox becomes the largest table you own.', unhl: ['rl-tbl'], text: { 'rl-r1t': '1 OrderPlaced  sent=t', 'rl-lag': 'alert: oldest unsent > 60 s', 'rl-n': 'monitor the lag · bound the retries · delete the sent rows', 'rl-n2': 'the relay may be stupid and slow — it may not be silent' }, fill: { 'rl-note': '#e3eedc', 'rl-n': '#2f6b3f', 'rl-lag': '#5f6f66' } },
+]);
+
+window.TERM_ANIMS = {
+  sk: [
+    { say: 'Three unsent rows and two relay instances, both polling the same table at the same moment.', hl: ['sk-w1', 'sk-w2'] },
+    { say: 'Relay A opens a transaction and claims rows 1 and 2 with <code>SELECT … FOR UPDATE</code>. Those rows are now locked.', unhl: ['sk-w1', 'sk-w2'], hl: ['sk-r1', 'sk-r2'], text: { 'sk-r1t': 'row 1 · locked by A', 'sk-r2t': 'row 2 · locked by A', 'sk-w1t': 'publishing 1, 2' } },
+    { say: 'Without <code>SKIP LOCKED</code>, relay B would block here waiting for A to finish — two workers, the throughput of one.', text: { 'sk-w2t': 'plain FOR UPDATE: blocked' }, fill: { 'sk-w2t': '#c53b3b' } },
+    { say: 'With <code>SKIP LOCKED</code> it simply steps over the locked rows and takes row 3 instead. Both relays work in parallel and neither publishes the same row twice.', unhl: ['sk-r1', 'sk-r2'], hl: ['sk-r3'], text: { 'sk-r3t': 'row 3 · locked by B', 'sk-w2t': 'publishing 3' }, fill: { 'sk-w2t': '#2f6b3f' } },
+    { say: 'One caveat: this prevents collisions, not reordering. If order matters for an aggregate, partition the relays by aggregate id rather than letting both touch the same entity.', unhl: ['sk-r3'], text: { 'sk-r1t': 'row 1 · sent', 'sk-r2t': 'row 2 · sent', 'sk-r3t': 'row 3 · sent', 'sk-w1t': 'idle', 'sk-w2t': 'idle' }, fill: { 'sk-w2t': '#5f6f66' } },
+  ],
+};
+</script>
+</body>
+</html>

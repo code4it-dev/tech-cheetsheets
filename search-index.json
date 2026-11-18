@@ -168,12 +168,12 @@
         }
       ],
       "related": [
+        "database-performance",
+        "outbox-pattern",
         "redis",
+        "cqrs",
         "caching-strategies",
-        "rate-limiting",
-        "multitenancy",
-        "azure-durable-functions",
-        "back-of-the-envelope"
+        "rate-limiting"
       ]
     },
     {
@@ -363,7 +363,8 @@
         "caching-strategies",
         "azure-durable-functions",
         "kubernetes",
-        "redis"
+        "sli-slo-sla",
+        "sidecar-pattern"
       ]
     },
     {
@@ -544,6 +545,8 @@
       ],
       "related": [
         "azure-api-management",
+        "outbox-pattern",
+        "domain-driven-design",
         "kafka",
         "kubernetes"
       ]
@@ -714,12 +717,12 @@
         }
       ],
       "related": [
+        "database-performance",
         "littles-law",
         "caching-strategies",
+        "sli-slo-sla",
         "percentiles",
-        "kafka",
-        "redis",
-        "multitenancy"
+        "kafka"
       ]
     },
     {
@@ -887,11 +890,12 @@
         }
       ],
       "related": [
+        "domain-driven-design",
         "caching-strategies",
         "modular-monolith",
         "multitenancy",
-        "percentiles",
-        "rate-limiting"
+        "sidecar-pattern",
+        "percentiles"
       ]
     },
     {
@@ -1068,12 +1072,534 @@
         }
       ],
       "related": [
+        "database-performance",
         "redis",
         "azure-api-management",
-        "back-of-the-envelope",
+        "cqrs",
+        "cqs",
+        "back-of-the-envelope"
+      ]
+    },
+    {
+      "slug": "cqrs",
+      "url": "cheatsheets/cqrs.html",
+      "title": "CQRS",
+      "aliases": [
+        "CQRS",
+        "Command Query Responsibility Segregation",
+        "command query responsibility segregation",
+        "read model",
+        "write model",
+        "projection"
+      ],
+      "tagline": "Writes and reads want opposite things from a schema. Stop making one model do both jobs badly.",
+      "asOf": "As of Nov 2026 · named by Greg Young, 2010; examples in C#, SQL and Python",
+      "description": "CQRS cheatsheet: separate write and read models, projections, the eventual consistency window and the read-your-own-writes problem — animated, with the levels you can stop at.",
+      "tags": [
+        "cqrs",
+        "architecture",
+        "read model",
+        "write model",
+        "projection",
+        "eventual consistency",
+        "event sourcing",
+        "ddd",
+        "scalability",
+        "patterns"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential code patterns"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-command",
+          "term": "Command",
+          "def": "A request to change state, named as an imperative, that can be rejected and returns no business data.",
+          "detail": "PlaceOrder, CancelReservation, ApproveInvoice. A command is an intention, not a fact: the handler is allowed to refuse it. It is named in the business language, carries exactly the data needed to decide, and ideally carries a client-generated id so retries are idempotent. Commands should not return the new state. Returning an id (or nothing but success) is what keeps the write path from quietly becoming a query path with side effects. Shape Property Convention Name imperative, present tense Returns void, or the new identity Can fail yes — validation and invariants Idempotency client-supplied command id How it relates CQS is the one-object version of this rule; CQRS applies it to whole models. A command typically ends with one or more domain events."
+        },
+        {
+          "id": "term-query",
+          "term": "Query",
+          "def": "A request for data that changes nothing and returns a shape built for a specific screen or caller.",
+          "detail": "A query returns a DTO, not a domain object. That is the point: the caller gets exactly the fields the screen needs, already joined and formatted, and nothing in the domain model constrains it. Two screens wanting different shapes get two queries, not one flexible one. Because queries never mutate, they are trivially cacheable, safe to retry, safe to run against a replica, and safe to fan out. Query or repository? Need Path Load order 42 to change it repository, write side Order list with customer names query, read side Dashboard totals by month query, read side How it relates The read side is where caching strategies belong — the write side rarely benefits."
+        },
+        {
+          "id": "term-command-handler",
+          "term": "Command handler",
+          "def": "The single entry point that executes one command: load the aggregate, call one method, save, publish.",
+          "detail": "One handler per command keeps the write side flat and testable: no service class accumulating twelve unrelated methods, and a one-to-one map from business intentions to code. Cross-cutting concerns — validation, authorisation, transactions, retries, logging — are added as a pipeline around the handler rather than inside it. Keep it thin. Any if about business meaning belongs in the aggregate. Pipeline order that works Step Concern 1 authorisation 2 structural validation 3 idempotency check 4 transaction 5 handler 6 publish events from the outbox How it relates In a DDD context, the handler is the application service."
+        },
+        {
+          "id": "term-write-model",
+          "term": "Write model",
+          "def": "The model optimised for change: aggregates, invariants, small transactions and a normalised schema.",
+          "detail": "The write model exists to make illegal states impossible. It is normalised because duplication is a correctness risk when you are writing, it is loaded by identity because that is all a command needs, and it has no idea what any screen looks like. A good test: if adding a column for a report changes the write model, the separation has not happened yet. Optimised for Write side Read side correctness latency normalised denormalised few, small transactions no transactions loaded by id indexed by whatever the screen filters on How it relates Aggregates and repositories live here; queries are forbidden here."
+        },
+        {
+          "id": "term-read-model",
+          "term": "Read model",
+          "def": "A denormalised, screen-shaped store of the same data, built from the write side and treated as disposable.",
+          "detail": "A read model is a cache with a schema: one table (or document, or index) per view, with every join already done and every computed field already computed. Rendering a page becomes a single indexed lookup instead of a six-table join plus mapping. The liberating property is that it holds no authoritative state. You can drop it, change its shape, add a column, and rebuild it from the write side — which means read-side schema changes stop being migrations and become replays. Where read models live Store Good for Same SQL DB, extra tables most cases; cheapest step Materialised view no projector code to maintain Redis / key-value single-key lookups, very hot screens Elasticsearch search, facets, full text Columnar / warehouse analytics and aggregation How it relates Read models are populated by a projection and can always be rebuilt."
+        },
+        {
+          "id": "term-projection",
+          "term": "Projection",
+          "def": "The code that turns write-side events into read-model rows, and the process that runs it.",
+          "detail": "A projection is a fold: for each event, update the rows that event affects. OrderPlaced inserts a row into order_list_view; OrderShipped updates its status; CustomerRenamed updates the denormalised name on every row that carries it. Two properties make projections operationally safe: they must be idempotent (the same event applied twice leaves the same state) and they must track a checkpoint, so a restart resumes rather than replays everything. Rebuilding a broken projection How it relates Projections are where the eventual consistency window actually comes from."
+        },
+        {
+          "id": "term-checkpoint",
+          "term": "Checkpoint",
+          "def": "The position in the event stream a projection has processed up to, stored alongside the read model.",
+          "detail": "Without a checkpoint a restarting projector either replays everything or skips events. Storing the offset in the same transaction as the rows it produced makes the pair atomic, which is what turns at-least-once delivery into a correct read model. The gap between the writer's latest offset and the projection's checkpoint is the measurable version of \"how stale is the read side\" — the single most useful metric on the read path. What to monitor Metric Healthy Lag in events near zero, bounded Lag in seconds under your stated window Projection errors zero; one poison event stalls everything How it relates Resetting the checkpoint to zero is how a rebuild starts."
+        },
+        {
+          "id": "term-eventual-consistency",
+          "term": "Eventual consistency",
+          "def": "The read model trails the write model by a short, bounded delay instead of being updated in the same transaction.",
+          "detail": "Once the projection is asynchronous, there is a window — usually milliseconds, occasionally seconds under load — in which a committed change is invisible to queries. This is a design decision, not a defect, but it is only acceptable if the window is stated, measured and alerted on. Note the choice is per read model. A dashboard can tolerate thirty seconds; the screen the user lands on after submitting a form usually cannot, and that one may need a synchronous projection or a different mitigation. Typical windows Setup Typical lag Same transaction (synchronous) 0 In-process after commit 1–20 ms Via a broker 20–500 ms Batch rebuild minutes How it relates The second animation is this window being felt by a real user."
+        },
+        {
+          "id": "term-read-your-writes",
+          "term": "Read-your-writes",
+          "def": "The guarantee that a user immediately sees the effect of their own change — the first thing CQRS breaks.",
+          "detail": "The user submits a form, gets redirected to a list, and their item is not there. They submit again. You now have a duplicate caused purely by an architectural choice. Every CQRS system needs an answer to this, chosen per screen. The four workable answers, cheapest first: return the created data from the command so the UI can render it without a query; carry a version token and have the query wait for the projection to reach it; serve the user's own data from the write model; or change the interaction so immediacy is not expected. Mitigations Approach Cost Good when Command returns the data none single-item views Version token / wait some latency lists after a write Read own data from write side two code paths \"my orders\" screens UI says \"processing\" product decision genuinely async work How it relates This is why \"CQRS everywhere\" is a bad default — apply it where the asymmetry pays."
+        },
+        {
+          "id": "term-levels-of-cqrs",
+          "term": "Levels of CQRS",
+          "def": "The spectrum from two sets of classes over one table to two separate databases — you can stop anywhere.",
+          "detail": "Almost all of the benefit arrives at level 1, and almost all of the cost arrives at level 3. Most teams should stop at level 1 or 2: commands through the domain model, queries as plain SQL returning DTOs, both hitting the same database inside one transaction. No lag, no projector, no new infrastructure — and the read side is already free of the ORM. Go further only when a specific measurement forces it: reads outgrowing writes, a search requirement SQL cannot serve, or a reporting load that disturbs the transactional store. The ladder Level Shape Consistency 0 one model, one repository strong 1 two models, one schema strong 2 denormalised tables / views, same DB strong or near 3 separate read store, async projection eventual 4 level 3 plus event sourcing eventual How it relates Each step up buys scalability and costs a consistency guarantee."
+        },
+        {
+          "id": "term-event-sourcing",
+          "term": "Event sourcing",
+          "def": "Storing state as an append-only log of events rather than as current rows — frequently paired with CQRS, and independent of it.",
+          "detail": "Event sourcing changes how the write side persists: instead of updating a row, you append OrderPlaced, ItemAdded, OrderShipped and rebuild current state by replaying them. CQRS changes how you read. They fit together neatly, because an event log is the perfect input for projections, but either works without the other. Treat them as separate decisions with separate costs. Event sourcing brings full history and audit for free, and brings schema versioning of events, snapshotting and a genuinely different debugging experience as the bill. Pick independently You want You need Fast, screen-shaped reads CQRS Full history, temporal queries, audit event sourcing Both both — and a plan for event versioning How it relates Most CQRS systems in production are not event sourced; they project from change events emitted by an ordinary database write."
+        },
+        {
+          "id": "term-outbox",
+          "term": "Outbox",
+          "def": "Writing outgoing events into a table inside the same transaction as the state change, then publishing them from there.",
+          "detail": "Committing to the database and publishing to a broker are two separate systems, so doing both \"atomically\" is impossible without a protocol. The outbox makes it one transaction: the event row is written next to the state change, and a separate relay reads the table and publishes, marking rows as sent. Without it you get the two classic failures: the write commits and the event is lost (read model permanently stale), or the event is published and the write rolls back (read model shows something that never happened). Guarantees Property Result Delivery at least once Ordering per aggregate, if you keep a sequence Consumer requirement must be idempotent How it relates Change data capture (Debezium and friends) is the other common way to get the same guarantee."
+        },
+        {
+          "id": "term-idempotency",
+          "term": "Idempotency",
+          "def": "Applying the same event twice must leave the read model in the same state as applying it once.",
+          "detail": "Every realistic delivery mechanism is at-least-once, so a projector will see duplicates after a restart, a rebalance or a retry. Idempotency is what makes that harmless: use upserts keyed by the aggregate id, store the last applied sequence number per row and ignore anything not greater than it, and avoid blind increments like total = total + x. Safe and unsafe projection writes Write Safe? UPSERT … SET status = 'shipped' yes — absolute value SET count = count + 1 no — duplicates accumulate … WHERE seq < @seq yes — guarded by sequence INSERT without a key no — duplicate rows How it relates Idempotency is what makes a rebuild safe to run against a live read model."
+        },
+        {
+          "id": "term-rebuild",
+          "term": "Rebuild",
+          "def": "Dropping a read model and replaying the event history to recreate it — the operational superpower of CQRS.",
+          "detail": "Because the read model is derived, a bug in a projector or a new column on a screen does not need a data migration: reset the checkpoint, truncate the table and replay. In practice you build the new version alongside the old one, let it catch up, then switch the queries over — zero downtime, and the old table is still there if you need to go back. Plan for it from the start. Rebuild time grows with history, so measure it early and add snapshots or partial replays before it becomes hours. Rebuild checklist Step Note Build the new table alongside no downtime Replay from offset 0 needs retained history Verify row counts and spot checks before switching Switch queries, keep the old table cheap rollback How it relates The animation inside projection walks one rebuild end to end."
+        },
+        {
+          "id": "term-query-handler",
+          "term": "Query handler",
+          "def": "The read-side counterpart to a command handler: one per query, returning a DTO, with no domain model in sight.",
+          "detail": "Query handlers are allowed to be boring. Plain SQL, Dapper, a stored procedure, a search client — whatever gets the shape the screen needs in one round trip. Using the ORM's object graph here is the most common way the two sides silently merge back into one. Because they are pure, they are also where caching, pagination and rate limiting naturally belong. Rules of thumb Rule Reason Return a DTO, never an entity stops the domain leaking into the API One handler per screen shape avoids a generic query nobody can optimise No writes, ever makes caching and replicas safe How it relates This is CQS applied at the architecture level rather than the method level."
+        }
+      ],
+      "related": [
+        "domain-driven-design",
+        "outbox-pattern",
+        "cqs",
+        "caching-strategies",
+        "database-performance",
+        "modular-monolith"
+      ]
+    },
+    {
+      "slug": "cqs",
+      "url": "cheatsheets/cqs.html",
+      "title": "CQS",
+      "aliases": [
+        "CQS",
+        "Command-Query Separation",
+        "command query separation",
+        "command/query separation",
+        "Meyer's principle"
+      ],
+      "tagline": "Asking a question should not change the answer.",
+      "asOf": "As of Nov 2026 · Bertrand Meyer, Object-Oriented Software Construction, 1988; examples in C#, Python and HTTP",
+      "description": "Command-Query Separation cheatsheet: every method either changes state or returns an answer, never both — why it makes retries, caching and logging safe, and when to break it on purpose.",
+      "tags": [
+        "cqs",
+        "command query separation",
+        "side effects",
+        "pure functions",
+        "idempotency",
+        "api design",
+        "clean code",
+        "meyer",
+        "principles",
+        "refactoring"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential code patterns"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-command-cqs",
+          "term": "Command (CQS)",
+          "def": "A method that changes observable state and returns nothing.",
+          "detail": "In CQS terms a command is any method whose purpose is the change: Save(), Cancel(reason), Dequeue(). Returning void is not bureaucracy — it is the signal at the call site that something happened, which is exactly the information a reader needs. Failure is still reported, by throwing. An exception is not a return value in the CQS sense: it says the command did not happen, rather than answering a question. Allowed returns from a command Return Verdict void / Task ideal Throw on failure fine The new identity of a created thing pragmatic, widely accepted The full new state no — that is a query glued on How it relates CQRS applies this distinction to whole models rather than single methods."
+        },
+        {
+          "id": "term-query-cqs",
+          "term": "Query (CQS)",
+          "def": "A method that returns a value and leaves observable state untouched.",
+          "detail": "A query can be called any number of times, in any order, from anywhere — including from a log statement, an assertion, a debugger watch window or a retry loop — without changing program behaviour. That property is the entire value of the rule. \"Observable\" is the operative word. A query may write to a cache, open a connection or update a hit counter, as long as no caller can tell the difference in the answers they get. The CQS test Question If no… Can I call it twice safely? it is not a query Can I delete the call if I ignore the result? it is not a query Can I put it in a log line? it is not a query Can a debugger evaluate it? it is not a query How it relates Queries are the methods that can be safely memoized."
+        },
+        {
+          "id": "term-side-effect",
+          "term": "Side effect",
+          "def": "Any change a method makes beyond returning its value — the thing CQS is organising.",
+          "detail": "Mutating a field, writing to a database, sending a message, advancing an iterator, consuming from a queue, writing a file. CQS does not forbid side effects — software without them does nothing — it insists they be segregated into methods whose signature announces them. The cost of mixing them is that a reader cannot tell a safe line from a dangerous one, so every refactor becomes an archaeology exercise. How it relates Functional \"pure function\" is the stricter version of a CQS query."
+        },
+        {
+          "id": "term-benign-side-effect",
+          "term": "Benign side effect",
+          "def": "An internal change that no caller can observe — caching, lazy initialisation, metrics — which keeps a method a query.",
+          "detail": "Meyer's rule is about observable state. A Total() that computes once and caches is still a query: every call returns the same answer and nothing a caller can reach has changed. The same goes for lazily opening a connection, populating an internal index, or incrementing a hit counter used only for monitoring. The line is crossed as soon as the hidden change affects anyone's answers — a cache that goes stale and is never invalidated, or a lazy load that throws on the second call under concurrency. Memoization keeps it a query How it relates This is the loophole that keeps CQS practical in real systems."
+        },
+        {
+          "id": "term-mixed-method",
+          "term": "Mixed method",
+          "def": "A method that both returns a value and mutates state — the thing CQS asks you to split.",
+          "detail": "The classic examples read like queries and behave like commands: Pop(), NextId(), GetOrCreate(key), Read(buffer) on a stream, iterator.next(). Each one is a trap for anyone who assumes an expression is free of consequences. The split is usually mechanical: a query for the value, a command for the change, and the caller writes two lines instead of one. Where atomicity forbids that, keep the mixed method but name it so loudly that nobody mistakes it for a read. Split it Mixed Split into Job Pop() Job? Peek() + void Dequeue() int NextId() int CurrentId + void Advance() bool TryAcquire() keep — atomicity requires it T GetOrCreate(k) keep, but name it as a mutation How it relates The first animation is a mixed method causing a silent data-loss bug."
+        },
+        {
+          "id": "term-pragmatic-exceptions",
+          "term": "Pragmatic exceptions",
+          "def": "The cases where mixing is correct — atomic operations, iterators, builders — and CQS yields deliberately.",
+          "detail": "Meyer himself called it a principle rather than an absolute. Concurrency is the honest exception: TryDequeue(out item), CompareAndSwap, Interlocked.Increment must read and write as one indivisible step, and splitting them introduces the exact race the method exists to prevent. Two softer exceptions are widely accepted: a command returning the identity of a thing it created, and fluent builders returning this. Both keep the rule's spirit because the return value is not an answer about state. Break it when… Case Why Atomic test-and-set splitting creates a race Iterators, streams language idiom, deeply expected Fluent builder returning this no state is being reported Create returning the new id the id is not knowable otherwise How it relates Breaking it deliberately and naming it clearly is in the spirit of the rule; breaking it by accident is not."
+        },
+        {
+          "id": "term-referential-transparency",
+          "term": "Referential transparency",
+          "def": "The property that an expression can be replaced by its value without changing the program — what CQS buys you for queries.",
+          "detail": "If basket.Total() is a genuine query, then every occurrence of it can be replaced by 42 without altering behaviour. That is what makes it safe to hoist out of a loop, compute lazily, run in parallel, cache at the edge or drop entirely when the result is unused. Compilers, ORMs, HTTP caches and retry libraries all depend on this property. CQS is how you make a hand-written object-oriented API honest about having it. What it unlocks Optimisation Needs Caching / CDN referential transparency Hoisting out of loops referential transparency Parallel evaluation no observable writes Automatic retry safety, or idempotency How it relates Caching strategies all assume the read they cache is a query."
+        },
+        {
+          "id": "term-pure-function",
+          "term": "Pure function",
+          "def": "A function with no side effects whose result depends only on its arguments — a stricter cousin of the CQS query.",
+          "detail": "A CQS query may read mutable state (a field, a database) and therefore return different answers at different times; a pure function may not. So every pure function is a query, but not every query is pure. order.Total() is a query; Math.Max(a, b) is pure. Pushing towards purity — functional core, imperative shell — is the stronger version of the same instinct, and it composes well with CQS rather than replacing it. Spectrum Kind Reads state Writes state Pure function no no CQS query yes not observably CQS command yes yes Mixed method yes yes, while returning a value How it relates Both give you the same superpower: the ability to reason about a call site locally."
+        },
+        {
+          "id": "term-idempotency",
+          "term": "Idempotency",
+          "def": "Doing something twice has the same effect as doing it once — what a command needs if it is ever retried.",
+          "detail": "Queries are safe: repeating them changes nothing at all. Commands are not safe, so over an unreliable channel they need idempotency instead — usually a client-supplied key that the server records, so a replayed request is recognised and ignored. The two properties are easy to confuse. Safe implies idempotent; idempotent does not imply safe. DELETE is idempotent and definitely not safe. Safe, idempotent, neither Operation Safe Idempotent Read balance yes yes Set status to shipped no yes Delete order 42 no yes Withdraw 20 no no — needs a key How it relates The second animation is exactly this distinction over a flaky network."
+        },
+        {
+          "id": "term-http-semantics",
+          "term": "HTTP semantics",
+          "def": "GET as query, POST/PUT/PATCH/DELETE as command — CQS baked into the protocol since 1997.",
+          "detail": "HTTP already encodes the rule: GET and HEAD are safe, meaning they must not have side effects, which is precisely why proxies, browsers, CDNs and crawlers feel free to repeat them. The famous cautionary tale is the intranet whose \"delete\" links were GETs, emptied by a well-behaved prefetching crawler. Honouring this is not pedantry: it decides what your infrastructure may cache and what your clients may retry automatically. Method properties Method Safe Idempotent Cacheable GET / HEAD yes yes yes PUT no yes no DELETE no yes no POST no no rarely PATCH no not necessarily no How it relates A GET that mutates breaks caching and rate limiting at the same time."
+        },
+        {
+          "id": "term-memoization",
+          "term": "Memoization",
+          "def": "Caching a query's result so repeated calls are cheap — only safe because the method is a query.",
+          "detail": "Memoization substitutes a stored value for a computation, which is legitimate exactly when the computation is referentially transparent. Apply it to a mixed method and you silently skip the side effect on every call after the first — a bug that typically appears weeks later under load. The same reasoning extends outwards: an HTTP cache, a CDN, a materialised view and a React useMemo are all making the identical bet. Memoize when Condition Required No observable side effect yes Answer stable for the cache lifetime yes Invalidation story exists yes How it relates The animation inside benign side effect shows memoization preserving query semantics."
+        },
+        {
+          "id": "term-cqrs",
+          "term": "CQRS",
+          "def": "The architectural scaling of CQS: separate models, and possibly separate stores, for writing and reading.",
+          "detail": "CQS separates methods; CQRS separates models. The vocabulary is shared and the intuition is the same, but the cost profile could not be more different: CQS is free and local, while CQRS adds projections, eventual consistency and operational surface. Adopt CQS everywhere by default. Adopt CQRS in the one or two bounded contexts where the read and write shapes genuinely diverge, and never because the names sound similar. Side by side CQS CQRS Scope a method a bounded context Cost none real, operational Consistency unchanged often eventual Default answer yes only when measured How it relates A codebase that already respects CQS is much easier to move to CQRS later."
+        },
+        {
+          "id": "term-design-by-contract",
+          "term": "Design by Contract",
+          "def": "Meyer's broader method, which CQS exists to serve: preconditions and postconditions you can state because queries are honest.",
+          "detail": "CQS was not invented as a style preference. It is a prerequisite for Design by Contract: if assertions could change state, then enabling assertions in debug and disabling them in release would produce two different programs. Queries being side-effect-free is what makes require, ensure and invariant clauses — and modern equivalents like Debug.Assert or property-based tests — trustworthy. The modern restatement: any expression your test suite, logger or debugger evaluates must be free to evaluate. Contract clauses need queries Clause Uses Precondition queries on arguments and state Postcondition queries before and after Invariant queries only, always How it relates This is why assertions must never call a mixed method."
+        },
+        {
+          "id": "term-testability",
+          "term": "Testability",
+          "def": "The practical dividend: commands are verified by checking state, queries by checking return values — never both at once.",
+          "detail": "With CQS, a test has an obvious shape. For a query: call it, assert on the result, and assert that nothing changed. For a command: arrange, call, and assert on the resulting state. Mixed methods force every test to do both, and make it ambiguous which behaviour a failure is reporting. It also removes a whole category of mock: you rarely need to verify that a query was called, because calling it is free. Test shape Method Assert on Mocking Query return value stub the inputs Command resulting state verify the interaction Mixed both, ambiguously both How it relates \"Don't mock what you don't own\" gets much easier when queries are free to call."
+        }
+      ],
+      "related": [
+        "cqrs",
+        "caching-strategies",
+        "domain-driven-design",
         "rate-limiting",
-        "backend-for-frontend",
-        "kafka"
+        "database-performance"
+      ]
+    },
+    {
+      "slug": "database-performance",
+      "url": "cheatsheets/database-performance.html",
+      "title": "Database performance",
+      "aliases": [
+        "Database performance",
+        "DB performance",
+        "database tuning",
+        "indexing",
+        "index",
+        "indexes",
+        "partitioning",
+        "partitions",
+        "sharding",
+        "shard",
+        "connection pool",
+        "connection pooling",
+        "query plan"
+      ],
+      "tagline": "Index, then query, then schema, then cache, then replicate, then partition — and only then shard.",
+      "asOf": "As of Nov 2026 · examples are PostgreSQL 18 flavoured; the principles carry to MySQL, SQL Server and most engines",
+      "description": "Database performance cheatsheet: indexes, query plans, partitioning, sharding and connection pools — animated, in the order you should actually try them.",
+      "tags": [
+        "database",
+        "performance",
+        "index",
+        "b-tree",
+        "query plan",
+        "partitioning",
+        "sharding",
+        "connection pool",
+        "postgres",
+        "sql tuning",
+        "replication"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential commands & SQL"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-b-tree-index",
+          "term": "B-tree index",
+          "def": "A balanced tree that turns \"find rows matching this value\" into a handful of page reads instead of a full table scan.",
+          "detail": "A B-tree keeps keys sorted, with each node holding hundreds of entries, so the tree stays shallow: even a billion-row table is three to five levels deep. A lookup reads one page per level plus one heap page per matching row — typically four to six page reads in total, against millions for a scan. Because the keys are ordered, the same structure also serves range predicates, ORDER BY and MIN / MAX without extra work. The cost is on the write side: every insert, update of an indexed column and delete must maintain every index on the table. Depth and cost Table rows B-tree depth Page reads for one key 10,000 2 3 1,000,000 3 4 1,000,000,000 4–5 5–6 Index types worth knowing Type Use for B-tree equality, ranges, sorting — the default Hash equality only; rarely worth it GIN / inverted arrays, JSONB, full text BRIN huge, naturally ordered tables (time series) Partial (WHERE) hot subsets, e.g. status = 'open'"
+        },
+        {
+          "id": "term-selectivity",
+          "term": "Selectivity",
+          "def": "The fraction of rows a predicate keeps. Low fraction means an index helps; high fraction means it does not.",
+          "detail": "An index lookup costs a tree descent plus one random heap read per matching row. A sequential scan reads pages in order, which disks and prefetchers love. So beyond roughly 5–10% of the table, scanning sequentially is genuinely faster, and the planner will — correctly — ignore your index. This is why indexing a status column with three values rarely helps, while indexing email always does. For skewed columns a partial index on the rare value gives you the best of both. Rough guidance Rows matched Likely plan Under 1% index scan — big win 1–10% bitmap scan, depends on correlation Over 10% sequential scan, and that is correct How it relates Bad statistics make the planner mis-estimate selectivity, which is the usual cause of a sudden plan flip."
+        },
+        {
+          "id": "term-composite-index",
+          "term": "Composite index",
+          "def": "An index on several columns, usable only from the leftmost column onwards — the \"leftmost prefix\" rule.",
+          "detail": "An index on (customer_id, placed_at, status) is sorted by customer_id first, so it serves queries filtering on customer_id, on customer_id + placed_at, and on all three. It does not serve a query filtering only on placed_at, any more than a phone book sorted by surname helps you find everyone called Ada. Column order rules: equality predicates first, then the range or sort column, then anything you only want to carry along. One well-ordered composite index usually replaces three single-column ones and costs less on writes. What (a, b, c) serves Predicate Uses the index? a =? yes a =? AND b =? yes a =? AND c =? partly — only a narrows b =? no a =? ORDER BY b yes, sort is free How it relates Steps 5–6 of the first animation add the second column and show the extra filtering it removes."
+        },
+        {
+          "id": "term-covering-index",
+          "term": "Covering index",
+          "def": "An index that contains every column the query needs, so the table itself is never read.",
+          "detail": "Normally an index tells you where the rows are and the engine then fetches them from the heap — one random read each. If the index also carries the selected columns, the engine can answer entirely from the index: an index-only scan. On a query returning many rows that often removes 90% of the I/O. PostgreSQL spells it INCLUDE (...), SQL Server the same, MySQL/InnoDB gets it for free because secondary indexes already carry the primary key. The cost is a fatter index: more space, more write amplification, and less of it fitting in cache. Trade-off Add columns to the index Effect Reads heap never touched — much faster Writes more pages to maintain Memory index competes for the buffer cache How it relates Postgres also needs the visibility map to be current, so an index-only scan on a table that is never vacuumed quietly stops being index-only."
+        },
+        {
+          "id": "term-query-plan",
+          "term": "Query plan",
+          "def": "The strategy the planner chose, and the only reliable way to know why a query is slow.",
+          "detail": "EXPLAIN (ANALYZE, BUFFERS) shows the plan plus what actually happened. Read it bottom-up and look for two things: a node where rows estimated and rows actual differ by an order of magnitude (bad statistics), and a node that examines far more rows than it returns (missing or unusable index). Plans change on their own as data grows and statistics are resampled. A query that was fast for a year can flip to a scan overnight, which is why plan regressions belong on your dashboards. What to look for Symptom in the plan Usually means Seq Scan on a big table missing or unusable index Estimated 10, actual 100,000 stale or insufficient statistics Nested Loop with a huge outer bad join order from bad estimates Sort spilling to disk work_mem too small High shared read in BUFFERS working set does not fit in RAM How it relates Fix statistics before adding an index — half of \"missing index\" cases are mis-estimates."
+        },
+        {
+          "id": "term-sequential-scan",
+          "term": "Sequential scan",
+          "def": "Reading every page of a table in order — slow for a needle, and the right choice for a haystack.",
+          "detail": "A sequential scan is not a bug. Reading pages in physical order is far faster per page than random access, so for anything above roughly 10% selectivity, or for a small table, it wins outright. Forcing an index scan there makes the query slower. It becomes a problem only when it is used for a highly selective predicate — the 555,555:1 ratio in the first animation — or when several concurrent scans push the working set out of the buffer cache and the whole instance slows down. When a scan is correct Case Why Small table (a few hundred pages) the whole thing is already cached Returning most of the rows sequential I/O beats random Analytics and aggregation column scan is the point"
+        },
+        {
+          "id": "term-n-1-queries",
+          "term": "N+1 queries",
+          "def": "One query to fetch a list, then one more per item — the most common application-side performance bug.",
+          "detail": "Fetch 200 orders, then lazily touch order.Customer.Name inside the loop, and the ORM issues 201 round trips. Each one is individually fast, so nothing looks slow in the database; the time is 201 network round trips plus 201 pool acquisitions, and it only appears under load. It is also the fastest way to exhaust a connection pool, because each request now holds its connection for far longer than anyone sized for. Fixes, in order Fix Note Eager load / join Include, selectinload, JOIN FETCH Batch the second query one WHERE id IN (...) Project to a DTO fetch only what the screen needs Fail the build assert query count in tests How it relates Counting queries per request in tests catches this before production does."
+        },
+        {
+          "id": "term-connection-pool",
+          "term": "Connection pool",
+          "def": "A bounded set of reusable database connections shared by application threads.",
+          "detail": "Opening a PostgreSQL connection costs milliseconds and a backend process with its own memory; opening thousands costs the server more than the queries do. A pool keeps a small number open and hands them out, which also acts as a concurrency limiter — its most valuable and least appreciated property. Treat pool saturation as a signal, not a problem to configure away: it means work is arriving faster than the database completes it, and raising the limit only moves the queue somewhere worse. Settings that matter Setting Sensible value Max pool size small — see pool sizing Acquisition timeout 1–5 s; fail fast, do not pile up Statement timeout below the request timeout Idle timeout minutes, to release idle backends Leak detection on — finds unreturned connections How it relates The second animation is a pool saturating because the query got slower, not because the pool was small."
+        },
+        {
+          "id": "term-pool-sizing",
+          "term": "Pool sizing",
+          "def": "How many connections you actually need: arrival rate times time held, by Little's Law — usually a much smaller number than teams expect.",
+          "detail": "connections = requests per second × seconds held. At 100 requests per second each holding a connection for 50 ms, five are busy on average; a pool of ten has headroom. The famous HikariCP guidance — roughly cores × 2 + effective spindles — lands in the same place from the server's side: a 16-core database rarely benefits from more than about 32 concurrent queries, because beyond that they just compete. Remember to multiply by instances: ten application pods with a pool of 20 each is 200 connections at the server, which is where \"too many clients already\" comes from. Worked examples Rate Held Busy connections 100/s 50 ms 5 100/s 200 ms 20 500/s 20 ms 10 50/s 2 s 100 — fix the query How it relates This is Little's Law applied to connections; the same arithmetic sizes thread pools and queues."
+        },
+        {
+          "id": "term-partitioning",
+          "term": "Partitioning",
+          "def": "Splitting one logical table into physical pieces inside the same database, by range, list or hash.",
+          "detail": "Partitioning is a maintenance and locality tool, not primarily a speed tool. Its biggest wins are operational: dropping last year's data becomes DROP TABLE on a partition instead of a DELETE of 400 million rows; vacuum, index rebuilds and statistics run per partition; and indexes stay small enough to cache. Range partitioning by time is the overwhelmingly common case. Hash partitioning spreads writes but gives up pruning on ranges; list partitioning suits tenant or region keys. Choosing a scheme Scheme Good for Watch out for Range (time) logs, events, orders the newest partition is always hot List (tenant, region) multitenancy skew between tenants Hash even write spread no range pruning How it relates Partitioning stays inside one database; sharding crosses machines and loses transactions."
+        },
+        {
+          "id": "term-partition-pruning",
+          "term": "Partition pruning",
+          "def": "The planner skipping partitions that cannot contain matching rows — where the speed-up actually comes from.",
+          "detail": "A query with WHERE placed_at >= '2026-11-01' on a table partitioned by month touches one partition instead of 36. Pruning only works when the partition key appears in the predicate, which is why a partitioned table with queries that filter on something else is all cost and no benefit. Check it, do not assume it: the plan should show one partition scanned. Functions wrapped around the key, implicit casts and parameters resolved too late are the usual reasons pruning silently fails. Pruning works when Query Pruned? WHERE placed_at > '2026-11-01' yes WHERE date_trunc('day', placed_at) =? often not WHERE customer_id =? no — all partitions How it relates Partition on what you filter by, or do not partition."
+        },
+        {
+          "id": "term-sharding",
+          "term": "Sharding",
+          "def": "Spreading one dataset across independent databases, each owning a subset of the rows.",
+          "detail": "Sharding is the only way past the write throughput or storage of a single machine, and it is the most expensive step on the ladder. Each shard is a separate database: cross-shard joins disappear, cross-shard transactions require a protocol nobody enjoys, unique constraints become application concerns, and every operational task now happens N times. Do it when a single primary genuinely cannot keep up after the cheaper steps — not because the table is large. A well-indexed, partitioned table on a modern machine handles billions of rows. Keys landing on shards, and what resharding costs How it relates Try read replicas and partitioning first; they keep one logical database."
+        },
+        {
+          "id": "term-shard-key",
+          "term": "Shard key",
+          "def": "The column that decides which shard a row lives on — the single most consequential and least reversible choice in a sharded system.",
+          "detail": "A good shard key spreads writes evenly, keeps rows that are queried together on the same shard, and appears in almost every query so the router can avoid fan-out. tenant_id and user_id usually qualify; a timestamp almost never does, because all of today's writes land on one shard. Changing it later means moving every row, so model the top five queries against the candidate key before committing. Good and bad keys Key Verdict tenant_id good — natural locality; watch for whale tenants user_id (hashed) good — even spread created_at bad — all writes hit one shard Auto-increment id bad — same hot-shard problem country bad — extreme skew How it relates A hot shard is the sharded version of a hot partition: the median looks fine and one tenant is on fire."
+        },
+        {
+          "id": "term-read-replica",
+          "term": "Read replica",
+          "def": "A copy of the primary that serves reads, with a replication lag you must design around.",
+          "detail": "Replicas are the cheapest real scaling step: no schema change, no application rewrite beyond routing. They scale reads only — every replica still applies every write — and they introduce lag, usually single-digit milliseconds but seconds under heavy write load or a long-running query blocking replay. The practical rule is the same as for any eventually consistent read: send a user's own data to the primary right after they change it, and everything else to a replica. What replicas fix Problem Replica helps? Too many reads yes Reporting disturbing OLTP yes Too many writes no — shard or partition Slow individual query no — index it How it relates Replication lag is the same read-your-own-writes problem CQRS has, with the same mitigations."
+        },
+        {
+          "id": "term-lock-contention",
+          "term": "Lock contention",
+          "def": "Transactions waiting on each other's row or table locks — latency that no index will fix.",
+          "detail": "Two shapes dominate. A hot row — a counter, a balance, a sequence table — serialises every transaction that touches it, so throughput is capped at one divided by the lock hold time regardless of hardware. And long transactions hold locks far longer than the statement that took them, especially when an HTTP call happens inside one. Deadlocks are the loud version and are usually fixed by acquiring rows in a consistent order. The quiet version — everything 50 ms slower — is more common and only visible in lock wait metrics. Patterns and fixes Pattern Fix Hot counter row sharded counters, or aggregate asynchronously Long transaction never call out over the network inside one Deadlock consistent lock ordering, short transactions Lock escalation batch updates in chunks How it relates Lock waits inflate the time a connection is held, which is what saturates the pool."
+        },
+        {
+          "id": "term-working-set",
+          "term": "Working set",
+          "def": "The pages actually touched by your queries. Performance falls off a cliff when it stops fitting in RAM.",
+          "detail": "Databases are fast because the hot pages live in the buffer cache: a hit is about 100 nanoseconds, a miss on NVMe is 50–500 microseconds, several hundred times slower. Most tables have a small hot subset — recent orders, active users — so what matters is not the size of the data but the size of the part you keep touching. The failure mode is non-linear and sudden: the working set grows just past RAM, hit rate drops, I/O climbs, queries slow, connections are held longer, the pool saturates, and the whole thing looks like a pool incident. Keeping it small Technique Effect Partition by time cold months stop competing for cache Narrower rows / TOAST more rows per page Partial and covering indexes fewer pages per query Archive old data the only permanent fix How it relates Cache hit ratio and shared read counts are the early warning; latency percentiles are the late one."
+        },
+        {
+          "id": "term-bloat-vacuum",
+          "term": "Bloat & vacuum",
+          "def": "Dead row versions left by updates and deletes, and the background work that reclaims them.",
+          "detail": "In MVCC engines an UPDATE writes a new row version and leaves the old one as garbage. Autovacuum reclaims that space and refreshes the visibility map, but it is throttled by default and loses ground on write-heavy tables — so the table grows, scans read more pages, indexes point at dead tuples and index-only scans silently stop being index-only. Long-running transactions and abandoned replication slots are the usual culprits: vacuum cannot remove a row version that some old snapshot might still need, so a forgotten session can bloat a table for days. Symptoms and causes Symptom Likely cause Table far bigger than its data autovacuum falling behind Index-only scans vanished visibility map stale Vacuum never completes long transaction or stale slot Growing after a bulk delete space reclaimed but not returned to the OS How it relates Bloat quietly grows the working set, which is how a healthy system becomes a slow one without any code change."
+        }
+      ],
+      "related": [
+        "multitenancy",
+        "littles-law",
+        "caching-strategies",
+        "back-of-the-envelope",
+        "percentiles",
+        "outbox-pattern"
       ]
     },
     {
@@ -1244,10 +1770,202 @@
       ],
       "related": [
         "kubernetes",
+        "sidecar-pattern",
         "redis",
         "caching-strategies",
         "kafka",
         "rate-limiting"
+      ]
+    },
+    {
+      "slug": "domain-driven-design",
+      "url": "cheatsheets/domain-driven-design.html",
+      "title": "Domain-Driven Design",
+      "aliases": [
+        "Domain-Driven Design",
+        "DDD",
+        "domain driven design",
+        "ubiquitous language",
+        "bounded context",
+        "bounded contexts",
+        "aggregate",
+        "aggregates",
+        "anti-corruption layer"
+      ],
+      "tagline": "Model the business, not the database — and stop pretending one word means the same thing everywhere.",
+      "asOf": "As of Nov 2026 · Eric Evans, 2003; examples in C# and Python, framework-agnostic",
+      "description": "Domain-Driven Design cheatsheet: bounded contexts and context maps on the strategic side, aggregates, value objects and domain events on the tactical side — animated.",
+      "tags": [
+        "ddd",
+        "domain driven design",
+        "bounded context",
+        "aggregate",
+        "ubiquitous language",
+        "architecture",
+        "modelling",
+        "domain events",
+        "strategic design",
+        "tactical design"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential code patterns"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-ubiquitous-language",
+          "term": "Ubiquitous language",
+          "def": "One vocabulary shared by developers and domain experts, used in conversation, in documentation and literally in the code.",
+          "detail": "The ubiquitous language is the deliverable that makes everything else possible. If the business says \"a policy lapses\" and the code says UpdateStatus(3), every conversation needs a translation step, and translations are where bugs and misunderstanding accumulate. When the model is right, a domain expert can read a method name out loud and say whether it is true. Crucially the language is scoped to one bounded context. \"Account\" in trading and \"account\" in support are different words that happen to be spelled the same; forcing one definition across both is the mistake the first animation is about. Translating badly vs well Business says Weak code Ubiquitous the policy lapses status = 3 policy.Lapse() reserve stock qty -= n stock.Reserve(n) settle the invoice paid = true invoice.Settle(payment) How it relates The language is bounded by the bounded context; outside it, it stops being valid. Event storming is the usual workshop for discovering it."
+        },
+        {
+          "id": "term-domain-expert",
+          "term": "Domain expert",
+          "def": "The person who actually knows how the business works, and whose vocabulary the model is built from.",
+          "detail": "DDD assumes continuous access to someone who can answer \"what happens if the shipment is refused at the door?\" without going to ask. That is not a product owner translating tickets — it is the underwriter, the dispatcher, the credit controller. Without that access the model is a guess dressed in patterns, and most failed DDD efforts fail here rather than on the code. The practical test: can you get an hour a week with someone who would notice if the model were wrong? If not, use something cheaper than DDD. How it relates Their words become the ubiquitous language. They are the ones who tell you which subdomain is actually core."
+        },
+        {
+          "id": "term-subdomain",
+          "term": "Subdomain",
+          "def": "A part of the business problem, classified as core, supporting or generic to decide how much effort it deserves.",
+          "detail": "Subdomains are discovered in the problem space, before any software exists. The classification is a budgeting decision: the core subdomain is what makes the company money and is worth your best people and full DDD; supporting subdomains are necessary but not differentiating, so keep them simple; generic subdomains are solved problems that you buy. Getting this wrong is expensive in both directions — hand-rolling an invoicing engine, or treating your pricing algorithm as \"just CRUD\". Classification Type Example Approach Core dynamic pricing, risk scoring full DDD, best team, build Supporting shipping schedules, catalogue simple model, build cheaply Generic auth, invoicing, email buy or use a library How it relates A subdomain is the problem; a bounded context is the solution you build for it — ideally one to one."
+        },
+        {
+          "id": "term-bounded-context",
+          "term": "Bounded context",
+          "def": "An explicit boundary inside which one model and one language are consistent and unambiguous.",
+          "detail": "The single most valuable idea in DDD. Instead of trying to build one enterprise-wide model of \"Customer\" that satisfies sales, shipping and billing simultaneously — which produces a class with ninety fields and no invariants — you accept that each context has its own model, its own schema and its own meaning for the word, and you translate at the border. The boundary should be aligned with a team, so that one team owns one context end to end. A context that two teams both change is not a boundary, it is a shared mutable object with extra ceremony. Signals you crossed a boundary Signal Meaning The same word needs qualifying two models hiding in one Half the fields are always null two lifecycles in one class Two teams fight over a table boundary runs through it A change is \"only for report X\" a read model wants its own context How it relates In a modular monolith, a context is a module; in microservices, usually a service. Relationships between contexts are recorded on the context map."
+        },
+        {
+          "id": "term-context-map",
+          "term": "Context map",
+          "def": "A diagram and a document describing every bounded context and the political and technical relationship between each pair.",
+          "detail": "The context map is the architecture. It names each relationship using a small vocabulary — who depends on whom, who can impose changes, who has to absorb them — and it makes organisational reality visible, including the parts nobody enjoys admitting. Keep it on one page and date it. Its value is in being discussed, not in being complete. Relationship patterns Pattern Means Partnership two teams succeed or fail together; coordinate releases Customer / supplier downstream needs are planned by upstream Conformist downstream adopts the upstream model as-is Anti-corruption layer downstream translates and refuses to adopt it Shared kernel a small shared model, jointly owned Open host / published language upstream publishes a stable contract for everyone Separate ways no integration; duplicate instead How it relates Every arrow on the map is a place where translation code, or a future incident, lives."
+        },
+        {
+          "id": "term-anti-corruption-layer",
+          "term": "Anti-corruption layer",
+          "def": "A translation layer that converts another context's model into yours, so their concepts never leak into your domain.",
+          "detail": "An ACL is a deliberate, owned piece of code at the border: adapters, mappers and a façade that speak the foreign model on one side and your ubiquitous language on the other. It is how you integrate with a legacy system, a vendor API or another team's service without letting their naming, their nulls and their lifecycle rules spread through your codebase. It costs real effort and it is almost always worth it on the upstream dependency you do not control. When the vendor changes their payload, exactly one package changes. What goes in it Concern Example Naming CUST_TYP=2 → CustomerTier.Gold Missing data default or reject, decided here Shape flatten a 5-level XML into a value object Failure map HTTP 503 to a domain-meaningful error How it relates Shown as the red ACL box in both the context map and the first animation."
+        },
+        {
+          "id": "term-shared-kernel",
+          "term": "Shared kernel",
+          "def": "A small model deliberately shared by two contexts, jointly owned and changed only by agreement.",
+          "detail": "Sometimes duplicating a concept costs more than sharing it — Money, IsoCountry, a currency conversion table. A shared kernel is the explicit decision to share a small, stable piece, with the condition that neither team changes it unilaterally and both teams' tests run on every change. It is the most abused pattern in DDD, because \"shared kernel\" is what a shared library of 200 entities calls itself. Keep it tiny, keep it stable, and prefer duplication when in doubt. Share or duplicate? Candidate Verdict Money, Currency, Percentage share — stable, universal Customer, Order, Product duplicate — means different things Event contracts publish instead, versioned How it relates The alternative to a kernel is translation through an anti-corruption layer."
+        },
+        {
+          "id": "term-entity",
+          "term": "Entity",
+          "def": "An object with an identity that persists through change: two entities differ even when every field matches.",
+          "detail": "An entity is defined by continuity, not by content. A customer who changes name, address and email is still the same customer, because identity is carried by an id that is assigned once and never reused. Equality is by id; everything else can change. The practical consequence is that entities have a lifecycle — created, modified, archived — and that the model must say who assigns the identity and when, which is usually the moment the aggregate is created rather than the moment the database assigns a key. Entity or value object? Question Entity Value object Do we track it over time? yes no Equality by id by all fields Mutable yes, through methods never — replace it How it relates An aggregate root is always an entity."
+        },
+        {
+          "id": "term-value-object",
+          "term": "Value object",
+          "def": "An immutable object defined entirely by its values, with no identity: two with the same values are interchangeable.",
+          "detail": "Value objects are the most under-used and highest-return pattern in tactical DDD. Replacing decimal amount and string currency with a Money type removes a whole class of bugs: you can no longer add euros to dollars, you cannot construct a negative price, and the rounding rule lives in one place. They are immutable by definition — \"changing\" one means producing a new one — which makes them free to share, trivially thread-safe and easy to test. Validate in the constructor so an invalid instance cannot exist. Identity versus value How it relates Most invariants about a single field belong in a value object, not in the aggregate."
+        },
+        {
+          "id": "term-aggregate",
+          "term": "Aggregate",
+          "def": "A cluster of entities and value objects treated as one unit for changes, with a single root as the only entry point.",
+          "detail": "The aggregate answers the question \"what must be consistent right now, in the same transaction?\" An Order with its lines is one aggregate because \"at most ten items\" is a rule about the whole order. The customer who placed it is a different aggregate, referenced by id, because no rule requires the customer and the order to change together. Keep them small. Large aggregates mean long transactions, lock contention and loading hundreds of rows to change one field. The usual advice — one aggregate changed per transaction, other aggregates updated eventually via domain events — is what makes a model scale. Sizing rules Rule Why Reference other aggregates by id keeps the loaded graph small One aggregate per transaction avoids distributed locking Group only true invariants \"shown together\" is not a reason Prefer eventual consistency outside cross-aggregate rules via events How it relates The second animation loads, mutates and saves exactly one aggregate. The aggregate boundary is also the repository 's unit of work."
+        },
+        {
+          "id": "term-aggregate-root",
+          "term": "Aggregate root",
+          "def": "The single entity through which everything inside an aggregate is reached and changed.",
+          "detail": "Outside code may hold a reference to the root and nothing else. There is no order.Lines.Add(...) from a service — only order.AddItem(sku, qty), because only the root can see enough state to check the invariant. That single restriction is what keeps business rules from leaking into controllers. Practically: expose child collections as read-only, put behaviour on the root, and give the root the identity that the outside world uses. Allowed or not Call Verdict repo.Get(orderId) yes — roots only order.AddItem(sku, 3) yes — behaviour on the root repo.GetLine(lineId) no — children are not addressable order.Lines.Add(line) no — bypasses the invariant How it relates Step 4 of the aggregate animation is the root refusing to be bypassed."
+        },
+        {
+          "id": "term-invariant",
+          "term": "Invariant",
+          "def": "A business rule that must be true before and after every change — the reason an aggregate exists at all.",
+          "detail": "Invariants are what decide aggregate boundaries. \"An order has at most ten items\" needs the whole order, so lines belong inside it. \"A customer cannot have two orders in flight\" needs two aggregates, so it cannot be a transactional invariant — it becomes an eventually consistent check, or the model is wrong. Enforce them in the constructor and in every mutating method, and throw a domain-specific exception rather than returning false. An object that cannot be constructed in an invalid state removes most defensive code elsewhere. Where each rule lives Rule Home Quantity must be positive value object constructor At most 10 lines per order aggregate root method SKU must exist in the catalogue domain service / another context Email must be unique not an invariant — a uniqueness constraint How it relates The last step of the aggregate animation is an invariant rejecting a command."
+        },
+        {
+          "id": "term-repository",
+          "term": "Repository",
+          "def": "A collection-like abstraction for loading and saving whole aggregates by identity.",
+          "detail": "A repository hides persistence behind a domain-shaped interface: Get(id), Add(order), Remove(order). One repository per aggregate root, never one per table. It deals in whole aggregates, so partial loads and lazy children are a smell that the aggregate is too big. It is deliberately not a query API. Arbitrary filtering, joins and projections for screens belong on the read side, which is exactly the split that CQRS formalises. Repository or query? Need Where Load order 42 to change it repository List 50 orders with customer names read model / query service Count orders per region read model How it relates CQRS grows naturally out of this restriction."
+        },
+        {
+          "id": "term-domain-event",
+          "term": "Domain event",
+          "def": "A record that something business-meaningful has happened, named in the past tense and published after the fact.",
+          "detail": "OrderPlaced, PaymentDeclined, ShipmentDelayed. Domain events are how one aggregate tells the rest of the system what happened without knowing who is listening, and they are the main integration mechanism between bounded contexts. Raising them inside the aggregate and dispatching them after the transaction commits keeps the model clean and avoids publishing events for work that then rolled back. Distinguish internal domain events (rich, private to the context) from integration events (small, versioned, part of your published language). Leaking the internal one across a boundary is how two contexts become coupled again. Naming and payload Rule Example Past tense, business words OrderPlaced, not OrderInsert Carry ids plus what changed orderId, total, placedAt Never carry the whole entity that couples the consumer to your model Version the integration shape OrderPlaced.v2 How it relates Steps 6–8 of the aggregate animation raise, commit and then publish one."
+        },
+        {
+          "id": "term-domain-service",
+          "term": "Domain service",
+          "def": "A piece of domain logic that does not belong to any single entity or value object, expressed in the ubiquitous language.",
+          "detail": "Some rules genuinely span several aggregates or need outside knowledge — a transfer between two accounts, a pricing calculation that needs the catalogue and the customer's tier. Putting that on either aggregate would be arbitrary, so it becomes a stateless domain service with a business name: FundsTransferService, PricingPolicy. The trap is using it as a dumping ground. If most of your logic lives in services and your entities are property bags, you have built an anemic domain model with extra layers. Service or method? Logic Goes to Uses only one aggregate's state a method on the root Spans two aggregates domain service Orchestrates transaction + repo + bus application service How it relates Contrast with the application service, which holds no rules at all."
+        },
+        {
+          "id": "term-application-service",
+          "term": "Application service",
+          "def": "The thin orchestration layer: it opens the transaction, loads an aggregate, calls one method on it and saves. No business rules.",
+          "detail": "Also called a command handler or use-case. Its whole job is plumbing: authorisation, transaction boundaries, fetching the aggregate, invoking a single intention-revealing method, persisting and dispatching events. If it contains an if about business meaning, that if belongs in the domain. Keeping it this thin is what makes the domain testable without a database and what makes the same domain usable from HTTP, a message consumer and a CLI without duplication. Typical body var order = await repo.Get(cmd.OrderId); order.AddItem(cmd.Sku, cmd.Quantity); await repo.Save(order); await bus.Publish(order.ReleaseEvents()); How it relates It is the leftmost box in the aggregate animation."
+        },
+        {
+          "id": "term-event-storming",
+          "term": "Event storming",
+          "def": "A workshop where domain experts and developers map the business as a wall of past-tense events, then find boundaries in it.",
+          "detail": "Invented by Alberto Brandolini: orange sticky notes for domain events along a timeline, then commands, actors, policies and external systems layered on top. It is fast — a day gets you a useful map of a domain nobody could previously explain — and it surfaces disagreement between experts, which is usually the most valuable output. The clusters where events stop referring to each other are candidate bounded contexts. That is the cheapest way to find boundaries before committing them to code. The sticky notes Colour Meaning Orange domain event — OrderPlaced Blue command — PlaceOrder Yellow actor / aggregate Purple policy — \"whenever X, then Y\" Pink external system Red problem, question, disagreement How it relates It is how most teams actually discover their context map."
+        },
+        {
+          "id": "term-anemic-domain-model",
+          "term": "Anemic domain model",
+          "def": "The anti-pattern where entities are property bags and all behaviour sits in services — DDD vocabulary with none of the benefit.",
+          "detail": "Named by Martin Fowler. The shape is familiar: Order with twenty public setters, OrderService with twenty methods that mutate it, and validation sprinkled across controllers. It is not automatically wrong — for genuine CRUD it is the simpler choice — but it is wrong when the team has paid the cost of DDD and expected the benefit. The tell is that you cannot answer \"where is the rule that an order cannot exceed ten items?\" by looking at Order. If that rule can be broken by anyone with a setter, the aggregate is decorative. Symptoms Symptom Fix Public setters everywhere private setters, intention-revealing methods Validation in the controller move into constructors and methods Primitive obsession introduce value objects Services named XManager find the missing domain concept How it relates If this describes your code, strategic design — not more patterns — is usually what is missing."
+        }
+      ],
+      "related": [
+        "cqrs",
+        "backend-for-frontend",
+        "outbox-pattern",
+        "modular-monolith",
+        "cqs",
+        "multitenancy"
       ]
     },
     {
@@ -1428,11 +2146,11 @@
       ],
       "related": [
         "docker",
+        "sidecar-pattern",
         "rate-limiting",
         "azure-api-management",
         "kafka",
-        "azure-durable-functions",
-        "multitenancy"
+        "azure-durable-functions"
       ]
     },
     {
@@ -1600,9 +2318,11 @@
         }
       ],
       "related": [
+        "database-performance",
         "percentiles",
         "back-of-the-envelope",
-        "rate-limiting"
+        "rate-limiting",
+        "sli-slo-sla"
       ]
     },
     {
@@ -1769,8 +2489,11 @@
         }
       ],
       "related": [
+        "domain-driven-design",
+        "cqrs",
         "backend-for-frontend",
         "multitenancy",
+        "outbox-pattern",
         "percentiles"
       ]
     },
@@ -1957,12 +2680,183 @@
         }
       ],
       "related": [
+        "database-performance",
         "backend-for-frontend",
+        "domain-driven-design",
         "modular-monolith",
         "back-of-the-envelope",
-        "caching-strategies",
-        "kubernetes",
-        "rate-limiting"
+        "caching-strategies"
+      ]
+    },
+    {
+      "slug": "outbox-pattern",
+      "url": "cheatsheets/outbox-pattern.html",
+      "title": "Outbox pattern",
+      "aliases": [
+        "Outbox pattern",
+        "transactional outbox",
+        "outbox",
+        "dual write",
+        "dual-write problem",
+        "inbox pattern",
+        "idempotent consumer"
+      ],
+      "tagline": "You cannot commit a database and a broker together. So write the message as a row, and let it ride along.",
+      "asOf": "As of Nov 2026 · examples use PostgreSQL, Kafka and Debezium; the idea is engine-agnostic",
+      "description": "Transactional outbox cheatsheet: why the dual write loses or invents events, how one table and a relay fix it, and what at-least-once delivery then demands of consumers.",
+      "tags": [
+        "outbox",
+        "transactional outbox",
+        "dual write",
+        "messaging",
+        "cdc",
+        "debezium",
+        "kafka",
+        "idempotency",
+        "microservices",
+        "reliability"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential code patterns"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-dual-write",
+          "term": "Dual write",
+          "def": "Writing to two systems that cannot share a transaction — the problem the outbox exists to remove.",
+          "detail": "Save the row, then publish the message. Or publish, then save. Either way there is a window in which one has happened and the other has not, and a crash, a timeout or a rollback inside that window leaves the two systems permanently disagreeing. What makes it dangerous is that both failure modes are silent: nothing throws, no alert fires, and the inconsistency is discovered days later by a customer. Retrying does not help, because the process that would retry is the one that died. Both orderings fail Order Failure Result Commit, then publish crash before publish event lost — nobody reacts Publish, then commit transaction rolls back phantom event — others react to nothing Publish inside the transaction broker slow or down long transaction, locks held, both fail together How it relates The first animation walks through all three."
+        },
+        {
+          "id": "term-outbox-table",
+          "term": "Outbox table",
+          "def": "An ordinary table in the service's own database where outgoing messages are inserted inside the business transaction.",
+          "detail": "Keep it boring: a monotonic id for ordering, a stable message id for deduplication, the aggregate id for partitioning, a type, a JSON payload, a timestamp, and either a sent_at column or nothing at all if you are using change data capture. Because it is in the same database as the state, the insert joins the same transaction automatically. There is no new protocol and no new failure mode — if the business change commits, the message exists; if it rolls back, the message never existed. Columns that earn their place Column Why id bigserial publication order message_id uuid consumer deduplication key aggregate_id partition key — preserves per-entity order type, payload jsonb routing and body occurred_at, sent_at lag metric and cleanup How it relates In an event-sourced service the event store already is the outbox."
+        },
+        {
+          "id": "term-relay",
+          "term": "Relay",
+          "def": "The separate process that reads unsent outbox rows and publishes them to the broker, retrying until it succeeds.",
+          "detail": "The relay is deliberately dumb: it has no business logic, it is restartable at any moment, and its only state is \"which rows have I published\". That is what makes the pattern robust — the durable fact is already committed, so the relay failing is an availability problem, never a correctness one. Run it either as a sidecar beside the service, as a separate deployment, or not at all if you use CDC and let the connector be your relay. Where to run it Option Trade-off In the service process simplest; competes for the same resources Sidecar container isolated, scales with the pod Separate deployment scaled independently; one more thing to run CDC connector no code at all; a platform dependency How it relates Several relay instances can run safely with SKIP LOCKED, shown in the polling publisher animation."
+        },
+        {
+          "id": "term-polling-publisher",
+          "term": "Polling publisher",
+          "def": "The simplest relay: periodically select unsent rows, publish them, mark them sent.",
+          "detail": "A loop with SELECT ... WHERE sent_at IS NULL ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED is enough for most systems. SKIP LOCKED is what lets several relay instances run concurrently without stepping on each other — each grabs a different batch instead of blocking. Polling adds latency equal to half the poll interval, and constant query load even when idle. LISTEN / NOTIFY (or an in-process signal after commit) removes the latency while keeping the poll as a safety net. Two relays, one table, no collisions How it relates Batch size and poll interval are the two knobs that trade throughput against latency."
+        },
+        {
+          "id": "term-change-data-capture",
+          "term": "Change data capture",
+          "def": "Tailing the database's own replication log instead of polling, so the outbox is published with no extra queries.",
+          "detail": "Debezium and similar connectors read the write-ahead log and emit a message for every committed row change. Point one at your outbox table and the relay disappears: no polling load, latency in the low milliseconds, and ordering guaranteed by the log itself. Debezium even ships an \"outbox event router\" that unwraps the row into a properly shaped event. The cost is a platform dependency — Kafka Connect or equivalent — plus replication slots that will quietly bloat your database if a connector stops consuming. Polling versus CDC Polling CDC Latency half the interval milliseconds DB load constant queries log reading only Ops cost a loop you own a connector cluster Risk slow when backlogged stale slot bloats the DB How it relates CDC is also how read-model projections are commonly fed."
+        },
+        {
+          "id": "term-at-least-once",
+          "term": "At-least-once",
+          "def": "The delivery guarantee an outbox gives you: every message arrives, and some arrive more than once.",
+          "detail": "The relay publishes, then marks the row sent. If it dies between those two steps the row is still unsent, so after restart it publishes again. That gap cannot be closed — closing it would require exactly the dual-write guarantee the pattern was invented to avoid. So duplicates are not an edge case to be surprised by; they are part of the contract. The good news is that a duplicate is detectable (the message id is the same) while a lost message is not. The guarantees Guarantee Means At-most-once never duplicated, may be lost At-least-once never lost, may be duplicated \"Exactly-once\" at-least-once plus deduplication at the consumer How it relates \"Exactly-once processing\" is achievable; exactly-once delivery is not."
+        },
+        {
+          "id": "term-idempotent-consumer",
+          "term": "Idempotent consumer",
+          "def": "A consumer for which processing the same message twice has the same effect as processing it once.",
+          "detail": "This is non-negotiable with an outbox. The cheapest version is a naturally idempotent handler: setting a status to shipped is safe to repeat, incrementing a counter is not. When the operation is not naturally idempotent, record the message id and skip anything already seen. Idempotency must cover side effects too. A handler that sends an email is not idempotent just because its database write is. Making a handler safe Operation Approach Set a status already idempotent Insert a row upsert on a natural key Increment a total inbox table, or store absolute values Send an email / charge a card idempotency key at the provider How it relates The last steps of the second animation show a duplicate hitting an inbox and being dropped."
+        },
+        {
+          "id": "term-inbox-table",
+          "term": "Inbox table",
+          "def": "The mirror image of the outbox: the consumer records processed message ids, in the same transaction as its own state change.",
+          "detail": "On receipt, insert the message id into inbox; if the insert violates the primary key, this message has already been handled and you acknowledge it without doing anything. Doing that insert in the same transaction as the business change is what makes \"process exactly once\" true in effect, even though delivery was at-least-once. Give the table a retention policy — typically a few days, longer than any plausible redelivery — or it grows forever. Shape Column Note message_id PK the deduplication key processed_at for retention handler if several handlers consume the same topic How it relates Outbox plus inbox is the full \"transactional messaging\" pair."
+        },
+        {
+          "id": "term-message-id",
+          "term": "Message id",
+          "def": "A stable identifier generated once, when the outbox row is written — never when it is published.",
+          "detail": "If the relay generated the id at publish time, a republished row would carry a new id and no consumer could tell it was a duplicate. Generating it inside the business transaction makes the id part of the durable fact. Prefer a UUIDv7 or similar time-ordered identifier: unique, sortable, and it doubles as a debugging handle you can trace from the producing transaction to the consuming one. Also worth carrying Field Use message_id deduplication correlation_id tracing across services causation_id which message caused this one schema version safe payload evolution How it relates Propagating trace context through the outbox is the only way distributed tracing survives the asynchronous hop."
+        },
+        {
+          "id": "term-ordering",
+          "term": "Ordering",
+          "def": "Messages are published in outbox id order, and keyed by aggregate id so a consumer sees one entity's events in sequence.",
+          "detail": "Global ordering across a whole service is neither achievable nor useful. Per-aggregate ordering is both: publish with aggregate_id as the partition key so OrderPlaced always reaches a consumer before OrderShipped for that order. Two things quietly break this: running several relay instances that publish concurrently across the same aggregate, and retries that reorder a failed message behind a later one. Partition the relay by aggregate, or accept out-of-order delivery and make handlers tolerate it. Ordering choices Scope Feasible Cost Per aggregate yes partition key Per topic only with one partition no parallelism Global effectively no — How it relates Handlers that tolerate out-of-order arrival (version checks, state machines) are far cheaper than strict ordering."
+        },
+        {
+          "id": "term-lag",
+          "term": "Lag",
+          "def": "The age of the oldest unsent outbox row — the one metric that tells you the pattern is working.",
+          "detail": "Everything else can look healthy while the relay is dead: the API returns 200, the database commits, the business logic is fine. Only the outbox backlog reveals that nobody downstream has heard anything for twenty minutes. Alert on the age of the oldest unsent row rather than the row count, because a slow trickle of unsendable messages matters more than a large burst that is draining normally. What to export Metric Healthy Age of oldest unsent row under a few seconds Unsent row count bounded, draining Publish errors per minute zero, or retrying Table size flat — cleanup is running How it relates Rising lag with zero errors usually means a poison message at the head of the queue."
+        },
+        {
+          "id": "term-poison-message",
+          "term": "Poison message",
+          "def": "A row the relay can never publish, which blocks everything behind it if the relay insists on order.",
+          "detail": "A payload too large for the broker, an unserialisable field, a topic that no longer exists. The relay retries, fails, retries — and if it publishes strictly in id order, the whole outbox stops behind one bad row while lag climbs and errors stay constant. Give up after a bounded number of attempts: move the row to a dead-letter table, record why, alert, and continue. Losing ordering for one aggregate is better than losing delivery for all of them. Handling Step Action Retry exponential backoff, bounded Give up move to outbox_dead with the error Alert a human must see it Replay fix and re-insert, keeping the message id How it relates Keeping the original message id on replay means consumers still deduplicate correctly."
+        },
+        {
+          "id": "term-retention",
+          "term": "Retention",
+          "def": "Deleting published rows, so the outbox does not quietly become the largest table in the database.",
+          "detail": "A busy service writes millions of outbox rows a week. Left alone they bloat the table, slow the relay's own query, and inflate backups. Delete or archive rows once they are published and old enough to be past any replay you would realistically want. Deleting in small batches avoids long locks; partitioning the outbox by day turns cleanup into dropping a partition, which is instant. Approaches Approach Note Delete sent rows after N days batch it; watch for bloat Partition by day and drop instant, no vacuum debt Delete immediately after publish simplest; no replay possible Archive to object storage when the events have audit value How it relates Partitioned retention is the same trick used on any large append-only table."
+        },
+        {
+          "id": "term-two-phase-commit",
+          "term": "Two-phase commit",
+          "def": "The distributed protocol that would make a dual write atomic — and the reason almost nobody uses one.",
+          "detail": "XA/2PC genuinely solves the problem: a coordinator asks both resource managers to prepare, then tells both to commit. In practice it is slow, requires locks held across a network round trip, is unsupported by most modern brokers (Kafka has no XA), and has a blocking failure mode when the coordinator dies mid-protocol. Worse, it couples availability: if the broker is down, your database writes fail too. The outbox deliberately refuses that coupling — your service keeps working and the messages go out when the broker returns. Why the outbox wins 2PC Outbox Broker support rare any Latency high unchanged Availability coupling yes no Duplicates no yes — handled at the consumer How it relates The outbox trades a strong guarantee for a weaker one plus a cheap consumer-side fix."
+        },
+        {
+          "id": "term-listen-to-yourself",
+          "term": "Listen to yourself",
+          "def": "A variant where the producing service also consumes its own published event, instead of updating state directly.",
+          "detail": "Rather than writing state and an outbox row, the service writes only the event, publishes it, and updates its own state when it consumes it back. Every service — including the producer — then runs the same code path, and there is exactly one source of truth for \"what happened\". The price is that the producer's own state is eventually consistent with its own API, which surprises callers who expect to read back what they just wrote. It fits command-heavy, event-driven systems and fits poorly behind a synchronous CRUD API. Compared Outbox Listen to yourself Own state after commit immediately current eventually current Code paths two one Fits most services event-driven cores How it relates It has the same read-your-own-writes consequences as a CQRS read model."
+        }
+      ],
+      "related": [
+        "cqrs",
+        "domain-driven-design",
+        "kafka",
+        "database-performance",
+        "sidecar-pattern",
+        "azure-durable-functions"
       ]
     },
     {
@@ -2140,12 +3034,12 @@
         }
       ],
       "related": [
+        "sli-slo-sla",
         "littles-law",
+        "database-performance",
         "rate-limiting",
         "back-of-the-envelope",
-        "backend-for-frontend",
-        "caching-strategies",
-        "modular-monolith"
+        "domain-driven-design"
       ]
     },
     {
@@ -2317,8 +3211,8 @@
         "redis",
         "littles-law",
         "percentiles",
-        "kubernetes",
-        "caching-strategies"
+        "sli-slo-sla",
+        "kubernetes"
       ]
     },
     {
@@ -2480,9 +3374,367 @@
         "rate-limiting",
         "caching-strategies",
         "kafka",
+        "database-performance",
+        "cqrs",
+        "docker"
+      ]
+    },
+    {
+      "slug": "sidecar-pattern",
+      "url": "cheatsheets/sidecar-pattern.html",
+      "title": "Sidecar pattern",
+      "aliases": [
+        "Sidecar pattern",
+        "sidecar",
+        "sidecars",
+        "sidecar container",
+        "ambassador pattern",
+        "adapter pattern",
+        "service mesh"
+      ],
+      "tagline": "Put the cross-cutting concern in a container next door, not in every application's dependency list.",
+      "asOf": "As of Nov 2026 · Kubernetes native sidecar containers are GA since 1.29; examples use Istio/Envoy, Fluent Bit and Cloud SQL Proxy",
+      "description": "Sidecar pattern cheatsheet: a helper container sharing the pod's lifecycle and network, what it moves out of your code, the lifecycle traps it brings, and when sidecarless beats it.",
+      "tags": [
+        "sidecar",
+        "kubernetes",
+        "service mesh",
+        "istio",
+        "envoy",
+        "ambassador",
+        "adapter",
+        "containers",
+        "cross-cutting concerns",
+        "mtls"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential manifests & commands"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-sidecar",
+          "term": "Sidecar",
+          "def": "A helper container deployed in the same unit as the application, sharing its lifecycle and extending it without changing its code.",
+          "detail": "The defining properties are co-location and co-lifecycle: the sidecar is scheduled onto the same node, starts and stops with the application, and reaches it over loopback. That makes it fundamentally different from a shared service — there is no network partition between the two, and no multi-tenancy to reason about. The motivation is language independence. A retry policy as a library must be written once per language and released once per service; as a sidecar it is one image everybody uses, including the Python script and the 2009 Java application nobody dares to touch. What usually goes in one Concern Typical sidecar mTLS, retries, routing Envoy / Linkerd proxy Log shipping Fluent Bit, Vector Metrics translation an exporter Secrets and config Vault agent, config reloader Database access Cloud SQL Proxy, PgBouncer How it relates A service mesh is this pattern applied to every pod, plus a control plane."
+        },
+        {
+          "id": "term-pod",
+          "term": "Pod",
+          "def": "The deployment unit the pattern depends on: one or more containers that are scheduled, scaled and deleted together.",
+          "detail": "A pod gives the sidecar everything it needs: the same node, the same IP, the same lifecycle, and optionally the same volumes. Scaling the application scales the sidecar with it, one to one — which is both the pattern's convenience and the source of its cost. Outside Kubernetes the same idea appears as a companion process under systemd, an ECS task with two containers, or a daemon on the same VM. The pattern predates the word \"pod\". What is shared Resource Shared? Network namespace / IP yes — always Lifecycle and node yes Volumes opt in Process namespace opt in Filesystem root, memory limits no — per container How it relates Kubernetes is the page to read for how pods, probes and scheduling actually work."
+        },
+        {
+          "id": "term-shared-network-namespace",
+          "term": "Shared network namespace",
+          "def": "Both containers see the same loopback interface, so they reach each other on 127.0.0.1 with no network hop.",
+          "detail": "This is what makes a sidecar cheap enough to be useful. Traffic between the app and the proxy never leaves the kernel: no DNS, no TLS, no routing, just loopback. It also means the two containers share one port space, so a collision is a startup failure rather than a subtle bug. And it is a security boundary you have given up: anything in the sidecar can talk to anything the app binds on localhost, including the admin port you assumed was private. Conventional ports Port Meaning (Istio) 15001 outbound capture 15006 inbound capture 15020 / 15090 health and metrics your 8080 the app, reached over loopback How it relates Never bind a debug or admin endpoint on 0.0.0.0 in a pod with a sidecar."
+        },
+        {
+          "id": "term-shared-volume",
+          "term": "Shared volume",
+          "def": "An emptyDir or similar mounted into both containers — how log and config sidecars exchange data.",
+          "detail": "The app writes /var/log/app.log, the shipper reads it and forwards to the logging backend; or a config sidecar writes a rendered template into /etc/app and signals the app to reload. It is the filesystem equivalent of the loopback interface: a private channel with no network in it. Watch the medium. An emptyDir on disk shares the node's filesystem and will fill it; emptyDir: {medium: Memory} is fast but counts against the pod's memory limit. Choices Volume Use emptyDir logs, scratch — dies with the pod emptyDir (Memory) secrets, fast handoff; costs RAM projected tokens and certs from the platform How it relates Rotating files without a size cap is the classic way a log sidecar fills a node."
+        },
+        {
+          "id": "term-traffic-interception",
+          "term": "Traffic interception",
+          "def": "Redirecting the pod's inbound and outbound traffic into the proxy, usually with iptables or eBPF, so the app needs no changes at all.",
+          "detail": "An init container rewrites the pod's iptables rules so everything arriving on the pod IP goes to port 15006 and everything leaving goes to 15001. The application opens an ordinary socket to payments:8080 and has no idea the connection was captured, encrypted and load balanced. That transparency is the pattern's best trick and its worst debugging experience: curl from inside the pod behaves differently from curl on the node, and \"connection refused\" may mean the proxy is not ready rather than the destination being down. Mechanisms Mechanism Note iptables REDIRECT classic; needs NET_ADMIN once eBPF lower overhead, newer kernels Explicit proxy config no magic; app must cooperate How it relates Interception is why startup ordering matters so much — see startup ordering."
+        },
+        {
+          "id": "term-ambassador",
+          "term": "Ambassador",
+          "def": "A sidecar that owns outbound connections on the app's behalf: discovery, load balancing, retries, circuit breaking.",
+          "detail": "The app connects to localhost:6379 and the ambassador decides which Redis shard that really is, whether to retry, and when to trip a breaker. Cloud SQL Proxy and PgBouncer-as-a-sidecar are the same idea for databases: the application holds a plain local connection string and the hard parts happen next door. It is the most immediately useful variant for legacy applications, because it needs no interception magic — just a changed connection string. Common ambassadors Sidecar Hides Envoy discovery, retries, mTLS Cloud SQL Proxy IAM auth, TLS, instance routing PgBouncer connection pooling How it relates An ambassador is where connection pooling and rate limiting naturally land."
+        },
+        {
+          "id": "term-adapter",
+          "term": "Adapter",
+          "def": "A sidecar that normalises what the application exposes, so the platform sees a uniform interface.",
+          "detail": "The app emits metrics in its own format on /stats; the adapter translates them into Prometheus exposition format on /metrics. Or it turns an idiosyncratic health endpoint into a standard one, or unstructured log lines into JSON with the right fields. It is the pattern of choice for third-party software you cannot modify, which is exactly the software that never speaks your platform's conventions. Examples Adapter Turns Exporter sidecar app stats → Prometheus Log parser text lines → structured JSON Health wrapper a TCP check → an HTTP probe How it relates Ambassador points outwards, adapter points inwards — both are sidecars."
+        },
+        {
+          "id": "term-service-mesh",
+          "term": "Service mesh",
+          "def": "The sidecar pattern applied to every workload, with a control plane distributing policy to all the proxies.",
+          "detail": "Istio, Linkerd and friends inject a proxy into every pod and configure them centrally. The payoff is uniform mTLS, uniform retries and timeouts, uniform golden metrics, traffic splitting for canaries, and the ability to change any of it for the whole fleet with a config push instead of a release train. The cost is a second distributed system that sits in the data path of every request. Adopt it for the capability you actually need — usually mTLS everywhere, or traffic shifting — not because it is the default diagram. What it gives you Capability Alternative without a mesh mTLS everywhere per-language TLS libraries Uniform retries, timeouts a client library per language Golden metrics for free instrument every service Canary traffic splitting gateway or client-side routing How it relates Kubernetes provides the pod; the mesh provides the proxies and the policy."
+        },
+        {
+          "id": "term-data-plane",
+          "term": "Data plane",
+          "def": "The sidecars that actually carry traffic, as opposed to the control plane that configures them.",
+          "detail": "The separation matters operationally: if the control plane goes down, the data plane keeps running on its last configuration, so requests keep flowing. What stops is change — new pods cannot get config, which is why a control plane outage shows up first as failing deployments rather than failing traffic. It also sets the upgrade shape: control plane first, then data plane, pod by pod, which means a mesh upgrade is a fleet-wide rolling restart. Failure modes What fails Effect Control plane existing traffic fine; new pods stuck One sidecar that pod is down — blast radius of one Bad config push fleet-wide; this is the scary one How it relates Roll config changes out gradually; a mesh config push is a global deploy."
+        },
+        {
+          "id": "term-native-sidecar",
+          "term": "Native sidecar",
+          "def": "Kubernetes' first-class support: an init container with restartPolicy: Always, which starts before the app and stops after it.",
+          "detail": "Stable since Kubernetes 1.29, this fixes the three lifecycle problems that plagued sidecars for years: the sidecar is started and becomes ready before the application containers start, it is terminated after they exit, and it does not prevent a Job's pod from completing. Declaring a sidecar this way removes most of the folklore — the sleep loops, the preStop hacks, the /quitquitquit calls at the end of a batch job. Before and after Problem Old workaround Native sidecar App starts first retry loop in the app ordered startup Proxy dies first preStop sleep ordered shutdown Job never completes curl /quitquitquit terminated automatically How it relates The second animation walks all three failures and this fix."
+        },
+        {
+          "id": "term-startup-ordering",
+          "term": "Startup ordering",
+          "def": "The race where the application is ready before its proxy, and its first outbound calls fail.",
+          "detail": "With traffic interception in place, every outbound connection is redirected to a proxy that may still be fetching its configuration. A service that connects to its database on boot therefore gets \"connection refused\" and crash-loops — at every deploy, on the pods that happen to lose the race. Declare the proxy as a native sidecar with a startup probe and the problem disappears. On older clusters the honest workaround is a readiness-aware retry loop in the app's entrypoint. Symptoms Symptom Cause Connection refused on boot only proxy not listening yet Fails on some pods, not others it is a race Fine locally, broken in the cluster no sidecar locally How it relates Steps 1–4 of the lifecycle animation."
+        },
+        {
+          "id": "term-graceful-shutdown",
+          "term": "Graceful shutdown",
+          "def": "The mirror race: the proxy exits while the application is still draining in-flight requests.",
+          "detail": "On deletion every container receives SIGTERM at the same time. A proxy that exits in 100 ms takes the network away from an application that needs 20 seconds to finish what it was doing — so every rollout produces a small burst of 5xx right at the end. Native sidecars terminate after the main containers. Before that, the standard fix was a preStop hook on the sidecar that simply sleeps for longer than the app's drain period. Checklist Setting Rule terminationGracePeriodSeconds longer than the app's drain App SIGTERM handler stop accepting, finish in flight Sidecar ordering native sidecar, or preStop sleep How it relates The same errors show up as a dip in your SLI at every deploy — worth an error-budget look."
+        },
+        {
+          "id": "term-resource-overhead",
+          "term": "Resource overhead",
+          "def": "The CPU, memory and money a sidecar costs, multiplied by every replica of every service.",
+          "detail": "A proxy sidecar typically requests 50–100 mCPU and 64–128 MiB. That is unremarkable per pod and significant per fleet: 2,000 pods at 100 mCPU and 128 MiB is 200 cores and 250 GiB spent on proxies. For small services the sidecar can out-consume the application it is helping. It also changes scheduling: every pod is bigger, so bin packing is worse and you need more nodes for the same workload. The fleet multiplication How it relates Back-of-the-envelope arithmetic is the right tool before adopting a mesh fleet-wide."
+        },
+        {
+          "id": "term-latency-tax",
+          "term": "Latency tax",
+          "def": "The extra hops a sidecar adds: two proxies on every service-to-service call.",
+          "detail": "A call from A to B passes through A's sidecar and B's sidecar, so the fixed cost is roughly 0.5–2 ms per request in a healthy mesh, plus the TLS handshake on new connections. For most request paths that is noise. For a service in a tight internal loop, or one making twenty downstream calls per request, it is not. The tail is what bites: a saturated or restarting proxy adds far more than its median, and it does so on every call, so one bad sidecar shows up across the whole dependency graph. Rough costs Hop Typical added latency Loopback to local proxy 0.1–0.5 ms Full A→B with two proxies 0.5–2 ms New mTLS handshake a few ms, amortised How it relates Measure it as a percentile, not a mean — the median hides the cost entirely."
+        },
+        {
+          "id": "term-injection",
+          "term": "Injection",
+          "def": "Adding the sidecar automatically at admission time, so application teams never write it into their manifests.",
+          "detail": "A mutating admission webhook rewrites the pod spec as it is created, inserting the proxy container, the init container that sets up iptables and the volumes it needs. Enabled per namespace with a label, it is what makes a mesh adoptable without touching hundreds of repositories. It also means the pod that runs is not the pod you wrote, which is a surprise worth documenting: always debug from kubectl get pod -o yaml, never from the manifest in git. Consequences Effect Note Manifests stay clean the point Running spec differs from git confusing during incidents Version comes from the webhook upgrades need pod restarts Opt-out per pod an annotation; useful for jobs How it relates Injection plus a control plane is what turns \"a sidecar\" into \"a mesh\"."
+        },
+        {
+          "id": "term-sidecarless",
+          "term": "Sidecarless",
+          "def": "Doing the same work without a per-pod proxy: eBPF in the kernel, a per-node agent, or an ambient mesh.",
+          "detail": "The counter-trend. Cilium pushes policy and encryption into the kernel with eBPF; Istio's ambient mode replaces per-pod proxies with a per-node component for mTLS and routing, adding a Layer-7 proxy only for the workloads that need one. Both cut the per-pod tax dramatically. The trade is blast radius and isolation: a per-node agent serves many pods, so its failure or saturation affects all of them, and the neat \"one proxy per workload\" security story becomes a shared one. Compared Sidecar Per-node / eBPF Overhead per pod per node Blast radius one pod a whole node Isolation strong shared Kernel requirements none recent kernels L7 features full often opt-in per workload How it relates A per-node DaemonSet agent is the older, simpler version of the same trade — common for log shipping."
+        },
+        {
+          "id": "term-jobs-and-sidecars",
+          "term": "Jobs and sidecars",
+          "def": "The failure where a batch job finishes but its pod never completes, because the sidecar is still running.",
+          "detail": "A Kubernetes Job's pod is only Completed when every container has exited. A proxy or log shipper is designed to run forever, so the job hangs: the work is done, the pod is alive, and the Job controller waits for a container that will never stop. The old fixes were all ugly — have the job curl localhost:15020/quitquitquit at the end, or exclude jobs from injection entirely. Native sidecars solve it properly: once the main container exits, the sidecar is terminated for you. Options Approach Verdict Native sidecar correct; needs 1.29+ Exclude jobs from injection fine if they need no mesh Call the proxy's quit endpoint works; couples the job to the mesh How it relates Step 7 of the lifecycle animation; the same issue applies to CronJobs and to init-style migrations."
+        }
+      ],
+      "related": [
+        "kubernetes",
+        "outbox-pattern",
         "docker",
+        "backend-for-frontend",
+        "rate-limiting",
+        "azure-api-management"
+      ]
+    },
+    {
+      "slug": "sli-slo-sla",
+      "url": "cheatsheets/sli-slo-sla.html",
+      "title": "SLI, SLO & SLA",
+      "aliases": [
+        "SLI, SLO & SLA",
+        "SLI",
+        "SLO",
+        "SLA",
+        "service level indicator",
+        "service level objective",
+        "service level agreement",
+        "error budget",
+        "error budgets",
+        "burn rate"
+      ],
+      "tagline": "Measure what users feel, promise a number you can keep, sign only what you can afford to break.",
+      "asOf": "As of Nov 2026 · vocabulary from Google SRE; examples use Prometheus, OpenSLO and Sloth",
+      "description": "SLI, SLO and SLA cheatsheet: how a good-events ratio becomes a target, a target becomes an error budget, and a budget becomes the alert that wakes you up.",
+      "tags": [
+        "sre",
+        "reliability",
+        "sli",
+        "slo",
+        "sla",
+        "error budget",
+        "burn rate",
+        "observability",
+        "alerting",
+        "availability",
+        "latency"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential formulas & queries"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-sli",
+          "term": "SLI",
+          "def": "A Service Level Indicator: a ratio of good events to valid events, expressed as a percentage of things that worked.",
+          "detail": "An SLI is always a fraction, never a gauge. CPU usage is not an SLI; \"99.94% of checkout requests returned a non-5xx within 300 ms\" is. Writing it as good / valid forces you to define both halves explicitly, which is where most of the thinking happens. Measure it as close to the user as you can afford. The same journey measured at four points gives four different numbers, and the one furthest from your code is the one the user actually lives with. Where to measure Vantage point Catches Misses Application logs handler errors crashes, LB failures, DNS Load balancer / ingress 5xx, timeouts, most outages client network, CDN, DNS Synthetic probe full path incl. DNS and TLS real traffic mix, real users Client / RUM what users truly see noisy, hard to attribute How it relates An SLO is just a threshold applied to an SLI over a window. The valid events denominator decides what you are even allowed to be judged on. The first animation is one SLI being computed from four log lines."
+        },
+        {
+          "id": "term-valid-events",
+          "term": "Valid events",
+          "def": "The denominator: the events that count towards the SLI at all. Everything else is excluded, not counted as bad.",
+          "detail": "Choosing the denominator is the most consequential and least discussed decision in an SLO. A 400 Bad Request caused by a malformed client payload is not your service failing; counting it as bad means a single broken integration can eat your budget. A 429 from your own rate limiter is usually excluded too — it is the system working as designed. The rule of thumb: an event is valid if your service could in principle have handled it correctly. Be careful, though — exclusions are also how teams quietly make an SLO unfalsifiable. Every exclusion should be written down and reviewed. Typical treatment Event Usual call 5xx from your service valid, bad 4xx from a client bug not valid 429 you issued on purpose not valid Health-check and bot traffic not valid Timeout with no response valid, bad How it relates Rate limiting decides how many 429s exist, so the two designs interact directly. Step 8 of the first animation drops a 429 out of the denominator entirely."
+        },
+        {
+          "id": "term-slo",
+          "term": "SLO",
+          "def": "A Service Level Objective: the target value of an SLI over a stated window, chosen internally and with no contractual force.",
+          "detail": "An SLO is three things in one sentence: an SLI, a threshold and a window. \"99.9% of checkout requests succeed within 300 ms, measured over a rolling 28 days.\" Drop any of the three and it stops being actionable — especially the window, since the same target over an hour and over a quarter mean completely different things. Pick the number from evidence, not ambition. Measure what you already deliver for a month, then set the SLO slightly below it. If current performance is 99.95%, a 99.9% SLO gives you headroom and still means something; a 99.99% SLO invented in a meeting just guarantees a permanently breached objective that everybody learns to ignore. Window choices Window Behaviour Rolling 28 days most common; no month-boundary amnesty, four whole weeks Rolling 7 days reacts fast, very noisy for low traffic Calendar month matches billing and SLAs; budget resets on the 1st Calendar quarter planning-friendly, far too slow to act on How it relates The error budget is mechanically 100% − SLO. The SLA should be a looser number than the SLO, never the same one."
+        },
+        {
+          "id": "term-sla",
+          "term": "SLA",
+          "def": "A Service Level Agreement: a contract with a customer stating a service level and the financial consequence of missing it.",
+          "detail": "An SLA is a legal document that happens to contain a number. It specifies what is measured, by whom, over what period, what counts as excluded (planned maintenance, force majeure, the customer's own misconfiguration), how the customer claims, and what they get — almost always service credits rather than real damages. The engineering rule is simple: the SLA target must be meaningfully weaker than the SLO. The SLO is where you start worrying; the SLA is where you start paying. If they are equal, the first bad week costs money. A typical gap is one nine: internal SLO 99.95%, contractual SLA 99.9%. Typical public SLAs Tier Monthly target Allowed downtime Single VM / instance 99.9% 43 min Multi-AZ managed service 99.95% 22 min Global control plane 99.99% 4.4 min How it relates Service credits are the enforcement mechanism. Many services have an SLO and deliberately no SLA at all — that is a perfectly good answer for internal platforms."
+        },
+        {
+          "id": "term-error-budget",
+          "term": "Error budget",
+          "def": "The amount of unreliability the SLO permits in a window: 100% minus the SLO, expressed in bad events or in minutes.",
+          "detail": "The error budget is what converts an SLO from a report into a decision-making tool. It is a quantity you are entitled to spend: on a risky deploy, a schema migration, a chaos experiment, or simply on bad luck. Spending it is not failure — not spending it means your SLO is too loose and you are shipping too slowly. Express it in whichever unit the audience understands. Engineers tend to prefer \"40,000 bad requests left\"; managers hear \"30 minutes of full outage left this month\". Budget for a 28-day window SLO Budget (time) Budget at 40M req 99% 6 h 43 m 400,000 99.9% 40 m 19 s 40,000 99.95% 20 m 10 s 20,000 99.99% 4 m 2 s 4,000 How it relates Burn rate is the speed at which you are spending it. The error budget policy is the pre-agreed rule for what happens when it runs out."
+        },
+        {
+          "id": "term-burn-rate",
+          "term": "Burn rate",
+          "def": "How fast the error budget is being consumed, relative to the rate that would exactly exhaust it over the full window.",
+          "detail": "Burn rate is a unitless multiplier: burn = observed error rate / (1 - SLO). At 1× the budget runs out precisely at the end of the window. At 14.4× it runs out in under two days — which, for a 28-day window, means 2% of the budget is gone in a single hour. It is the right thing to alert on because it is scale-free and window-independent: the same thresholds work for a service doing 10 requests a second and one doing 10,000, and they translate directly into \"how long until we have a problem\". Standard thresholds (28–30 day window) Burn Long window Short window Budget used Action 14.4× 1 h 5 m 2% page 6× 6 h 30 m 5% page 3× 1 d 2 h 10% ticket 1× 3 d 6 h 10% ticket How it relates The second animation walks a 14.4× spike and a slow 3× leak through exactly this table."
+        },
+        {
+          "id": "term-availability-sli",
+          "term": "Availability SLI",
+          "def": "The share of valid requests that did not fail: the default SLI, and usually the first one a team writes.",
+          "detail": "Request-based availability counts events, not seconds: non-5xx / valid requests. That is usually better than time-based availability, because \"the minute was up\" hides a minute in which 40% of requests failed. Time-based availability still has a place in contracts, where \"minutes of downtime\" is easier to litigate. Watch the difference when you translate between the two: a service that is 99.9% available by request count during peak hours can look far better by minute count, because quiet minutes dilute the bad ones. Two definitions, same service Definition Formula Favours Request-based good req / valid req users; weights peak traffic Time-based good minutes / total minutes providers; dilutes short peaks How it relates Pair it with a latency SLI: a service returning 200s slowly is \"available\" and useless."
+        },
+        {
+          "id": "term-latency-sli",
+          "term": "Latency SLI",
+          "def": "The share of requests served faster than a threshold — a ratio, not a percentile.",
+          "detail": "Write it as \"99% of requests under 300 ms\", not \"p99 under 300 ms\". They sound identical and behave differently: the first is a counter you can add up, aggregate across services and subtract from a budget; the second is a quantile that cannot be averaged, cannot be summed across instances, and tells you nothing about how bad the slow 1% was. In Prometheus this maps straight onto histogram buckets, so pick the threshold to match a real bucket boundary — interpolating between buckets is where most latency SLI inaccuracy comes from. Two thresholds beat one Tier Example target Protects against Typical 90% under 200 ms the median getting worse Tail 99% under 1 s a slow minority being ignored How it relates The percentiles page explains why quantiles cannot be averaged, which is exactly why this SLI is defined as a ratio."
+        },
+        {
+          "id": "term-rolling-window",
+          "term": "Rolling window",
+          "def": "The trailing period the SLI is evaluated over — typically 28 days, moving forward continuously instead of resetting.",
+          "detail": "A rolling window means yesterday's outage keeps counting until it ages out, and the budget recovers gradually rather than being forgiven on the 1st of the month. That is usually what you want: it removes the perverse incentive to take risks on the 31st, and it keeps the number continuous. 28 days rather than 30 is deliberate — it is exactly four weeks, so weekend and weekday traffic patterns are always represented in the same proportion and the number does not wobble with the calendar. Consequences Window type Budget recovery Good for Rolling 28 d gradual, day by day engineering decisions Calendar month instant on the 1st billing, SLA credits How it relates Burn-rate alert windows (1 h, 6 h) live inside this window; they are not the same thing."
+        },
+        {
+          "id": "term-nines",
+          "term": "Nines",
+          "def": "Shorthand for availability targets — 99.9% is \"three nines\" — and the downtime each one allows.",
+          "detail": "Each extra nine divides the allowed downtime by ten and multiplies the engineering cost by considerably more. Three nines is reachable with good practices, a load balancer and a competent on-call rotation. Four nines requires removing single points of failure, automated failover and deploys that cannot cause a full outage. Five nines usually means the thing is not allowed to depend on a human at all. Be honest about what the number has to include: if a planned deploy takes the service down for 90 seconds once a week, you have already spent more than a four-nines monthly budget. Allowed downtime Target Per day Per 30 days Per year 99% 14 m 24 s 7 h 12 m 3 d 15 h 99.9% 1 m 26 s 43 m 12 s 8 h 46 m 99.95% 43 s 21 m 36 s 4 h 23 m 99.99% 8.6 s 4 m 19 s 52 m 36 s 99.999% 0.9 s 26 s 5 m 15 s How it relates Chaining dependencies multiplies nines downwards — see composite availability."
+        },
+        {
+          "id": "term-critical-user-journey",
+          "term": "Critical user journey",
+          "def": "A specific thing a user is trying to accomplish, used as the unit an SLI is defined around. Often abbreviated CUJ.",
+          "detail": "SLOs attach to journeys, not to services. \"The payments service\" is not a journey; \"a customer completes checkout\" is, and it may touch six services. Defining the journey first stops you from shipping a dashboard where every microservice is green and the product is broken. Keep the list short. Three to five journeys per product is plenty, and each one should be something a non-engineer would recognise as a thing people do. Journeys and their natural SLI Journey SLI Browse catalogue page renders under 1 s Complete checkout payment accepted, non-5xx under 300 ms Receive order email sent within 2 min of order Nightly export file delivered before 06:00 How it relates Each journey gets its own budget; they are not pooled."
+        },
+        {
+          "id": "term-error-budget-policy",
+          "term": "Error budget policy",
+          "def": "The agreement, written before anything breaks, that says what the team does at each level of budget consumption.",
+          "detail": "Without a policy, an error budget is a chart nobody acts on. The policy names thresholds and the consequence of crossing each one, and — this is the part that matters — it is signed off by product and engineering together while everyone is calm. Once the budget is gone, the decision has already been made and there is no negotiation. The classic escalation is: healthy budget means ship freely; half spent means review risky changes; exhausted means feature freeze and reliability work only until the window recovers. Repeated exhaustion means the SLO itself goes back on the table. A typical policy Budget remaining Action Above 50% ship normally, run experiments 20–50% risky changes need a second reviewer Below 20% no non-essential deploys 0% freeze; reliability work takes priority 0% three windows running renegotiate the SLO or fund the fix How it relates This is the only mechanism that makes an SLO change anyone's behaviour."
+        },
+        {
+          "id": "term-multi-window-alert",
+          "term": "Multi-window alert",
+          "def": "An alert that fires only when a high burn rate shows up in both a long qualifying window and a short confirming window.",
+          "detail": "A single-window burn alert is either slow to fire or slow to clear. The multi-window multi-burn-rate pattern fixes both: the long window (say 1 h) decides whether the problem is big enough to care about, and the short window (1/12 of it, so 5 m) confirms that it is still happening right now. Both must be over threshold. The effect is that a two-minute blip never pages anyone, and a resolved incident stops paging within minutes instead of an hour. Two severities — fast burns page, slow burns raise a ticket — are enough for almost every service. Behaviour Property Single window Multi-window Detection time long short Reset time up to a full window minutes False pages frequent rare How it relates The middle of the burn-rate animation is this rule firing and then clearing."
+        },
+        {
+          "id": "term-composite-availability",
+          "term": "Composite availability",
+          "def": "What happens to a target when a journey depends on several services in series: the availabilities multiply.",
+          "detail": "If a request must pass through auth, the API and the database, and each is independently 99.9% available, the journey is 0.999 cubed = 99.70% — three times the downtime of any single component. Dependencies in series subtract nines; this is why a four-nines promise on top of three-nines infrastructure is arithmetic fiction unless you add redundancy or graceful degradation. Redundancy works in the other direction: two independent replicas each at 99% give 1 − 0.01 squared = 99.99%, provided the failures really are independent — which shared power, shared control planes and shared deploys quietly ensure they are not. Nines draining through a chain How it relates Set component SLOs above the journey SLO, not equal to it."
+        },
+        {
+          "id": "term-service-credits",
+          "term": "Service credits",
+          "def": "The usual remedy in an SLA: a percentage of the bill refunded when the target is missed, capped and claimed by the customer.",
+          "detail": "Credits are deliberately small. A typical ladder refunds 10% of the monthly fee below 99.9%, 25% below 99%, and 100% only in extreme cases — and almost always as credit against future invoices rather than cash. They are a signal of seriousness, not compensation for the customer's actual loss, which is usually orders of magnitude larger. Two details decide whether credits ever get paid: the customer normally has to file a claim within a short window, and the measurement is the provider's own. Both are worth reading carefully from either side of the contract. A common ladder Monthly uptime Credit Below 99.9% 10% Below 99.0% 25% Below 95.0% 100% How it relates Credits are why the SLA number must sit below the SLO number."
+        }
+      ],
+      "related": [
+        "percentiles",
+        "rate-limiting",
+        "back-of-the-envelope",
+        "littles-law",
         "azure-api-management",
-        "back-of-the-envelope"
+        "domain-driven-design"
       ]
     }
   ]
