@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CQRS · Tech cheatsheets</title>
+<meta name="description" content="CQRS cheatsheet: separate write and read models, projections, the eventual consistency window and the read-your-own-writes problem — animated, with the levels you can stop at.">
+<meta name="aliases" content="CQRS, Command Query Responsibility Segregation, command query responsibility segregation, read model, write model, projection">
+<meta name="related" content="cqs, domain-driven-design, caching-strategies, kafka, modular-monolith">
+<meta name="keywords" content="cqrs, architecture, read model, write model, projection, eventual consistency, event sourcing, ddd, scalability, patterns">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../assets/notebook.css?v=389a30cc">
+<script src="../assets/site.js?v=b55fb986" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
+</head>
+<body data-root="..">
+<div class="layout">
+  <nav class="toc" aria-label="Sections">
+    <a href="#overview">Overview</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#concepts">Key concepts</a>
+    <a href="#commands">Code patterns</a>
+    <a href="#pros-cons">Pros &amp; cons</a>
+    <a href="#use-cases">Use cases</a>
+    <a href="#when">When to use</a>
+    <a href="#gotchas">Gotchas</a>
+    <a href="#alternatives">Alternatives</a>
+    <a href="#resources">Resources</a>
+    <a href="#related">Related</a>
+  </nav>
+
+  <main>
+    <header class="hero" id="overview">
+      <h1>CQRS</h1>
+      <p class="tagline">Writes and reads want opposite things from a schema. Stop making one model do both jobs badly.</p>
+      <span class="meta">As of Nov 2026 · named by Greg Young, 2010; examples in C#, SQL and Python</span>
+      <p>Command Query Responsibility Segregation says that the model you use to <em>change</em> state and the model you use to <em>read</em> state do not have to be the same object, the same schema, or even the same database. Writes want normalisation, invariants and small transactions; reads want pre-joined, denormalised rows that a screen can render without thinking. One model forced to serve both ends up compromising on each.</p>
+      <p>The pattern is a spectrum, not a switch. At the cheapest level it is just two sets of classes against one database &mdash; commands going through aggregates, queries going through plain SQL or a thin DTO projection. One step further, the read side gets its own denormalised tables or materialised views in the same store. At the far end it gets its own database, fed asynchronously by projections from the write side's events, and the two scale independently.</p>
+      <p>Two things CQRS is <em>not</em>: it is not event sourcing (they are often used together and are entirely separable), and it is not an architecture for a whole system. It is applied per bounded context, usually to the one or two contexts where the read and write shapes genuinely diverge, while the rest of the application stays plain CRUD.</p>
+    </header>
+
+    <section id="architecture">
+      <h2>Architecture / mental model</h2>
+      <div class="diagram">
+        <svg viewBox="0 0 800 330" role="img" aria-label="Commands flowing through a write model to a normalised store, events projected into a denormalised read store serving queries">
+          <defs>
+            <marker id="cr-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+          </defs>
+          <text x="400" y="22" font-size="12.5" text-anchor="middle" fill="#5f6f66">one client, two paths that never meet &mdash; and only one of them is allowed to change anything</text>
+
+          <rect x="20" y="118" width="120" height="96" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+          <text x="80" y="156" font-size="12.5" text-anchor="middle" fill="#23362e" font-weight="700">client</text>
+          <text x="80" y="178" font-size="11" text-anchor="middle" fill="#5f6f66">commands</text>
+          <text x="80" y="194" font-size="11" text-anchor="middle" fill="#5f6f66">and queries</text>
+
+          <line x1="144" y1="140" x2="182" y2="104" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#cr-arr)"/>
+          <line x1="144" y1="192" x2="182" y2="228" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#cr-arr)"/>
+
+          <rect x="186" y="46" width="250" height="110" rx="8" fill="#f9e3df" stroke="#e6b3ad" stroke-width="1.5"/>
+          <text x="311" y="68" font-size="13" text-anchor="middle" fill="#23362e" font-weight="700">write side</text>
+          <text x="311" y="90" font-size="11.5" text-anchor="middle" fill="#5f6f66">commands &rarr; aggregates</text>
+          <text x="311" y="110" font-size="11.5" text-anchor="middle" fill="#5f6f66">invariants, transactions</text>
+          <text x="311" y="132" font-size="11.5" text-anchor="middle" fill="#5f6f66">normalised, no joins for screens</text>
+
+          <rect x="186" y="186" width="250" height="110" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+          <text x="311" y="208" font-size="13" text-anchor="middle" fill="#23362e" font-weight="700">read side</text>
+          <text x="311" y="230" font-size="11.5" text-anchor="middle" fill="#5f6f66">queries &rarr; DTOs</text>
+          <text x="311" y="250" font-size="11.5" text-anchor="middle" fill="#5f6f66">no domain model, no ORM graph</text>
+          <text x="311" y="272" font-size="11.5" text-anchor="middle" fill="#5f6f66">denormalised, one row per screen</text>
+
+          <line x1="440" y1="101" x2="478" y2="101" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#cr-arr)"/>
+          <line x1="440" y1="241" x2="478" y2="241" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#cr-arr)"/>
+
+          <rect x="482" y="60" width="150" height="82" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="557" y="90" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">write store</text>
+          <text x="557" y="112" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">orders, lines,</text>
+          <text x="557" y="128" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">customers</text>
+
+          <rect x="482" y="200" width="150" height="82" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="557" y="230" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">read store</text>
+          <text x="557" y="252" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">order_list_view</text>
+          <text x="557" y="268" font-size="10.5" text-anchor="middle" fill="#5f6f66">pre-joined, indexed</text>
+
+          <rect x="664" y="128" width="116" height="86" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+          <text x="722" y="158" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">projector</text>
+          <text x="722" y="178" font-size="10.5" text-anchor="middle" fill="#5f6f66">events &rarr; rows</text>
+          <text x="722" y="194" font-size="10.5" text-anchor="middle" fill="#5f6f66">replayable</text>
+
+          <path d="M636 101 L722 101 L722 124" fill="none" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#cr-arr)"/>
+          <path d="M722 218 L722 241 L636 241" fill="none" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#cr-arr)"/>
+
+          <text class="hand" x="192" y="318" font-size="16" fill="#c53b3b">the gap between the two stores is the eventual consistency window &mdash; name it, measure it, design for it</text>
+        </svg>
+      </div>
+      <p class="caption">Same data, two shapes. The projector is the only bridge, and it runs after the write has already committed.</p>
+    </section>
+
+    <section id="how-it-works">
+      <h2>How it works</h2>
+      <p style="margin:0 0 18px">The first animation follows one write and one read down their separate paths. The second is the bill that arrives with them: a user who cannot see what they just did.</p>
+      <span class="note" style="margin:-8px 0 18px">CQRS does not require two databases &mdash; it requires two models. Start there.</span>
+
+      <div class="anim" id="anim-path">
+        <h3>1 &middot; A write and a read take different paths</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 320" role="img" aria-label="A command travelling through the write model to a normalised store, projected into a denormalised read store that a query then reads">
+            <defs>
+              <marker id="cq-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+
+            <g id="cq-cmd">
+              <rect x="16" y="46" width="160" height="32" rx="5" fill="#f9e3df" stroke="#e6b3ad" stroke-width="1.5"/>
+              <text id="cq-cmdt" x="24" y="67" font-size="11" fill="#23362e" font-family="Fira Code, monospace">PlaceOrder(cart)</text>
+            </g>
+
+            <rect id="cq-ch" x="196" y="34" width="156" height="60" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="274" y="58" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">command handler</text>
+            <text x="274" y="78" font-size="10.5" text-anchor="middle" fill="#5f6f66">aggregate + invariants</text>
+            <line x1="356" y1="64" x2="386" y2="64" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#cq-arr)"/>
+
+            <rect id="cq-wdb" x="390" y="34" width="190" height="60" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="485" y="56" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">write store &mdash; normalised</text>
+            <text id="cq-wdbt" x="485" y="78" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">orders · order_lines · customers</text>
+
+            <g id="cq-evt" class="hidden">
+              <rect x="390" y="118" width="190" height="32" rx="5" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+              <text x="485" y="139" font-size="11" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">OrderPlaced(42, …)</text>
+            </g>
+            <line id="cq-a1" class="hidden" x1="485" y1="98" x2="485" y2="114" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#cq-arr)"/>
+
+            <rect id="cq-proj" x="620" y="110" width="160" height="60" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+            <text x="700" y="134" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">projector</text>
+            <text id="cq-projt" x="700" y="154" font-size="10.5" text-anchor="middle" fill="#5f6f66">idle · offset 41</text>
+            <line id="cq-a2" class="hidden" x1="584" y1="134" x2="614" y2="134" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#cq-arr)"/>
+            <path id="cq-a3" class="hidden" d="M700 174 L700 206 L584 206" fill="none" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#cq-arr)"/>
+
+            <rect id="cq-rdb" x="390" y="186" width="190" height="78" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="485" y="208" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">read store &mdash; denormalised</text>
+            <text x="485" y="228" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">order_list_view</text>
+            <text id="cq-rdbt" x="485" y="248" font-size="10.5" text-anchor="middle" fill="#5f6f66">3 rows</text>
+
+            <rect id="cq-qh" x="196" y="196" width="156" height="60" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="274" y="220" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">query handler</text>
+            <text x="274" y="240" font-size="10.5" text-anchor="middle" fill="#5f6f66">DTO, no domain model</text>
+            <line x1="386" y1="226" x2="358" y2="226" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#cq-arr)"/>
+
+            <g id="cq-q" class="hidden">
+              <rect x="16" y="210" width="160" height="32" rx="5" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+              <text id="cq-qt" x="24" y="231" font-size="11" fill="#23362e" font-family="Fira Code, monospace">GET /orders</text>
+            </g>
+
+            <text id="cq-msg" x="400" y="296" font-size="12" text-anchor="middle" fill="#5f6f66">two paths, one database engine or two &mdash; that part is a later decision</text>
+            <text id="cq-hand" class="hand hidden" x="20" y="290" font-size="16" fill="#c53b3b">the read side never calls the domain</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <div class="anim" id="anim-lag">
+        <h3>2 &middot; Read-your-own-writes, and four ways to survive it</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 300" role="img" aria-label="A user placing an order then being redirected to a list served by a read model that has not caught up yet">
+            <defs>
+              <marker id="lg-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+
+            <rect id="lg-br" x="20" y="44" width="210" height="160" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="125" y="66" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">browser</text>
+            <text id="lg-b1" x="36" y="94" font-size="11.5" fill="#5f6f66">cart: 2 items</text>
+            <text id="lg-b2" x="36" y="118" font-size="11.5" fill="#5f6f66">&nbsp;</text>
+            <text id="lg-b3" x="36" y="142" font-size="11.5" fill="#5f6f66">&nbsp;</text>
+            <text id="lg-b4" x="36" y="166" font-size="11.5" fill="#c53b3b">&nbsp;</text>
+            <text id="lg-b5" x="36" y="190" font-size="11.5" fill="#5f6f66">&nbsp;</text>
+
+            <rect id="lg-w" x="268" y="44" width="190" height="66" rx="8" fill="#f9e3df" stroke="#e6b3ad" stroke-width="1.5"/>
+            <text x="363" y="68" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">write store</text>
+            <text id="lg-wt" x="363" y="90" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">41 orders</text>
+
+            <rect id="lg-r" x="268" y="158" width="190" height="66" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+            <text x="363" y="182" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">read store</text>
+            <text id="lg-rt" x="363" y="204" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">41 rows · caught up</text>
+
+            <line x1="363" y1="114" x2="363" y2="154" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#lg-arr)"/>
+            <text id="lg-lag" x="372" y="140" font-size="10.5" fill="#5f6f66">projector</text>
+
+            <rect id="lg-fix" x="498" y="44" width="282" height="180" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="639" y="66" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">how teams handle the window</text>
+            <text id="lg-f1" class="hidden" x="514" y="94" font-size="11" fill="#5f6f66">1 · command returns the data; UI renders it</text>
+            <text id="lg-f2" class="hidden" x="514" y="120" font-size="11" fill="#5f6f66">2 · version token; query waits for it</text>
+            <text id="lg-f3" class="hidden" x="514" y="146" font-size="11" fill="#5f6f66">3 · own data read from the write store</text>
+            <text id="lg-f4" class="hidden" x="514" y="172" font-size="11" fill="#5f6f66">4 · design the UI for "processing"</text>
+            <text id="lg-f5" class="hidden" x="514" y="200" font-size="11" fill="#2f6b3f">pick per screen, not per system</text>
+
+            <text id="lg-t" x="400" y="266" font-size="12.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">t = 0 ms</text>
+            <text id="lg-hand" class="hand hidden" x="30" y="236" font-size="16" fill="#c53b3b">the lag is not a bug, it is the price &mdash; but it must be a decision</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+    </section>
+
+    <section id="concepts">
+      <h2>Key concepts</h2>
+      <div class="terms">
+        <div class="term"><b>Command</b><span>A request to change state, named as an imperative, that can be rejected and returns no business data.</span><template class="term-detail" data-see="Query, Command handler, Write model">
+          <p><code>PlaceOrder</code>, <code>CancelReservation</code>, <code>ApproveInvoice</code>. A command is an intention, not a fact: the handler is allowed to refuse it. It is named in the business language, carries exactly the data needed to decide, and ideally carries a client-generated id so retries are idempotent.</p>
+          <p>Commands should not return the new state. Returning an id (or nothing but success) is what keeps the write path from quietly becoming a query path with side effects.</p>
+          <h4>Shape</h4>
+          <table>
+            <tr><th>Property</th><th>Convention</th></tr>
+            <tr><td>Name</td><td>imperative, present tense</td></tr>
+            <tr><td>Returns</td><td>void, or the new identity</td></tr>
+            <tr><td>Can fail</td><td>yes &mdash; validation and invariants</td></tr>
+            <tr><td>Idempotency</td><td>client-supplied command id</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>CQS is the one-object version of this rule; CQRS applies it to whole models.</li><li>A command typically ends with one or more domain events.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Query</b><span>A request for data that changes nothing and returns a shape built for a specific screen or caller.</span><template class="term-detail" data-see="Command, Read model, Query handler">
+          <p>A query returns a DTO, not a domain object. That is the point: the caller gets exactly the fields the screen needs, already joined and formatted, and nothing in the domain model constrains it. Two screens wanting different shapes get two queries, not one flexible one.</p>
+          <p>Because queries never mutate, they are trivially cacheable, safe to retry, safe to run against a replica, and safe to fan out.</p>
+          <h4>Query or repository?</h4>
+          <table>
+            <tr><th>Need</th><th>Path</th></tr>
+            <tr><td>Load order 42 to change it</td><td>repository, write side</td></tr>
+            <tr><td>Order list with customer names</td><td>query, read side</td></tr>
+            <tr><td>Dashboard totals by month</td><td>query, read side</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>The read side is where caching strategies belong &mdash; the write side rarely benefits.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Command handler</b><span>The single entry point that executes one command: load the aggregate, call one method, save, publish.</span><template class="term-detail" data-see="Command, Write model, Outbox">
+          <p>One handler per command keeps the write side flat and testable: no service class accumulating twelve unrelated methods, and a one-to-one map from business intentions to code. Cross-cutting concerns &mdash; validation, authorisation, transactions, retries, logging &mdash; are added as a pipeline around the handler rather than inside it.</p>
+          <p>Keep it thin. Any <code>if</code> about business meaning belongs in the aggregate.</p>
+          <h4>Pipeline order that works</h4>
+          <table>
+            <tr><th>Step</th><th>Concern</th></tr>
+            <tr><td>1</td><td>authorisation</td></tr>
+            <tr><td>2</td><td>structural validation</td></tr>
+            <tr><td>3</td><td>idempotency check</td></tr>
+            <tr><td>4</td><td>transaction</td></tr>
+            <tr><td>5</td><td>handler</td></tr>
+            <tr><td>6</td><td>publish events from the outbox</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>In a DDD context, the handler <em>is</em> the application service.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Write model</b><span>The model optimised for change: aggregates, invariants, small transactions and a normalised schema.</span><template class="term-detail" data-see="Read model, Command handler, Projection">
+          <p>The write model exists to make illegal states impossible. It is normalised because duplication is a correctness risk when you are writing, it is loaded by identity because that is all a command needs, and it has no idea what any screen looks like.</p>
+          <p>A good test: if adding a column for a report changes the write model, the separation has not happened yet.</p>
+          <h4>Optimised for</h4>
+          <table>
+            <tr><th>Write side</th><th>Read side</th></tr>
+            <tr><td>correctness</td><td>latency</td></tr>
+            <tr><td>normalised</td><td>denormalised</td></tr>
+            <tr><td>few, small transactions</td><td>no transactions</td></tr>
+            <tr><td>loaded by id</td><td>indexed by whatever the screen filters on</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Aggregates and repositories live here; queries are forbidden here.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Read model</b><span>A denormalised, screen-shaped store of the same data, built from the write side and treated as disposable.</span><template class="term-detail" data-see="Projection, Query, Rebuild">
+          <p>A read model is a cache with a schema: one table (or document, or index) per view, with every join already done and every computed field already computed. Rendering a page becomes a single indexed lookup instead of a six-table join plus mapping.</p>
+          <p>The liberating property is that it holds no authoritative state. You can drop it, change its shape, add a column, and rebuild it from the write side &mdash; which means read-side schema changes stop being migrations and become replays.</p>
+          <h4>Where read models live</h4>
+          <table>
+            <tr><th>Store</th><th>Good for</th></tr>
+            <tr><td>Same SQL DB, extra tables</td><td>most cases; cheapest step</td></tr>
+            <tr><td>Materialised view</td><td>no projector code to maintain</td></tr>
+            <tr><td>Redis / key-value</td><td>single-key lookups, very hot screens</td></tr>
+            <tr><td>Elasticsearch</td><td>search, facets, full text</td></tr>
+            <tr><td>Columnar / warehouse</td><td>analytics and aggregation</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Read models are populated by a <b>projection</b> and can always be <b>rebuilt</b>.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Projection</b><span>The code that turns write-side events into read-model rows, and the process that runs it.</span><template class="term-detail" data-see="Read model, Checkpoint, Rebuild, Idempotency">
+          <p>A projection is a fold: for each event, update the rows that event affects. <code>OrderPlaced</code> inserts a row into <code>order_list_view</code>; <code>OrderShipped</code> updates its status; <code>CustomerRenamed</code> updates the denormalised name on every row that carries it.</p>
+          <p>Two properties make projections operationally safe: they must be <b>idempotent</b> (the same event applied twice leaves the same state) and they must track a <b>checkpoint</b>, so a restart resumes rather than replays everything.</p>
+          <div class="anim" id="rb-anim" data-steps="rb"><h4>Rebuilding a broken projection</h4>
+            <div class="stage">
+              <svg viewBox="0 0 560 210" role="img" aria-label="A projector replaying an event log from offset zero to rebuild a read table">
+                <text x="280" y="24" font-size="11.5" text-anchor="middle" fill="#5f6f66">the read model holds no authoritative state &mdash; so it can always be thrown away</text>
+                <text x="30" y="56" font-size="11" fill="#5f6f66">event log</text>
+                <g>
+                  <rect id="rb-e0" x="30" y="64" width="74" height="30" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="67" y="84" font-size="10.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">#0</text>
+                  <rect id="rb-e1" x="112" y="64" width="74" height="30" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="149" y="84" font-size="10.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">#1</text>
+                  <rect id="rb-e2" x="194" y="64" width="74" height="30" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="231" y="84" font-size="10.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">#2</text>
+                  <rect id="rb-e3" x="276" y="64" width="74" height="30" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="313" y="84" font-size="10.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">#3</text>
+                  <rect id="rb-e4" x="358" y="64" width="74" height="30" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="395" y="84" font-size="10.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">#4</text>
+                </g>
+                <text id="rb-cp" x="30" y="118" font-size="11" fill="#c53b3b" font-weight="600">checkpoint = 4</text>
+                <rect id="rb-tbl" x="30" y="134" width="402" height="54" rx="6" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+                <text x="231" y="156" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">order_list_view</text>
+                <text id="rb-tblt" x="231" y="176" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">5 rows · totals wrong</text>
+                <text id="rb-note" x="452" y="160" font-size="11" fill="#5f6f66">status</text>
+                <text id="rb-notet" x="452" y="178" font-size="11" fill="#c53b3b" font-weight="600">broken</text>
+              </svg>
+            </div><div class="controls"></div><div class="narration"></div></div>
+          <h4>How it relates</h4>
+          <ul><li>Projections are where the <b>eventual consistency</b> window actually comes from.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Checkpoint</b><span>The position in the event stream a projection has processed up to, stored alongside the read model.</span><template class="term-detail" data-see="Projection, Rebuild, Eventual consistency">
+          <p>Without a checkpoint a restarting projector either replays everything or skips events. Storing the offset in the <em>same transaction</em> as the rows it produced makes the pair atomic, which is what turns at-least-once delivery into a correct read model.</p>
+          <p>The gap between the writer's latest offset and the projection's checkpoint is the measurable version of "how stale is the read side" &mdash; the single most useful metric on the read path.</p>
+          <h4>What to monitor</h4>
+          <table>
+            <tr><th>Metric</th><th>Healthy</th></tr>
+            <tr><td>Lag in events</td><td>near zero, bounded</td></tr>
+            <tr><td>Lag in seconds</td><td>under your stated window</td></tr>
+            <tr><td>Projection errors</td><td>zero; one poison event stalls everything</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Resetting the checkpoint to zero is how a <b>rebuild</b> starts.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Eventual consistency</b><span>The read model trails the write model by a short, bounded delay instead of being updated in the same transaction.</span><template class="term-detail" data-see="Read-your-writes, Projection, Checkpoint">
+          <p>Once the projection is asynchronous, there is a window &mdash; usually milliseconds, occasionally seconds under load &mdash; in which a committed change is invisible to queries. This is a design decision, not a defect, but it is only acceptable if the window is stated, measured and alerted on.</p>
+          <p>Note the choice is per read model. A dashboard can tolerate thirty seconds; the screen the user lands on after submitting a form usually cannot, and that one may need a synchronous projection or a different mitigation.</p>
+          <h4>Typical windows</h4>
+          <table>
+            <tr><th>Setup</th><th>Typical lag</th></tr>
+            <tr><td>Same transaction (synchronous)</td><td>0</td></tr>
+            <tr><td>In-process after commit</td><td>1&ndash;20 ms</td></tr>
+            <tr><td>Via a broker</td><td>20&ndash;500 ms</td></tr>
+            <tr><td>Batch rebuild</td><td>minutes</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>The second animation is this window being felt by a real user.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Read-your-writes</b><span>The guarantee that a user immediately sees the effect of their own change — the first thing CQRS breaks.</span><template class="term-detail" data-see="Eventual consistency, Projection, Query">
+          <p>The user submits a form, gets redirected to a list, and their item is not there. They submit again. You now have a duplicate caused purely by an architectural choice. Every CQRS system needs an answer to this, chosen per screen.</p>
+          <p>The four workable answers, cheapest first: return the created data from the command so the UI can render it without a query; carry a version token and have the query wait for the projection to reach it; serve the user's own data from the write model; or change the interaction so immediacy is not expected.</p>
+          <h4>Mitigations</h4>
+          <table>
+            <tr><th>Approach</th><th>Cost</th><th>Good when</th></tr>
+            <tr><td>Command returns the data</td><td>none</td><td>single-item views</td></tr>
+            <tr><td>Version token / wait</td><td>some latency</td><td>lists after a write</td></tr>
+            <tr><td>Read own data from write side</td><td>two code paths</td><td>"my orders" screens</td></tr>
+            <tr><td>UI says "processing"</td><td>product decision</td><td>genuinely async work</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>This is why "CQRS everywhere" is a bad default &mdash; apply it where the asymmetry pays.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Levels of CQRS</b><span>The spectrum from two sets of classes over one table to two separate databases — you can stop anywhere.</span><template class="term-detail" data-see="Read model, Write model, Eventual consistency">
+          <p>Almost all of the benefit arrives at level 1, and almost all of the cost arrives at level 3. Most teams should stop at level 1 or 2: commands through the domain model, queries as plain SQL returning DTOs, both hitting the same database inside one transaction. No lag, no projector, no new infrastructure &mdash; and the read side is already free of the ORM.</p>
+          <p>Go further only when a specific measurement forces it: reads outgrowing writes, a search requirement SQL cannot serve, or a reporting load that disturbs the transactional store.</p>
+          <h4>The ladder</h4>
+          <table>
+            <tr><th>Level</th><th>Shape</th><th>Consistency</th></tr>
+            <tr><td>0</td><td>one model, one repository</td><td>strong</td></tr>
+            <tr><td>1</td><td>two models, one schema</td><td>strong</td></tr>
+            <tr><td>2</td><td>denormalised tables / views, same DB</td><td>strong or near</td></tr>
+            <tr><td>3</td><td>separate read store, async projection</td><td>eventual</td></tr>
+            <tr><td>4</td><td>level 3 plus event sourcing</td><td>eventual</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Each step up buys scalability and costs a consistency guarantee.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Event sourcing</b><span>Storing state as an append-only log of events rather than as current rows — frequently paired with CQRS, and independent of it.</span><template class="term-detail" data-see="Projection, Rebuild, Write model">
+          <p>Event sourcing changes how the <em>write</em> side persists: instead of updating a row, you append <code>OrderPlaced</code>, <code>ItemAdded</code>, <code>OrderShipped</code> and rebuild current state by replaying them. CQRS changes how you <em>read</em>. They fit together neatly, because an event log is the perfect input for projections, but either works without the other.</p>
+          <p>Treat them as separate decisions with separate costs. Event sourcing brings full history and audit for free, and brings schema versioning of events, snapshotting and a genuinely different debugging experience as the bill.</p>
+          <h4>Pick independently</h4>
+          <table>
+            <tr><th>You want</th><th>You need</th></tr>
+            <tr><td>Fast, screen-shaped reads</td><td>CQRS</td></tr>
+            <tr><td>Full history, temporal queries, audit</td><td>event sourcing</td></tr>
+            <tr><td>Both</td><td>both &mdash; and a plan for event versioning</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Most CQRS systems in production are <em>not</em> event sourced; they project from change events emitted by an ordinary database write.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Outbox</b><span>Writing outgoing events into a table inside the same transaction as the state change, then publishing them from there.</span><template class="term-detail" data-see="Projection, Command handler, Eventual consistency">
+          <p>Committing to the database and publishing to a broker are two separate systems, so doing both "atomically" is impossible without a protocol. The outbox makes it one transaction: the event row is written next to the state change, and a separate relay reads the table and publishes, marking rows as sent.</p>
+          <p>Without it you get the two classic failures: the write commits and the event is lost (read model permanently stale), or the event is published and the write rolls back (read model shows something that never happened).</p>
+          <h4>Guarantees</h4>
+          <table>
+            <tr><th>Property</th><th>Result</th></tr>
+            <tr><td>Delivery</td><td>at least once</td></tr>
+            <tr><td>Ordering</td><td>per aggregate, if you keep a sequence</td></tr>
+            <tr><td>Consumer requirement</td><td>must be idempotent</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Change data capture (Debezium and friends) is the other common way to get the same guarantee.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Idempotency</b><span>Applying the same event twice must leave the read model in the same state as applying it once.</span><template class="term-detail" data-see="Projection, Outbox, Checkpoint">
+          <p>Every realistic delivery mechanism is at-least-once, so a projector <em>will</em> see duplicates after a restart, a rebalance or a retry. Idempotency is what makes that harmless: use upserts keyed by the aggregate id, store the last applied sequence number per row and ignore anything not greater than it, and avoid blind increments like <code>total = total + x</code>.</p>
+          <h4>Safe and unsafe projection writes</h4>
+          <table>
+            <tr><th>Write</th><th>Safe?</th></tr>
+            <tr><td><code>UPSERT … SET status = 'shipped'</code></td><td>yes &mdash; absolute value</td></tr>
+            <tr><td><code>SET count = count + 1</code></td><td>no &mdash; duplicates accumulate</td></tr>
+            <tr><td><code>… WHERE seq &lt; @seq</code></td><td>yes &mdash; guarded by sequence</td></tr>
+            <tr><td><code>INSERT</code> without a key</td><td>no &mdash; duplicate rows</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Idempotency is what makes a <b>rebuild</b> safe to run against a live read model.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Rebuild</b><span>Dropping a read model and replaying the event history to recreate it — the operational superpower of CQRS.</span><template class="term-detail" data-see="Projection, Checkpoint, Read model">
+          <p>Because the read model is derived, a bug in a projector or a new column on a screen does not need a data migration: reset the checkpoint, truncate the table and replay. In practice you build the new version alongside the old one, let it catch up, then switch the queries over &mdash; zero downtime, and the old table is still there if you need to go back.</p>
+          <p>Plan for it from the start. Rebuild time grows with history, so measure it early and add snapshots or partial replays before it becomes hours.</p>
+          <h4>Rebuild checklist</h4>
+          <table>
+            <tr><th>Step</th><th>Note</th></tr>
+            <tr><td>Build the new table alongside</td><td>no downtime</td></tr>
+            <tr><td>Replay from offset 0</td><td>needs retained history</td></tr>
+            <tr><td>Verify row counts and spot checks</td><td>before switching</td></tr>
+            <tr><td>Switch queries, keep the old table</td><td>cheap rollback</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>The animation inside <b>projection</b> walks one rebuild end to end.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Query handler</b><span>The read-side counterpart to a command handler: one per query, returning a DTO, with no domain model in sight.</span><template class="term-detail" data-see="Query, Read model, Write model">
+          <p>Query handlers are allowed to be boring. Plain SQL, Dapper, a stored procedure, a search client &mdash; whatever gets the shape the screen needs in one round trip. Using the ORM's object graph here is the most common way the two sides silently merge back into one.</p>
+          <p>Because they are pure, they are also where caching, pagination and rate limiting naturally belong.</p>
+          <h4>Rules of thumb</h4>
+          <table>
+            <tr><th>Rule</th><th>Reason</th></tr>
+            <tr><td>Return a DTO, never an entity</td><td>stops the domain leaking into the API</td></tr>
+            <tr><td>One handler per screen shape</td><td>avoids a generic query nobody can optimise</td></tr>
+            <tr><td>No writes, ever</td><td>makes caching and replicas safe</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>This is CQS applied at the architecture level rather than the method level.</li></ul>
+        </template></div>
+      </div>
+    </section>
+
+    <section id="commands">
+      <h2>Essential code patterns</h2>
+      <div class="cmd-group">
+        <h3>The two sides (C#)</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">public sealed record PlaceOrder(Guid CommandId, Guid CartId, Guid CustomerId);
+
+public sealed class PlaceOrderHandler(IOrderRepository repo, IOutbox outbox)
+{
+    public async Task&lt;Guid&gt; Handle(PlaceOrder cmd, CancellationToken ct)
+    {
+        var order = Order.Place(cmd.CartId, cmd.CustomerId);   // invariants here
+        await repo.Add(order, ct);
+        await outbox.Enqueue(order.ReleaseEvents(), ct);       // same transaction
+        return order.Id;                                        // id only, not state
+    }
+}</code></pre><div class="what">Write side: domain model, invariants, events into the outbox in the same transaction. Returns an identity, never a view.</div></div>
+        <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">public sealed record OrderListItem(
+    Guid OrderId, string CustomerName, decimal Total, string Status, DateTime PlacedAt);
+
+public sealed class OrderListQuery(IDbConnection db)
+{
+    public Task&lt;IEnumerable&lt;OrderListItem&gt;&gt; Handle(Guid customerId, int page) =&gt;
+        db.QueryAsync&lt;OrderListItem&gt;(
+            """
+            SELECT order_id, customer_name, total, status, placed_at
+            FROM   order_list_view
+            WHERE  customer_id = @customerId
+            ORDER  BY placed_at DESC
+            LIMIT 20 OFFSET @offset
+            """,
+            new { customerId, offset = page * 20 });
+}</code></pre><div class="what">Read side: one flat SQL statement against a pre-joined table. No ORM, no aggregates, no mapping layers.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>The read model and its projection</h3>
+        <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">CREATE TABLE order_list_view (
+    order_id       uuid PRIMARY KEY,
+    customer_id    uuid NOT NULL,
+    customer_name  text NOT NULL,      -- denormalised on purpose
+    total          numeric(12,2) NOT NULL,
+    status         text NOT NULL,
+    placed_at      timestamptz NOT NULL,
+    last_seq       bigint NOT NULL     -- guards against duplicate events
+);
+
+CREATE INDEX ix_olv_customer ON order_list_view (customer_id, placed_at DESC);</code></pre><div class="what">One table per screen, every join already done, indexed by exactly what the screen filters and sorts on.</div></div>
+        <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">INSERT INTO order_list_view
+    (order_id, customer_id, customer_name, total, status, placed_at, last_seq)
+VALUES (@id, @cust, @name, @total, 'placed', @at, @seq)
+ON CONFLICT (order_id) DO UPDATE
+   SET status = EXCLUDED.status,
+       total  = EXCLUDED.total,
+       last_seq = EXCLUDED.last_seq
+ WHERE order_list_view.last_seq &lt; EXCLUDED.last_seq;</code></pre><div class="what">An idempotent projection write: upsert by key, guarded by a sequence number, so a replayed event changes nothing.</div></div>
+        <div class="cmd"><pre class="language-docker line-numbers"><code class="language-docker">-- level 2 without a projector at all
+CREATE MATERIALIZED VIEW order_list_view AS
+SELECT o.id AS order_id, c.name AS customer_name, SUM(l.price * l.qty) AS total, ...
+FROM orders o JOIN customers c ON ... JOIN order_lines l ON ...
+GROUP BY o.id, c.name;
+
+REFRESH MATERIALIZED VIEW CONCURRENTLY order_list_view;</code></pre><div class="what">The cheapest read model: the database maintains it. No projector code, no checkpoint, refresh lag instead of event lag.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Outbox and projector (Python)</h3>
+        <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">with conn.transaction():                       # one transaction
+    conn.execute("INSERT INTO orders ...", order_row)
+    conn.execute(
+        "INSERT INTO outbox (id, type, payload, seq) VALUES (%s,%s,%s,%s)",
+        (event.id, "OrderPlaced", json.dumps(event.payload), event.seq),
+    )
+# a separate relay publishes rows from `outbox` and marks them sent</code></pre><div class="what">State and event committed together: the read model can never miss a change or see one that rolled back.</div></div>
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">def project(batch):
+    with conn.transaction():
+        for event in batch:
+            HANDLERS[event.type](conn, event)
+        conn.execute(
+            "UPDATE projection_checkpoint SET offset = %s WHERE name = 'order_list'",
+            (batch[-1].offset,),
+        )                                   # checkpoint in the SAME transaction</code></pre><div class="what">Rows and checkpoint committed atomically — the difference between at-least-once delivery and a correct read model.</div></div>
+        <div class="cmd"><pre class="language-sql"><code class="language-sql">-- rebuild, with no downtime
+CREATE TABLE order_list_view_v2 (LIKE order_list_view INCLUDING ALL);
+UPDATE projection_checkpoint SET offset = 0 WHERE name = 'order_list_v2';
+-- let it catch up, verify, then point the queries at v2 and keep v1 for rollback</code></pre><div class="what">Read-side schema changes become replays instead of migrations.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Observability</h3>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash"># the only read-path metric that really matters
+projection_lag_seconds{projection="order_list"}
+# alert when the read model is staler than the window you promised
+</code></pre><div class="what">Publish the lag, alert on it, and put the promised window in the API docs — an unstated window is the real bug.</div></div>
+      </div>
+    </section>
+
+    <section id="pros-cons">
+      <h2>Pros &amp; cons</h2>
+      <div class="cols">
+        <div class="col good"><h3>Pros</h3><ul>
+          <li>Reads get exactly the shape the screen needs, usually one indexed lookup instead of a multi-table join.</li>
+          <li>The write model stays clean: no fields or relations added just to make a report work.</li>
+          <li>Read and write sides scale, cache and fail independently &mdash; a reporting spike cannot slow down checkout.</li>
+          <li>Read models are disposable, so read-side schema changes become replays rather than migrations.</li>
+          <li>Each read model can use the right store: SQL, Redis, a search index, a columnar warehouse.</li>
+          <li>Clear seams make the code easy to navigate: one class per intention, one query per screen.</li>
+        </ul></div>
+        <div class="col bad"><h3>Cons</h3><ul>
+          <li>Eventual consistency arrives at level 3 and immediately breaks read-your-own-writes.</li>
+          <li>More moving parts: projectors, checkpoints, an outbox, lag monitoring, rebuild tooling.</li>
+          <li>The same data exists in several shapes, so a projector bug produces visibly wrong numbers.</li>
+          <li>Rebuild time grows with history and becomes an operational constraint if ignored.</li>
+          <li>Easy to over-apply &mdash; most CRUD screens are worse off with two models.</li>
+          <li>Debugging spans two stores and an asynchronous hop, which raises the bar for tracing.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="use-cases">
+      <h2>Concrete use cases</h2>
+      <div class="cards">
+        <div class="card"><h3>A list screen that joins seven tables</h3><p>The orders page takes 1.8 seconds because it joins orders, lines, products, customers, addresses, shipments and payments. A single <code>order_list_view</code> table, maintained by a projection, turns it into one indexed read of a few milliseconds &mdash; without touching the write model at all.</p></div>
+        <div class="card"><h3>Reporting load crushing the transactional database</h3><p>Analysts run heavy aggregations against the same tables that take checkout writes, and lock contention shows up as checkout latency. A separate read store fed by projections isolates the two completely, and the analysts get a schema designed for their queries.</p></div>
+        <div class="card"><h3>Search that SQL cannot do</h3><p>Users want faceted, typo-tolerant search over the catalogue. A projection into Elasticsearch gives that without turning the product aggregate into a search document, and the index can be rebuilt whenever the analyser configuration changes.</p></div>
+        <div class="card"><h3>Reads enormously outnumbering writes</h3><p>A public timetable gets thousands of reads per write. The read model is a denormalised key-value store behind a CDN, refreshed by projection; the write model stays a small, strongly consistent relational schema that a handful of editors use.</p></div>
+        <div class="card"><h3>Several consumers, several shapes</h3><p>The mobile app, the call-centre screen and the partner API all want different views of the same orders. Three read models projected from one write model beats one API trying to satisfy all three with nested includes and sparse fieldsets.</p></div>
+      </div>
+    </section>
+
+    <section id="when">
+      <h2>When to use / when not to</h2>
+      <span class="note" style="margin:-6px 0 14px">start at level 1 and only climb when a measurement makes you &mdash; most systems never need level 3</span>
+      <div class="cols">
+        <div class="col good"><h3>Use it when…</h3><ul>
+          <li>The read shape and the write shape genuinely differ, and the joins are visible in your latency numbers.</li>
+          <li>Read and write loads differ by an order of magnitude or more.</li>
+          <li>One domain model is being distorted by screens and reports.</li>
+          <li>You need several different views of the same data, possibly in different stores.</li>
+          <li>You are already inside a bounded context with aggregates, and repositories are sprouting query methods.</li>
+        </ul></div>
+        <div class="col bad"><h3>Avoid it when…</h3><ul>
+          <li>The application is simple CRUD and the screens mirror the tables. Use <b>a single model with an ORM</b>.</li>
+          <li>Every screen must reflect writes instantly and you cannot change the UX. Use <b>level 1 CQRS at most</b>, or a materialised view refreshed in-transaction.</li>
+          <li>The team has no appetite for projectors, lag monitoring and rebuilds. Use <b>read replicas and better indexing</b>.</li>
+          <li>The real problem is one slow query. Use <b>an index, a denormalised column or a cache</b> first.</li>
+          <li>You are applying it to the whole system rather than one context. Use <b>it per bounded context</b>, where it pays.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="gotchas">
+      <h2>Common mistakes &amp; gotchas</h2>
+      <div class="gotcha"><b>Assuming CQRS means event sourcing</b><span>Teams adopt an event store, snapshots and event versioning when all they wanted was a fast list screen, and the project stalls on accidental complexity.</span><div class="fix">Fix: decide them separately. A projection fed by ordinary change events from a relational write is a complete, common and much cheaper CQRS.</div></div>
+      <div class="gotcha"><b>Applying it to the whole system</b><span>Every CRUD screen gets a command, a handler, a projection and a read table, and the codebase triples in size for no benefit.</span><div class="fix">Fix: apply it per bounded context, usually to one or two. Plain CRUD alongside CQRS in the same application is a correct design, not an inconsistency.</div></div>
+      <div class="gotcha"><b>No answer for read-your-own-writes</b><span>The user submits, lands on a list that has not caught up, and submits again. Duplicates created by architecture.</span><div class="fix">Fix: pick a mitigation per screen &mdash; return the data from the command, wait on a version token, read own data from the write side, or make the UI explicitly asynchronous.</div></div>
+      <div class="gotcha"><b>Non-idempotent projections</b><span>Delivery is at-least-once, so <code>total = total + x</code> double-counts after any restart, rebalance or retry, and the numbers drift quietly.</span><div class="fix">Fix: upsert by key, write absolute values, and guard with a per-row sequence number. Test by replaying the same batch twice.</div></div>
+      <div class="gotcha"><b>Publishing events outside the transaction</b><span>The write commits and the broker call fails, so the read model is permanently stale; or the event is published and the write rolls back, so the read model shows a lie.</span><div class="fix">Fix: use an outbox table written in the same transaction, or change data capture. Never call the broker from inside the handler.</div></div>
+      <div class="gotcha"><b>No lag metric</b><span>"It's eventually consistent" becomes an excuse rather than a specification, and nobody notices when a stalled projector leaves the read model hours behind.</span><div class="fix">Fix: export projection lag in seconds and in events, alert on it, and publish the promised window in your API documentation.</div></div>
+      <div class="gotcha"><b>Querying through the write model</b><span>Someone adds <code>GetAllOrdersWithLines</code> to the repository because it was convenient, and the separation quietly disappears.</span><div class="fix">Fix: keep repositories to get/add/save by identity, and put every screen query on the read side &mdash; enforced by an architecture test if necessary.</div></div>
+      <div class="gotcha"><b>Never rehearsing a rebuild</b><span>Three years in, the projector has a bug and the first full replay turns out to take eleven hours against retained history nobody checked.</span><div class="fix">Fix: rebuild in CI regularly, measure the time, and add snapshots or partial replays before it matters. Build the new read model alongside the old one.</div></div>
+    </section>
+
+    <section id="alternatives">
+      <h2>Alternatives</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs CQRS</th></tr></thead>
+          <tbody>
+            <tr class="self"><td><b>CQRS</b></td><td>diverging read and write shapes</td><td>Medium&ndash;High</td><td>free; cost is operational</td><td>&mdash;</td></tr>
+            <tr><td><b>CQS</b></td><td>any codebase</td><td>Very low</td><td>free</td><td>The same rule at method level; no separate models, no lag, no infrastructure</td></tr>
+            <tr><td><b>Single model + ORM</b></td><td>CRUD applications</td><td>Low</td><td>free</td><td>One model for both jobs; simplest until the joins hurt</td></tr>
+            <tr><td><b>Materialised views</b></td><td>denormalised reads, same DB</td><td>Low</td><td>free with the DB</td><td>The database maintains the read model; refresh lag, but no projector to write</td></tr>
+            <tr><td><b>Read replicas</b></td><td>read scaling, same schema</td><td>Low</td><td>extra instances</td><td>More capacity for the <em>same</em> queries; does not change the shape</td></tr>
+            <tr><td><b>Caching</b></td><td>hot, repeated reads</td><td>Low</td><td>a cache node</td><td>Stores answers rather than a model; invalidation instead of projection</td></tr>
+            <tr><td><b>Event sourcing</b></td><td>audit, history, temporal queries</td><td>High</td><td>free; operational cost real</td><td>Changes how writes are stored, not how reads are shaped &mdash; orthogonal</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul style="margin-top:12px">
+        <li><b>Pick CQS</b> first &mdash; it costs nothing and gets most of the clarity benefit.</li>
+        <li><b>Pick a single model</b> if the screens mirror the tables and the joins are cheap.</li>
+        <li><b>Pick materialised views</b> when you want a denormalised read model without owning a projector.</li>
+        <li><b>Pick read replicas</b> when the queries are fine but there are too many of them.</li>
+        <li><b>Pick caching</b> when a handful of hot answers dominate; reach for CQRS when the <em>shape</em>, not the volume, is the problem.</li>
+        <li><b>Pick event sourcing</b> only if history itself is a requirement &mdash; then CQRS comes along almost for free.</li>
+      </ul>
+    </section>
+
+    <section id="resources">
+      <h2>Resources</h2>
+      <ul>
+        <li><a href="https://martinfowler.com/bliki/CQRS.html" target="_blank" rel="noopener">Martin Fowler &mdash; CQRS</a>: the short definition, including the warning about where it does not belong.</li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/architecture/patterns/cqrs" target="_blank" rel="noopener">Azure Architecture Center &mdash; CQRS pattern</a>: diagrams, trade-offs and when not to use it.</li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/architecture/best-practices/transactional-outbox-cosmos" target="_blank" rel="noopener">Transactional outbox pattern</a>: how to publish events without losing or inventing them.</li>
+        <li><a href="https://microservices.io/patterns/data/cqrs.html" target="_blank" rel="noopener">microservices.io &mdash; CQRS</a>: the pattern in the context of service boundaries, with related patterns linked.</li>
+        <li><a href="https://debezium.io/documentation/reference/stable/tutorial.html" target="_blank" rel="noopener">Debezium tutorial</a>: change data capture as a way to feed projections from an existing database.</li>
+      </ul>
+    </section>
+    <!-- RELATED:START (generated by scripts/build-index.mjs, do not edit) -->
+    <section id="related">
+      <h2>Related pages</h2>
+      <div class="related-list">
+          <a class="related-card" href="domain-driven-design.html">
+            <b>Domain-Driven Design</b>
+            <span>Model the business, not the database — and stop pretending one word means the same thing everywhere.</span>
+            <small>Mentioned here in Overview, Key concepts, Essential code patterns, Concrete use cases, When to use / when not to and Common mistakes &amp; gotchas · Domain-Driven Design mentions CQRS in Key concepts, Common mistakes &amp; gotchas and Alternatives · Shared tags: architecture, ddd</small>
+          </a>
+          <a class="related-card" href="outbox-pattern.html">
+            <b>Outbox pattern</b>
+            <span>You cannot commit a database and a broker together. So write the message as a row, and let it ride along.</span>
+            <small>Mentioned here in Key concepts, Essential code patterns, Pros &amp; cons, Common mistakes &amp; gotchas and Resources · Outbox pattern mentions CQRS in Key concepts, Concrete use cases and When to use / when not to</small>
+          </a>
+          <a class="related-card" href="cqs.html">
+            <b>CQS</b>
+            <span>Asking a question should not change the answer.</span>
+            <small>Mentioned here in Key concepts and Alternatives · CQS mentions CQRS in Overview, Key concepts, Concrete use cases, When to use / when not to, Common mistakes &amp; gotchas, Alternatives and Resources</small>
+          </a>
+          <a class="related-card" href="caching-strategies.html">
+            <b>Caching strategies</b>
+            <span>Keep the answer near the question — and decide, up front, how wrong you are willing to be.</span>
+            <small>Mentioned here in Key concepts and Alternatives</small>
+          </a>
+          <a class="related-card" href="database-performance.html">
+            <b>Database performance</b>
+            <span>Index, then query, then schema, then cache, then replicate, then partition — and only then shard.</span>
+            <small>Mentioned here in Key concepts, Pros &amp; cons, Concrete use cases and When to use / when not to · Database performance mentions CQRS in Key concepts</small>
+          </a>
+          <a class="related-card" href="modular-monolith.html">
+            <b>Modular monolith</b>
+            <span>One deployable, with walls the compiler actually enforces.</span>
+            <small>Modular monolith mentions CQRS in Common mistakes &amp; gotchas · Shared tags: architecture, ddd</small>
+          </a>
+      </div>
+    </section>
+    <!-- RELATED:END -->
+  </main>
+</div>
+
+<script src="../assets/player.js?v=e098a7b2"></script>
+<script>
+createAnimation('anim-path', [
+  { say: 'One client, two jobs. Changing an order and listing orders look similar from the outside and want completely different things from a schema.', hl: ['cq-cmd'] },
+  { say: 'The command <code>PlaceOrder</code> goes to its handler, which loads the aggregate, checks invariants and decides. This path cares about correctness and nothing else.', move: { 'cq-cmd': [190, 0] }, unhl: ['cq-cmd'], hl: ['cq-ch'], text: { 'cq-msg': 'write path: intention → aggregate → invariants' } },
+  { say: 'It commits to the write store: normalised across three tables. Perfect for enforcing rules, poor for rendering a list — the list screen needs all three joined every time.', move: { 'cq-cmd': [400, 0] }, text: { 'cq-cmdt': 'commit: 1 order, 2 lines', 'cq-wdbt': 'orders +1 · order_lines +2' }, unhl: ['cq-ch'], hl: ['cq-wdb'] },
+  { say: 'The write emits <code>OrderPlaced</code>. In an event-sourced system this is the stored fact; in an ordinary system it is an outbox row or a change-data-capture record. Either works.', show: ['cq-evt', 'cq-a1'], unhl: ['cq-wdb'], text: { 'cq-msg': 'the only bridge between the two sides' } },
+  { say: 'The projector consumes it, advances its checkpoint, and does the joins <em>once</em>, now, instead of on every page load.', show: ['cq-a2'], hl: ['cq-proj'], text: { 'cq-projt': 'projecting · offset 42' } },
+  { say: 'It writes a single denormalised row into <code>order_list_view</code>: customer name, total, status — everything the screen shows, already flattened.', show: ['cq-a3'], unhl: ['cq-proj'], hl: ['cq-rdb'], text: { 'cq-rdbt': '4 rows · +1 pre-joined' } },
+  { say: 'Later the client asks for the list. The query handler goes straight to the read store — no aggregate, no ORM graph, no domain model anywhere on this path.', show: ['cq-q', 'cq-hand'], unhl: ['cq-rdb'], hl: ['cq-qh'], text: { 'cq-msg': 'read path: one indexed lookup, DTO out' } },
+  { say: 'One indexed read returns exactly the screen\'s shape. The two sides can now be indexed, cached, scaled and even stored differently, because neither constrains the other.', move: { 'cq-q': [0, 0] }, text: { 'cq-qt': '20 rows · 3 ms' }, unhl: ['cq-qh'] },
+  { say: 'And here is the bill: the read store is updated <em>after</em> the write commits, so for a short window it is behind. That window is the whole cost of CQRS — the next animation is what it feels like.', hl: ['cq-rdb'], text: { 'cq-msg': 'eventual consistency window: ms to seconds — state it, measure it' } },
+]);
+
+createAnimation('anim-lag', [
+  { say: 'A user with two items in the cart hits "Place order". Write and read stores are in sync: 41 orders on both sides.', hl: ['lg-br'] },
+  { say: 'The command commits to the write store immediately and strongly. From the domain\'s point of view the order exists and the request succeeded.', text: { 'lg-wt': '42 orders', 'lg-t': 't = 0 ms · write committed' }, unhl: ['lg-br'], hl: ['lg-w'], fill: { 'lg-wt': '#c53b3b' } },
+  { say: 'Forty milliseconds later the app redirects to "my orders". The projector has not run yet.', text: { 'lg-b1': 'cart: 2 items', 'lg-b2': '→ redirect to /orders', 'lg-t': 't = 40 ms · query issued' }, unhl: ['lg-w'], hl: ['lg-r'] },
+  { say: 'The query is served by the read store, which still holds 41 rows. The user sees a list without the order they just placed — so they place it again. A duplicate, caused entirely by architecture.', text: { 'lg-b3': 'list shows 41 orders', 'lg-b4': 'where is my order?!', 'lg-rt': '41 rows · 1 behind', 'lg-t': 't = 45 ms · stale read' }, fill: { 'lg-rt': '#c53b3b' } },
+  { say: 'Mitigation 1, the cheapest: have the command return the created order and render it directly. No query, no lag, and it covers most "submit then see the thing" flows.', show: ['lg-f1'], unhl: ['lg-r'], text: { 'lg-t': 'fix 1 · command returns the data' } },
+  { say: 'Mitigation 2: the command returns a version token; the query sends it back and the read side waits (briefly) until its checkpoint reaches that version. Correct for lists, at the cost of some latency.', show: ['lg-f2'], text: { 'lg-t': 'fix 2 · read-your-writes via version token' } },
+  { say: 'Mitigation 3: serve a user\'s <em>own</em> data from the write store and everyone else\'s from the read store. Two code paths, but it matches how staleness is actually perceived — you only notice your own changes missing.', show: ['lg-f3'], text: { 'lg-t': 'fix 3 · own data from the write side' } },
+  { say: 'Mitigation 4: change the product. A clear "processing…" state or an async confirmation makes the delay honest instead of broken, and costs no engineering at all.', show: ['lg-f4', 'lg-hand'], text: { 'lg-t': 'fix 4 · make the delay part of the UX' } },
+  { say: 'Meanwhile the projector catches up and the two stores converge. Nothing was lost — the read model was only ever behind, never wrong.', text: { 'lg-rt': '42 rows · caught up', 'lg-b3': 'list shows 42 orders', 'lg-b4': ' ', 'lg-t': 't = 240 ms · converged' }, fill: { 'lg-rt': '#2f6b3f', 'lg-wt': '#5f6f66' }, hl: ['lg-r'] },
+  { say: 'The real rule: choose a mitigation per screen, not per system. A dashboard can be thirty seconds stale; the page a user lands on after submitting a form usually cannot be stale at all.', show: ['lg-f5'], unhl: ['lg-r'], text: { 'lg-t': 'state the window, measure it, alert on it' } },
+]);
+
+window.TERM_ANIMS = {
+  rb: [
+    { say: 'The read model has processed five events and its checkpoint says 4. It is a derived view of the log, holding no authoritative state of its own.', hl: ['rb-tbl'] },
+    { say: 'A bug in the projector has been computing totals wrong for a week. In a normal system this would be a data migration with a careful backfill script.', unhl: ['rb-tbl'], fill: { 'rb-notet': '#c53b3b' }, text: { 'rb-notet': 'broken' } },
+    { say: 'Fix the projector code, then throw the table away and reset the checkpoint to zero. Nothing of value is lost, because everything here is derived.', text: { 'rb-cp': 'checkpoint = 0', 'rb-tblt': '0 rows · truncated', 'rb-notet': 'rebuilding' }, fill: { 'rb-notet': '#5f6f66' } },
+    { say: 'Replay from the beginning. Each event is applied by the corrected projector, in order, as fast as the store allows.', hl: ['rb-e0', 'rb-e1', 'rb-e2'], text: { 'rb-cp': 'checkpoint = 2', 'rb-tblt': '3 rows · replaying' } },
+    { say: 'Caught up at offset 4 and back on live events, with correct totals. In practice you build the new table beside the old one and switch the queries over, so there is no downtime and rollback is free.', unhl: ['rb-e0', 'rb-e1', 'rb-e2'], hl: ['rb-e3', 'rb-e4'], text: { 'rb-cp': 'checkpoint = 4', 'rb-tblt': '5 rows · totals correct', 'rb-notet': 'live' }, fill: { 'rb-notet': '#2f6b3f' } },
+  ],
+};
+</script>
+</body>
+</html>
