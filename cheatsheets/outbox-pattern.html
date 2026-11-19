@@ -454,7 +454,7 @@ COMMIT;        -- both rows, or neither. no broker involved.</code></pre><div cl
 
       <div class="cmd-group">
         <h3>The relay</h3>
-        <div class="cmd"><pre class="language-docker line-numbers"><code class="language-docker">BEGIN;
+        <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">BEGIN;
 SELECT id, message_id, aggregate_id, type, payload
 FROM   outbox
 WHERE  sent_at IS NULL
@@ -467,7 +467,7 @@ COMMIT;</code></pre><div class="what">Publish first, mark second. A crash in bet
         <div class="cmd"><pre class="language-none"><code class="language-none">-- wake the relay immediately instead of waiting for the next poll
 NOTIFY outbox_new;
 -- relay: LISTEN outbox_new, and keep a 1s poll as a safety net</code></pre><div class="what">Removes polling latency without removing the poll — the poll is what recovers after a missed notification.</div></div>
-        <div class="cmd"><pre class="language-docker"><code class="language-docker">-- the metric that matters
+        <div class="cmd"><pre class="language-sql"><code class="language-sql">-- the metric that matters
 SELECT now() - min(occurred_at) AS oldest_unsent
 FROM   outbox WHERE sent_at IS NULL;</code></pre><div class="what">Alert on the age of the oldest unsent row. Everything else can look healthy while nothing is being delivered.</div></div>
         <div class="cmd"><pre class="language-sql"><code class="language-sql">-- retention: delete published rows in small batches
@@ -636,10 +636,20 @@ WHERE id IN (SELECT id FROM outbox
             <span>Writes and reads want opposite things from a schema. Stop making one model do both jobs badly.</span>
             <small>Mentioned here in Key concepts, Concrete use cases and When to use / when not to · CQRS mentions Outbox pattern in Key concepts, Essential code patterns, Pros &amp; cons, Common mistakes &amp; gotchas and Resources</small>
           </a>
+          <a class="related-card" href="saga-pattern.html">
+            <b>Saga pattern</b>
+            <span>You cannot roll back a transaction that already committed in someone else's database. You can only do something that undoes it in business terms.</span>
+            <small>Mentioned here in Pros &amp; cons, When to use / when not to, Common mistakes &amp; gotchas and Alternatives · Saga pattern mentions Outbox pattern in Key concepts · Shared tags: microservices</small>
+          </a>
           <a class="related-card" href="domain-driven-design.html">
             <b>Domain-Driven Design</b>
             <span>Model the business, not the database — and stop pretending one word means the same thing everywhere.</span>
             <small>Mentioned here in Key concepts, Essential code patterns and Common mistakes &amp; gotchas · Domain-Driven Design mentions Outbox pattern in Common mistakes &amp; gotchas</small>
+          </a>
+          <a class="related-card" href="event-store.html">
+            <b>Event store</b>
+            <span>Store what happened, not what is. Everything else is a fold over the facts.</span>
+            <small>Mentioned here in Key concepts, When to use / when not to and Alternatives · Event store mentions Outbox pattern in Alternatives</small>
           </a>
           <a class="related-card" href="kafka.html">
             <b>Apache Kafka</b>
@@ -650,16 +660,6 @@ WHERE id IN (SELECT id FROM outbox
             <b>Database performance</b>
             <span>Index, then query, then schema, then cache, then replicate, then partition — and only then shard.</span>
             <small>Mentioned here in Key concepts, Essential code patterns and Common mistakes &amp; gotchas</small>
-          </a>
-          <a class="related-card" href="sidecar-pattern.html">
-            <b>Sidecar pattern</b>
-            <span>Put the cross-cutting concern in a container next door, not in every application's dependency list.</span>
-            <small>Mentioned here in Key concepts</small>
-          </a>
-          <a class="related-card" href="azure-durable-functions.html">
-            <b>Azure Durable Functions</b>
-            <span>Write a long-running workflow as ordinary code, and let replay make it survive restarts.</span>
-            <small>Closely related topic</small>
           </a>
       </div>
     </section>
@@ -688,7 +688,7 @@ createAnimation('anim-relay', [
   { say: 'Then — and only then — it marks the row sent. Publish first, mark second: the ordering is deliberate, and it is why nothing can be lost.', unhl: ['rl-br'], text: { 'rl-r1t': '1 OrderPlaced  sent=t', 'rl-rt': 'marked row 1 sent' }, fill: { 'rl-r1t': '#2f6b3f' } },
   { say: 'Now the failure that defines the pattern. The relay publishes row 2 — and dies before the UPDATE lands.', hl: ['rl-relay'], text: { 'rl-brt': 'ItemAdded(42)', 'rl-rt': 'crashed', 'rl-rt2': 'before marking sent' }, fill: { 'rl-rt': '#c53b3b' } },
   { say: 'On restart, row 2 is still <code>sent=f</code>, so it is published again. The consumer receives <code>ItemAdded</code> twice. This gap cannot be closed — closing it would need exactly the dual-write guarantee we gave up.', unhl: ['rl-relay'], hl: ['rl-br'], text: { 'rl-rt': 'restarted', 'rl-rt2': 'republishing row 2', 'rl-brt2': 'ItemAdded delivered twice' }, fill: { 'rl-rt': '#5f6f66', 'rl-brt2': '#c53b3b', 'rl-n': 'at-least-once: never lost, sometimes duplicated' } },
-  { say: 'So the consumer absorbs it. Each message id is inserted into an inbox table in the <em>same transaction</em> as the business change; the second insert conflicts, the handler returns early, and the shipment is created exactly once.', unhl: ['rl-br'], hl: ['rl-cons'], text: { 'rl-in1': 'msg a1b2 ✓', 'rl-in2': 'msg c3d4 ✓ (dup dropped)', 'rl-ct': 'shipments: 1', 'rl-ct2': 'duplicate ignored', 'rl-n': 'at-least-once delivery + idempotent consumer = exactly-once processing' }, fill: { 'rl-ct2': '#2f6b3f', 'rl-n': '#2f6b3f' } },
+  { say: 'So the consumer absorbs it. Each message id is inserted into an inbox table in the <em>same transaction</em> as the business change; the second insert conflicts, the handler returns early, and the shipment is created exactly once.', unhl: ['rl-br'], hl: ['rl-cons'], text: { 'rl-in1': 'msg a1b2 ✓', 'rl-in2': 'c3d4 ✓ dup', 'rl-ct': 'shipments: 1', 'rl-ct2': 'duplicate ignored', 'rl-n': 'at-least-once delivery + idempotent consumer = exactly-once processing' }, fill: { 'rl-ct2': '#2f6b3f', 'rl-n': '#2f6b3f' } },
   { say: 'Row 3 goes out normally and the backlog drains. Note what never happened: no business code called the broker, and no transaction waited on the network.', unhl: ['rl-cons'], text: { 'rl-r2t': '2 ItemAdded    sent=t', 'rl-r3t': '3 OrderShipped sent=t', 'rl-brt': 'OrderShipped(42)', 'rl-brt2': 'all delivered', 'rl-ct': 'shipments: 1 · shipped', 'rl-lag': 'oldest unsent: none' }, fill: { 'rl-r2t': '#2f6b3f', 'rl-r3t': '#2f6b3f', 'rl-brt2': '#5f6f66' } },
   { say: 'If the broker had been down, nothing visible would have broken: the API keeps returning 200 and the rows simply accumulate. That is the pattern\'s best property and its most dangerous one.', hl: ['rl-tbl'], text: { 'rl-r1t': '… 40,000 rows unsent', 'rl-lag': 'oldest unsent: 22 min', 'rl-n': 'everything looks healthy while nobody downstream hears anything' }, fill: { 'rl-lag': '#c53b3b', 'rl-n': '#c53b3b', 'rl-note': '#f9e3df' } },
   { say: 'Hence the one metric to alert on: the age of the oldest unsent row. And the one chore not to skip: delete published rows, or the outbox becomes the largest table you own.', unhl: ['rl-tbl'], text: { 'rl-r1t': '1 OrderPlaced  sent=t', 'rl-lag': 'alert: oldest unsent > 60 s', 'rl-n': 'monitor the lag · bound the retries · delete the sent rows', 'rl-n2': 'the relay may be stupid and slow — it may not be silent' }, fill: { 'rl-note': '#e3eedc', 'rl-n': '#2f6b3f', 'rl-lag': '#5f6f66' } },

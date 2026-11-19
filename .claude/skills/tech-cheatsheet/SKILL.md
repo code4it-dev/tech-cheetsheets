@@ -43,7 +43,7 @@ Do not inline CSS or the player into pages: shared look and behavior live in `as
 2. **Architecture / mental model** — one inline SVG diagram of the core components and how they relate, plus a one-line `.caption`. Mermaid (`<pre class="mermaid">`) is not available on the site; use SVG.
 3. **How it works (animated)** — 1–2 step-by-step animations of the core mechanism. This is the most important visual; see "Animations".
 4. **Key concepts** — 8–18 glossary cards, ordered fundamental → advanced, each with a one- or two-sentence definition **and a deep dive** (see "Concept deep dives"). Markup: `<div class="term"><b>term</b><span>short definition</span><template class="term-detail" data-see="…">…</template></div>`, with `<b>` and `<span>` on one line. The search index parses it, and `site.js` gives each card an anchor (`#term-<slug>`) that opens its panel.
-5. **Essential commands / syntax** — 10–20 most-used commands or snippets, grouped (e.g. Setup / Everyday / Debug), each with a one-line "what it does". Include a Python example when a Python client exists. For concepts with no CLI (e.g. sharding), show config or code snippets instead.
+5. **Essential commands / syntax** — 10–20 most-used commands or snippets, grouped (e.g. Setup / Everyday / Debug), each with a one-line "what it does". **Show code in both C# and Python, C# first** (see "Code examples"). For concepts with no CLI (e.g. sharding), show config or code snippets instead.
 6. **Pros & cons** — two columns, 4–7 specific bullets each.
 7. **Concrete use cases** — 3–5 real scenarios: who, what problem, how the tech solves it.
 8. **When to use / when not to** — two columns, with a handwritten rule of thumb above them. Each "avoid" bullet names what to use instead.
@@ -95,6 +95,22 @@ Rules:
 - Use real names, keys and values (`user:42`, `orders` topic, `nginx` pod), never "Item A".
 - Label every box; keep SVG text ≥ 11px at viewBox scale.
 - Compute `move` offsets from the coordinates you drew so moved elements land exactly on their target. Moving labels must not overlap boxes they pass.
+
+## Code examples
+
+**Show both C# and Python, with C# first.** Whenever a concept can be shown in code — in the commands section, in concept deep dives, or in an inline snippet — lead with C# and give the Python equivalent alongside it. Readers arrive from both ecosystems, and seeing the same idea twice is what makes it portable rather than framework trivia.
+
+- **C# first**, as the house default. Modern and idiomatic: file-scoped namespaces, records, pattern matching, `async`/`await`, collection expressions. Use the standard library for the job where there is one (Polly, MassTransit, EF Core, `System.Threading.Channels`, `Npgsql`, `StackExchange.Redis`).
+- **Python second**, equally idiomatic rather than a transliteration: dataclasses, type hints, context managers, `asyncio`, and the usual client for the technology (`psycopg`, `redis-py`, `confluent-kafka`).
+- Group them so the pair is obvious — either two `.cmd` blocks under one `<h3>`, or a `C#` group followed by a `Python` group.
+
+Judgement, not quota:
+
+- If the two would be near-identical and add nothing (a one-line config value, a trivial call), **one is enough** — do not pad the page.
+- Where each language has a genuinely different idiom for the same idea, show both even if it costs space: that contrast is the content.
+- A third language appears only when its idiom *is* the point (Go channels and `select`, Java `Resilience4j` config) — keep C# first and say why it is there.
+- SQL, YAML, JSON, shell, PromQL and config are not "a language" in this sense; use them freely wherever they are the natural form, with no C#/Python pairing required.
+- For a .NET-specific technology (Azure Durable Functions, APIM) C# carries the page, and Python appears only where a client genuinely exists.
 
 ## Theme: Field notebook
 

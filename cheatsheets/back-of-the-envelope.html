@@ -484,6 +484,21 @@ machines    = peak_qps / per_machine_qps / target_utilisation</code></pre><div c
 
       <div class="cmd-group">
         <h3>Worked example, in Python</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">const long   Dau            = 100_000_000;
+const double UploadsPerUser = 0.2;
+const long   PhotoBytes     = 2_000_000;
+const long   SecPerDay      = 100_000;        // 86,400, rounded for sanity
+
+var writesPerDay = (long)(Dau * UploadsPerUser);   //  20M
+var writeQps     = writesPerDay / SecPerDay;       // 200 /s
+var perDay       = writesPerDay * PhotoBytes;      //  40 TB
+var fiveYear     = perDay * 365 * 5 * 3;           //  x3 replicas -&gt; ~220 PB
+var monthlyUsd   = fiveYear / 1e9 * 0.02;          //  $/GB/month
+
+Console.WriteLine($"{fiveYear / 1e15:F0} PB, ${monthlyUsd / 1e6:F1}M per month");
+
+foreach (var uploads in new[] { 0.05, 0.2, 1.0 })  // sensitivity on the weakest input
+    Console.WriteLine($"{uploads,5} -&gt; {Dau * uploads * PhotoBytes * 365 * 5 * 3 / 1e15,7:F0} PB");</code></pre><div class="what">The same estimate in C#. Named <code>const</code>s keep the units visible, which is what stops an order-of-magnitude slip.</div></div>
         <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">DAU          = 100_000_000
 uploads_user = 0.2
 views_user   = 50
@@ -622,6 +637,11 @@ print(f"{five_year/1e15:.0f} PB, ${monthly/1e6:.1f}M per month")</code></pre><di
     <section id="related">
       <h2>Related pages</h2>
       <div class="related-list">
+          <a class="related-card" href="queueing-theory.html">
+            <b>Queueing theory</b>
+            <span>Waiting is not caused by being out of capacity. It is caused by being nearly out of capacity, at random moments.</span>
+            <small>Mentioned here in Key concepts, Essential formulas &amp; numbers, Alternatives and Resources · Queueing theory mentions Back-of-the-envelope estimates in When to use / when not to and Alternatives · Shared tags: capacity planning</small>
+          </a>
           <a class="related-card" href="database-performance.html">
             <b>Database performance</b>
             <span>Index, then query, then schema, then cache, then replicate, then partition — and only then shard.</span>
@@ -646,11 +666,6 @@ print(f"{five_year/1e15:.0f} PB, ${monthly/1e6:.1f}M per month")</code></pre><di
             <b>Percentiles</b>
             <span>The average is a number nobody experienced. Percentiles are measurements of real requests.</span>
             <small>Closely related topic</small>
-          </a>
-          <a class="related-card" href="kafka.html">
-            <b>Apache Kafka</b>
-            <span>A distributed, append-only log for events: write once, read by many, replay any time.</span>
-            <small>Mentioned here in Key concepts</small>
           </a>
       </div>
     </section>

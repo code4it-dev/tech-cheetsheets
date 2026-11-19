@@ -530,6 +530,32 @@ span?.SetTag("module", "billing");</code></pre>
       Billing.Tests/
 tests/
   Shop.ArchitectureTests/    // the rules that keep the above true</code></pre><div class="what">Two projects per module plus tests. The split between <code>.Contracts</code> and the implementation is what makes <code>internal</code> meaningful.</div></div>
+        <div class="cmd"><pre class="language-none line-numbers"><code class="language-none"># setup.cfg — import-linter, run in CI exactly like the C# architecture tests
+[importlinter]
+root_package = shop
+
+[importlinter:contract:boundaries]
+name = Modules talk only through contracts
+type = forbidden
+source_modules =
+    shop.orders
+    shop.shipping
+forbidden_modules =
+    shop.billing.internal
+
+# $ lint-imports    -&gt;  non-zero exit the moment someone reaches inside a module</code></pre><div class="what">The Python equivalent of an architecture test. Without one, the boundary is a comment, and it will be crossed.</div></div>
+        
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python"># shop/billing/contracts.py — the module's only public surface
+@dataclass(frozen=True)
+class InvoiceDto:
+    id: UUID
+    total: Decimal
+
+class Billing(Protocol):              # structural: no inheritance, no import of internals
+    async def issue_invoice(self, order_id: UUID) -&gt; InvoiceDto: ...
+
+# everything under shop/billing/internal/ is private — enforced by the contract below</code></pre><div class="what">Python has no <code>internal</code> keyword, so the boundary is a package convention plus a <code>Protocol</code> &mdash; and a test that enforces it.</div></div>
+        
         <div class="cmd"><pre class="language-bash"><code class="language-bash">dotnet new classlib -o src/Modules/Billing/Billing.Contracts
 dotnet new classlib -o src/Modules/Billing/Billing
 dotnet add src/Modules/Billing/Billing reference src/Modules/Billing/Billing.Contracts
@@ -725,6 +751,11 @@ await db.SaveChangesAsync(ct);    // order + event committed together</code></pr
             <span>Model the business, not the database — and stop pretending one word means the same thing everywhere.</span>
             <small>Mentioned here in Key concepts · Domain-Driven Design mentions Modular monolith in Alternatives · Shared tags: architecture, bounded context, ddd</small>
           </a>
+          <a class="related-card" href="saga-pattern.html">
+            <b>Saga pattern</b>
+            <span>You cannot roll back a transaction that already committed in someone else's database. You can only do something that undoes it in business terms.</span>
+            <small>Mentioned here in How it works, Key concepts, Pros &amp; cons, Concrete use cases and Common mistakes &amp; gotchas · Shared tags: microservices</small>
+          </a>
           <a class="related-card" href="cqrs.html">
             <b>CQRS</b>
             <span>Writes and reads want opposite things from a schema. Stop making one model do both jobs badly.</span>
@@ -735,20 +766,15 @@ await db.SaveChangesAsync(ct);    // order + event committed together</code></pr
             <span>One backend per experience, so no client has to negotiate with a general-purpose API.</span>
             <small>Shared tags: architecture, microservices</small>
           </a>
+          <a class="related-card" href="event-storming.html">
+            <b>EventStorming</b>
+            <span>Put everyone who knows something in front of one very long wall, and find out what the business actually does.</span>
+            <small>Shared tags: bounded context, ddd</small>
+          </a>
           <a class="related-card" href="multitenancy.html">
             <b>Multitenancy strategies</b>
             <span>One system, many customers — the only real question is where you draw the isolation line.</span>
             <small>Closely related topic</small>
-          </a>
-          <a class="related-card" href="outbox-pattern.html">
-            <b>Outbox pattern</b>
-            <span>You cannot commit a database and a broker together. So write the message as a row, and let it ride along.</span>
-            <small>Mentioned here in Key concepts · Shared tags: microservices</small>
-          </a>
-          <a class="related-card" href="percentiles.html">
-            <b>Percentiles</b>
-            <span>The average is a number nobody experienced. Percentiles are measurements of real requests.</span>
-            <small>Mentioned here in Key concepts</small>
           </a>
       </div>
     </section>

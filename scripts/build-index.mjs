@@ -53,25 +53,32 @@ const LINE_NUMBER_MIN = 5;   // 1-4 line snippets read better without a gutter
 function detectLang(raw) {
   const s = decodeEnt(raw).trim();
   const first = s.split('\n')[0].trim();
+  // The first line that is not a comment. A leading '# …' explanatory comment is common in
+  // Python, YAML and PromQL blocks, and must not make them look like shell.
+  const firstCode = (s.split('\n').find(l => l.trim() && !/^\s*[#/]{1,2}\s/.test(l)) || first).trim();
   const SHELL = 'curl|docker|docker-compose|kubectl|helm|kind|minikube|az|aws|gcloud|func|dotnet|git|npm|npx|node|wrk2?|k6|ab|psql|mysql|redis-cli|kafka-[\\w.-]+\\.sh|promtool|jq|sed|grep|awk|echo|export|make|cd|ls|open|mkdir|rm|cp|mv|chmod|tar|ssh|scp';
 
   if (/^<\?xml/.test(first) || (/^</.test(first) && /<\/[a-zA-Z-]+>/.test(s))) return 'markup';
   if (/^\s*\{/m.test(s) && /"[\w-]+"\s*:/.test(s) && !/\b(var|await|public|new)\b/.test(s)) return 'json';
-  if (/^FROM\s+\S+/m.test(s)) return 'docker';
   if (/^(local |redis\.call)/m.test(s) || /\bredis\.call\(/.test(s)) return 'lua';
   if (/^(query|mutation|fragment)\s+\w*\s*\{/.test(first)) return 'graphql';
-  if (/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|WITH|GRANT)\b/m.test(s)) return 'sql';
+  // SQL before Dockerfile: a query's "FROM table" line must not be read as a FROM instruction.
+  // Case-sensitive on purpose: lowercase `select {` is Go, not SQL.
+  if (/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|WITH|GRANT|TRUNCATE|EXPLAIN|VACUUM|ANALYZE)\b/m.test(s)) return 'sql';
+  // A Dockerfile opens with FROM (after comments/ARG) and carries at least one other instruction.
+  if (/^(FROM|ARG)\s+\S+/.test(firstCode) && /^(RUN|COPY|ADD|CMD|ENTRYPOINT|WORKDIR|ENV|EXPOSE|USER|FROM)\s/m.test(s)) return 'docker';
   if (/\b(public|private|internal|protected)\s+(static\s+|sealed\s+|async\s+|override\s+|readonly\s+)*(class|record|interface|void|Task|string|int|bool|var|IServiceCollection)\b/.test(s)
       || /\[(Function|HttpTrigger|ActivityTrigger|OrchestrationTrigger|Fact|EntityTrigger|DurableClient)\b/.test(s)) return 'csharp';
   if (/^resource\s+\w+\s+'[\w.@/-]+'\s*=/m.test(s)) return 'bicep';
-  if (/^\s*(def|import|from|class)\s+\w/m.test(s) && !/[;{]\s*$/m.test(s)) return 'python';
+  if (/^\s*(def|async def|import|from|class)\s+\w/m.test(s) && !/[;{]\s*$/m.test(s)) return 'python';
   if (/\bprint\(f?["']/.test(s)) return 'python';
   if (/\[[^\]]*\bfor\s+\w+\s+in\s+[^\]]*\]/.test(s)) return 'python';
-  if (/^\s*(for|if|while|with)\b.*:\s*$/m.test(s) && !/[;{]\s*$/m.test(s)) return 'python';
+  if (/^\s*(for|if|while|with|try|except|finally|elif|else)\b.*:\s*$/m.test(s) && !/[;{]\s*$/m.test(s)) return 'python';
+  if (/^\s*@\w+(\.\w+)*(\(|$)/m.test(s) && /^\s*(async )?def\s/m.test(s)) return 'python';
   if (/;/.test(s) && /(\bawait\b|\bvar\s|=>|\bnew\s*[\w({]|\busing\s+\w|\bpublic\b|\basync\b|\b(builder|services|app)\.[A-Z])/.test(s)) return 'csharp';
   // PromQL before bash: these often open with a '#' comment, which looks like shell
   if (/\b(sum|rate|irate|increase|avg_over_time|histogram_quantile)\s*\(/.test(s) && /\[\d+[smhdwy]\]/.test(s)) return 'promql';
-  if (new RegExp(`^(\\$|#\\s|${SHELL})\\b`).test(first) || new RegExp(`^\\s*(${SHELL})\\s`, 'm').test(s)) return 'bash';
+  if (new RegExp(`^(\\$|${SHELL})\\b`).test(firstCode) || new RegExp(`^\\s*(${SHELL})\\s`, 'm').test(s)) return 'bash';
   if (/^\s*(SET|GET|DEL|INCR|EXPIRE|TTL|ZADD|ZCARD|ZREMRANGEBYSCORE|CONFIG|INFO|EVALSHA|CL\.THROTTLE|PERSIST|DBSIZE)\b/m.test(s)) return 'bash';
   // YAML: several key: lines. A spaced ' = ' means it is prose arithmetic, not YAML
   // (compose env vars are FOO=bar, unspaced, so they still pass).

@@ -514,6 +514,15 @@ promtool check rules rules.yaml</code></pre><div class="what">Generate the recor
 
       <div class="cmd-group">
         <h3>Python</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">const int WindowMinutes = 28 * 24 * 60;   // 40,320
+
+static double Budget(double slo) =&gt; (1 - slo) * WindowMinutes;
+static double Burn(int errors, int valid, double slo) =&gt; (double)errors / valid / (1 - slo);
+static double HoursLeft(double remaining, double burn) =&gt; WindowMinutes / 60.0 * remaining / burn;
+
+Console.WriteLine($"{Budget(0.999):F1} min");             // 40.3 min
+Console.WriteLine($"{Burn(1440, 100_000, 0.999):F1}x");   // 14.4x
+Console.WriteLine($"{HoursLeft(0.75, 14.4):F1} h left");  // 35.0 h left</code></pre><div class="what">The whole model in three expressions &mdash; enough to sanity-check any SLO dashboard before you trust it.</div></div>
         <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">WINDOW_MIN = 28 * 24 * 60          # 40320
 
 def budget(slo: float) -&gt; float:
@@ -641,6 +650,16 @@ print(f"{hours_left(0.75, 14.4):.1f} h left")     # 35.0 h left</code></pre><div
             <span>The average is a number nobody experienced. Percentiles are measurements of real requests.</span>
             <small>Mentioned here in Key concepts, Common mistakes &amp; gotchas and Resources · Percentiles mentions SLI, SLO &amp; SLA in Key concepts, Essential commands &amp; syntax, Concrete use cases, When to use / when not to, Common mistakes &amp; gotchas, Alternatives and Resources · Shared tags: sli, slo, observability, latency</small>
           </a>
+          <a class="related-card" href="load-shedding.html">
+            <b>Load shedding</b>
+            <span>Past capacity you will fail some requests whatever you do. Shedding is choosing which ones, instead of letting the overload choose for you.</span>
+            <small>Load shedding mentions SLI, SLO &amp; SLA in Key concepts, Pros &amp; cons, When to use / when not to and Common mistakes &amp; gotchas · Shared tags: sre</small>
+          </a>
+          <a class="related-card" href="graceful-degradation.html">
+            <b>Graceful degradation</b>
+            <span>Most of your page is optional. An outage should cost the user those parts, not all of them.</span>
+            <small>Graceful degradation mentions SLI, SLO &amp; SLA in Key concepts, When to use / when not to and Common mistakes &amp; gotchas · Shared tags: sre, availability</small>
+          </a>
           <a class="related-card" href="rate-limiting.html">
             <b>Rate limiting</b>
             <span>Say no on purpose, before the system says no by falling over.</span>
@@ -655,16 +674,6 @@ print(f"{hours_left(0.75, 14.4):.1f} h left")     # 35.0 h left</code></pre><div
             <b>Little's Law</b>
             <span>How many are inside = how fast they arrive × how long they stay. That's the whole thing.</span>
             <small>Shared tags: latency</small>
-          </a>
-          <a class="related-card" href="azure-api-management.html">
-            <b>Azure API Management</b>
-            <span>One front door for every API you own — and a place to put all the things that are not business logic.</span>
-            <small>Azure API Management mentions SLI, SLO &amp; SLA in Key concepts, When to use / when not to and Common mistakes &amp; gotchas</small>
-          </a>
-          <a class="related-card" href="domain-driven-design.html">
-            <b>Domain-Driven Design</b>
-            <span>Model the business, not the database — and stop pretending one word means the same thing everywhere.</span>
-            <small>Mentioned here in Key concepts and When to use / when not to</small>
           </a>
       </div>
     </section>

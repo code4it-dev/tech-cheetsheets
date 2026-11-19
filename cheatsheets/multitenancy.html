@@ -572,6 +572,31 @@ var key = $"t:{tenant.Id}:invoice:{id}";</code></pre>
     ctx.RequestServices.GetRequiredService&lt;TenantContext&gt;().Set(fromToken);
     await next();
 });</code></pre><div class="what">Trust the signed token, treat the URL as a claim to verify. An unresolved tenant is a hard failure, never a default.</div></div>
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">@asynccontextmanager
+async def tenant_connection(pool, tenant_id: UUID):
+    async with pool.connection() as conn:
+        # set once per checkout; every RLS policy reads it on every statement
+        await conn.execute("SELECT set_config('app.tenant_id', %s, false)", (str(tenant_id),))
+        try:
+            yield conn
+        finally:
+            await conn.execute("SELECT set_config('app.tenant_id', '', false)")</code></pre><div class="what">The reset in <code>finally</code> is the important half: pooled connections are reused, and a stale <code>app.tenant_id</code> is a cross-tenant data leak.</div></div>
+        
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">current_tenant: ContextVar[Tenant] = ContextVar("current_tenant")
+
+@app.middleware("http")
+async def resolve_tenant(request: Request, call_next):
+    slug = request.headers.get("host", "").split(".")[0]
+    tenant = await tenants.get(slug)
+    if tenant is None:
+        return JSONResponse({"error": "unknown tenant"}, status_code=404)
+
+    token = current_tenant.set(tenant)      # ContextVar survives await, unlike a global
+    try:
+        return await call_next(request)
+    finally:
+        current_tenant.reset(token)         # never leak a tenant into the next request</code></pre><div class="what">A <code>ContextVar</code> is the asyncio-safe equivalent of an AsyncLocal: a module-level global would leak one tenant’s context into another’s request.</div></div>
+        
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">builder.Services.AddMultiTenant&lt;AppTenantInfo&gt;()
     .WithHostStrategy("__tenant__.*")
     .WithClaimStrategy("tid")
@@ -637,7 +662,7 @@ SELECT set_config('app.tenant_id', @tenantId, false);</code></pre><div class="wh
 
 if (tenant.Status is "suspended") return Results.StatusCode(402);
 if (tenant.Status is "migrating") return Results.StatusCode(503);</code></pre><div class="what">The catalogue is on every request, so cache it &mdash; and honour the status before any query runs.</div></div>
-        <div class="cmd"><pre class="language-bash line-numbers"><code class="language-bash"># move a tenant between shards
+        <div class="cmd"><pre class="language-none line-numbers"><code class="language-none"># move a tenant between shards
 1. set status = 'migrating'        # writes pause or dual-write
 2. copy rows to the target shard
 3. verify counts and checksums

@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Graceful degradation · Tech cheatsheets</title>
+<meta name="description" content="Graceful degradation cheatsheet: critical versus optional dependencies, fallback ladders, feature flags and static stability — how to serve a smaller product instead of an error page.">
+<meta name="aliases" content="Graceful degradation, degraded mode, fallback, static stability, feature flags, fail soft, brownout">
+<meta name="related" content="circuit-breaker, load-shedding, backpressure, caching-strategies, sli-slo-sla">
+<meta name="keywords" content="graceful degradation, resilience, fallback, static stability, feature flags, availability, degraded mode, sre, failure, user experience">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../assets/notebook.css?v=389a30cc">
+<script src="../assets/site.js?v=b55fb986" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
+</head>
+<body data-root="..">
+<div class="layout">
+  <nav class="toc" aria-label="Sections">
+    <a href="#overview">Overview</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#concepts">Key concepts</a>
+    <a href="#commands">Code patterns</a>
+    <a href="#pros-cons">Pros &amp; cons</a>
+    <a href="#use-cases">Use cases</a>
+    <a href="#when">When to use</a>
+    <a href="#gotchas">Gotchas</a>
+    <a href="#alternatives">Alternatives</a>
+    <a href="#resources">Resources</a>
+    <a href="#related">Related</a>
+  </nav>
+
+  <main>
+    <header class="hero" id="overview">
+      <h1>Graceful degradation</h1>
+      <p class="tagline">Most of your page is optional. An outage should cost the user those parts, not all of them.</p>
+      <span class="meta">As of Nov 2026 · the product half of resilience engineering; examples in C# and TypeScript</span>
+      <p>A product page calls eight services: catalogue, pricing, stock, reviews, recommendations, personalisation, loyalty points and recently-viewed. Written naively, the page needs all eight, so its availability is the product of theirs &mdash; eight dependencies at 99.9% give 99.2%, which is six hours of downtime a year caused entirely by multiplication. Yet only two of those services are needed to sell anything.</p>
+      <p><b>Graceful degradation</b> is the discipline of deciding, in advance, which parts of a feature are <em>critical</em> and which are <em>optional</em>, and making the optional ones fail invisibly. The reviews service going down should remove a reviews panel, not a revenue stream. Done well, the page's availability stops being the product of eight numbers and becomes the product of two.</p>
+      <p>It is the layer above the mechanics. A <b>circuit breaker</b> turns a slow failure into a fast one; <b>load shedding</b> decides which requests to refuse; <b>backpressure</b> bounds the queues. Graceful degradation decides what the user actually sees when those fire &mdash; and that is a product decision, which is why it fails most often not for technical reasons but because nobody ever asked the question.</p>
+    </header>
+
+    <section id="architecture">
+      <h2>Architecture / mental model</h2>
+      <div class="diagram">
+        <svg viewBox="0 0 800 352" role="img" aria-label="A page's dependencies split into critical and optional, with a fallback ladder and the availability arithmetic for each design">
+          <defs>
+            <marker id="gd-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+          </defs>
+          <text x="400" y="22" font-size="12.5" text-anchor="middle" fill="#5f6f66">classify every dependency once, and the availability arithmetic changes completely</text>
+
+          <rect x="20" y="42" width="368" height="146" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="2"/>
+          <text x="204" y="64" font-size="12.5" text-anchor="middle" fill="#23362e" font-weight="700">critical &mdash; without these there is no page</text>
+          <rect x="36" y="76" width="166" height="40" rx="5" fill="#fbfcf8" stroke="#a9b5a6"/>
+          <text x="119" y="94" font-size="11" text-anchor="middle" fill="#23362e">catalogue</text>
+          <text x="119" y="109" font-size="9.5" text-anchor="middle" fill="#5f6f66">99.9%</text>
+          <rect x="212" y="76" width="166" height="40" rx="5" fill="#fbfcf8" stroke="#a9b5a6"/>
+          <text x="295" y="94" font-size="11" text-anchor="middle" fill="#23362e">pricing</text>
+          <text x="295" y="109" font-size="9.5" text-anchor="middle" fill="#5f6f66">99.9%</text>
+          <text x="204" y="140" font-size="11" text-anchor="middle" fill="#5f6f66">hard-fail: show an honest error</text>
+          <text x="204" y="162" font-size="12.5" text-anchor="middle" fill="#2f6b3f" font-weight="700" font-family="Fira Code, monospace">0.999² = 99.80%</text>
+          <text x="204" y="180" font-size="10" text-anchor="middle" fill="#5f6f66">the floor you actually have to engineer</text>
+
+          <rect x="412" y="42" width="368" height="146" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="2"/>
+          <text x="596" y="64" font-size="12.5" text-anchor="middle" fill="#23362e" font-weight="700">optional &mdash; nice, not necessary</text>
+          <rect x="428" y="76" width="112" height="40" rx="5" fill="#fbfcf8" stroke="#a9b5a6"/>
+          <text x="484" y="94" font-size="10" text-anchor="middle" fill="#23362e">reviews</text>
+          <text x="484" y="109" font-size="9" text-anchor="middle" fill="#5f6f66">omit</text>
+          <rect x="546" y="76" width="112" height="40" rx="5" fill="#fbfcf8" stroke="#a9b5a6"/>
+          <text x="602" y="94" font-size="10" text-anchor="middle" fill="#23362e">stock level</text>
+          <text x="602" y="109" font-size="9" text-anchor="middle" fill="#5f6f66">cached</text>
+          <rect x="664" y="76" width="100" height="40" rx="5" fill="#fbfcf8" stroke="#a9b5a6"/>
+          <text x="714" y="94" font-size="10" text-anchor="middle" fill="#23362e">recs</text>
+          <text x="714" y="109" font-size="9" text-anchor="middle" fill="#5f6f66">static list</text>
+          <text x="596" y="140" font-size="11" text-anchor="middle" fill="#5f6f66">fail soft: never block the render</text>
+          <text x="596" y="162" font-size="12.5" text-anchor="middle" fill="#2f6b3f" font-weight="700" font-family="Fira Code, monospace">contributes 100%</text>
+          <text x="596" y="180" font-size="10" text-anchor="middle" fill="#5f6f66">because their failure is not the page's failure</text>
+
+          <rect x="20" y="206" width="760" height="68" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="400" y="228" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">the fallback ladder &mdash; try each rung before giving up</text>
+          <rect x="36" y="240" width="134" height="24" rx="4" fill="#e3eedc" stroke="#2f6b3f"/>
+          <text x="103" y="257" font-size="10" text-anchor="middle" fill="#23362e">1 · live answer</text>
+          <text x="178" y="257" font-size="11" fill="#5f6f66">&rarr;</text>
+          <rect x="192" y="240" width="134" height="24" rx="4" fill="#e3eedc" stroke="#2f6b3f"/>
+          <text x="259" y="257" font-size="10" text-anchor="middle" fill="#23362e">2 · fresh cache</text>
+          <text x="334" y="257" font-size="11" fill="#5f6f66">&rarr;</text>
+          <rect x="348" y="240" width="134" height="24" rx="4" fill="#fbf3c4" stroke="#d9c25a"/>
+          <text x="415" y="257" font-size="10" text-anchor="middle" fill="#23362e">3 · stale cache</text>
+          <text x="490" y="257" font-size="11" fill="#5f6f66">&rarr;</text>
+          <rect x="504" y="240" width="134" height="24" rx="4" fill="#fbf3c4" stroke="#d9c25a"/>
+          <text x="571" y="257" font-size="10" text-anchor="middle" fill="#23362e">4 · static default</text>
+          <text x="646" y="257" font-size="11" fill="#5f6f66">&rarr;</text>
+          <rect x="660" y="240" width="104" height="24" rx="4" fill="#f9e3df" stroke="#e6b3ad"/>
+          <text x="712" y="257" font-size="10" text-anchor="middle" fill="#23362e">5 · omit it</text>
+
+          <rect x="20" y="288" width="368" height="50" rx="8" fill="#f9e3df" stroke="#e6b3ad" stroke-width="1.5"/>
+          <text x="36" y="310" font-size="11.5" fill="#23362e" font-weight="700">all eight treated as critical</text>
+          <text x="36" y="328" font-size="11" fill="#c53b3b" font-family="Fira Code, monospace">0.999⁸ = 99.20% &mdash; 70 h/year of self-inflicted downtime</text>
+
+          <rect x="412" y="288" width="368" height="50" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+          <text x="428" y="310" font-size="11.5" fill="#23362e" font-weight="700">two critical, six degradable</text>
+          <text x="428" y="328" font-size="11" fill="#2f6b3f" font-family="Fira Code, monospace">0.999² = 99.80% &mdash; same services, four times better</text>
+        </svg>
+      </div>
+      <p class="caption">No extra hardware, no new replicas. The improvement comes entirely from deciding which failures are allowed to be the page's failure.</p>
+    </section>
+
+    <section id="how-it-works">
+      <h2>How it works</h2>
+      <p style="margin:0 0 18px">The first animation is the arithmetic: what treating every dependency as critical costs you. The second renders one page through a real outage, rung by rung.</p>
+      <span class="note" style="margin:-8px 0 18px">"is this dependency critical?" is a product question &mdash; ask it in daylight, not at 3 a.m.</span>
+
+      <div class="anim" id="anim-math">
+        <h3>1 &middot; Eight dependencies, two designs</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 320" role="img" aria-label="Eight dependencies multiplied into a page availability, then reclassified so only two are critical">
+            <text id="gm-phase" x="400" y="20" font-size="12.5" text-anchor="middle" fill="#5f6f66">one product page, eight service calls, each independently 99.9% available</text>
+
+            <g id="gm-row">
+              <rect id="gm-d1" x="20" y="44" width="92" height="52" rx="6" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="66" y="66" font-size="10" text-anchor="middle" fill="#23362e">catalogue</text>
+              <text id="gm-s1" x="66" y="84" font-size="9.5" text-anchor="middle" fill="#5f6f66">99.9%</text>
+              <rect id="gm-d2" x="118" y="44" width="92" height="52" rx="6" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="164" y="66" font-size="10" text-anchor="middle" fill="#23362e">pricing</text>
+              <text id="gm-s2" x="164" y="84" font-size="9.5" text-anchor="middle" fill="#5f6f66">99.9%</text>
+              <rect id="gm-d3" x="216" y="44" width="92" height="52" rx="6" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="262" y="66" font-size="10" text-anchor="middle" fill="#23362e">stock</text>
+              <text id="gm-s3" x="262" y="84" font-size="9.5" text-anchor="middle" fill="#5f6f66">99.9%</text>
+              <rect id="gm-d4" x="314" y="44" width="92" height="52" rx="6" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="360" y="66" font-size="10" text-anchor="middle" fill="#23362e">reviews</text>
+              <text id="gm-s4" x="360" y="84" font-size="9.5" text-anchor="middle" fill="#5f6f66">99.9%</text>
+              <rect id="gm-d5" x="412" y="44" width="92" height="52" rx="6" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="458" y="66" font-size="10" text-anchor="middle" fill="#23362e">recs</text>
+              <text id="gm-s5" x="458" y="84" font-size="9.5" text-anchor="middle" fill="#5f6f66">99.9%</text>
+              <rect id="gm-d6" x="510" y="44" width="92" height="52" rx="6" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="556" y="66" font-size="10" text-anchor="middle" fill="#23362e">personal.</text>
+              <text id="gm-s6" x="556" y="84" font-size="9.5" text-anchor="middle" fill="#5f6f66">99.9%</text>
+              <rect id="gm-d7" x="608" y="44" width="92" height="52" rx="6" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="654" y="66" font-size="10" text-anchor="middle" fill="#23362e">loyalty</text>
+              <text id="gm-s7" x="654" y="84" font-size="9.5" text-anchor="middle" fill="#5f6f66">99.9%</text>
+              <rect id="gm-d8" x="706" y="44" width="74" height="52" rx="6" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="743" y="66" font-size="10" text-anchor="middle" fill="#23362e">recent</text>
+              <text id="gm-s8" x="743" y="84" font-size="9.5" text-anchor="middle" fill="#5f6f66">99.9%</text>
+            </g>
+
+            <text id="gm-eq" x="400" y="134" font-size="15" text-anchor="middle" fill="#23362e" font-weight="700" font-family="Fira Code, monospace">page availability = ?</text>
+            <text id="gm-sub" x="400" y="158" font-size="11" text-anchor="middle" fill="#5f6f66">every call is awaited, every failure propagates</text>
+
+            <rect id="gm-bar" x="120" y="180" width="560" height="34" rx="6" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="gm-fill" class="hidden" x="120" y="180" width="560" height="34" rx="6" fill="#e3eedc" stroke="#2f6b3f"/>
+            <text id="gm-bart" x="400" y="203" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-weight="600">&nbsp;</text>
+
+            <rect id="gm-panel" x="20" y="232" width="760" height="76" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text id="gm-p1" x="36" y="256" font-size="11.5" fill="#23362e" font-weight="700">&nbsp;</text>
+            <text id="gm-p2" x="36" y="278" font-size="11" fill="#5f6f66">&nbsp;</text>
+            <text id="gm-p3" x="36" y="298" font-size="11" fill="#5f6f66">&nbsp;</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <div class="anim" id="anim-ladder">
+        <h3>2 &middot; One page, descending the ladder</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 320" role="img" aria-label="A product page rendering with progressively more fallbacks as dependencies fail">
+            <text id="gl-phase" x="400" y="20" font-size="12.5" text-anchor="middle" fill="#5f6f66">the same page, rendered as each dependency is taken away</text>
+
+            <rect id="gl-page" x="20" y="40" width="330" height="236" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="185" y="62" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="700">what the customer sees</text>
+            <g id="gl-l1"><rect x="36" y="74" width="298" height="26" rx="4" fill="#e3eedc" stroke="#2f6b3f"/><text id="gl-t1" x="46" y="92" font-size="10" fill="#23362e">Nikon Z6 III — product details</text></g>
+            <g id="gl-l2"><rect x="36" y="106" width="298" height="26" rx="4" fill="#e3eedc" stroke="#2f6b3f"/><text id="gl-t2" x="46" y="124" font-size="10" fill="#23362e">£1,999 · live price</text></g>
+            <g id="gl-l3"><rect x="36" y="138" width="298" height="26" rx="4" fill="#e3eedc" stroke="#2f6b3f"/><text id="gl-t3" x="46" y="156" font-size="10" fill="#23362e">In stock — 4 left at your store</text></g>
+            <g id="gl-l4"><rect x="36" y="170" width="298" height="26" rx="4" fill="#e3eedc" stroke="#2f6b3f"/><text id="gl-t4" x="46" y="188" font-size="10" fill="#23362e">★★★★☆ 1,284 reviews</text></g>
+            <g id="gl-l5"><rect x="36" y="202" width="298" height="26" rx="4" fill="#e3eedc" stroke="#2f6b3f"/><text id="gl-t5" x="46" y="220" font-size="10" fill="#23362e">Recommended for you — 6 items</text></g>
+            <g id="gl-l6"><rect x="36" y="234" width="298" height="26" rx="4" fill="#e3eedc" stroke="#2f6b3f"/><text id="gl-t6" x="46" y="252" font-size="10" fill="#23362e">Add to basket</text></g>
+
+            <rect id="gl-dep" x="370" y="40" width="410" height="150" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="575" y="62" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="700">dependencies</text>
+            <text id="gl-d1" x="386" y="84" font-size="10.5" fill="#5f6f66">catalogue &mdash; healthy &nbsp;·&nbsp; critical</text>
+            <text id="gl-d2" x="386" y="104" font-size="10.5" fill="#5f6f66">pricing &mdash; healthy &nbsp;·&nbsp; critical</text>
+            <text id="gl-d3" x="386" y="124" font-size="10.5" fill="#5f6f66">stock &mdash; healthy &nbsp;·&nbsp; optional</text>
+            <text id="gl-d4" x="386" y="144" font-size="10.5" fill="#5f6f66">reviews &mdash; healthy &nbsp;·&nbsp; optional</text>
+            <text id="gl-d5" x="386" y="164" font-size="10.5" fill="#5f6f66">recommendations &mdash; healthy &nbsp;·&nbsp; optional</text>
+            <text id="gl-d6" x="386" y="182" font-size="10.5" fill="#2f6b3f">all eight green</text>
+
+            <rect id="gl-out" x="370" y="202" width="410" height="74" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+            <text id="gl-o1" x="575" y="226" font-size="12" text-anchor="middle" fill="#2f6b3f" font-weight="700">full experience</text>
+            <text id="gl-o2" x="575" y="246" font-size="10.5" text-anchor="middle" fill="#5f6f66">can the customer still buy this camera?</text>
+            <text id="gl-o3" x="575" y="266" font-size="11.5" text-anchor="middle" fill="#2f6b3f" font-weight="700">yes</text>
+
+            <text id="gl-hand" class="hand hidden" x="20" y="300" font-size="16" fill="#c53b3b">five of six panels gone, and the business still works</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+    </section>
+
+    <section id="concepts">
+      <h2>Key concepts</h2>
+      <div class="terms">
+        <div class="term"><b>Graceful degradation</b><span>Designing a feature so that losing part of it costs the user that part, rather than the whole thing.</span><template class="term-detail" data-see="Critical dependency, Optional dependency, Fallback ladder">
+          <p>The opposite is not "ungraceful degradation" but <em>binary availability</em>: the page works perfectly or it returns a 500. Almost every system is built that way by accident, because <code>await</code> makes every dependency look equally mandatory.</p>
+          <p>It is a product discipline supported by technical mechanisms. The breaker, the timeout and the shedder produce a signal; graceful degradation is the decision about what that signal means for the person looking at the screen.</p>
+          <h4>Where it sits</h4>
+          <table>
+            <tr><th>Layer</th><th>Job</th></tr>
+            <tr><td>Timeout</td><td>bound one call</td></tr>
+            <tr><td>Circuit breaker</td><td>fail fast and deterministically</td></tr>
+            <tr><td>Load shedding</td><td>choose which requests to refuse</td></tr>
+            <tr><td>Graceful degradation</td><td>decide what the user still gets</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>It is the only one of the four that a non-engineer has an opinion about &mdash; which is why it needs one.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Critical dependency</b><span>One whose failure genuinely means the feature cannot work — and the list is almost always shorter than the code implies.</span><template class="term-detail" data-see="Optional dependency, Availability multiplication, Hard fail">
+          <p>The test is blunt: if this returns nothing, can the user still accomplish the thing they came for? For a product page, catalogue and price are critical &mdash; you cannot sell an unnamed item at an unknown price. Everything else is decoration, however nice.</p>
+          <p>Critical dependencies get the real engineering: replication, caching, fallbacks of their own, and an honest error page when all of it fails. Pretending something is critical when it is not simply buys you its downtime.</p>
+          <h4>The test</h4>
+          <table>
+            <tr><th>Question</th><th>If no…</th></tr>
+            <tr><td>Can the user complete the task without it?</td><td>critical</td></tr>
+            <tr><td>Would a plausible default be wrong or unsafe?</td><td>critical</td></tr>
+            <tr><td>Would the user notice within a week?</td><td>probably optional</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Each critical dependency multiplies into your achievable SLO; see composite availability on the SLI/SLO page.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Optional dependency</b><span>One whose failure should change the page and not break it — the large majority, once you look.</span><template class="term-detail" data-see="Critical dependency, Fail soft, Fallback ladder">
+          <p>Reviews, recommendations, personalisation, loyalty balances, recently-viewed, social proof, A/B assignment, analytics beacons. Each one is a service that can go down, and each one is a panel that can be absent without anyone being unable to buy anything.</p>
+          <p>The engineering requirement is that the call must be unable to break the render: its own timeout, its own breaker, and a result type that permits absence. A null check is not a design.</p>
+          <h4>Typical treatment</h4>
+          <table>
+            <tr><th>Dependency</th><th>On failure</th></tr>
+            <tr><td>Reviews</td><td>omit the panel entirely</td></tr>
+            <tr><td>Recommendations</td><td>static bestsellers</td></tr>
+            <tr><td>Stock level</td><td>cached figure, or hide the count</td></tr>
+            <tr><td>Loyalty points</td><td>hide the row</td></tr>
+            <tr><td>Analytics</td><td>fire and forget, never await</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>An optional dependency that can break the page is the single most common degradation bug.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Availability multiplication</b><span>The arithmetic that makes this worth doing: mandatory dependencies in series multiply, and the result falls fast.</span><template class="term-detail" data-see="Critical dependency, Optional dependency">
+          <p>Eight dependencies at 99.9% give 0.999⁸ = 99.20%, which is about seventy hours a year. Reclassify six of them as optional and the page inherits only 0.999² = 99.80% &mdash; four times better, with no change to any service's own reliability.</p>
+          <p>This is the cheapest availability improvement available to most teams: it costs a day of classification and some error handling, rather than replicas, regions or rewrites.</p>
+          <h4>Mandatory dependencies in series</h4>
+          <table>
+            <tr><th>Count at 99.9%</th><th>Combined</th><th>Per year</th></tr>
+            <tr><td>1</td><td>99.90%</td><td>8.8 h</td></tr>
+            <tr><td>2</td><td>99.80%</td><td>17.5 h</td></tr>
+            <tr><td>4</td><td>99.60%</td><td>35 h</td></tr>
+            <tr><td>8</td><td>99.20%</td><td>70 h</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>The first animation is this table, built one dependency at a time.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Fallback ladder</b><span>An ordered list of progressively worse but still useful answers, tried in turn before giving up.</span><template class="term-detail" data-see="Stale-while-error, Static default, Fail soft">
+          <p>Live answer, then fresh cache, then stale cache, then a static default, then omit the element. Most teams implement rung one and rung five and nothing in between, which throws away the most valuable options &mdash; a ten-minute-old price is enormously better than no price.</p>
+          <p>Write the ladder down per dependency, including how stale is too stale. "Serve a cached price up to one hour old, then hide the buy button" is a decision; "catch and log" is not.</p>
+          <h4>The rungs</h4>
+          <table>
+            <tr><th>#</th><th>Rung</th><th>Cost</th></tr>
+            <tr><td>1</td><td>Live call</td><td>normal</td></tr>
+            <tr><td>2</td><td>Fresh cache</td><td>none</td></tr>
+            <tr><td>3</td><td>Stale cache</td><td>accuracy</td></tr>
+            <tr><td>4</td><td>Static default</td><td>relevance</td></tr>
+            <tr><td>5</td><td>Omit</td><td>the feature</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>The second animation descends this ladder one rung at a time on a real page.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Stale-while-error</b><span>Serving the last known good value when the source is unavailable — usually the highest-value rung on the ladder.</span><template class="term-detail" data-see="Fallback ladder, Static stability, Caching">
+          <p>An ordinary cache expires data and then goes to the origin. A degradation-aware cache keeps the expired entry and serves it when the origin fails &mdash; the HTTP <code>stale-if-error</code> directive formalises exactly this. The user sees a slightly old answer instead of an error, which is almost always the better trade.</p>
+          <p>Two rules: label staleness where it matters ("as of 14:02"), and set a maximum age beyond which stale becomes dangerous &mdash; an hour-old price is fine, an hour-old fraud decision is not.</p>
+          <h4>Tolerance by data type</h4>
+          <table>
+            <tr><th>Data</th><th>Acceptable staleness</th></tr>
+            <tr><td>Product description</td><td>days</td></tr>
+            <tr><td>Price</td><td>minutes to an hour</td></tr>
+            <tr><td>Stock count</td><td>minutes, shown as approximate</td></tr>
+            <tr><td>Account balance</td><td>seconds, clearly labelled</td></tr>
+            <tr><td>Auth / permissions</td><td>none &mdash; never serve stale</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>This is why a cache is a resilience component, not only a performance one.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Static stability</b><span>Designing so that a failure causes the system to keep doing what it was already doing, rather than needing something to work.</span><template class="term-detail" data-see="Stale-while-error, Fail soft, Fallback ladder">
+          <p>Amazon's term for a powerful idea: the failure mode should be "no change" rather than "no service". A load balancer that keeps its last known healthy host list when the control plane is down is statically stable; one that needs the control plane to route is not.</p>
+          <p>Applied to features: pre-compute and cache what the page needs so that an outage freezes the content instead of emptying it. The site keeps working on yesterday's data, which beats working on nothing.</p>
+          <h4>Stable or not</h4>
+          <table>
+            <tr><th>Design</th><th>On control-plane failure</th></tr>
+            <tr><td>Cached config, used as-is</td><td>keeps working &mdash; stable</td></tr>
+            <tr><td>Config fetched per request</td><td>stops &mdash; unstable</td></tr>
+            <tr><td>Pre-provisioned capacity</td><td>keeps serving</td></tr>
+            <tr><td>Scale-up required to serve</td><td>fails during the incident</td></tr>
+          </table>
+          <div class="anim" id="ss-anim" data-steps="ss"><h4>Two services, one control-plane outage</h4>
+            <div class="stage">
+              <svg viewBox="0 0 560 210" role="img" aria-label="A control plane failing, breaking a service that fetches config per request while a service using cached config keeps working">
+                <text x="280" y="24" font-size="11.5" text-anchor="middle" fill="#5f6f66">the failure mode should be "nothing changes", not "nothing works"</text>
+                <rect id="ss-cp" x="190" y="40" width="180" height="42" rx="6" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+                <text x="280" y="58" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">control plane</text>
+                <text id="ss-cpt" x="280" y="74" font-size="10" text-anchor="middle" fill="#5f6f66">healthy</text>
+                <rect id="ss-a" x="30" y="112" width="230" height="56" rx="6" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+                <text x="145" y="132" font-size="11" text-anchor="middle" fill="#23362e" font-weight="600">service A &mdash; fetches per request</text>
+                <text id="ss-at" x="145" y="152" font-size="10.5" text-anchor="middle" fill="#5f6f66">serving normally</text>
+                <rect id="ss-b" x="300" y="112" width="230" height="56" rx="6" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+                <text x="415" y="132" font-size="11" text-anchor="middle" fill="#23362e" font-weight="600">service B &mdash; uses cached config</text>
+                <text id="ss-bt" x="415" y="152" font-size="10.5" text-anchor="middle" fill="#5f6f66">serving normally</text>
+                <text id="ss-msg" x="280" y="194" font-size="11" text-anchor="middle" fill="#5f6f66">both healthy, and indistinguishable from each other</text>
+              </svg>
+            </div><div class="controls"></div><div class="narration"></div></div>
+          <h4>How it relates</h4>
+          <ul><li>The strongest version of degradation: nothing degrades, because nothing had to change.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Fail soft</b><span>The implementation rule for optional dependencies: their failure must be unable to reach the response.</span><template class="term-detail" data-see="Optional dependency, Timeout, Fallback ladder">
+          <p>In practice this means every optional call is wrapped: its own short timeout, its own breaker, its own try/catch, and a return type that can be empty. The template must then handle absence &mdash; a panel that throws on a null list has merely moved the failure.</p>
+          <p>The subtle version is latency: an optional call with no timeout will not fail your page, it will just make it take eight seconds, which users experience as failure anyway.</p>
+          <h4>Checklist per optional call</h4>
+          <table>
+            <tr><th>Control</th><th>Typical</th></tr>
+            <tr><td>Timeout</td><td>well below the page budget &mdash; 100&ndash;300 ms</td></tr>
+            <tr><td>Breaker</td><td>aggressive; it is optional</td></tr>
+            <tr><td>Result type</td><td>nullable or empty collection</td></tr>
+            <tr><td>Template</td><td>renders correctly with nothing</td></tr>
+            <tr><td>Never</td><td>retry on the user's critical path</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>A circuit breaker supplies the fast failure; fail-soft handling is what turns it into a working page.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Degradation levels</b><span>Named, testable modes — full, reduced, minimal, read-only — rather than an unbounded space of partial failures.</span><template class="term-detail" data-see="Feature flags, Fail soft, Load shedding">
+          <p>With eight optional dependencies there are 256 combinations, and you cannot test 256 things. Defining three or four named levels collapses that: <em>full</em>, <em>reduced</em> (optional panels off), <em>minimal</em> (critical path only), <em>read-only</em> (writes disabled). Each is a state you can enter deliberately, screenshot, and test.</p>
+          <p>Read-only deserves special mention: for many systems, disabling writes while keeping reads is the difference between a degraded hour and a total outage.</p>
+          <h4>A workable ladder</h4>
+          <table>
+            <tr><th>Level</th><th>What is off</th><th>Trigger</th></tr>
+            <tr><td>Full</td><td>nothing</td><td>normal</td></tr>
+            <tr><td>Reduced</td><td>recs, personalisation</td><td>load or a breaker</td></tr>
+            <tr><td>Minimal</td><td>all optional panels</td><td>heavy overload</td></tr>
+            <tr><td>Read-only</td><td>writes</td><td>database failover</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Levels make degradation a thing you can rehearse, which is what makes it work when it matters.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Feature flags</b><span>The manual control: turning expensive features off deliberately during an incident, rather than waiting for them to fail.</span><template class="term-detail" data-see="Degradation levels, Load shedding, Kill switch">
+          <p>Automatic degradation handles dependencies that fail. Flags handle the ones that are merely expensive: an operator can switch off the heavy search ranker, the personalisation model or the live stock lookup and reclaim capacity immediately.</p>
+          <p>For this to be useful the flag must take effect in seconds without a deploy, must be visible in the incident channel, and must be rehearsed &mdash; a kill switch nobody has ever pulled is a kill switch that will not work.</p>
+          <h4>Requirements</h4>
+          <table>
+            <tr><th>Requirement</th><th>Why</th></tr>
+            <tr><td>Takes effect in seconds</td><td>deploys are too slow mid-incident</td></tr>
+            <tr><td>Works when its own backend is down</td><td>cached default, statically stable</td></tr>
+            <tr><td>Audited and announced</td><td>others must know what changed</td></tr>
+            <tr><td>Exercised regularly</td><td>untested switches fail</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Flags plus named levels give you a degradation runbook rather than improvisation.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Hard fail</b><span>The decision to show an honest error rather than a plausible-looking wrong answer.</span><template class="term-detail" data-see="Critical dependency, Fallback ladder, Honest signalling">
+          <p>Degradation has a limit. If the fraud check is unavailable, approving the payment is not degradation &mdash; it is a security incident with better manners. If the price service is down, inventing a price is worse than showing nothing.</p>
+          <p>The rule: never fall back to an answer that could be <em>wrong in a way that costs money or safety</em>. Correctness-critical paths fail closed; convenience paths fail open.</p>
+          <h4>Fail open or closed?</h4>
+          <table>
+            <tr><th>Dependency</th><th>On failure</th></tr>
+            <tr><td>Recommendations</td><td>fail open &mdash; omit</td></tr>
+            <tr><td>Reviews</td><td>fail open &mdash; omit</td></tr>
+            <tr><td>Price</td><td>stale, or hard fail &mdash; never guess</td></tr>
+            <tr><td>Fraud / authorisation</td><td>fail closed &mdash; always</td></tr>
+            <tr><td>Rate limiter</td><td>judgement &mdash; usually fail open</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>"Fail open or closed?" should be answered per dependency and written next to its classification.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Honest signalling</b><span>Telling the user what is missing, in their terms, instead of silently showing less.</span><template class="term-detail" data-see="Hard fail, Fail soft, Degradation levels">
+          <p>Silent degradation is right for things the user never knew existed &mdash; a missing recommendation carousel needs no apology. It is wrong for things they are relying on: a stock figure that is quietly an hour old, or a balance that is quietly stale, erodes trust far more than a small label would.</p>
+          <p>The useful distinction is whether the absence could lead to a bad decision. If it could, say so: "Stock levels may be out of date" costs one line and prevents a complaint.</p>
+          <h4>Say something or not?</h4>
+          <table>
+            <tr><th>Situation</th><th>Signal</th></tr>
+            <tr><td>Recommendations missing</td><td>silent</td></tr>
+            <tr><td>Reviews missing</td><td>silent, or a quiet note</td></tr>
+            <tr><td>Stock figure stale</td><td>label it</td></tr>
+            <tr><td>Balance stale</td><td>label with a timestamp</td></tr>
+            <tr><td>Cannot take the order</td><td>explicit, with what to do next</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Error copy is part of the design; writing it during an incident produces the worst version.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Progressive enhancement</b><span>The front-end sibling: build the working baseline first, then layer improvements that may not arrive.</span><template class="term-detail" data-see="Graceful degradation, Fail soft, Optional dependency">
+          <p>Strictly these are opposites in direction &mdash; progressive enhancement starts from the floor and adds, degradation starts from the ceiling and removes &mdash; but they produce the same system. A form that posts without JavaScript and is enhanced with client-side validation keeps working when the bundle fails to load.</p>
+          <p>The practical value today is less about ancient browsers and more about failure: a third-party script timing out, a CDN region down, a flaky mobile connection.</p>
+          <h4>Baseline first</h4>
+          <table>
+            <tr><th>Enhancement</th><th>Baseline that must work</th></tr>
+            <tr><td>Client-side validation</td><td>server-side validation</td></tr>
+            <tr><td>Async "add to basket"</td><td>a real form post</td></tr>
+            <tr><td>Infinite scroll</td><td>paginated links</td></tr>
+            <tr><td>Web font</td><td>a readable fallback stack</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Third-party scripts are optional dependencies; load them async and never block render on them.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Testing degradation</b><span>Degraded paths only work if they are exercised — and they are the least exercised code you own.</span><template class="term-detail" data-see="Degradation levels, Fail soft, Game day">
+          <p>The fallback written eighteen months ago and never executed will fail: the cached shape has drifted, the template throws on an empty list, the static default references a deleted product. The only defence is to run it regularly &mdash; in tests, in staging, and in production.</p>
+          <p>Make each named level a test fixture and assert that the critical path still works. Then do it in production, deliberately, on a Tuesday afternoon.</p>
+          <h4>Ways to exercise it</h4>
+          <table>
+            <tr><th>Method</th><th>Catches</th></tr>
+            <tr><td>Unit tests per fallback</td><td>shape and null handling</td></tr>
+            <tr><td>Integration test per level</td><td>template and layout breaks</td></tr>
+            <tr><td>Fault injection in staging</td><td>timeout and breaker config</td></tr>
+            <tr><td>Game day in production</td><td>everything the others miss</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>An untested fallback is a second bug waiting for the worst possible moment.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Game day</b><span>Deliberately breaking a dependency in production, with everyone watching, to find out what actually happens.</span><template class="term-detail" data-see="Testing degradation, Degradation levels, Chaos engineering">
+          <p>Turn off the reviews service at 14:00 on a Tuesday and observe. Teams reliably discover that an "optional" dependency was awaited on the critical path, that a timeout was never configured, or that the empty-state template was never written.</p>
+          <p>Start small and announced: one optional dependency, in one region, with a rollback ready. The goal is information, not heroism.</p>
+          <h4>Running one</h4>
+          <table>
+            <tr><th>Step</th><th>Note</th></tr>
+            <tr><td>Pick one optional dependency</td><td>never a critical one first</td></tr>
+            <tr><td>State the hypothesis</td><td>"the page renders without reviews"</td></tr>
+            <tr><td>Announce it</td><td>so alerts are not mistaken for an incident</td></tr>
+            <tr><td>Break it, watch the SLI</td><td>short window, rollback ready</td></tr>
+            <tr><td>Write down what surprised you</td><td>that is the whole output</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Spend error budget on this deliberately &mdash; it is exactly what the budget is for.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Measuring degradation</b><span>Tracking which mode you are in, so "degraded" is a state you can see rather than infer.</span><template class="term-detail" data-see="Degradation levels, SLI, Honest signalling">
+          <p>Count renders per level, fallback usage per dependency, and &mdash; most importantly &mdash; whether the critical journey still succeeds. A page that renders in reduced mode is a success for availability and a partial failure for experience, and your SLI should say which you are measuring.</p>
+          <p>A good practice is two SLIs: "the user could complete the task" and "the user got the full experience". The first protects the business; the second stops permanent silent degradation.</p>
+          <h4>What to export</h4>
+          <table>
+            <tr><th>Metric</th><th>Tells you</th></tr>
+            <tr><td><code>render_level{level="reduced"}</code></td><td>how often you degrade</td></tr>
+            <tr><td><code>fallback_used{dep=...}</code></td><td>which rung, per dependency</td></tr>
+            <tr><td>Critical-journey SLI</td><td>did the business still work</td></tr>
+            <tr><td>Full-experience SLI</td><td>silent long-term degradation</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Without the second SLI, a feature can be quietly broken for months and look perfectly healthy.</li></ul>
+        </template></div>
+      </div>
+    </section>
+
+    <section id="commands">
+      <h2>Essential code patterns</h2>
+      <div class="cmd-group">
+        <h3>Separate the critical from the optional</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// critical: if these fail, there is no page — so let them throw
+var product = await _catalogue.GetAsync(id, ct);
+var price   = await _pricing.GetAsync(id, ct);
+
+// optional: each one isolated, and unable to break the render
+var reviews = await Optional(() =&gt; _reviews.GetAsync(id, ct));
+var recs    = await Optional(() =&gt; _recs.GetAsync(id, ct),  fallback: Bestsellers);
+var stock   = await Optional(() =&gt; _stock.GetAsync(id, ct), fallback: CachedStock);
+
+return View(new ProductPage(product, price, reviews, recs, stock));</code></pre><div class="what">The classification is visible in the code. A reviewer can see at a glance which failures are allowed to reach the user.</div></div>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">static async Task&lt;T?&gt; Optional&lt;T&gt;(Func&lt;Task&lt;T&gt;&gt; call, Func&lt;T&gt;? fallback = null)
+{
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        return await call();                        // its own tight budget
+    }
+    catch (Exception ex)                            // timeout, breaker-open, anything
+    {
+        Metrics.FallbackUsed.WithLabels(typeof(T).Name).Inc();
+        Log.Information(ex, "optional dependency degraded");   // information, not error
+        return fallback is null ? default : fallback();
+    }
+}</code></pre><div class="what">A 200 ms budget matters as much as the catch: an optional call with no timeout does not break the page, it just makes it slow — which users experience as broken anyway.</div></div>
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">async def optional(coro, *, fallback=None, timeout=0.2):
+    """An optional dependency: may be absent, may never break the render."""
+    try:
+        return await asyncio.wait_for(coro, timeout)   # its own tight budget
+    except Exception as exc:                            # timeout, breaker open, anything
+        metrics.fallback_used.labels(type(exc).__name__).inc()
+        log.info("optional dependency degraded", exc_info=exc)
+        return fallback
+
+# critical: let these propagate — without them there is no page
+product, price = await asyncio.gather(catalogue.get(sku), pricing.get(sku))
+
+# optional: each isolated, none able to break the render
+reviews = await optional(reviews_api.get(sku))
+recs    = await optional(recs_api.get(sku), fallback=BESTSELLERS)</code></pre><div class="what">The timeout matters as much as the <code>except</code>: an optional call with no budget does not break the page, it just makes it slow.</div></div>
+
+      </div>
+
+      <div class="cmd-group">
+        <h3>The fallback ladder</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">async Task&lt;Price?&gt; GetPrice(string sku, CancellationToken ct)
+{
+    if (await _cache.TryGetFresh(sku) is { } fresh) return fresh;   // 2 · fresh cache
+
+    try { return await _pricing.GetAsync(sku, ct); }                // 1 · live
+    catch (Exception)
+    {
+        if (await _cache.TryGetStale(sku, maxAge: TimeSpan.FromHours(1)) is { } stale)
+            return stale with { IsStale = true };                   // 3 · stale cache
+        return null;                                                // 5 · hide the price
+    }
+}
+// note: no rung 4 here. Inventing a price would be worse than showing none.</code></pre><div class="what">Most code implements rung 1 and rung 5 only, and throws away the most valuable options in between.</div></div>
+        <div class="cmd"><pre class="language-none line-numbers"><code class="language-none"># HTTP does rungs 2 and 3 for you
+Cache-Control: max-age=60, stale-while-revalidate=600, stale-if-error=3600
+
+# stale-if-error: if the origin fails, keep serving the cached copy
+# for up to an hour rather than returning an error page</code></pre><div class="what">One header turns a CDN into a degradation layer. `stale-if-error` is the highest-value rung for read-heavy sites.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Named levels, not 256 combinations</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">public enum RenderLevel { Full, Reduced, Minimal, ReadOnly }
+
+RenderLevel Current() =&gt;
+    _db.IsFailingOver          ? RenderLevel.ReadOnly :
+    _load.InFlight &gt; 0.90 * _limit ? RenderLevel.Minimal  :
+    _flags.IsOff("recs") || _recsBreaker.IsOpen ? RenderLevel.Reduced :
+    RenderLevel.Full;
+
+Metrics.RenderLevel.WithLabels(level.ToString()).Inc();   // see it, don't infer it</code></pre><div class="what">Four named states you can screenshot, test and rehearse — instead of an unbounded space of partial failures nobody has ever seen.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Never block the render on the front end</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// critical data is server-rendered; optional panels arrive later, or never
+const reviews = useQuery({
+  queryKey: ['reviews', sku],
+  queryFn:  () =&gt; fetchReviews(sku, { signal: AbortSignal.timeout(2000) }),
+  retry: false,                 // never retry on a user's critical path
+});
+
+if (reviews.isError) return null;      // the panel disappears; the page does not</code></pre><div class="what">Returning null is the design. A panel that throws on an empty list has moved the failure rather than handled it.</div></div>
+        <div class="cmd"><pre class="language-markup"><code class="language-markup">&lt;!-- third-party scripts are optional dependencies too --&gt;
+&lt;script src="https://cdn.example/widget.js" async defer
+        onerror="window.__widgetUnavailable = true"&gt;&lt;/script&gt;
+&lt;!-- never render-blocking, never awaited, never on the critical path --&gt;</code></pre><div class="what">A synchronous third-party tag makes an external vendor a critical dependency of your checkout, usually without anyone deciding that.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Prove it works</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">[Theory]
+[InlineData("reviews")] [InlineData("recs")]
+[InlineData("stock")]   [InlineData("loyalty")]
+public async Task Page_still_sells_when_optional_dependency_is_down(string dep)
+{
+    _harness.Break(dep);                       // fault injection
+
+    var page = await _client.GetAsync("/p/nikon-z6-iii");
+
+    page.StatusCode.Should().Be(HttpStatusCode.OK);
+    page.Should().Contain("Add to basket");    // the critical path survives
+    page.Should().Contain("£1,999");
+}</code></pre><div class="what">One test per optional dependency. This is the cheapest insurance in the whole pattern, and the thing almost nobody writes.</div></div>
+        <div class="cmd"><pre class="language-bash"><code class="language-bash"># and then do it for real, announced, on a Tuesday afternoon
+kubectl scale deploy/reviews --replicas=0
+# watch: render_level, fallback_used, and the critical-journey SLI
+kubectl scale deploy/reviews --replicas=6</code></pre><div class="what">A fallback that has never actually executed in production is a hypothesis, not a safety net.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>What to measure</h3>
+        <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">render_level_total{level="full|reduced|minimal|readonly"}
+fallback_used_total{dep="reviews",rung="omit"}
+sli_journey_success{journey="purchase"}      # could the user still buy?
+sli_experience_full{journey="purchase"}      # did they get everything?
+
+# alert: render_level{level!="full"} sustained for &gt; 1 h
+# (otherwise a feature stays quietly degraded for months)</code></pre><div class="what">Two SLIs, deliberately. The first protects the business; the second stops permanent silent degradation nobody notices.</div></div>
+      </div>
+    </section>
+
+    <section id="pros-cons">
+      <h2>Pros &amp; cons</h2>
+      <div class="cols">
+        <div class="col good"><h3>Pros</h3><ul>
+          <li>Breaks the availability multiplication: your page stops inheriting every dependency's downtime.</li>
+          <li>Far cheaper than the alternative &mdash; classification and error handling instead of replicas and regions.</li>
+          <li>Turns most incidents into partial, survivable events rather than outages.</li>
+          <li>Protects revenue specifically, because the critical path is identified and defended.</li>
+          <li>Gives operators deliberate levers (flags, levels) during an incident.</li>
+          <li>Forces a useful conversation about what the product actually needs.</li>
+        </ul></div>
+        <div class="col bad"><h3>Cons</h3><ul>
+          <li>Degraded paths are rarely executed, so they rot silently unless tested.</li>
+          <li>More code paths and more states to reason about and screenshot.</li>
+          <li>Requires product decisions that engineering cannot make alone.</li>
+          <li>Silent degradation can hide a broken feature for months.</li>
+          <li>Stale data is wrong data &mdash; acceptable for a price, dangerous for a balance.</li>
+          <li>Tempting to over-apply: some things genuinely must fail loudly.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="use-cases">
+      <h2>Concrete use cases</h2>
+      <div class="cards">
+        <div class="card"><h3>Reviews down, sales unaffected</h3><p>The reviews service fails for forty minutes. Previously this returned a 500 on every product page. With the panel marked optional and wrapped in a 200 ms timeout, pages render without a reviews section and conversion is statistically unchanged. Nobody is paged.</p></div>
+        <div class="card"><h3>Pricing degraded, not dead</h3><p>The pricing service becomes slow. The page serves prices from cache up to an hour old with a small "prices updated 14:02" note. Customers keep buying at prices that are correct to within an hour, instead of seeing an error page.</p></div>
+        <div class="card"><h3>Database failover: read-only mode</h3><p>A primary fails over, taking writes out for three minutes. The site enters read-only: browsing, search and account viewing all work; the basket shows "we can't take orders for a few minutes". Three minutes of partial service instead of three minutes of nothing.</p></div>
+        <div class="card"><h3>Capacity reclaimed by switching features off</h3><p>During a traffic spike, operators flip flags to disable the heavy search ranker and personalisation. Effective capacity rises roughly 40% within seconds, and the site serves everyone with slightly less relevant results &mdash; a far better outcome than shedding a third of users.</p></div>
+        <div class="card"><h3>A third-party tag taking down checkout</h3><p>An analytics vendor's CDN stalls and the synchronous script tag blocks rendering on every page. Moving it to async with an error handler converts a vendor outage from a site outage into a gap in the analytics data.</p></div>
+      </div>
+    </section>
+
+    <section id="when">
+      <h2>When to use / when not to</h2>
+      <span class="note" style="margin:-6px 0 14px">list your dependencies, mark each critical or optional &mdash; that one-hour exercise is most of the value</span>
+      <div class="cols">
+        <div class="col good"><h3>Use it when…</h3><ul>
+          <li>A feature calls more than two services, so availability multiplication is working against you.</li>
+          <li>Some of what you show is genuinely optional &mdash; which is nearly always true of a page.</li>
+          <li>Partial service is meaningfully better than no service for the business.</li>
+          <li>You have expensive features that could be switched off to reclaim capacity.</li>
+          <li>Your SLO is higher than the product of your dependencies' SLOs.</li>
+        </ul></div>
+        <div class="col bad"><h3>Avoid it when…</h3><ul>
+          <li>A wrong answer is worse than no answer. Use <b>a hard fail</b> &mdash; fraud, authorisation, payments.</li>
+          <li>Everything in the response is genuinely required. Use <b>redundancy</b> and accept the multiplication.</li>
+          <li>The problem is your own overload, not a dependency. Use <b>load shedding</b> &mdash; though degrading first is usually kinder.</li>
+          <li>You cannot test the degraded paths. Use <b>fewer fallbacks</b>, well exercised, rather than many that rot.</li>
+          <li>It would hide a chronic failure. Use <b>alerting on degraded mode</b> so silent degradation cannot become permanent.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="gotchas">
+      <h2>Common mistakes &amp; gotchas</h2>
+      <div class="gotcha"><b>Optional dependencies that can break the page</b><span>Marked optional in the design document and awaited without a timeout in the code, so its failure still returns a 500. This is the single most common degradation bug.</span><div class="fix">Fix: wrap every optional call &mdash; its own timeout, its own breaker, a nullable result &mdash; and add one test per dependency asserting the critical path still works.</div></div>
+      <div class="gotcha"><b>No timeout on an optional call</b><span>It does not fail your page; it makes it take eight seconds. Users cannot tell the difference between slow and broken, so you got the worst of both.</span><div class="fix">Fix: give optional calls a tight budget &mdash; 100&ndash;300 ms &mdash; and treat exceeding it as absence. Slow is a failure mode too.</div></div>
+      <div class="gotcha"><b>Fallbacks that were never executed</b><span>The static default references a product deleted a year ago, the cached shape has drifted, and the empty-state template throws. Discovered at the worst possible moment.</span><div class="fix">Fix: unit-test each fallback, integration-test each named level, inject faults in staging, and run an announced game day in production.</div></div>
+      <div class="gotcha"><b>Degrading something correctness-critical</b><span>The fraud check times out, so the code "degrades" by approving the payment. That is not resilience; it is a security incident with good manners.</span><div class="fix">Fix: decide fail-open or fail-closed per dependency and write it next to the classification. Correctness paths fail closed, always.</div></div>
+      <div class="gotcha"><b>Silent permanent degradation</b><span>A panel breaks, the fallback hides it, nobody notices for four months &mdash; and the dashboards show 100% availability the whole time.</span><div class="fix">Fix: alert when degraded mode persists beyond an hour, and keep a second SLI for "got the full experience" alongside "completed the task".</div></div>
+      <div class="gotcha"><b>Stale data with no label and no limit</b><span>An hour-old price is fine. An hour-old account balance shown as current is a support ticket, and an hour-old permission check is a breach.</span><div class="fix">Fix: set a maximum staleness per data type, label it where a user might act on it, and never serve stale authorisation data at all.</div></div>
+      <div class="gotcha"><b>Too many modes to test</b><span>Eight optional dependencies give 256 combinations. Nobody tests 256 things, so in practice none of them are tested.</span><div class="fix">Fix: collapse to three or four named levels, make each a test fixture, and assert the critical journey in every one.</div></div>
+      <div class="gotcha"><b>Third-party scripts as hidden critical dependencies</b><span>A synchronous vendor tag makes an external CDN a blocking dependency of your checkout, and nobody ever decided that it should be.</span><div class="fix">Fix: load third-party scripts async with an error handler, never block render on them, and audit the tags on your critical pages.</div></div>
+    </section>
+
+    <section id="alternatives">
+      <h2>Alternatives</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs graceful degradation</th></tr></thead>
+          <tbody>
+            <tr class="self"><td><b>Graceful degradation</b></td><td>features with optional parts</td><td>Medium</td><td>free; cost is testing</td><td>&mdash;</td></tr>
+            <tr><td><b>Redundancy</b></td><td>critical dependencies</td><td>Medium</td><td>more infrastructure</td><td>Makes the dependency more available instead of needing it less; the only option when nothing is optional</td></tr>
+            <tr><td><b>Circuit breaker</b></td><td>failing dependencies</td><td>Low</td><td>free</td><td>Supplies the fast, clean failure that degradation then acts on &mdash; a prerequisite, not an alternative</td></tr>
+            <tr><td><b>Load shedding</b></td><td>your own overload</td><td>Medium</td><td>free</td><td>Refuses whole requests; degradation serves a smaller response to everyone</td></tr>
+            <tr><td><b>Caching</b></td><td>read-heavy data</td><td>Low</td><td>a cache node</td><td>Provides the stale rungs of the ladder; <code>stale-if-error</code> is degradation in a header</td></tr>
+            <tr><td><b>Hard fail</b></td><td>correctness-critical paths</td><td>Very low</td><td>free</td><td>The correct answer when a wrong result costs money or safety</td></tr>
+            <tr><td><b>Queue it for later</b></td><td>writes that can be async</td><td>Medium</td><td>free</td><td>Accepts now, completes later; only works when the user does not need the result immediately</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul style="margin-top:12px">
+        <li><b>Pick redundancy</b> for the two or three genuinely critical dependencies &mdash; there is nothing to degrade to.</li>
+        <li><b>Pick a circuit breaker</b> underneath this: degradation needs a fast, deterministic failure to react to.</li>
+        <li><b>Pick caching</b> as the mechanism for the middle rungs; <code>stale-if-error</code> is the cheapest win available.</li>
+        <li><b>Pick load shedding</b> when the problem is volume rather than a broken dependency &mdash; but degrade before you shed.</li>
+        <li><b>Pick a hard fail</b> whenever a plausible-looking wrong answer would be worse than an honest error.</li>
+      </ul>
+    </section>
+
+    <section id="resources">
+      <h2>Resources</h2>
+      <ul>
+        <li><a href="https://aws.amazon.com/builders-library/static-stability-using-availability-zones/" target="_blank" rel="noopener">Amazon Builders' Library &mdash; Static stability</a>: designing so that failure means "no change" rather than "no service".</li>
+        <li><a href="https://sre.google/sre-book/addressing-cascading-failures/" target="_blank" rel="noopener">Google SRE &mdash; Addressing Cascading Failures</a>: degraded modes and load shedding as the response to overload.</li>
+        <li><a href="https://www.rfc-editor.org/rfc/rfc5861" target="_blank" rel="noopener">RFC 5861 &mdash; stale-if-error</a>: the HTTP directive that turns a cache into a degradation layer.</li>
+        <li><a href="https://martinfowler.com/bliki/CircuitBreaker.html" target="_blank" rel="noopener">Martin Fowler &mdash; Circuit Breaker</a>: the mechanism that produces the fast failure degradation depends on.</li>
+        <li><a href="https://principlesofchaos.org/" target="_blank" rel="noopener">Principles of Chaos Engineering</a>: how to verify degraded paths in production rather than hoping.</li>
+        <li><a href="https://web.dev/articles/web-vitals" target="_blank" rel="noopener">web.dev &mdash; Web Vitals</a>: why a slow optional panel is experienced as a broken page.</li>
+      </ul>
+    </section>
+    <!-- RELATED:START (generated by scripts/build-index.mjs, do not edit) -->
+    <section id="related">
+      <h2>Related pages</h2>
+      <div class="related-list">
+          <a class="related-card" href="circuit-breaker.html">
+            <b>Circuit breaker</b>
+            <span>Stop calling the thing that is broken. You are not helping it, and it is destroying you.</span>
+            <small>Mentioned here in Overview, Key concepts, Common mistakes &amp; gotchas and Alternatives · Circuit breaker mentions Graceful degradation in Overview, Key concepts, Essential code patterns, Pros &amp; cons, Concrete use cases, When to use / when not to and Common mistakes &amp; gotchas · Shared tags: resilience, fallback</small>
+          </a>
+          <a class="related-card" href="load-shedding.html">
+            <b>Load shedding</b>
+            <span>Past capacity you will fail some requests whatever you do. Shedding is choosing which ones, instead of letting the overload choose for you.</span>
+            <small>Mentioned here in Overview, Key concepts, Concrete use cases, When to use / when not to, Alternatives and Resources · Load shedding mentions Graceful degradation in Key concepts and Alternatives · Shared tags: resilience, sre</small>
+          </a>
+          <a class="related-card" href="sli-slo-sla.html">
+            <b>SLI, SLO &amp; SLA</b>
+            <span>Measure what users feel, promise a number you can keep, sign only what you can afford to break.</span>
+            <small>Mentioned here in Key concepts, When to use / when not to and Common mistakes &amp; gotchas · Shared tags: availability, sre</small>
+          </a>
+          <a class="related-card" href="caching-strategies.html">
+            <b>Caching strategies</b>
+            <span>Keep the answer near the question — and decide, up front, how wrong you are willing to be.</span>
+            <small>Mentioned here in Key concepts and Alternatives · Caching strategies mentions Graceful degradation in Key concepts</small>
+          </a>
+          <a class="related-card" href="backpressure.html">
+            <b>Backpressure</b>
+            <span>When a fast producer meets a slow consumer, the queue between them is not a solution. It is where the outage is hiding.</span>
+            <small>Shared tags: resilience</small>
+          </a>
+          <a class="related-card" href="backend-for-frontend.html">
+            <b>Backend-for-Frontend</b>
+            <span>One backend per experience, so no client has to negotiate with a general-purpose API.</span>
+            <small>Backend-for-Frontend mentions Graceful degradation in Code &amp; syntax and Common mistakes &amp; gotchas</small>
+          </a>
+      </div>
+    </section>
+    <!-- RELATED:END -->
+  </main>
+</div>
+
+<script src="../assets/player.js?v=e098a7b2"></script>
+<script>
+createAnimation('anim-math', [
+  { say: 'A product page makes eight service calls. Each service is independently 99.9% available &mdash; genuinely good numbers that any team would be pleased with.', hl: ['gm-row'] },
+  { say: 'Written the obvious way, every call is awaited and any failure propagates. So the page needs all eight to be up at the same moment.', unhl: ['gm-row'], text: { 'gm-sub': 'every call awaited, every failure propagates — all eight must be up' } },
+  { say: 'Which means the availabilities multiply. Two dependencies already costs you a nine: 0.999² is 99.80%.', text: { 'gm-eq': '0.999² = 99.80%', 'gm-p1': 'two dependencies: 17.5 hours a year' } },
+  { say: 'Four gives 99.60%. The decline is not gentle &mdash; each mandatory dependency you add is a straight subtraction from your own reliability.', text: { 'gm-eq': '0.999⁴ = 99.60%', 'gm-p1': 'four dependencies: 35 hours a year' } },
+  { say: 'All eight: 99.20%. That is roughly seventy hours a year of downtime, and <em>none</em> of it is caused by anything being badly built. It is caused by multiplication.', show: ['gm-fill'], text: { 'gm-eq': '0.999⁸ = 99.20%', 'gm-bart': '99.20% — about 70 hours a year', 'gm-p1': 'eight dependencies: 70 hours a year', 'gm-p2': 'every service met its own 99.9% target; the page still missed by a mile', 'gm-p3': 'this is self-inflicted, and it is the default' }, fill: { 'gm-fill': '#f9e3df', 'gm-eq': '#c53b3b', 'gm-bart': '#c53b3b' } },
+  { say: 'Now ask the only question that matters: which of these does a customer need in order to buy the camera?', text: { 'gm-phase': 'which of these are actually required to complete a purchase?', 'gm-p1': ' ', 'gm-p2': ' ', 'gm-p3': ' ' } },
+  { say: 'Two. You cannot sell an unnamed item at an unknown price, so catalogue and pricing are critical.', hl: ['gm-d1', 'gm-d2'], fill: { 'gm-d1': '#e3eedc', 'gm-d2': '#e3eedc' }, text: { 'gm-p1': 'critical: catalogue, pricing' } },
+  { say: 'The other six are decoration. Missing reviews, recommendations, personalisation, loyalty points, recently-viewed or an exact stock count does not prevent a single sale.', unhl: ['gm-d1', 'gm-d2'], fill: { 'gm-d3': '#fbf3c4', 'gm-d4': '#fbf3c4', 'gm-d5': '#fbf3c4', 'gm-d6': '#fbf3c4', 'gm-d7': '#fbf3c4', 'gm-d8': '#fbf3c4' }, text: { 'gm-s3': 'optional', 'gm-s4': 'optional', 'gm-s5': 'optional', 'gm-s6': 'optional', 'gm-s7': 'optional', 'gm-s8': 'optional', 'gm-p2': 'optional: stock, reviews, recs, personalisation, loyalty, recently-viewed' } },
+  { say: 'Give each of those six its own timeout, its own breaker and a result that may be empty, and their failures stop being the page\'s failure. They drop out of the multiplication entirely.', text: { 'gm-eq': '0.999² = 99.80%', 'gm-bart': '99.80% — about 17.5 hours a year', 'gm-p3': 'six dependencies removed from the product — not from the page' }, fill: { 'gm-fill': '#e3eedc', 'gm-eq': '#2f6b3f', 'gm-bart': '#2f6b3f' } },
+  { say: 'Four times better, from the same eight services on the same hardware. No replicas, no regions, no rewrite &mdash; just deciding which failures are allowed to be yours. It is the cheapest availability work most teams can do.', text: { 'gm-phase': 'same services · same infrastructure · four times the availability', 'gm-p1': 'before: 0.999⁸ = 99.20% — 70 h/year', 'gm-p2': 'after:  0.999² = 99.80% — 17.5 h/year', 'gm-p3': 'the entire change was a classification and some error handling' } },
+]);
+
+createAnimation('anim-ladder', [
+  { say: 'The healthy page: product details, a live price, a precise stock figure, reviews, recommendations, and a working basket button. Everything green.', hl: ['gl-page'] },
+  { say: 'Recommendations fail first. The breaker opens, the call returns nothing in a millisecond, and the panel simply is not rendered. Rung five of the ladder: omit it.', unhl: ['gl-page'], hide: ['gl-l5'], text: { 'gl-d5': 'recommendations — DOWN · breaker open', 'gl-d6': 'degraded: 1 panel missing', 'gl-o1': 'reduced — recommendations omitted', 'gl-phase': 'recommendations fail · fallback: omit the panel' }, fill: { 'gl-d5': '#c53b3b', 'gl-d6': '#5f6f66', 'gl-o1': '#23362e', 'gl-out': '#fbf3c4' } },
+  { say: 'Most customers will not notice a missing carousel, so nothing is said. Silent degradation is right when the absence cannot lead to a bad decision.', text: { 'gl-o2': 'silent — nobody acts differently without a carousel' } },
+  { say: 'Reviews go next. Same treatment, same outcome: the panel disappears and the page is shorter.', hide: ['gl-l4'], text: { 'gl-d4': 'reviews — DOWN', 'gl-d6': 'degraded: 2 panels missing', 'gl-phase': 'reviews fail · fallback: omit the panel' }, fill: { 'gl-d4': '#c53b3b' } },
+  { say: 'Now stock. This one has a better rung available than "omit": serve the cached count. But a cached stock figure <em>can</em> make someone act wrongly, so it gets labelled.', text: { 'gl-t3': 'In stock — availability may be out of date', 'gl-d3': 'stock — DOWN · serving cache', 'gl-d6': 'degraded: 2 omitted, 1 stale', 'gl-o2': 'labelled — the customer could act on this one', 'gl-phase': 'stock fails · fallback: stale cache, clearly labelled' }, fill: { 'gl-l3': '#fbf3c4', 'gl-d3': '#c53b3b' } },
+  { say: 'Then pricing. This is critical &mdash; but critical does not mean "no fallback". A price from forty minutes ago is far better than no page at all, so we serve it with a timestamp.', text: { 'gl-t2': '£1,999 · price as of 14:02', 'gl-d2': 'pricing — DOWN · cache, 40 min old', 'gl-o2': 'a stale price beats no page — up to a stated limit', 'gl-phase': 'pricing fails · fallback: stale cache within one hour' }, fill: { 'gl-l2': '#fbf3c4', 'gl-d2': '#c53b3b' } },
+  { say: 'Critically, the basket still works. Four dependencies are down and the customer can still buy the camera &mdash; which is the only test that actually matters.', show: ['gl-hand'], text: { 'gl-o1': 'minimal — critical path only', 'gl-o3': 'yes', 'gl-d6': 'four dependencies down' } },
+  { say: 'Now push past the limit. The cached price ages beyond one hour, and stale stops being acceptable. Here we hard-fail rather than show a price that might be wrong &mdash; the buy button goes.', hide: ['gl-l6'], text: { 'gl-t2': 'price unavailable', 'gl-d2': 'pricing — DOWN · cache older than 1 h', 'gl-o1': 'cannot complete a purchase', 'gl-o3': 'no — and we say so honestly', 'gl-phase': 'past the staleness limit · hard fail rather than guess' }, fill: { 'gl-l2': '#f9e3df', 'gl-o3': '#c53b3b', 'gl-out': '#f9e3df', 'gl-o1': '#c53b3b' } },
+  { say: 'That boundary is the whole discipline. Inventing a price would be worse than showing none, so the ladder stops. Correctness-critical paths fail closed; convenience paths fail open.', text: { 'gl-o2': 'never fall back to an answer that could be wrong in a way that costs money' } },
+  { say: 'And the catalogue recovers, so everything climbs back up. Note what this page never did: return a 500 because its recommendation engine was unwell.', show: ['gl-l3', 'gl-l4', 'gl-l5', 'gl-l6'], text: { 'gl-t2': '£1,999 · live price', 'gl-t3': 'In stock — 4 left at your store', 'gl-d2': 'pricing — healthy · critical', 'gl-d3': 'stock — healthy · optional', 'gl-d4': 'reviews — healthy · optional', 'gl-d5': 'recommendations — healthy · optional', 'gl-d6': 'all eight green', 'gl-o1': 'full experience', 'gl-o2': 'six degradation steps, one honest stop', 'gl-o3': 'yes', 'gl-phase': 'the same page survived four outages without ever returning an error' }, fill: { 'gl-l2': '#e3eedc', 'gl-l3': '#e3eedc', 'gl-d2': '#5f6f66', 'gl-d3': '#5f6f66', 'gl-d4': '#5f6f66', 'gl-d5': '#5f6f66', 'gl-d6': '#2f6b3f', 'gl-o1': '#2f6b3f', 'gl-o3': '#2f6b3f', 'gl-out': '#e3eedc' } },
+]);
+
+window.TERM_ANIMS = {
+  ss: [
+    { say: 'Two services, both reading configuration from the same control plane. On a good day they look identical, which is exactly why this difference goes unnoticed until an incident.', hl: ['ss-cp'] },
+    { say: 'The control plane fails. It is not on anybody\'s critical path, so nobody expects this to matter.', unhl: ['ss-cp'], text: { 'ss-cpt': 'DOWN', 'ss-msg': 'a component neither service "depends on" for serving traffic' }, fill: { 'ss-cp': '#f9e3df', 'ss-cpt': '#c53b3b' } },
+    { say: 'Service A fetches its config on every request, so every request now fails. It needed something to work in order to keep working &mdash; that is the unstable design.', hl: ['ss-a'], text: { 'ss-at': 'every request fails', 'ss-msg': 'A needed the control plane to be up in order to do nothing new' }, fill: { 'ss-a': '#f9e3df', 'ss-at': '#c53b3b' } },
+    { say: 'Service B carries on with the config it already had. Nothing changed, so nothing broke. It cannot pick up <em>new</em> configuration, but it keeps serving traffic exactly as before.', unhl: ['ss-a'], hl: ['ss-b'], text: { 'ss-bt': 'serving normally — on cached config', 'ss-msg': 'B cannot learn anything new, and does not need to' }, fill: { 'ss-b': '#e3eedc', 'ss-bt': '#2f6b3f' } },
+    { say: 'That is static stability: arrange things so a failure freezes the system rather than emptying it. Pre-provision capacity, cache the config, keep the last known good host list &mdash; and an outage costs you change, not service.', unhl: ['ss-b'], text: { 'ss-msg': 'pre-provision · cache the config · keep the last known good state' } },
+  ],
+};
+</script>
+</body>
+</html>

@@ -398,6 +398,19 @@ volumes:
 docker compose logs -f api
 docker compose down</code></pre><div class="what">Build and start everything, follow one service's logs, stop and remove the containers.</div></div>
         <div class="cmd"><pre class="language-bash"><code class="language-bash">docker volume ls · docker system prune</code></pre><div class="what">List volumes; free disk space from stopped containers, dangling images and unused networks.</div></div>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// dotnet add package Docker.DotNet
+using var client = new DockerClientConfiguration().CreateClient();
+
+await client.Containers.CreateContainerAsync(new CreateContainerParameters
+{
+    Image = "redis:8",
+    HostConfig = new HostConfig
+    {
+        PortBindings = new() { ["6379/tcp"] = [new PortBinding { HostPort = "6379" }] },
+    },
+});
+
+var running = await client.Containers.ListContainersAsync(new ContainersListParameters());</code></pre><div class="what">Docker.DotNet speaks to the same daemon socket as the CLI. For integration tests, Testcontainers wraps it in a much friendlier API.</div></div>
         <div class="cmd"><pre class="language-python"><code class="language-python">import docker
 client = docker.from_env()
 c = client.containers.run("redis:8", detach=True, ports={"6379/tcp": 6379})
