@@ -94,7 +94,7 @@
           <path d="M636 101 L722 101 L722 124" fill="none" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#cr-arr)"/>
           <path d="M722 218 L722 241 L636 241" fill="none" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#cr-arr)"/>
 
-          <text class="hand" x="192" y="318" font-size="16" fill="#c53b3b">the gap between the two stores is the eventual consistency window &mdash; name it, measure it, design for it</text>
+          <text class="hand" x="20" y="318" font-size="16" fill="#c53b3b">the gap between the two stores is the eventual consistency window &mdash; name it, measure it, design for it</text>
         </svg>
       </div>
       <p class="caption">Same data, two shapes. The projector is the only bridge, and it runs after the write has already committed.</p>
@@ -114,8 +114,8 @@
             </defs>
 
             <g id="cq-cmd">
-              <rect x="16" y="46" width="160" height="32" rx="5" fill="#f9e3df" stroke="#e6b3ad" stroke-width="1.5"/>
-              <text id="cq-cmdt" x="24" y="67" font-size="11" fill="#23362e" font-family="Fira Code, monospace">PlaceOrder(cart)</text>
+              <rect x="16" y="96" width="160" height="20" rx="4" fill="#f9e3df" stroke="#e6b3ad" stroke-width="1.5"/>
+              <text id="cq-cmdt" x="24" y="110" font-size="10" fill="#23362e" font-family="Fira Code, monospace">PlaceOrder(cart)</text>
             </g>
 
             <rect id="cq-ch" x="196" y="34" width="156" height="60" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
@@ -198,7 +198,7 @@
             <text id="lg-f5" class="hidden" x="514" y="200" font-size="11" fill="#2f6b3f">pick per screen, not per system</text>
 
             <text id="lg-t" x="400" y="266" font-size="12.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">t = 0 ms</text>
-            <text id="lg-hand" class="hand hidden" x="30" y="236" font-size="16" fill="#c53b3b">the lag is not a bug, it is the price &mdash; but it must be a decision</text>
+            <text id="lg-hand" class="hand hidden" x="30" y="246" font-size="16" fill="#c53b3b">the lag is not a bug, it is the price &mdash; but it must be a decision</text>
           </svg>
         </div>
         <div class="controls"></div>
@@ -501,7 +501,7 @@ ON CONFLICT (order_id) DO UPDATE
        total  = EXCLUDED.total,
        last_seq = EXCLUDED.last_seq
  WHERE order_list_view.last_seq &lt; EXCLUDED.last_seq;</code></pre><div class="what">An idempotent projection write: upsert by key, guarded by a sequence number, so a replayed event changes nothing.</div></div>
-        <div class="cmd"><pre class="language-docker line-numbers"><code class="language-docker">-- level 2 without a projector at all
+        <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">-- level 2 without a projector at all
 CREATE MATERIALIZED VIEW order_list_view AS
 SELECT o.id AS order_id, c.name AS customer_name, SUM(l.price * l.qty) AS total, ...
 FROM orders o JOIN customers c ON ... JOIN order_lines l ON ...
@@ -535,7 +535,7 @@ UPDATE projection_checkpoint SET offset = 0 WHERE name = 'order_list_v2';
 
       <div class="cmd-group">
         <h3>Observability</h3>
-        <div class="cmd"><pre class="language-bash"><code class="language-bash"># the only read-path metric that really matters
+        <div class="cmd"><pre class="language-none"><code class="language-none"># the only read-path metric that really matters
 projection_lag_seconds{projection="order_list"}
 # alert when the read model is staler than the window you promised
 </code></pre><div class="what">Publish the lag, alert on it, and put the promised window in the API docs — an unstated window is the real bug.</div></div>
@@ -648,6 +648,11 @@ projection_lag_seconds{projection="order_list"}
     <section id="related">
       <h2>Related pages</h2>
       <div class="related-list">
+          <a class="related-card" href="event-store.html">
+            <b>Event store</b>
+            <span>Store what happened, not what is. Everything else is a fold over the facts.</span>
+            <small>Mentioned here in Overview, Key concepts, Common mistakes &amp; gotchas and Alternatives · Event store mentions CQRS in Architecture / mental model, Key concepts, Essential code patterns, Pros &amp; cons, Concrete use cases, When to use / when not to, Common mistakes &amp; gotchas and Alternatives · Shared tags: cqrs, event sourcing</small>
+          </a>
           <a class="related-card" href="domain-driven-design.html">
             <b>Domain-Driven Design</b>
             <span>Model the business, not the database — and stop pretending one word means the same thing everywhere.</span>
@@ -673,11 +678,6 @@ projection_lag_seconds{projection="order_list"}
             <span>Index, then query, then schema, then cache, then replicate, then partition — and only then shard.</span>
             <small>Mentioned here in Key concepts, Pros &amp; cons, Concrete use cases and When to use / when not to · Database performance mentions CQRS in Key concepts</small>
           </a>
-          <a class="related-card" href="modular-monolith.html">
-            <b>Modular monolith</b>
-            <span>One deployable, with walls the compiler actually enforces.</span>
-            <small>Modular monolith mentions CQRS in Common mistakes &amp; gotchas · Shared tags: architecture, ddd</small>
-          </a>
       </div>
     </section>
     <!-- RELATED:END -->
@@ -690,7 +690,7 @@ createAnimation('anim-path', [
   { say: 'One client, two jobs. Changing an order and listing orders look similar from the outside and want completely different things from a schema.', hl: ['cq-cmd'] },
   { say: 'The command <code>PlaceOrder</code> goes to its handler, which loads the aggregate, checks invariants and decides. This path cares about correctness and nothing else.', move: { 'cq-cmd': [190, 0] }, unhl: ['cq-cmd'], hl: ['cq-ch'], text: { 'cq-msg': 'write path: intention → aggregate → invariants' } },
   { say: 'It commits to the write store: normalised across three tables. Perfect for enforcing rules, poor for rendering a list — the list screen needs all three joined every time.', move: { 'cq-cmd': [400, 0] }, text: { 'cq-cmdt': 'commit: 1 order, 2 lines', 'cq-wdbt': 'orders +1 · order_lines +2' }, unhl: ['cq-ch'], hl: ['cq-wdb'] },
-  { say: 'The write emits <code>OrderPlaced</code>. In an event-sourced system this is the stored fact; in an ordinary system it is an outbox row or a change-data-capture record. Either works.', show: ['cq-evt', 'cq-a1'], unhl: ['cq-wdb'], text: { 'cq-msg': 'the only bridge between the two sides' } },
+  { say: 'The write emits <code>OrderPlaced</code>. In an event-sourced system this is the stored fact; in an ordinary system it is an outbox row or a change-data-capture record. Either works.', show: ['cq-evt', 'cq-a1'], hide: ['cq-cmd'], unhl: ['cq-wdb'], text: { 'cq-msg': 'the only bridge between the two sides' } },
   { say: 'The projector consumes it, advances its checkpoint, and does the joins <em>once</em>, now, instead of on every page load.', show: ['cq-a2'], hl: ['cq-proj'], text: { 'cq-projt': 'projecting · offset 42' } },
   { say: 'It writes a single denormalised row into <code>order_list_view</code>: customer name, total, status — everything the screen shows, already flattened.', show: ['cq-a3'], unhl: ['cq-proj'], hl: ['cq-rdb'], text: { 'cq-rdbt': '4 rows · +1 pre-joined' } },
   { say: 'Later the client asks for the list. The query handler goes straight to the read store — no aggregate, no ORM graph, no domain model anywhere on this path.', show: ['cq-q', 'cq-hand'], unhl: ['cq-rdb'], hl: ['cq-qh'], text: { 'cq-msg': 'read path: one indexed lookup, DTO out' } },

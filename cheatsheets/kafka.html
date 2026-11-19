@@ -387,10 +387,38 @@ cd /opt/kafka/bin</code></pre><div class="what">Open a shell where the <code>kaf
   --property parse.key=true --property key.separator=:</code></pre><div class="what">Type <code>user-42:paid</code> to send a record with key <code>user-42</code>.</div></div>
         <div class="cmd"><pre class="language-bash"><code class="language-bash">kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic orders \
   --group billing --from-beginning --property print.key=true</code></pre><div class="what">Read as a member of group <code>billing</code>, starting from the oldest record.</div></div>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// dotnet add package Confluent.Kafka
+using var producer = new ProducerBuilder&lt;string, string&gt;(
+    new ProducerConfig { BootstrapServers = "localhost:9092", Acks = Acks.All }).Build();
+
+await producer.ProduceAsync("orders", new Message&lt;string, string&gt;
+{
+    Key   = "user-42",                    // same key -&gt; same partition -&gt; ordered
+    Value = """{"status":"paid"}""",
+});
+
+producer.Flush(TimeSpan.FromSeconds(10));  // wait for delivery before exiting</code></pre><div class="what">The .NET producer. <code>Acks.All</code> waits for the in-sync replicas; <code>Flush</code> is what stops a short-lived process dropping buffered records.</div></div>
         <div class="cmd"><pre class="language-python"><code class="language-python">from confluent_kafka import Producer
 p = Producer({"bootstrap.servers": "localhost:9092", "acks": "all"})
 p.produce("orders", key="user-42", value='{"status": "paid"}')
 p.flush()</code></pre><div class="what">Python producer (<code>pip install confluent-kafka</code>). <code>flush()</code> waits for delivery.</div></div>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">using var consumer = new ConsumerBuilder&lt;string, string&gt;(new ConsumerConfig
+{
+    BootstrapServers = "localhost:9092",
+    GroupId          = "billing",
+    AutoOffsetReset  = AutoOffsetReset.Earliest,
+    EnableAutoCommit = false,              // commit only after the work succeeded
+}).Build();
+
+consumer.Subscribe("orders");
+
+while (!ct.IsCancellationRequested)
+{
+    var cr = consumer.Consume(TimeSpan.FromSeconds(1));
+    if (cr is null) continue;
+    Handle(cr.Message.Value);
+    consumer.Commit(cr);                   // at-least-once: handler must be idempotent
+}</code></pre><div class="what">Manual commits are the whole point: commit after the side effect, not before, and accept that a redelivery can happen.</div></div>
         <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">from confluent_kafka import Consumer
 c = Consumer({"bootstrap.servers": "localhost:9092", "group.id": "billing",
               "auto.offset.reset": "earliest", "enable.auto.commit": False})
@@ -526,6 +554,11 @@ while True:
             <span>You cannot commit a database and a broker together. So write the message as a row, and let it ride along.</span>
             <small>Outbox pattern mentions Apache Kafka in Overview, Key concepts and Concrete use cases · Shared tags: microservices, cdc</small>
           </a>
+          <a class="related-card" href="backpressure.html">
+            <b>Backpressure</b>
+            <span>When a fast producer meets a slow consumer, the queue between them is not a solution. It is where the outage is hiding.</span>
+            <small>Backpressure mentions Apache Kafka in Overview, Key concepts and Concrete use cases</small>
+          </a>
           <a class="related-card" href="redis.html">
             <b>Redis</b>
             <span>An in-memory data structure server: a key-value store that answers in microseconds.</span>
@@ -536,15 +569,10 @@ while True:
             <span>Writes and reads want opposite things from a schema. Stop making one model do both jobs badly.</span>
             <small>Closely related topic</small>
           </a>
-          <a class="related-card" href="caching-strategies.html">
-            <b>Caching strategies</b>
-            <span>Keep the answer near the question — and decide, up front, how wrong you are willing to be.</span>
-            <small>Caching strategies mentions Apache Kafka in Key concepts and Alternatives</small>
-          </a>
-          <a class="related-card" href="rate-limiting.html">
-            <b>Rate limiting</b>
-            <span>Say no on purpose, before the system says no by falling over.</span>
-            <small>Rate limiting mentions Apache Kafka in Key concepts and When to use / when not to</small>
+          <a class="related-card" href="event-store.html">
+            <b>Event store</b>
+            <span>Store what happened, not what is. Everything else is a fold over the facts.</span>
+            <small>Mentioned here in Architecture / mental model and Key concepts · Event store mentions Apache Kafka in Alternatives</small>
           </a>
       </div>
     </section>

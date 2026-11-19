@@ -431,6 +431,13 @@ kubectl rollout undo deployment/web</code></pre><div class="what">Roll out a new
         <div class="cmd"><pre class="language-bash"><code class="language-bash">kubectl port-forward svc/web 8080:80</code></pre><div class="what">Reach a Service from your laptop at <code>localhost:8080</code>, no Ingress needed.</div></div>
         <div class="cmd"><pre class="language-bash"><code class="language-bash">kubectl get events --sort-by=.lastTimestamp
 kubectl top pods</code></pre><div class="what">Recent cluster events in order; live CPU and memory usage (needs metrics-server).</div></div>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// dotnet add package KubernetesClient
+var config = KubernetesClientConfiguration.BuildConfigFromConfigFile();  // same kubeconfig
+using var k8s = new Kubernetes(config);
+
+var pods = await k8s.CoreV1.ListNamespacedPodAsync("shop");
+foreach (var p in pods.Items)
+    Console.WriteLine($"{p.Metadata.Name,-40} {p.Status.Phase}");</code></pre><div class="what">The official .NET client, reading the same kubeconfig as <code>kubectl</code>. In-cluster, swap the first line for <code>InClusterConfig()</code>.</div></div>
         <div class="cmd"><pre class="language-python"><code class="language-python">from kubernetes import client, config
 config.load_kube_config()
 for p in client.CoreV1Api().list_namespaced_pod("shop").items:
@@ -563,15 +570,15 @@ for p in client.CoreV1Api().list_namespaced_pod("shop").items:
             <span>One front door for every API you own — and a place to put all the things that are not business logic.</span>
             <small>Azure API Management mentions Kubernetes in Key concepts, When to use / when not to and Alternatives</small>
           </a>
+          <a class="related-card" href="graceful-degradation.html">
+            <b>Graceful degradation</b>
+            <span>Most of your page is optional. An outage should cost the user those parts, not all of them.</span>
+            <small>Mentioned here in Key concepts</small>
+          </a>
           <a class="related-card" href="kafka.html">
             <b>Apache Kafka</b>
             <span>A distributed, append-only log for events: write once, read by many, replay any time.</span>
             <small>Mentioned here in Key concepts</small>
-          </a>
-          <a class="related-card" href="azure-durable-functions.html">
-            <b>Azure Durable Functions</b>
-            <span>Write a long-running workflow as ordinary code, and let replay make it survive restarts.</span>
-            <small>Azure Durable Functions mentions Kubernetes in Alternatives</small>
           </a>
       </div>
     </section>

@@ -144,7 +144,7 @@
 
             <text id="ix-ratio" x="400" y="266" font-size="13" text-anchor="middle" fill="#23362e" font-weight="700" font-family="Fira Code, monospace">examined / returned = 555,555 : 1</text>
             <text id="ix-cost" x="400" y="290" font-size="11.5" text-anchor="middle" fill="#5f6f66">the only number that matters when tuning a query</text>
-            <text id="ix-hand" class="hand hidden" x="26" y="214" font-size="16" fill="#c53b3b">every index you add is a tax on every write</text>
+            <text id="ix-hand" class="hand hidden" x="26" y="214" font-size="16" fill="#c53b3b">indexes tax every write</text>
           </svg>
         </div>
         <div class="controls"></div>
@@ -193,8 +193,8 @@
             <text id="pl-c2" x="508" y="252" font-size="11.5" fill="#5f6f66" font-family="Fira Code, monospace">= 100/s × 0.05 s = 5</text>
             <text id="pl-c3" x="508" y="276" font-size="11.5" fill="#2f6b3f" font-weight="600">5 connections busy of 10</text>
 
-            <text id="pl-hand" class="hand hidden" x="26" y="258" font-size="16" fill="#c53b3b">a bigger pool just moves the queue onto the database</text>
-            <text id="pl-t" x="100" y="286" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">t = 0 s</text>
+            <text id="pl-hand" class="hand hidden" x="26" y="276" font-size="16" fill="#c53b3b">a bigger pool just moves the queue onto the database</text>
+            <text id="pl-t" x="100" y="196" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">t = 0 s</text>
           </svg>
         </div>
         <div class="controls"></div>
@@ -482,17 +482,17 @@
         <div class="cmd"><pre class="language-sql"><code class="language-sql">EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
 SELECT id, total FROM orders
 WHERE customer_id = 4711 AND placed_at &gt; '2026-01-01';</code></pre><div class="what">The plan plus what actually happened. Compare estimated and actual rows, and watch the buffer counts.</div></div>
-        <div class="cmd"><pre class="language-docker"><code class="language-docker">SELECT calls, mean_exec_time, total_exec_time, rows, query
+        <div class="cmd"><pre class="language-sql"><code class="language-sql">SELECT calls, mean_exec_time, total_exec_time, rows, query
 FROM   pg_stat_statements
 ORDER  BY total_exec_time DESC
 LIMIT  20;</code></pre><div class="what">Total time, not mean time: the query that takes 3 ms and runs a million times is usually the real problem.</div></div>
-        <div class="cmd"><pre class="language-docker"><code class="language-docker">SELECT relname, seq_scan, seq_tup_read, idx_scan,
+        <div class="cmd"><pre class="language-sql"><code class="language-sql">SELECT relname, seq_scan, seq_tup_read, idx_scan,
        n_live_tup, n_dead_tup
 FROM   pg_stat_user_tables
 ORDER  BY seq_tup_read DESC LIMIT 20;</code></pre><div class="what">Tables being scanned sequentially, and dead-tuple counts that reveal bloat.</div></div>
-        <div class="cmd"><pre class="language-docker"><code class="language-docker">SELECT indexrelname, idx_scan, pg_size_pretty(pg_relation_size(indexrelid))
+        <div class="cmd"><pre class="language-sql"><code class="language-sql">SELECT indexrelname, idx_scan, pg_size_pretty(pg_relation_size(indexrelid))
 FROM   pg_stat_user_indexes WHERE idx_scan = 0 ORDER BY 3 DESC;</code></pre><div class="what">Indexes nobody has used: pure write tax and wasted cache. Drop them (after checking every replica).</div></div>
-        <div class="cmd"><pre class="language-docker"><code class="language-docker">SELECT pid, state, wait_event_type, wait_event,
+        <div class="cmd"><pre class="language-sql"><code class="language-sql">SELECT pid, state, wait_event_type, wait_event,
        now() - xact_start AS age, left(query, 60)
 FROM   pg_stat_activity
 WHERE  state &lt;&gt; 'idle' ORDER BY age DESC;</code></pre><div class="what">Live sessions, what they are waiting on, and the long transaction that is blocking vacuum.</div></div>
@@ -530,20 +530,31 @@ EXPLAIN SELECT count(*) FROM orders WHERE placed_at &gt;= '2026-11-01';</code></
 
       <div class="cmd-group">
         <h3>Connection pools</h3>
-        <div class="cmd"><pre class="language-bash"><code class="language-bash"># Npgsql (.NET) — small pool, fail fast
+        <div class="cmd"><pre class="language-none"><code class="language-none"># Npgsql (.NET) — small pool, fail fast
 Host=db;Database=app;Maximum Pool Size=15;Minimum Pool Size=2;
 Timeout=5;Command Timeout=10;Connection Idle Lifetime=300</code></pre><div class="what">Remember to multiply by the number of instances: 10 pods x 15 = 150 connections at the server.</div></div>
-        <div class="cmd"><pre class="language-bash"><code class="language-bash"># HikariCP (JVM)
+        <div class="cmd"><pre class="language-none"><code class="language-none"># HikariCP (JVM)
 maximumPoolSize = 20          # cores * 2 + effective spindles
 connectionTimeout = 3000      # ms — fail fast instead of piling up
 leakDetectionThreshold = 20000</code></pre><div class="what">A small pool is a concurrency limiter. Raising it when it saturates moves the queue onto the database.</div></div>
-        <div class="cmd"><pre class="language-bash line-numbers"><code class="language-bash"># PgBouncer in transaction mode, in front of Postgres
+        <div class="cmd"><pre class="language-none line-numbers"><code class="language-none"># PgBouncer in transaction mode, in front of Postgres
 [databases]
 app = host=db dbname=app
 [pgbouncer]
 pool_mode = transaction
 default_pool_size = 20
 max_client_conn = 2000</code></pre><div class="what">Lets thousands of clients share a few dozen server connections. Transaction mode forbids session state — no server-side prepared statements or advisory locks across statements.</div></div>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// dotnet add package Npgsql
+await using var source = NpgsqlDataSource.Create(
+    "Host=db;Database=app;Maximum Pool Size=15;Timeout=5;Command Timeout=10");
+
+await using var conn = await source.OpenConnectionAsync(ct);   // returned on dispose
+await using var cmd  = new NpgsqlCommand("SELECT total FROM orders WHERE id = $1", conn)
+{
+    Parameters = { new NpgsqlParameter { Value = orderId } },
+};
+
+var total = (decimal?)await cmd.ExecuteScalarAsync(ct);</code></pre><div class="what"><code>NpgsqlDataSource</code> owns the pool; <code>await using</code> returns the connection even on an exception. A leaked connection is a pool of one.</div></div>
         <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">from psycopg_pool import ConnectionPool
 
 pool = ConnectionPool(DSN, min_size=2, max_size=15, timeout=5)
@@ -694,10 +705,10 @@ ALTER ROLE app SET lock_timeout = '3s';</code></pre><div class="what">Three sett
             <span>The average is a number nobody experienced. Percentiles are measurements of real requests.</span>
             <small>Mentioned here in Common mistakes &amp; gotchas · Percentiles mentions Database performance in Key concepts and Concrete use cases</small>
           </a>
-          <a class="related-card" href="outbox-pattern.html">
-            <b>Outbox pattern</b>
-            <span>You cannot commit a database and a broker together. So write the message as a row, and let it ride along.</span>
-            <small>Outbox pattern mentions Database performance in Key concepts, Essential code patterns and Common mistakes &amp; gotchas</small>
+          <a class="related-card" href="queueing-theory.html">
+            <b>Queueing theory</b>
+            <span>Waiting is not caused by being out of capacity. It is caused by being nearly out of capacity, at random moments.</span>
+            <small>Queueing theory mentions Database performance in Key concepts, Pros &amp; cons and Concrete use cases · Shared tags: performance</small>
           </a>
       </div>
     </section>
@@ -728,7 +739,7 @@ createAnimation('anim-pool', [
   { say: 'The queue cannot drain. Requests arrive at 100 a second; the pool completes 10 ÷ 0.2 = 50 a second. The backlog grows by 50 every second, forever — this is not a spike, it is an unstable system.', unhl: ['pl-pool'], hl: ['pl-wait'], text: { 'pl-waitt': 'waiting: 140 and climbing (+50/s)', 'pl-t': 't = 13 s' } },
   { say: 'Wait times cross the acquisition timeout and the app starts failing with "pool exhausted". The error names the pool, which is why the pool is what gets changed.', unhl: ['pl-wait'], text: { 'pl-errt': 'timeouts: 60/s', 'pl-waitt': 'waiting: 300 · timing out', 'pl-t': 't = 20 s' }, fill: { 'pl-errt': '#c53b3b' }, hl: ['pl-app'] },
   { say: 'So someone raises the pool to 100. Now 100 queries run at once on 16 cores: context switching, more lock contention, more memory per backend. Each query slows to 600 ms and throughput <em>drops</em>.', unhl: ['pl-app'], hl: ['pl-db'], show: ['pl-hand'], text: { 'pl-dbt': 'query time: 600 ms', 'pl-dbs': 'pool raised to 100 — 100 concurrent queries', 'pl-dbs2': '16 cores, all of them thrashing', 'pl-c2': '= 100/s × 0.6 s = 60', 'pl-c3': 'congestion collapse' }, fill: { 'pl-c3': '#c53b3b' } },
-  { say: 'The pool was never the problem. It was doing its real job — bounding concurrency — and the saturation was a symptom of the query that got four times slower.', unhl: ['pl-db'], text: { 'pl-dbs': 'a small pool is a concurrency limiter, not a bottleneck' } },
+  { say: 'The pool was never the problem. It was doing its real job — bounding concurrency — and the saturation was a symptom of the query that got four times slower.', unhl: ['pl-db'], text: { 'pl-dbs': 'a concurrency limiter, not a bottleneck' } },
   { say: 'Restore the index. Query time returns to 50 ms, the required connections drop back to 5, the queue drains in seconds and the error rate goes to zero. One revert, no config change.', text: { 'pl-dbt': 'query time: 50 ms', 'pl-dbs': 'index restored', 'pl-dbs2': ' ', 'pl-c2': '= 100/s × 0.05 s = 5', 'pl-c3': '5 connections busy of 10', 'pl-waitt': 'waiting for a connection: 0', 'pl-errt': 'no errors', 'pl-t': 't = 25 s' }, fill: { 'pl-dbt': '#23362e', 'pl-c3': '#2f6b3f', 'pl-errt': '#5f6f66', 'pl-s1': '#e3eedc', 'pl-s2': '#e3eedc', 'pl-s3': '#e3eedc', 'pl-s4': '#e3eedc', 'pl-s5': '#e3eedc', 'pl-s6': '#e8ece2', 'pl-s7': '#e8ece2', 'pl-s8': '#e8ece2', 'pl-s9': '#e8ece2', 'pl-s10': '#e8ece2' } },
   { say: 'The rule worth keeping: size the pool from <code>rate × hold time</code>, keep it small, fail fast on acquisition, and treat saturation as a pointer to what got slower — never as a number to raise.', hl: ['pl-calc'] },
 ]);

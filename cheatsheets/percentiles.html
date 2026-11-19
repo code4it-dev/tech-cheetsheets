@@ -477,7 +477,7 @@ measured at the gateway, over a rolling 28-day window.</code></pre>
         <div class="cmd"><pre class="language-promql"><code class="language-promql">histogram_quantile(0.99, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m])))</code></pre><div class="what">p99 per route. Keep <code>le</code> in the <code>by</code> clause or the query silently returns nothing useful.</div></div>
         <div class="cmd"><pre class="language-promql"><code class="language-promql">sum(rate(http_request_duration_seconds_bucket{le="0.3"}[28d]))
   / sum(rate(http_request_duration_seconds_count[28d]))</code></pre><div class="what">Threshold SLO: the fraction of requests under 300 ms. Easier to alert on than a percentile value.</div></div>
-        <div class="cmd"><pre class="language-bash"><code class="language-bash"># in the exporter: buckets around the SLO, not the defaults
+        <div class="cmd"><pre class="language-none"><code class="language-none"># in the exporter: buckets around the SLO, not the defaults
 buckets = [.005, .01, .025, .05, .1, .2, .3, .5, 1, 2, 5, 10]</code></pre><div class="what">A boundary exactly at your SLO threshold (0.3) is what makes the query above exact.</div></div>
       </div>
 
@@ -521,11 +521,11 @@ Duration.Record(sw.Elapsed.TotalMilliseconds, new KeyValuePair&lt;string, object
 
       <div class="cmd-group">
         <h3>SQL</h3>
-        <div class="cmd"><pre class="language-docker"><code class="language-docker">SELECT DISTINCT
+        <div class="cmd"><pre class="language-sql"><code class="language-sql">SELECT DISTINCT
   PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY duration_ms) OVER () AS p50,
   PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY duration_ms) OVER () AS p99
 FROM request_log WHERE ts &gt; now() - interval '1 day';</code></pre><div class="what"><code>PERCENTILE_CONT</code> interpolates; <code>PERCENTILE_DISC</code> returns an actual observed row.</div></div>
-        <div class="cmd"><pre class="language-docker"><code class="language-docker">SELECT route, count(*) AS n,
+        <div class="cmd"><pre class="language-sql"><code class="language-sql">SELECT route, count(*) AS n,
        percentile_disc(0.99) WITHIN GROUP (ORDER BY duration_ms) AS p99
 FROM request_log GROUP BY route HAVING count(*) &gt; 1000;</code></pre><div class="what">The <code>HAVING</code> clause is the point: do not report a p99 computed from too few rows.</div></div>
       </div>
@@ -655,6 +655,11 @@ FROM request_log GROUP BY route HAVING count(*) &gt; 1000;</code></pre><div clas
             <span>How many are inside = how fast they arrive × how long they stay. That's the whole thing.</span>
             <small>Mentioned here in Concrete use cases · Little's Law mentions Percentiles in Key concepts, Pros &amp; cons and Common mistakes &amp; gotchas · Shared tags: latency</small>
           </a>
+          <a class="related-card" href="queueing-theory.html">
+            <b>Queueing theory</b>
+            <span>Waiting is not caused by being out of capacity. It is caused by being nearly out of capacity, at random moments.</span>
+            <small>Queueing theory mentions Percentiles in Key concepts, Concrete use cases, Common mistakes &amp; gotchas and Alternatives · Shared tags: latency</small>
+          </a>
           <a class="related-card" href="database-performance.html">
             <b>Database performance</b>
             <span>Index, then query, then schema, then cache, then replicate, then partition — and only then shard.</span>
@@ -669,11 +674,6 @@ FROM request_log GROUP BY route HAVING count(*) &gt; 1000;</code></pre><div clas
             <b>Back-of-the-envelope estimates</b>
             <span>Be roughly right in five minutes instead of precisely wrong in two weeks.</span>
             <small>Closely related topic</small>
-          </a>
-          <a class="related-card" href="domain-driven-design.html">
-            <b>Domain-Driven Design</b>
-            <span>Model the business, not the database — and stop pretending one word means the same thing everywhere.</span>
-            <small>Mentioned here in Key concepts, Alternatives and Resources</small>
           </a>
       </div>
     </section>

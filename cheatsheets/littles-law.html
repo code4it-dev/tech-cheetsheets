@@ -465,6 +465,19 @@ sum(rate(http_requests_total[5m]))
 
 InFlight.Add(1);
 try { await next(ctx); } finally { InFlight.Add(-1); }   // the finally is the whole point</code></pre><div class="what">Measuring L. A gauge that is not decremented on the error path is the most common reason the law "fails".</div></div>
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">from prometheus_client import Gauge
+
+IN_FLIGHT = Gauge("http_requests_in_flight", "L — requests inside the system")
+
+@IN_FLIGHT.track_inprogress()        # increments on entry, decrements on exit
+async def handle(request):
+    return await do_work(request)
+
+# then, from your own telemetry:
+concurrency = qps * seconds_per_request        # L = λW
+pool_size   = ceil(peak_qps * p99_seconds)     # size for the peak, not the mean
+max_rps     = pool_size / seconds_per_request  # what that pool can actually sustain</code></pre><div class="what">L is the term people forget to measure. <code>track_inprogress</code> gives it to you directly, and the three sizing lines follow from it.</div></div>
+        
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">builder.Services.AddRateLimiter(o =&gt; o.AddConcurrencyLimiter("db", opt =&gt;
 {
     opt.PermitLimit = 80;          // L, chosen with the law
@@ -588,6 +601,11 @@ try { await next(ctx); } finally { InFlight.Add(-1); }   // the finally is the w
     <section id="related">
       <h2>Related pages</h2>
       <div class="related-list">
+          <a class="related-card" href="queueing-theory.html">
+            <b>Queueing theory</b>
+            <span>Waiting is not caused by being out of capacity. It is caused by being nearly out of capacity, at random moments.</span>
+            <small>Mentioned here in Key concepts, Essential formulas &amp; numbers, Pros &amp; cons, Concrete use cases, When to use / when not to, Common mistakes &amp; gotchas, Alternatives and Resources · Queueing theory mentions Little's Law in Overview, Key concepts and Alternatives · Shared tags: queueing theory, capacity planning, latency, utilisation, performance</small>
+          </a>
           <a class="related-card" href="database-performance.html">
             <b>Database performance</b>
             <span>Index, then query, then schema, then cache, then replicate, then partition — and only then shard.</span>
@@ -603,15 +621,15 @@ try { await next(ctx); } finally { InFlight.Add(-1); }   // the finally is the w
             <span>Be roughly right in five minutes instead of precisely wrong in two weeks.</span>
             <small>Mentioned here in Key concepts · Back-of-the-envelope estimates mentions Little's Law in Key concepts, Essential formulas &amp; numbers and Concrete use cases · Shared tags: littles law, capacity planning</small>
           </a>
+          <a class="related-card" href="backpressure.html">
+            <b>Backpressure</b>
+            <span>When a fast producer meets a slow consumer, the queue between them is not a solution. It is where the outage is hiding.</span>
+            <small>Backpressure mentions Little's Law in Key concepts, Essential code patterns and Pros &amp; cons · Shared tags: littles law, concurrency, latency</small>
+          </a>
           <a class="related-card" href="rate-limiting.html">
             <b>Rate limiting</b>
             <span>Say no on purpose, before the system says no by falling over.</span>
             <small>Rate limiting mentions Little's Law in Key concepts</small>
-          </a>
-          <a class="related-card" href="sli-slo-sla.html">
-            <b>SLI, SLO &amp; SLA</b>
-            <span>Measure what users feel, promise a number you can keep, sign only what you can afford to break.</span>
-            <small>Shared tags: latency</small>
           </a>
       </div>
     </section>

@@ -170,10 +170,10 @@
       "related": [
         "database-performance",
         "outbox-pattern",
+        "backpressure",
         "redis",
         "cqrs",
-        "caching-strategies",
-        "rate-limiting"
+        "event-store"
       ]
     },
     {
@@ -361,10 +361,10 @@
       "related": [
         "rate-limiting",
         "caching-strategies",
+        "circuit-breaker",
         "azure-durable-functions",
         "kubernetes",
-        "sli-slo-sla",
-        "sidecar-pattern"
+        "sli-slo-sla"
       ]
     },
     {
@@ -544,11 +544,12 @@
         }
       ],
       "related": [
+        "saga-pattern",
         "azure-api-management",
         "outbox-pattern",
+        "event-store",
         "domain-driven-design",
-        "kafka",
-        "kubernetes"
+        "kafka"
       ]
     },
     {
@@ -717,12 +718,12 @@
         }
       ],
       "related": [
+        "queueing-theory",
         "database-performance",
         "littles-law",
         "caching-strategies",
         "sli-slo-sla",
-        "percentiles",
-        "kafka"
+        "percentiles"
       ]
     },
     {
@@ -896,6 +897,189 @@
         "multitenancy",
         "sidecar-pattern",
         "percentiles"
+      ]
+    },
+    {
+      "slug": "backpressure",
+      "url": "cheatsheets/backpressure.html",
+      "title": "Backpressure",
+      "aliases": [
+        "Backpressure",
+        "back pressure",
+        "back-pressure",
+        "flow control",
+        "bounded queue",
+        "demand signalling",
+        "credit-based flow control"
+      ],
+      "tagline": "When a fast producer meets a slow consumer, the queue between them is not a solution. It is where the outage is hiding.",
+      "asOf": "As of Nov 2026 · examples in C#, Go, Java and Python; the idea is as old as TCP",
+      "description": "Backpressure cheatsheet: bounded queues, demand signalling and why an unbounded buffer turns a throughput problem into an outage — animated, with the arithmetic that sizes a queue.",
+      "tags": [
+        "backpressure",
+        "flow control",
+        "bounded queue",
+        "reactive streams",
+        "littles law",
+        "latency",
+        "resilience",
+        "congestion",
+        "queueing",
+        "concurrency"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential code patterns"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-backpressure",
+          "term": "Backpressure",
+          "def": "The signal that a consumer cannot keep up, propagated upstream so the producer slows down instead of the queue growing.",
+          "detail": "It is a flow control mechanism, not a capacity mechanism. It does not make the consumer faster and it does not decide which work to abandon — it only ensures that the mismatch between arrival and service rates becomes visible at a point where somebody can act on it. Almost every implementation reduces to the same two steps: bound the buffer, then choose what happens when the bound is reached. Everything else is a refinement of how politely that is communicated. What it is and is not Mechanism Question it answers Backpressure how do I tell upstream to slow down? Load shedding which work do I refuse? Rate limiting how much is this client entitled to? Circuit breaker should I stop calling a broken dependency? How it relates Backpressure gets the signal to the edge; load shedding is what the edge then does with it."
+        },
+        {
+          "id": "term-bounded-queue",
+          "term": "Bounded queue",
+          "def": "A buffer with a maximum size, which is what turns \"the queue grows\" into an actual signal.",
+          "detail": "The bound is the entire mechanism. Once a queue cannot grow, something must happen at the boundary: the producer blocks, the item is dropped, or an error is returned. All three are honest; growing forever is not. Size it from latency, not from memory. If the consumer handles 800 items a second and you are willing to add 25 ms of queueing delay, the queue should hold about 20 items — not the 100,000 that happens to fit in RAM. Sizing by Little's Law Service rate Latency budget Queue size 800 / s 25 ms 20 800 / s 250 ms 200 100 / s 1 s 100 any \"as much as fits\" wrong question How it relates A connection pool, a thread pool and a semaphore are all bounded queues wearing different names."
+        },
+        {
+          "id": "term-unbounded-queue",
+          "term": "Unbounded queue",
+          "def": "The default in most libraries, and a reliable way to turn a small overload into a crash.",
+          "detail": "An unbounded buffer does not prevent failure; it postpones and amplifies it. During the delay, latency climbs past every client timeout, so the consumer spends its capacity on work nobody is waiting for, and the process eventually dies from memory exhaustion rather than from the original 20% overload. The danger is that it looks healthy. No errors are returned, no alerts fire, CPU may even be moderate — right up until the OOM kill. Unbounded by default Thing Default new LinkedBlockingQueue<>() unbounded Channel.CreateUnbounded() unbounded, by name asyncio.Queue() unbounded Go make(chan T) unbuffered — blocks, which is correct An in-memory list \"just for buffering\" unbounded How it relates The first animation is one unbounded queue, second by second, to the crash."
+        },
+        {
+          "id": "term-little-s-law",
+          "term": "Little's Law",
+          "def": "L = λW — the arithmetic that converts a queue depth into a latency, and therefore sizes every buffer you own.",
+          "detail": "Rearranged as W = L / λ it says: with 2,000 items queued in front of a consumer doing 800 a second, the wait is 2.5 seconds — regardless of how fast any individual item is processed. That is why queue depth is a latency metric in disguise. It also sizes concurrency limits: at 1,000 requests a second and 50 ms of service time, roughly 50 requests are in flight, so a limit of 60 has headroom and a limit of 500 is an unbounded queue with extra steps. The same law, three uses Question Form How long will this queue delay me? W = L / λ How big should the queue be? L = λ × W budget How many workers do I need? L = λ × W service How it relates The Little's Law page works through the identity itself and where it does not apply."
+        },
+        {
+          "id": "term-demand-signalling",
+          "term": "Demand signalling",
+          "def": "Explicit backpressure: the consumer tells the producer exactly how many items it may send.",
+          "detail": "Instead of discovering fullness by blocking on a write, the consumer publishes its appetite. Reactive Streams calls it request(n), TCP calls it the receive window, gRPC and HTTP/2 call it flow-control windows, Kafka expresses it as fetch sizes and poll limits. The advantage over implicit blocking is that the producer learns the limit before producing, so it can avoid doing expensive work it would then have to throw away — reading fewer rows, rendering fewer items, pulling fewer messages. Credit-based flow control How it relates TCP has worked this way since 1974; most application-level designs are reinventing it badly."
+        },
+        {
+          "id": "term-credit-based-flow-control",
+          "term": "Credit-based flow control",
+          "def": "The concrete protocol behind demand signalling: a window of permits that the consumer replenishes as it drains.",
+          "detail": "The consumer advertises a window; the producer decrements it as it sends and stops at zero; the consumer replenishes as it processes. Because the window is a number on the wire, both sides agree on the bound at all times and neither needs a timeout to discover it. The tuning question is window size: too small and the link idles waiting for replenishment, too large and you have rebuilt an unbounded queue. Bandwidth-delay product is the classic sizing rule for networks; for application queues, Little's Law with a latency budget does the same job. Where you already use it System Mechanism TCP receive window HTTP/2, gRPC per-stream and connection windows Reactive Streams request(n) Kafka consumer max.poll.records, pause() AMQP prefetch count How it relates The animation in demand signalling walks one credit cycle."
+        },
+        {
+          "id": "term-queue-latency",
+          "term": "Queue latency",
+          "def": "How long an item waits, which matters far more than how many items are waiting.",
+          "detail": "Depth is a proxy; sojourn time is the thing. A queue of 10,000 drained at 100,000 a second is fine; a queue of 50 drained at 5 a second is a ten-second outage. Measuring the age of the oldest item — or timestamping on enqueue and measuring on dequeue — tells you directly whether you are in trouble. It is also the better shedding signal: algorithms like CoDel drop based on how long items have been waiting rather than on how many there are, which adapts automatically to changes in capacity. What to measure Metric Tells you Queue depth memory pressure Sojourn time (p99) what users actually feel Age of oldest item whether you are falling behind now Enqueue rejections backpressure is engaging How it relates Alert on sojourn time; depth alone will either page too early or far too late."
+        },
+        {
+          "id": "term-dead-work",
+          "term": "Dead work",
+          "def": "Processing requests whose callers have already given up — the main reason an overloaded system never recovers.",
+          "detail": "Once the queueing delay exceeds the client timeout, every item dequeued is for a client that has disconnected. The server is now at 100% utilisation with 0% goodput, and because it is busy doing useless work it cannot catch up — the definition of congestion collapse. The fix is to make deadlines travel with the request and to check them on dequeue: if the deadline has passed, drop it without processing. One cheap check recovers the whole capacity. Defences Defence Effect Deadline propagation callee knows when to stop Check deadline on dequeue discard dead work for free Queue timeout < client timeout never start doomed work LIFO under overload serve the freshest, not the stalest How it relates LIFO sounds unfair and is kinder in practice: under overload, FIFO guarantees everyone gets a timeout."
+        },
+        {
+          "id": "term-retry-amplification",
+          "term": "Retry amplification",
+          "def": "Clients retrying a slow system, multiplying the arrival rate exactly when it is least able to cope.",
+          "detail": "The feedback loop that turns a degradation into an outage. Latency rises past the client timeout, clients retry, arrivals double, latency rises further, more retries. Three layers each retrying three times turns one request into twenty-seven. Backpressure helps by failing fast: a request rejected in a millisecond costs almost nothing, while one that times out after two seconds has consumed two seconds of capacity first. Add jittered exponential backoff and a retry budget so clients cannot collectively exceed a few percent of normal traffic. Controls Control Why Exponential backoff + jitter breaks the synchronised wave Retry budget (e.g. 10%) caps total amplification Never retry at every layer retries multiply, not add Fail fast when shedding a cheap no beats an expensive timeout How it relates A circuit breaker is the strongest form of this control: stop calling entirely for a while."
+        },
+        {
+          "id": "term-concurrency-limit",
+          "term": "Concurrency limit",
+          "def": "Capping how many requests are in flight at once — the most practical backpressure mechanism in a service.",
+          "detail": "A semaphore, a thread pool, a connection pool or a worker count all do the same thing: they bound the work in progress, and therefore bound latency by Little's Law. When the limit is reached, new work waits briefly or is rejected — which is backpressure, implemented in one line. It is more robust than a rate limit because it adapts to service time automatically: if each request gets slower, fewer get through, without anyone recalculating a requests-per-second number. Rate limit or concurrency limit? Rate limit Concurrency limit Bounds arrivals per second work in progress Adapts to slowdowns no yes Good for fairness, quotas, billing protecting capacity How it relates The database page's \"pool exhausted\" animation is a concurrency limit doing its job and being blamed for it."
+        },
+        {
+          "id": "term-adaptive-concurrency",
+          "term": "Adaptive concurrency",
+          "def": "Discovering the right limit at runtime by watching latency, instead of configuring a number that is wrong by next quarter.",
+          "detail": "Algorithms borrowed from TCP congestion control — Netflix's Gradient and Vegas limiters, and similar schemes in Envoy — track the ratio between current latency and the best latency observed. When latency rises, the limit shrinks; when it recovers, the limit grows. The system finds its own capacity. This matters because static limits are wrong in both directions: too low wastes hardware during normal operation, too high lets the service fall over during a dependency slowdown. Signals used Signal Interpretation Latency > recent minimum queueing has started — shrink Latency at minimum headroom exists — grow Rejections / errors shrink quickly How it relates Start with a static limit sized by Little's Law; adopt adaptive limits once that number is clearly wrong at different times of day."
+        },
+        {
+          "id": "term-head-of-line-blocking",
+          "term": "Head-of-line blocking",
+          "def": "One slow item at the front of a queue delaying everything behind it, however fast those would have been.",
+          "detail": "A single FIFO shared by cheap and expensive work means the cheap work inherits the expensive work's latency. It appears in HTTP/1.1 pipelines, in a Kafka partition where one poisoned record stalls the rest, and in any thread pool where one slow endpoint occupies every worker. The fix is separation rather than a bigger queue: separate queues or pools per class of work, so a slow class cannot starve a fast one. Separations that help Split by Example Cost fast reads vs heavy reports Priority checkout vs recommendations Tenant one customer cannot starve others Dependency a pool per downstream service How it relates Per-dependency pools are the bulkhead pattern, which is the other half of circuit breaking."
+        },
+        {
+          "id": "term-bufferbloat",
+          "term": "Bufferbloat",
+          "def": "The networking name for the same mistake: oversized buffers destroying latency while preserving throughput.",
+          "detail": "Router vendors added large buffers to avoid dropping packets, and in doing so broke TCP's feedback loop: congestion signals arrived seconds late, so senders kept accelerating and interactive traffic became unusable. The cure — active queue management with CoDel — drops based on how long packets have been waiting. It is worth knowing because the lesson transfers exactly: dropping early is kinder than queueing late, and a buffer's job is to absorb bursts, not to hide a persistent rate mismatch. The transferable lesson Buffer absorbs Verdict A short burst correct use A persistent rate mismatch a crash with a delay How it relates CoDel-style shedding on sojourn time is the application-level version of this fix."
+        },
+        {
+          "id": "term-non-blocking-backpressure",
+          "term": "Non-blocking backpressure",
+          "def": "Signalling fullness without parking a thread — essential in async and event-driven runtimes.",
+          "detail": "Blocking a thread on a full queue is fine when threads are cheap and plentiful, and catastrophic in an event loop, where blocking the loop stops everything. Async runtimes therefore return a signal instead: TryWrite returns false, WaitToWriteAsync yields, a Go select falls through to a default branch, a Node stream returns false from write() and emits drain. The failure mode to avoid is the fake-async version: an unbounded in-memory list \"so nothing blocks\", which is an unbounded queue with better marketing. Idioms Runtime Signal .NET Channels WaitToWriteAsync / TryWrite Go select with default Node streams write() false, then drain Project Reactor onBackpressureBuffer/Drop/Latest How it relates Whatever the idiom, the design question is identical: block, drop, or push the signal further upstream."
+        },
+        {
+          "id": "term-lossy-backpressure",
+          "term": "Lossy backpressure",
+          "def": "When you cannot slow the producer — sensors, market data, user events — so you drop deliberately instead.",
+          "detail": "Some producers genuinely cannot be slowed: a sensor keeps sensing, a market keeps ticking, a user keeps clicking. The correct response is to choose the drop policy rather than let the buffer choose for you — keep the newest, keep a sample, or conflate several updates into one. Conflation is often the best answer for state updates: if three price ticks arrive while you were busy, the consumer only needs the last one, and dropping the first two loses nothing. Drop policies Policy Use for Drop oldest state updates — latest wins Drop newest when order matters more than freshness Conflate / coalesce prices, positions, presence Sample metrics, telemetry Spill to disk when nothing may be lost How it relates This is where backpressure and load shedding meet: a bounded buffer with a chosen drop policy is both."
+        },
+        {
+          "id": "term-end-to-end-backpressure",
+          "term": "End-to-end backpressure",
+          "def": "The signal is only useful if it reaches a component that can act — usually the edge, or the job scheduler.",
+          "detail": "A bounded queue in the middle of a chain stops that queue growing, but if the layer above simply buffers instead, you have moved the bloat rather than removed it. The signal has to travel until it reaches something that can slow down (a batch job, a poller) or say no (the edge talking to a client). The practical test: when the database slows down, does the user get a fast 503, or a two-second timeout? Only the first means your backpressure is connected end to end. Who can actually act Component Possible response Edge / API gateway return 429/503 with Retry-After Batch job, poller genuinely slow down Queue consumer stop fetching; lag builds safely Middle-tier service only propagate — it cannot decide How it relates The second animation is this signal travelling four layers to the one place it is useful."
+        },
+        {
+          "id": "term-queue-as-a-shock-absorber",
+          "term": "Queue as a shock absorber",
+          "def": "The legitimate use: absorbing short bursts, with a bound set by how long a burst can last.",
+          "detail": "Queues are not the enemy. A consumer averaging 800 a second against traffic that peaks at 1,200 for two seconds needs somewhere to put 800 items, and a buffer is exactly right. The distinction is that a shock absorber is sized for a known burst and drains afterwards; a bloated buffer is absorbing a mismatch that never ends. So size from the burst, then alert when the queue fails to drain — a queue that is never empty is not absorbing bursts, it is hiding a capacity problem. Healthy or hiding? Observation Meaning Empties several times a minute healthy shock absorber Never empty under-provisioned; bound it Monotonically growing outage in progress How it relates \"Does it drain?\" is a better health check than any absolute depth threshold."
+        }
+      ],
+      "related": [
+        "load-shedding",
+        "circuit-breaker",
+        "rate-limiting",
+        "littles-law",
+        "queueing-theory",
+        "kafka"
       ]
     },
     {
@@ -1075,9 +1259,192 @@
         "database-performance",
         "redis",
         "azure-api-management",
+        "graceful-degradation",
         "cqrs",
-        "cqs",
-        "back-of-the-envelope"
+        "cqs"
+      ]
+    },
+    {
+      "slug": "circuit-breaker",
+      "url": "cheatsheets/circuit-breaker.html",
+      "title": "Circuit breaker",
+      "aliases": [
+        "Circuit breaker",
+        "circuit breakers",
+        "breaker",
+        "half-open",
+        "bulkhead",
+        "outlier detection",
+        "fail fast"
+      ],
+      "tagline": "Stop calling the thing that is broken. You are not helping it, and it is destroying you.",
+      "asOf": "As of Nov 2026 · named by Michael Nygard in Release It!, 2007 · examples use Polly, Resilience4j and Envoy",
+      "description": "Circuit breaker cheatsheet: closed, open and half-open states, what counts as a failure, bulkheads, and how a breaker stops one slow dependency taking a whole service down.",
+      "tags": [
+        "circuit breaker",
+        "resilience",
+        "bulkhead",
+        "cascading failure",
+        "timeout",
+        "fallback",
+        "polly",
+        "resilience4j",
+        "envoy",
+        "microservices"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential code patterns"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-circuit-breaker",
+          "term": "Circuit breaker",
+          "def": "A state machine around a dependency that stops calling it once it is clearly failing, and probes later to see whether it recovered.",
+          "detail": "Borrowed from electrical engineering, where a breaker trips to protect the circuit, not the fault. The software version protects the caller: it stops you spending threads, connections and time on calls that are going to fail anyway, and incidentally gives the struggling dependency some quiet. It is deliberately simple — three states, two thresholds and a timer — and almost all the value comes from the fast failure rather than from any cleverness in the counting. Who it protects Mechanism Protects From Circuit breaker the caller a failing dependency Load shedding yourself your own overload Rate limiting you and other tenants one noisy client Backpressure the whole chain unbounded queueing How it relates Pair it with a fallback: a fast failure is only useful if you have something to do with it."
+        },
+        {
+          "id": "term-closed",
+          "term": "Closed",
+          "def": "The normal state: calls pass through and their outcomes are recorded in a rolling window.",
+          "detail": "Closed is not \"not monitoring\". Every call's outcome feeds a window, and the breaker evaluates the failure rate continuously. The cost is a couple of atomic operations per call, which is why breakers can sit in front of every dependency without being noticeable. The important design decision in this state is what counts as a failure — get that wrong and the breaker either never trips or trips constantly. How it relates A breaker that has never opened in production is usually misconfigured, not lucky."
+        },
+        {
+          "id": "term-open",
+          "term": "Open",
+          "def": "The tripped state: calls fail immediately without touching the dependency.",
+          "detail": "Two things happen at once. The caller stops paying a timeout per call, so its threads and connections are returned immediately; and the dependency stops receiving traffic, which is frequently what it needs to recover — a service being hammered by retries cannot drain its own backlog. From the caller's perspective the failure is now fast and deterministic: it knows instantly that the feature is unavailable, which is what makes a sensible fallback possible. What changes when it opens Closed and failing Open Latency per call 2,000 ms ~1 ms Workers occupied all of them none Load on dependency full, plus retries zero Caller's other features starved unaffected How it relates Open is where graceful degradation takes over — the breaker hands it a clean signal."
+        },
+        {
+          "id": "term-half-open",
+          "term": "Half-open",
+          "def": "The trial state: a strictly limited number of calls are allowed through to test whether the dependency has recovered.",
+          "detail": "The limit is the entire point. If the breaker simply closed after the cooldown, a recovering service would receive the full traffic rate in one instant and fall straight over, tripping the breaker again — a flapping loop that can continue indefinitely. Allowing two or three concurrent probes while everything else keeps failing fast lets you learn whether it is healthy at almost no cost to it. Why the probe limit exists How it relates Same reasoning as hysteresis in load shedding: never flip state on a single observation."
+        },
+        {
+          "id": "term-failure-threshold",
+          "term": "Failure threshold",
+          "def": "The rate and volume of failures that trip the breaker — expressed as a percentage over a minimum number of calls.",
+          "detail": "Use a rate rather than a count: \"5 consecutive failures\" behaves completely differently at 10 requests a second and at 10,000. Fifty percent over a window of twenty calls is a reasonable starting point for most internal dependencies. Lower thresholds for dependencies that are optional (fail fast and degrade), higher for ones you cannot do without (if the breaker opens the feature is dead anyway, so give it more chances). Starting points Dependency Threshold Break Optional enrichment 25% of 20 10 s Normal internal service 50% of 20 30 s Critical, no fallback 70% of 50 5 s Third-party API 50% of 20 60 s How it relates Tune from your actual error-rate distribution, not from a blog post's defaults — including this one."
+        },
+        {
+          "id": "term-minimum-throughput",
+          "term": "Minimum throughput",
+          "def": "The requirement that enough calls have been seen before the breaker is allowed to trip.",
+          "detail": "Without it, one failure out of two calls is a 50% failure rate and trips the breaker on a quiet endpoint. With a minimum of twenty calls per window, the breaker ignores statistically meaningless samples — which matters most at night, when traffic is low and a single blip would otherwise disable a feature until morning. How it relates Low-traffic dependencies may need active health checks instead; a breaker needs volume to see anything."
+        },
+        {
+          "id": "term-rolling-window",
+          "term": "Rolling window",
+          "def": "The recent history the failure rate is computed over — by count or by time.",
+          "detail": "A count-based window (\"the last 100 calls\") reacts consistently regardless of traffic but can hold stale information on a quiet endpoint. A time-based window (\"the last 10 seconds\") always reflects the present but may contain too few samples to be meaningful. Most libraries offer both; time-based with a minimum-throughput guard is the safer default. Trade-off Count-based Time-based Consistent sample size yes no Always current no yes Needs min-throughput guard less yes How it relates Window length also sets how fast the breaker can close again after recovery."
+        },
+        {
+          "id": "term-what-counts-as-a-failure",
+          "term": "What counts as a failure",
+          "def": "The most consequential configuration choice, and the one most often left at its default.",
+          "detail": "Timeouts, connection errors and 5xx responses are failures. A 404 or a 400 is not — the dependency answered correctly, and counting those means a client sending bad input can trip your breaker and disable a feature for everybody. A 429 is a judgement call: it usually means you should back off, which is breaker-like behaviour, but it also means the service is alive. And business exceptions must never count. \"Insufficient funds\" is a successful call with an unwelcome answer. Classification Outcome Failure? Timeout, connection refused yes 500, 502, 503, 504 yes Call slower than the limit yes — slow is broken 400, 404, 409, 422 no 429 usually no; back off instead Business exception never How it relates Counting 4xx as failures is the most common way a breaker becomes an outage amplifier."
+        },
+        {
+          "id": "term-slow-call-breaker",
+          "term": "Slow-call breaker",
+          "def": "Tripping on latency as well as errors, because a dependency that answers in eight seconds is broken even if it answers correctly.",
+          "detail": "The dangerous failure mode is not the one that throws — it is the one that slowly succeeds. A dependency returning 200s at eight seconds each will fill every worker you own without ever incrementing an error counter, so an error-only breaker sits closed throughout the outage. Resilience4j calls this the slow-call rate threshold; Polly expresses it through a timeout strategy that converts slowness into a failure the breaker can see. Typical settings Setting Example Slow-call duration 2× the p99 Slow-call rate threshold 50% Timeout below the caller's own deadline How it relates Without a timeout there is no slow-call signal at all, which is why timeouts come first."
+        },
+        {
+          "id": "term-timeout",
+          "term": "Timeout",
+          "def": "The prerequisite: a breaker cannot count a failure that never finishes.",
+          "detail": "A call with no timeout can hang for the lifetime of the connection, and many HTTP clients default to no timeout at all. The breaker sees neither a success nor a failure — just a worker that never comes back — so it stays closed while the service dies. Set the timeout below the caller's own deadline, and make sure it covers connect, TLS, send, and read — \"connection timeout\" alone is not enough. Order to apply # Layer 1 Timeout — bound every call 2 Bulkhead — bound concurrency 3 Circuit breaker — stop calling 4 Retry — only outside the breaker 5 Fallback — do something useful How it relates Getting this order wrong — especially retry inside the breaker — produces surprising behaviour."
+        },
+        {
+          "id": "term-bulkhead",
+          "term": "Bulkhead",
+          "def": "A bounded pool per dependency, so no single one can occupy all your workers while it fails.",
+          "detail": "Named after ship compartments: flooding one should not sink the vessel. Give payments five concurrent slots out of twenty, and a payments outage can consume at most a quarter of your capacity — the other fifteen workers keep serving everything that does not need payments. It is the half of the pattern that works before the breaker trips, during the window when failures are accumulating but the threshold has not been reached. Many cascading failures happen entirely inside that window. Sizing Dependency Share of the pool Critical, most requests use it large Optional enrichment small — 10–20% Known-flaky third party small, plus a tight timeout How it relates Bulkheads apply the same idea as per-queue separation against head-of-line blocking."
+        },
+        {
+          "id": "term-fallback",
+          "term": "Fallback",
+          "def": "What you actually do when the breaker is open — the part that turns a fast failure into a working product.",
+          "detail": "A breaker with no fallback converts a slow error into a fast error, which helps your infrastructure and not your user. The valuable version substitutes something: a cached value, a stale-but-acceptable answer, a default, a reduced feature set, or an honest \"unavailable right now\" that the UI handles well. Fallbacks must be cheap and must not depend on the thing that is broken — a fallback that calls a second service in the same failing cluster is not a fallback. Fallbacks, best first Fallback Good for Serve stale from cache catalogue, prices, profiles A sensible default recommendations, ranking Omit the section optional page content Queue for later writes that can be async Honest error payments — never fake a success How it relates The graceful degradation page is about designing these fallbacks as a product, not an afterthought."
+        },
+        {
+          "id": "term-breaker-per-dependency",
+          "term": "Breaker per dependency",
+          "def": "One breaker per downstream service — and often per endpoint — never one global breaker.",
+          "detail": "A shared breaker means a failing recommendations service can disable your payments calls. Scope each breaker to the thing that can fail independently: usually per service, and per endpoint when one route is much heavier or more fragile than the others. Per- instance scoping matters too: if one of six replicas is bad, a service-level breaker sees a 17% failure rate and never trips, while the bad instance keeps failing a sixth of your traffic. That is what outlier detection solves. Scope Scope Verdict Global never — unrelated failures couple Per service the default Per endpoint when costs differ a lot Per instance outlier detection, usually in a proxy How it relates Envoy's outlier detection ejects individual bad hosts, which a client-side breaker cannot see."
+        },
+        {
+          "id": "term-outlier-detection",
+          "term": "Outlier detection",
+          "def": "Passive per-instance health checking: eject the single bad replica instead of tripping on the whole service.",
+          "detail": "Service meshes watch per-host error rates and remove a misbehaving instance from the load-balancing pool for a while, returning it gradually. This handles the very common case that a breaker is bad at: one unhealthy pod out of many, which never produces a high enough aggregate failure rate to trip anything. It composes well — outlier detection for instance-level problems, a breaker for service-level ones. Typical Envoy settings Setting Meaning consecutive_5xx errors before ejecting a host base_ejection_time how long it stays out max_ejection_percent never eject the whole pool How it relates In a mesh this is free; without one, client-side load balancers often provide something similar."
+        },
+        {
+          "id": "term-retries-and-breakers",
+          "term": "Retries and breakers",
+          "def": "They interact badly unless you decide which sits inside which.",
+          "detail": "If the retry is inside the breaker, one logical call produces three recorded failures and the breaker trips three times faster than you configured. If the retry is outside, it will dutifully retry the breaker's instant rejections, converting a fast failure into a fast loop. The usual arrangement: timeout, then retry, then breaker — so the breaker records one outcome per logical operation — and the retry policy must treat the breaker's open-circuit exception as non-retryable. Rules Rule Why One outcome per logical call thresholds mean what you set Never retry an open circuit otherwise it is a busy loop Retry only idempotent calls a timeout may have succeeded Budget retries globally caps amplification How it relates Retry amplification is covered in detail on the backpressure page."
+        },
+        {
+          "id": "term-half-open-stampede",
+          "term": "Half-open stampede",
+          "def": "The failure where recovery itself re-breaks the dependency, over and over.",
+          "detail": "Fifty caller instances each open a breaker at the same moment, and thirty seconds later all fifty probe simultaneously. The recovering service receives a synchronised burst, falls over, and every breaker reopens — forever, on a thirty-second cycle. Fixes: cap concurrent probes per instance, jitter the break duration, and increase the cooldown after each failed probe so the system backs off instead of pulsing. Defences Defence Effect Probe limit (1–3) tiny load per instance Jittered break duration desynchronises the fleet Exponential break increase backs off after repeated failures Ramp traffic on close no instant full load How it relates The animation inside half-open walks this failure and its fix."
+        },
+        {
+          "id": "term-observability",
+          "term": "Observability",
+          "def": "State transitions are incidents in their own right, and should be visible as events rather than inferred from error graphs.",
+          "detail": "Export the current state per breaker, a counter of transitions, the rolling failure rate, and how many calls were rejected while open. A breaker opening is one of the highest-signal events in a distributed system — it means something downstream is genuinely broken, and it usually precedes the user-visible symptoms. It is also worth alerting on breakers that have never opened: usually a sign of a threshold that cannot be reached, which means the protection does not exist. Metrics Metric Use breaker_state dashboard, per dependency breaker_transitions_total flapping detection breaker_rejected_total blast radius while open fallback_used_total is the fallback actually working? How it relates Rejections while open are shed requests — count them separately from errors, as on the load-shedding page."
+        }
+      ],
+      "related": [
+        "graceful-degradation",
+        "backpressure",
+        "load-shedding",
+        "sidecar-pattern",
+        "saga-pattern",
+        "rate-limiting"
       ]
     },
     {
@@ -1242,12 +1609,12 @@
         }
       ],
       "related": [
+        "event-store",
         "domain-driven-design",
         "outbox-pattern",
         "cqs",
         "caching-strategies",
-        "database-performance",
-        "modular-monolith"
+        "database-performance"
       ]
     },
     {
@@ -1409,7 +1776,8 @@
         "caching-strategies",
         "domain-driven-design",
         "rate-limiting",
-        "database-performance"
+        "database-performance",
+        "event-storming"
       ]
     },
     {
@@ -1599,7 +1967,7 @@
         "caching-strategies",
         "back-of-the-envelope",
         "percentiles",
-        "outbox-pattern"
+        "queueing-theory"
       ]
     },
     {
@@ -1961,11 +2329,555 @@
       ],
       "related": [
         "cqrs",
+        "event-storming",
+        "event-store",
         "backend-for-frontend",
         "outbox-pattern",
+        "modular-monolith"
+      ]
+    },
+    {
+      "slug": "event-store",
+      "url": "cheatsheets/event-store.html",
+      "title": "Event store",
+      "aliases": [
+        "Event store",
+        "event sourcing",
+        "event-sourced",
+        "append-only log",
+        "event stream",
+        "KurrentDB",
+        "EventStoreDB",
+        "stream version"
+      ],
+      "tagline": "Store what happened, not what is. Everything else is a fold over the facts.",
+      "asOf": "As of Nov 2026 · examples use PostgreSQL, Marten and KurrentDB 26.0 LTS (renamed from EventStoreDB at 25.0)",
+      "description": "Event store cheatsheet: append-only streams as the system of record, folding events back into state, optimistic concurrency by stream version, snapshots, subscriptions and schema versioning.",
+      "tags": [
+        "event store",
+        "event sourcing",
+        "append-only",
+        "streams",
+        "projections",
+        "snapshots",
+        "optimistic concurrency",
+        "cqrs",
+        "kurrentdb",
+        "audit"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential code patterns"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-event",
+          "term": "Event",
+          "def": "An immutable record that something happened, named in the past tense and never modified after it is written.",
+          "detail": "The unit of storage. OrderPlaced, ItemAdded, AddressCorrected. An event records a decision that was already taken, so it cannot be rejected and cannot be edited — a mistake is corrected by appending another event, exactly as an accountant posts a correcting entry rather than erasing a line. Keep the payload about the business, not the row. Storing a full entity snapshot inside every event couples consumers to your internal model and destroys most of the benefit. Anatomy Field Why type + version routing and upcasting data what changed, in business terms metadata who, when, correlation, causation stream_id + version position within the aggregate How it relates These are the same orange notes from an EventStorming wall, made durable."
+        },
+        {
+          "id": "term-stream",
+          "term": "Stream",
+          "def": "The ordered sequence of events for one thing — normally one stream per aggregate instance.",
+          "detail": "order-42, account-7731, shipment-9c2. The stream is the unit of consistency: you read one to load an aggregate and append to one to change it, and the store guarantees ordering inside it. Stream design is the main modelling decision. Too coarse (all-orders) and every write contends on one stream; too fine and a single business rule spans several, which it must not. The aggregate boundary is almost always the right granularity. Choosing granularity Design Result One per aggregate correct; the default One per entity type write contention, huge streams One per user session invariants span streams — broken Unbounded lifetime stream needs closing and snapshots How it relates A stream is the storage form of a DDD aggregate's consistency boundary."
+        },
+        {
+          "id": "term-append-only",
+          "term": "Append-only",
+          "def": "The single rule: events are added at the end and never updated or deleted.",
+          "detail": "Everything else follows from this. Writes are sequential, which is the fastest thing a disk does; there are no update conflicts at the row level; history is complete by construction; and any derived view can be rebuilt because the inputs never changed. It also means mistakes are permanent in the log. A wrong amount is fixed by appending a correction, not by editing, which is unfamiliar at first and is exactly how financial systems have always worked. What it buys Property Consequence Sequential writes very fast, no in-place updates Immutability projections are always rebuildable Complete history audit is storage, not a feature No deletes GDPR needs a deliberate answer How it relates The deletion problem has its own answer — see crypto-shredding."
+        },
+        {
+          "id": "term-stream-version",
+          "term": "Stream version",
+          "def": "The sequence number of an event within its stream — the basis for both ordering and concurrency control.",
+          "detail": "Versions start at 1 (or 0, depending on the store) and increase by one per event. They give deterministic ordering inside a stream and are what a reader uses to resume. They are not global: version 4 of order-42 says nothing about when it happened relative to order-43. Two kinds of position Position Scope Use Stream version one stream concurrency, rehydration Global position whole store projections, subscriptions How it relates Projections checkpoint on the global position, aggregates on the stream version."
+        },
+        {
+          "id": "term-optimistic-concurrency",
+          "term": "Optimistic concurrency",
+          "def": "Appending with the version you expected to find, so a concurrent writer is rejected instead of silently overwriting.",
+          "detail": "You read order-42 to version 3, decide, and append with expectedVersion: 3. If someone else got there first the stream is at 4 and the store rejects your append with a wrong-expected-version error. No locks are held between read and write, and the aggregate's invariant is still protected. The retry must re-decide, not just re-append: the event that beat you may have invalidated the decision — another item may have taken the order past its ten-item limit. Expected version options Value Means A number stream must be exactly here \"no stream\" creating it; fails if it exists \"stream exists\" must already exist \"any\" no check — gives up the invariant How it relates Steps 7–10 of the first animation are one collision and its correct retry."
+        },
+        {
+          "id": "term-folding",
+          "term": "Folding",
+          "def": "Rebuilding current state by applying every event in order to an empty starting value. Also called rehydration or replay.",
+          "detail": "state = events.Aggregate(Empty, Apply). The Apply method must be pure and must never reject anything — an event already happened, so applying it cannot fail. All validation lives in the command handling, before the event is created. That split is what makes the model easy to test: feed a list of events, assert the state, with no database anywhere in the test. Two methods, two jobs Method May reject? Side effects Decide(command) yes — invariants here returns events Apply(event) never mutates state only How it relates A read model is the same fold, kept outside the aggregate and persisted."
+        },
+        {
+          "id": "term-snapshot",
+          "term": "Snapshot",
+          "def": "A stored copy of folded state at a given version, so long streams do not have to be replayed from the beginning.",
+          "detail": "Load the snapshot at version 9,900 and apply the hundred events after it. It is purely an optimisation and must never become the source of truth: if the fold logic changes, you delete every snapshot and let them rebuild. Most aggregates never need one. Reach for snapshots when a stream genuinely grows without bound — a long-lived account, a device that emits telemetry — and consider whether the aggregate should instead be closed and a new stream started per period. Ten thousand events, or a hundred How it relates Snapshots are to aggregates what read models are to queries: derived, disposable, rebuildable."
+        },
+        {
+          "id": "term-global-position",
+          "term": "Global position",
+          "def": "The order of an event across the whole store, used by anything that reads more than one stream.",
+          "detail": "Often exposed as a virtual stream ($all in KurrentDB, a seq column in a relational implementation). It is what a projection follows, because a read model usually spans thousands of aggregates and needs a single ordering to checkpoint against. Be careful with its meaning in distributed stores: \"global order\" may be per partition, and a gap can be an in-flight transaction rather than a missing event. Read your store's guarantees before assuming a dense sequence. How it relates In a Postgres implementation, gaps from concurrent transactions are the classic subtle projection bug."
+        },
+        {
+          "id": "term-subscription",
+          "term": "Subscription",
+          "def": "A reader that follows the log — from the beginning, from a position, or from now — and is pushed new events as they arrive.",
+          "detail": "Two shapes. A catch-up subscription reads history then stays live, with the client owning the checkpoint — the right choice for projections, because you control replay. A persistent (competing-consumer) subscription has the server track position and distribute events across workers, which suits work queues but gives up ordering. Picking one Need Subscription Build a read model catch-up, client checkpoint Rebuild from scratch catch-up from 0 Parallel work queue persistent / competing React only to new events catch-up from \"now\" How it relates Catch-up subscriptions are what make CQRS projections rebuildable."
+        },
+        {
+          "id": "term-checkpoint",
+          "term": "Checkpoint",
+          "def": "The position a subscriber has processed up to, stored next to whatever it produced.",
+          "detail": "Written in the same transaction as the rows it produced, so the pair is atomic: on restart the subscriber resumes rather than replaying or skipping. The gap between the log head and a checkpoint is the lag metric for that reader. How it relates Identical mechanics to a CQRS projection checkpoint — because that is exactly what it is."
+        },
+        {
+          "id": "term-projection",
+          "term": "Projection",
+          "def": "Any derived view built by folding events — a read model, a report, a search index, an aggregate's own state.",
+          "detail": "Because the log is immutable, every projection is disposable: delete it, reset the checkpoint, replay, and it comes back. Read-side schema changes become replays instead of migrations, which is the single most liberating operational property of an event store. Projections must be idempotent, since subscriptions redeliver after a restart. Kinds Projection Lives in Read model for a screen SQL table Search index Elasticsearch Aggregate state memory, per request Analytics feed warehouse How it relates An event store plus projections is the fullest form of CQRS."
+        },
+        {
+          "id": "term-schema-versioning",
+          "term": "Schema versioning",
+          "def": "Events are forever, so the code must keep reading the shapes it wrote years ago.",
+          "detail": "You cannot migrate an immutable log by running an ALTER. A 2024 OrderPlaced with no currency field will still be replayed in 2034, so every change must be backwards compatible: add optional fields, never rename or repurpose, never change the meaning of an existing one. This is the discipline event sourcing demands most consistently, and the one teams underestimate most reliably. Safe and unsafe changes Change Safe? Add an optional field yes Add a new event type yes Rename a field no — upcast instead Change a field's meaning no — new event type Remove a field only once nothing reads it How it relates Internal events can evolve more freely than the integration events other contexts consume."
+        },
+        {
+          "id": "term-upcasting",
+          "term": "Upcasting",
+          "def": "Translating an old event shape into the current one as it is read, so the rest of the code only sees the latest version.",
+          "detail": "A small function per version transition, applied on the read path: v1 gets a default currency, v2's renamed field is mapped, v3 is passed through. The aggregate and projections only ever handle the newest shape, and the stored bytes stay untouched. The alternative — rewriting the log into a new one — is a big, risky migration and loses the guarantee that history is what actually happened. Prefer upcasting until the chain becomes genuinely unreadable. Strategies Strategy When Upcast on read default; cheap and reversible Weak schema (tolerant reader) additive changes only New event type the meaning really changed Copy-and-transform the stream last resort How it relates Keep upcasters covered by tests built from real old payloads, not from the current class."
+        },
+        {
+          "id": "term-correction-event",
+          "term": "Correction event",
+          "def": "How you fix a mistake in an append-only world: append the opposite, do not edit the past.",
+          "detail": "AmountCorrected, ChargeReversed, AddressCorrected. The original stays, the correction follows, and the fold produces the right answer. Anyone who needs to know what the system believed last Tuesday still can — which is the entire reason for the design. Name corrections explicitly rather than re-emitting the original event type, so projections can treat them differently if they need to. How it relates This is exactly how a ledger works, and for the same reasons."
+        },
+        {
+          "id": "term-crypto-shredding",
+          "term": "Crypto-shredding",
+          "def": "Deleting personal data from an immutable log by encrypting it per subject and destroying the key.",
+          "detail": "\"Never delete\" meets the right to erasure. The usual answer: store each person's personal fields encrypted with a key held per subject in a separate, mutable key store. Erasure deletes the key, after which the payload is unrecoverable noise while the stream's structure, ordering and versions stay intact. Design it in from the start. Retrofitting it onto a log that already holds plaintext means either a full stream rewrite or a legal problem. Options Approach Trade-off Crypto-shredding standard; needs upfront design Keep PII outside the log simplest; events hold references Rewrite the stream breaks immutability and audit How it relates Projections must handle an unreadable payload gracefully, not crash on replay."
+        },
+        {
+          "id": "term-temporal-query",
+          "term": "Temporal query",
+          "def": "Asking what the state was at a past moment, by folding only the events up to it.",
+          "detail": "\"What did this order look like before the address change?\" is a filter and a fold, not a feature request. The same mechanism answers \"what did we believe when we made that decision?\" — which is the question auditors, regulators and incident reviews actually ask. It is also the best debugging tool in the model: replay a customer's exact history into a test and watch the bug happen. How it relates In a state-based database this requires a separate temporal table, maintained by hand and usually incomplete."
+        },
+        {
+          "id": "term-storage-growth",
+          "term": "Storage growth",
+          "def": "The log only ever grows, so replay time, storage cost and archiving are planned work, not surprises.",
+          "detail": "Events are small, so raw volume is rarely the problem; replay time is. Measure a full rebuild early and watch the trend, because a projection that takes eleven hours to rebuild is effectively not rebuildable when you need it at 3 a.m. The usual levers: snapshots for long aggregates, closing streams per period rather than letting them run forever, and archiving cold streams to object storage with a documented way to bring them back. Plan for Concern Lever Slow aggregate load snapshots Slow projection rebuild parallel replay, partitioned projections Unbounded streams close per period, start a new one Cost archive cold streams How it relates Rehearse a full rebuild in CI; it is the test that stops this becoming a crisis."
+        }
+      ],
+      "related": [
+        "cqrs",
+        "domain-driven-design",
+        "outbox-pattern",
+        "event-storming",
+        "saga-pattern",
+        "kafka"
+      ]
+    },
+    {
+      "slug": "event-storming",
+      "url": "cheatsheets/event-storming.html",
+      "title": "EventStorming",
+      "aliases": [
+        "EventStorming",
+        "Event Storming",
+        "event storming",
+        "Big Picture EventStorming",
+        "Design-Level EventStorming",
+        "pivotal event",
+        "hotspot"
+      ],
+      "tagline": "Put everyone who knows something in front of one very long wall, and find out what the business actually does.",
+      "asOf": "As of Nov 2026 · invented by Alberto Brandolini, 2013 · a workshop format, not a notation",
+      "description": "EventStorming cheatsheet: the sticky-note grammar, the three levels, how a wall of orange notes becomes bounded contexts, and how the picture maps one-to-one onto code.",
+      "tags": [
+        "eventstorming",
+        "event storming",
+        "ddd",
+        "workshop",
+        "domain modelling",
+        "bounded context",
+        "facilitation",
+        "discovery",
+        "brandolini",
+        "collaborative design"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Running one — the practical bits"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-domain-event",
+          "term": "Domain event",
+          "def": "Something that happened in the business, written in the past tense on an orange sticky — the atom of the whole method.",
+          "detail": "Order Placed, Payment Declined, Parcel Returned. The past tense is not a style rule: it forces the group to describe facts rather than wishes, screens or tables. \"Order management\" is not an event; \"Order Cancelled\" is, and it immediately invites the next question — by whom, and what happens next? Events are also the one vocabulary that domain experts and developers already share. Nobody has to learn UML, and nobody gets to hide behind \"the system updates the record\". Is it an event? Written Verdict Order Placed yes Order Management no — a noun, not a fact Place Order no — that is a command Order Row Updated no — database, not business Payment Declined by Issuer yes — and a useful one How it relates At design level these become the domain events in the code, and the records in an event store."
+        },
+        {
+          "id": "term-chaotic-exploration",
+          "term": "Chaotic exploration",
+          "def": "The opening phase: everyone writes events at once, in silence, without agreeing an order or a format first.",
+          "detail": "Deliberately unmanaged. Parallel writing means a room of fifteen produces in eight minutes what a round-table discussion would produce in two hours — and because nobody is presenting, quiet people contribute as much as loud ones. Resist the urge to tidy. Duplicates, wrong tenses and contradictions are information: a word two people spell differently is a vocabulary problem you were going to discover in production anyway. Facilitator's rules Rule Why Everyone writes simultaneously parallelism is the point No discussion yet discussion serialises the room Past tense, one fact per note keeps notes movable Do not deduplicate duplicates reveal language gaps How it relates Steps 1–2 of the first animation."
+        },
+        {
+          "id": "term-timeline",
+          "term": "Timeline",
+          "def": "Arranging the events left to right in the order they happen — the move that turns a wall of notes into a model.",
+          "detail": "Enforcing an order is where the real work starts, because it forces the room to agree on sequence, and sequence is where people discover they disagree. Parallel branches get stacked vertically; alternative outcomes (Payment Declined beside Payment Taken) sit above or below the happy path. Do not try to make it tidy. A wall with a readable spine and messy branches is far more useful than a neat diagram that smoothed over an argument. Shapes you will see Shape Means A long straight spine the happy path Vertical stacking things happening in parallel A big gap nobody in the room owns that part A dense cluster complexity worth zooming into later How it relates Gaps in the timeline are usually missing people, not missing events."
+        },
+        {
+          "id": "term-hotspot",
+          "term": "Hotspot",
+          "def": "A red sticky placed on a disagreement, an unknown or a risk — parked rather than resolved.",
+          "detail": "Two people give different answers about when stock is reserved. The instinct is to settle it; the discipline is to write it on a red note, rotate it 45 degrees so it is impossible to miss, and move on. One argument can consume an entire workshop, and it is rarely the most important one. Hotspots are frequently the highest-value output of the session: a list of things the business does not actually know about itself, each one a question to answer before anyone writes code against it. What earns a red note Trigger Example Disagreement \"we reserve before payment\" / \"after\" Nobody knows \"what happens on a partial refund?\" Hidden complexity \"this is where the 2019 spreadsheet lives\" Missing person \"only compliance can answer this\" How it relates Photograph the hotspots and turn them into a question list; that list is the agenda for the next session."
+        },
+        {
+          "id": "term-pivotal-event",
+          "term": "Pivotal event",
+          "def": "A moment where the business visibly changes phase — marked with a vertical line that often becomes a boundary.",
+          "detail": "Order Placed, Payment Settled, Parcel Delivered. Before and after a pivotal event the language changes, the people change, and often the rules change. Those are exactly the seams you want your software to break along. Choosing them is quick and surprisingly uncontroversial: ask the room \"where does this stop being one kind of work and start being another?\" and the answers usually agree. Pivots becoming boundaries How it relates Pivotal events are the cheapest way to find candidate bounded contexts before committing them to code."
+        },
+        {
+          "id": "term-command",
+          "term": "Command",
+          "def": "A blue sticky naming an intention in the imperative — the thing a person or system tried to do.",
+          "detail": "For every event, ask what caused it. Usually the answer is a command: Place Order, Cancel Booking, Approve Invoice. The crucial difference from an event is that a command can be refused — which is why the next question is always \"who decides?\". Commands are also the cleanest handover to code: one command, one handler, one intention. A command with no corresponding event is suspicious; so is an event with no command, unless it came from outside or from time passing. Causes of an event Cause Sticky Someone did something command + actor Another event happened policy Something outside external system Time passed a policy on a schedule How it relates This is the same command/event distinction CQS and CQRS are built on."
+        },
+        {
+          "id": "term-actor",
+          "term": "Actor",
+          "def": "A small yellow sticky naming the person or role that issues a command, and why they would.",
+          "detail": "Not a user account — a role with a motivation: \"warehouse supervisor chasing a late pick\", \"customer who has changed their mind\". Naming the actor forces the room to ask what that person can actually see before deciding, which is how read models get discovered. If a command has no actor, it is probably automatic, which means there is a policy hiding behind it. How it relates An actor with no read model in front of them is guessing — that is a design smell worth a hotspot."
+        },
+        {
+          "id": "term-aggregate",
+          "term": "Aggregate",
+          "def": "A big yellow sticky between a command and its event: the chunk of business that decides whether the command is allowed.",
+          "detail": "Brandolini's trick is to leave it nameless at first — just \"the thing that decides\". Only once the group can state the rule out loud (\"an order cannot exceed ten items\") does the sticky get a name. That avoids the usual failure of naming entities first and inventing rules to fit them. At Big Picture level you can skip aggregates entirely. They belong to design-level sessions. How it relates Maps directly onto the DDD aggregate: the consistency boundary where the invariant lives."
+        },
+        {
+          "id": "term-policy",
+          "term": "Policy",
+          "def": "A lilac sticky stating a reaction: \"whenever X happened, then do Y\" — the glue between one event and the next command.",
+          "detail": "Policies are where business logic hides. \"Whenever payment is taken, reserve the stock\" sounds obvious; \"whenever payment is taken and the customer is in the EU and it is before 16:00, reserve the stock\" is three policies pretending to be one, and finding that out on a wall is far cheaper than finding it out in a code review. Read them aloud. If the sentence needs an \"if\", or an \"except\", split the note. Kinds of policy Trigger Example Another event whenever paid, reserve stock Time every night at 02:00, settle A threshold whenever stock < 10, reorder A human decision \"someone looks at it\" — name the actor How it relates A chain of policies across several contexts is a saga; in code it becomes a process manager."
+        },
+        {
+          "id": "term-read-model",
+          "term": "Read model",
+          "def": "A green sticky naming the information an actor looks at before issuing a command.",
+          "detail": "\"The picker looks at the pick list\"; \"the approver looks at the customer's credit history\". Making this explicit catches a very common design failure: a screen that does not show the one number the decision actually depends on. It also hands you your query requirements directly, which is why design-level EventStorming leads so naturally into CQRS. How it relates Each green sticky is a projection in a CQRS read side."
+        },
+        {
+          "id": "term-external-system",
+          "term": "External system",
+          "def": "A pink sticky for anything outside the boundary that emits or receives events — and that you cannot change.",
+          "detail": "Payment providers, carriers, the regulator's filing portal, the 1998 mainframe. Marking them pink makes the integration surface visible at a glance, and pink clusters are where schedule risk lives: every one is a contract you do not control, with its own failure modes and its own vocabulary. How it relates Each pink sticky is a candidate anti-corruption layer in DDD terms."
+        },
+        {
+          "id": "term-big-picture",
+          "term": "Big Picture",
+          "def": "The first level: a whole business or product explored in one session, with the widest possible group of people.",
+          "detail": "Four hours, fifteen to thirty people, eight metres of paper. Only orange events, plus red hotspots and maybe pink external systems — no commands, no aggregates. The output is a shared map, a list of unknowns, and candidate boundaries. Its real value is usually social: for many organisations it is the first time sales, operations, finance and engineering have described the same process in one room. Shape of the session Setting Typical Duration 3–4 hours People 15–30, mixed roles Stickies used orange, red, (pink) Output boundaries, hotspots, vocabulary How it relates Run this before deciding on services or modules — it is the cheapest boundary-finding tool there is."
+        },
+        {
+          "id": "term-process-modelling",
+          "term": "Process Modelling",
+          "def": "The middle level: one end-to-end flow worked out in detail, adding commands, policies, actors and read models.",
+          "detail": "Narrower scope, smaller group, more colours. This is where \"how does a refund actually work?\" gets answered completely, including the branches nobody documents: partial refunds, refunds after the parcel shipped, refunds on a card that has expired. The output is close to a specification, and usually good enough to start building from. How it relates Policies discovered here are what later become sagas or process managers."
+        },
+        {
+          "id": "term-design-level",
+          "term": "Design-Level",
+          "def": "The deepest level: one aggregate at a time, producing a model you can type in almost directly.",
+          "detail": "Three or four people, a couple of hours, one slice. Every command has an aggregate, every aggregate has stated invariants, every actor has a read model. At this point the wall and the code are isomorphic, and the handover is mechanical rather than interpretive. Do not try to reach this level for the whole system. Use it on the complex, differentiating parts — the core domain — and leave the rest alone. Sticky to code Sticky Code Command (blue) command + handler Aggregate (big yellow) aggregate root Event (orange) domain event Policy (lilac) process manager / saga Read model (green) projection External system (pink) anti-corruption layer How it relates Step 9 of the second animation is exactly this table."
+        },
+        {
+          "id": "term-bounded-context-discovery",
+          "term": "Bounded context discovery",
+          "def": "Reading candidate boundaries off the finished wall, where the language and the people change.",
+          "detail": "Look for three signals: a pivotal event, a change in vocabulary (the same word meaning something new), and a change in who is talking. Where all three coincide, draw a line — that is a candidate bounded context, and it was found in a morning rather than discovered after six months of building. Treat them as candidates, not conclusions. The wall is evidence, and boundaries are still a design decision. Signals Signal Strength Same word, different meaning strong Different people talking strong Pivotal event medium A gap in the timeline weak — may just be a missing person How it relates This is how most teams actually arrive at a context map."
+        },
+        {
+          "id": "term-unlimited-modelling-space",
+          "term": "Unlimited modelling space",
+          "def": "The deliberate constraint that the wall must never run out — because scarcity makes people stop writing.",
+          "detail": "Brandolini is emphatic about this. A small whiteboard silently tells participants to be selective, and selective is exactly what you do not want during exploration. Eight metres of butcher paper costs almost nothing and changes the behaviour of the room. The same applies remotely: give the board far more canvas than the session could possibly use, and never fit the model to a slide. Practical Setting Advice Paper 6–10 m, at standing height Chairs remove them Remote canvas effectively infinite; never zoom to fit How it relates Standing and a long wall are the two changes with the biggest effect on participation."
+        },
+        {
+          "id": "term-facilitation",
+          "term": "Facilitation",
+          "def": "The small set of behaviours that decide whether the session works: timeboxing, parking arguments, and keeping the loudest person off the wall.",
+          "detail": "The facilitator does not model. Their job is to keep everyone writing in parallel, to convert arguments into red hotspots, to stop one expert narrating while fourteen people watch, and to keep the timeline moving. A good session feels slightly uncomfortable and ends on time. The two most common failures are both social: an authority figure dictating the model, and the group sliding into solution design before the problem is on the wall. Moves that work Situation Move Two people arguing \"that is a hotspot\" — write it, move on One person narrating hand everyone a pen, restart parallel writing Drifting into solutions \"what happened?\", not \"what should we build?\" Wall gone quiet walk the timeline aloud, end to end Running out of time photograph it; hotspots are a valid ending How it relates Facilitation, not notation, is what separates a useful session from an expensive one."
+        }
+      ],
+      "related": [
+        "domain-driven-design",
+        "saga-pattern",
+        "cqrs",
+        "event-store",
         "modular-monolith",
-        "cqs",
-        "multitenancy"
+        "cqs"
+      ]
+    },
+    {
+      "slug": "graceful-degradation",
+      "url": "cheatsheets/graceful-degradation.html",
+      "title": "Graceful degradation",
+      "aliases": [
+        "Graceful degradation",
+        "degraded mode",
+        "fallback",
+        "static stability",
+        "feature flags",
+        "fail soft",
+        "brownout"
+      ],
+      "tagline": "Most of your page is optional. An outage should cost the user those parts, not all of them.",
+      "asOf": "As of Nov 2026 · the product half of resilience engineering; examples in C# and TypeScript",
+      "description": "Graceful degradation cheatsheet: critical versus optional dependencies, fallback ladders, feature flags and static stability — how to serve a smaller product instead of an error page.",
+      "tags": [
+        "graceful degradation",
+        "resilience",
+        "fallback",
+        "static stability",
+        "feature flags",
+        "availability",
+        "degraded mode",
+        "sre",
+        "failure",
+        "user experience"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential code patterns"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-graceful-degradation",
+          "term": "Graceful degradation",
+          "def": "Designing a feature so that losing part of it costs the user that part, rather than the whole thing.",
+          "detail": "The opposite is not \"ungraceful degradation\" but binary availability: the page works perfectly or it returns a 500. Almost every system is built that way by accident, because await makes every dependency look equally mandatory. It is a product discipline supported by technical mechanisms. The breaker, the timeout and the shedder produce a signal; graceful degradation is the decision about what that signal means for the person looking at the screen. Where it sits Layer Job Timeout bound one call Circuit breaker fail fast and deterministically Load shedding choose which requests to refuse Graceful degradation decide what the user still gets How it relates It is the only one of the four that a non-engineer has an opinion about — which is why it needs one."
+        },
+        {
+          "id": "term-critical-dependency",
+          "term": "Critical dependency",
+          "def": "One whose failure genuinely means the feature cannot work — and the list is almost always shorter than the code implies.",
+          "detail": "The test is blunt: if this returns nothing, can the user still accomplish the thing they came for? For a product page, catalogue and price are critical — you cannot sell an unnamed item at an unknown price. Everything else is decoration, however nice. Critical dependencies get the real engineering: replication, caching, fallbacks of their own, and an honest error page when all of it fails. Pretending something is critical when it is not simply buys you its downtime. The test Question If no… Can the user complete the task without it? critical Would a plausible default be wrong or unsafe? critical Would the user notice within a week? probably optional How it relates Each critical dependency multiplies into your achievable SLO; see composite availability on the SLI/SLO page."
+        },
+        {
+          "id": "term-optional-dependency",
+          "term": "Optional dependency",
+          "def": "One whose failure should change the page and not break it — the large majority, once you look.",
+          "detail": "Reviews, recommendations, personalisation, loyalty balances, recently-viewed, social proof, A/B assignment, analytics beacons. Each one is a service that can go down, and each one is a panel that can be absent without anyone being unable to buy anything. The engineering requirement is that the call must be unable to break the render: its own timeout, its own breaker, and a result type that permits absence. A null check is not a design. Typical treatment Dependency On failure Reviews omit the panel entirely Recommendations static bestsellers Stock level cached figure, or hide the count Loyalty points hide the row Analytics fire and forget, never await How it relates An optional dependency that can break the page is the single most common degradation bug."
+        },
+        {
+          "id": "term-availability-multiplication",
+          "term": "Availability multiplication",
+          "def": "The arithmetic that makes this worth doing: mandatory dependencies in series multiply, and the result falls fast.",
+          "detail": "Eight dependencies at 99.9% give 0.999⁸ = 99.20%, which is about seventy hours a year. Reclassify six of them as optional and the page inherits only 0.999² = 99.80% — four times better, with no change to any service's own reliability. This is the cheapest availability improvement available to most teams: it costs a day of classification and some error handling, rather than replicas, regions or rewrites. Mandatory dependencies in series Count at 99.9% Combined Per year 1 99.90% 8.8 h 2 99.80% 17.5 h 4 99.60% 35 h 8 99.20% 70 h How it relates The first animation is this table, built one dependency at a time."
+        },
+        {
+          "id": "term-fallback-ladder",
+          "term": "Fallback ladder",
+          "def": "An ordered list of progressively worse but still useful answers, tried in turn before giving up.",
+          "detail": "Live answer, then fresh cache, then stale cache, then a static default, then omit the element. Most teams implement rung one and rung five and nothing in between, which throws away the most valuable options — a ten-minute-old price is enormously better than no price. Write the ladder down per dependency, including how stale is too stale. \"Serve a cached price up to one hour old, then hide the buy button\" is a decision; \"catch and log\" is not. The rungs # Rung Cost 1 Live call normal 2 Fresh cache none 3 Stale cache accuracy 4 Static default relevance 5 Omit the feature How it relates The second animation descends this ladder one rung at a time on a real page."
+        },
+        {
+          "id": "term-stale-while-error",
+          "term": "Stale-while-error",
+          "def": "Serving the last known good value when the source is unavailable — usually the highest-value rung on the ladder.",
+          "detail": "An ordinary cache expires data and then goes to the origin. A degradation-aware cache keeps the expired entry and serves it when the origin fails — the HTTP stale-if-error directive formalises exactly this. The user sees a slightly old answer instead of an error, which is almost always the better trade. Two rules: label staleness where it matters (\"as of 14:02\"), and set a maximum age beyond which stale becomes dangerous — an hour-old price is fine, an hour-old fraud decision is not. Tolerance by data type Data Acceptable staleness Product description days Price minutes to an hour Stock count minutes, shown as approximate Account balance seconds, clearly labelled Auth / permissions none — never serve stale How it relates This is why a cache is a resilience component, not only a performance one."
+        },
+        {
+          "id": "term-static-stability",
+          "term": "Static stability",
+          "def": "Designing so that a failure causes the system to keep doing what it was already doing, rather than needing something to work.",
+          "detail": "Amazon's term for a powerful idea: the failure mode should be \"no change\" rather than \"no service\". A load balancer that keeps its last known healthy host list when the control plane is down is statically stable; one that needs the control plane to route is not. Applied to features: pre-compute and cache what the page needs so that an outage freezes the content instead of emptying it. The site keeps working on yesterday's data, which beats working on nothing. Stable or not Design On control-plane failure Cached config, used as-is keeps working — stable Config fetched per request stops — unstable Pre-provisioned capacity keeps serving Scale-up required to serve fails during the incident Two services, one control-plane outage How it relates The strongest version of degradation: nothing degrades, because nothing had to change."
+        },
+        {
+          "id": "term-fail-soft",
+          "term": "Fail soft",
+          "def": "The implementation rule for optional dependencies: their failure must be unable to reach the response.",
+          "detail": "In practice this means every optional call is wrapped: its own short timeout, its own breaker, its own try/catch, and a return type that can be empty. The template must then handle absence — a panel that throws on a null list has merely moved the failure. The subtle version is latency: an optional call with no timeout will not fail your page, it will just make it take eight seconds, which users experience as failure anyway. Checklist per optional call Control Typical Timeout well below the page budget — 100–300 ms Breaker aggressive; it is optional Result type nullable or empty collection Template renders correctly with nothing Never retry on the user's critical path How it relates A circuit breaker supplies the fast failure; fail-soft handling is what turns it into a working page."
+        },
+        {
+          "id": "term-degradation-levels",
+          "term": "Degradation levels",
+          "def": "Named, testable modes — full, reduced, minimal, read-only — rather than an unbounded space of partial failures.",
+          "detail": "With eight optional dependencies there are 256 combinations, and you cannot test 256 things. Defining three or four named levels collapses that: full, reduced (optional panels off), minimal (critical path only), read-only (writes disabled). Each is a state you can enter deliberately, screenshot, and test. Read-only deserves special mention: for many systems, disabling writes while keeping reads is the difference between a degraded hour and a total outage. A workable ladder Level What is off Trigger Full nothing normal Reduced recs, personalisation load or a breaker Minimal all optional panels heavy overload Read-only writes database failover How it relates Levels make degradation a thing you can rehearse, which is what makes it work when it matters."
+        },
+        {
+          "id": "term-feature-flags",
+          "term": "Feature flags",
+          "def": "The manual control: turning expensive features off deliberately during an incident, rather than waiting for them to fail.",
+          "detail": "Automatic degradation handles dependencies that fail. Flags handle the ones that are merely expensive: an operator can switch off the heavy search ranker, the personalisation model or the live stock lookup and reclaim capacity immediately. For this to be useful the flag must take effect in seconds without a deploy, must be visible in the incident channel, and must be rehearsed — a kill switch nobody has ever pulled is a kill switch that will not work. Requirements Requirement Why Takes effect in seconds deploys are too slow mid-incident Works when its own backend is down cached default, statically stable Audited and announced others must know what changed Exercised regularly untested switches fail How it relates Flags plus named levels give you a degradation runbook rather than improvisation."
+        },
+        {
+          "id": "term-hard-fail",
+          "term": "Hard fail",
+          "def": "The decision to show an honest error rather than a plausible-looking wrong answer.",
+          "detail": "Degradation has a limit. If the fraud check is unavailable, approving the payment is not degradation — it is a security incident with better manners. If the price service is down, inventing a price is worse than showing nothing. The rule: never fall back to an answer that could be wrong in a way that costs money or safety. Correctness-critical paths fail closed; convenience paths fail open. Fail open or closed? Dependency On failure Recommendations fail open — omit Reviews fail open — omit Price stale, or hard fail — never guess Fraud / authorisation fail closed — always Rate limiter judgement — usually fail open How it relates \"Fail open or closed?\" should be answered per dependency and written next to its classification."
+        },
+        {
+          "id": "term-honest-signalling",
+          "term": "Honest signalling",
+          "def": "Telling the user what is missing, in their terms, instead of silently showing less.",
+          "detail": "Silent degradation is right for things the user never knew existed — a missing recommendation carousel needs no apology. It is wrong for things they are relying on: a stock figure that is quietly an hour old, or a balance that is quietly stale, erodes trust far more than a small label would. The useful distinction is whether the absence could lead to a bad decision. If it could, say so: \"Stock levels may be out of date\" costs one line and prevents a complaint. Say something or not? Situation Signal Recommendations missing silent Reviews missing silent, or a quiet note Stock figure stale label it Balance stale label with a timestamp Cannot take the order explicit, with what to do next How it relates Error copy is part of the design; writing it during an incident produces the worst version."
+        },
+        {
+          "id": "term-progressive-enhancement",
+          "term": "Progressive enhancement",
+          "def": "The front-end sibling: build the working baseline first, then layer improvements that may not arrive.",
+          "detail": "Strictly these are opposites in direction — progressive enhancement starts from the floor and adds, degradation starts from the ceiling and removes — but they produce the same system. A form that posts without JavaScript and is enhanced with client-side validation keeps working when the bundle fails to load. The practical value today is less about ancient browsers and more about failure: a third-party script timing out, a CDN region down, a flaky mobile connection. Baseline first Enhancement Baseline that must work Client-side validation server-side validation Async \"add to basket\" a real form post Infinite scroll paginated links Web font a readable fallback stack How it relates Third-party scripts are optional dependencies; load them async and never block render on them."
+        },
+        {
+          "id": "term-testing-degradation",
+          "term": "Testing degradation",
+          "def": "Degraded paths only work if they are exercised — and they are the least exercised code you own.",
+          "detail": "The fallback written eighteen months ago and never executed will fail: the cached shape has drifted, the template throws on an empty list, the static default references a deleted product. The only defence is to run it regularly — in tests, in staging, and in production. Make each named level a test fixture and assert that the critical path still works. Then do it in production, deliberately, on a Tuesday afternoon. Ways to exercise it Method Catches Unit tests per fallback shape and null handling Integration test per level template and layout breaks Fault injection in staging timeout and breaker config Game day in production everything the others miss How it relates An untested fallback is a second bug waiting for the worst possible moment."
+        },
+        {
+          "id": "term-game-day",
+          "term": "Game day",
+          "def": "Deliberately breaking a dependency in production, with everyone watching, to find out what actually happens.",
+          "detail": "Turn off the reviews service at 14:00 on a Tuesday and observe. Teams reliably discover that an \"optional\" dependency was awaited on the critical path, that a timeout was never configured, or that the empty-state template was never written. Start small and announced: one optional dependency, in one region, with a rollback ready. The goal is information, not heroism. Running one Step Note Pick one optional dependency never a critical one first State the hypothesis \"the page renders without reviews\" Announce it so alerts are not mistaken for an incident Break it, watch the SLI short window, rollback ready Write down what surprised you that is the whole output How it relates Spend error budget on this deliberately — it is exactly what the budget is for."
+        },
+        {
+          "id": "term-measuring-degradation",
+          "term": "Measuring degradation",
+          "def": "Tracking which mode you are in, so \"degraded\" is a state you can see rather than infer.",
+          "detail": "Count renders per level, fallback usage per dependency, and — most importantly — whether the critical journey still succeeds. A page that renders in reduced mode is a success for availability and a partial failure for experience, and your SLI should say which you are measuring. A good practice is two SLIs: \"the user could complete the task\" and \"the user got the full experience\". The first protects the business; the second stops permanent silent degradation. What to export Metric Tells you render_level{level=\"reduced\"} how often you degrade fallback_used{dep=...} which rung, per dependency Critical-journey SLI did the business still work Full-experience SLI silent long-term degradation How it relates Without the second SLI, a feature can be quietly broken for months and look perfectly healthy."
+        }
+      ],
+      "related": [
+        "circuit-breaker",
+        "load-shedding",
+        "sli-slo-sla",
+        "caching-strategies",
+        "backpressure",
+        "backend-for-frontend"
       ]
     },
     {
@@ -2149,8 +3061,8 @@
         "sidecar-pattern",
         "rate-limiting",
         "azure-api-management",
-        "kafka",
-        "azure-durable-functions"
+        "graceful-degradation",
+        "kafka"
       ]
     },
     {
@@ -2318,11 +3230,189 @@
         }
       ],
       "related": [
+        "queueing-theory",
         "database-performance",
         "percentiles",
         "back-of-the-envelope",
+        "backpressure",
+        "rate-limiting"
+      ]
+    },
+    {
+      "slug": "load-shedding",
+      "url": "cheatsheets/load-shedding.html",
+      "title": "Load shedding",
+      "aliases": [
+        "Load shedding",
+        "load shed",
+        "shedding",
+        "admission control",
+        "overload protection",
+        "brownout",
+        "goodput"
+      ],
+      "tagline": "Past capacity you will fail some requests whatever you do. Shedding is choosing which ones, instead of letting the overload choose for you.",
+      "asOf": "As of Nov 2026 · examples in C#, Go, Envoy and Python; the arithmetic is from queueing theory",
+      "description": "Load shedding cheatsheet: why goodput collapses past capacity, how to choose what to drop by priority and cost, and which signal to shed on — animated.",
+      "tags": [
+        "load shedding",
+        "admission control",
+        "overload",
+        "goodput",
+        "congestion collapse",
+        "priority",
+        "resilience",
+        "sre",
+        "capacity",
+        "codel"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential code patterns"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-load-shedding",
+          "term": "Load shedding",
+          "def": "Deliberately refusing a portion of incoming work, quickly and cheaply, so the remainder can be served within its SLO.",
+          "detail": "The premise is unsentimental: past capacity, some requests will fail no matter what you do. Shedding does not change how many fail — it changes which ones, how fast they find out, and whether the survivors get a good experience. It is the response to your own overload, which separates it cleanly from its neighbours: rate limiting enforces a contract regardless of your health, and a circuit breaker reacts to somebody else's failure. Four mechanisms, four questions Mechanism Question Load shedding which work do I refuse right now? Backpressure how do I tell upstream I am full? Rate limiting how much is this client entitled to? Circuit breaker should I stop calling a broken dependency? How it relates Backpressure carries the signal to the edge; shedding is the decision the edge then makes."
+        },
+        {
+          "id": "term-goodput",
+          "term": "Goodput",
+          "def": "Requests completed successfully and within their deadline — the only throughput number that means anything under overload.",
+          "detail": "A server at 100% CPU processing 1,000 requests a second, all of which time out before they are returned, has a throughput of 1,000 and a goodput of zero. Measuring the first and ignoring the second is how teams conclude that an overloaded service is \"working hard\". Goodput is also the right objective: you are not trying to maximise requests touched, you are trying to maximise requests that helped somebody. Under 3× overload Metric No shedding With shedding Throughput high moderate Goodput ~150 / s 1,000 / s p99 latency timeout normal Failures ~95% ~67%, chosen How it relates The first animation is this table drawn as a curve."
+        },
+        {
+          "id": "term-congestion-collapse",
+          "term": "Congestion collapse",
+          "def": "The regime where offered load rises and useful output falls — the failure shedding exists to prevent.",
+          "detail": "Three reinforcing effects produce it. Queues grow past client timeouts, so completed work is discarded unread. Clients retry, multiplying arrivals exactly when capacity is scarcest. And the machine itself gets slower under memory pressure, context switching and cache thrashing, so each request costs more than it did. The important property is that it does not self-correct. A collapsed system stays collapsed after the original spike has passed, because it is still busy with the backlog; recovery usually requires shedding, or a restart. The three loops Loop Effect Queue > timeout work completed for nobody Clients retry arrivals multiply Resource pressure per-request cost rises How it relates The term comes from 1980s internet congestion; the dynamics are identical at the application layer."
+        },
+        {
+          "id": "term-admission-control",
+          "term": "Admission control",
+          "def": "The component that decides, before any real work begins, whether a request gets a slot.",
+          "detail": "Its defining property is that it is cheap and early. Parse enough to classify, check the signal, then admit or refuse. Anything expensive — a database lookup, a downstream call, deserialising a large body — must happen after the decision, or the rejection costs as much as the work. It lives wherever it can act: an API gateway, a sidecar proxy, or the first middleware in the application. Order of operations Step Cost Read headers, classify priority microseconds Check shedding signal one atomic read Reject with 503 + Retry-After ~0.1 ms — everything expensive below this line — Authenticate, query, call downstream milliseconds How it relates A sidecar proxy is a natural home for this, since it sees every request before the application does."
+        },
+        {
+          "id": "term-priority-classes",
+          "term": "Priority classes",
+          "def": "Labelling traffic by business value so that shedding sacrifices the least important work first.",
+          "detail": "Without classes, shedding is random, and random shedding destroys a third of your checkout traffic to save a third of your recommendation traffic. With classes, you keep 100% of revenue and lose 100% of something nobody will notice. Keep the ladder short — three or four levels — and assign classes at the edge, where the business meaning of a request is still visible. Google's internal criticality levels work exactly this way, and the levels propagate through every downstream call. A workable ladder Class Example Shed Critical pay, place order never Standard browse, search last Background recommendations, analytics beacons first Batch exports, reindexing first, with Retry-After How it relates Shedding a background class is usually implemented as graceful degradation in the UI."
+        },
+        {
+          "id": "term-criticality-propagation",
+          "term": "Criticality propagation",
+          "def": "Carrying the priority of the originating request through every downstream call, so the whole chain sheds consistently.",
+          "detail": "If the edge knows a request is critical but the inventory service does not, the inventory service may shed it while serving a background recommendation query — and the checkout fails anyway. The class has to travel, as a header or in the RPC metadata, exactly like a deadline. A useful rule: a service may never raise the criticality of work it issues. A background request cannot spawn critical calls, which stops low-value traffic laundering itself into protected capacity. What should travel with a request Field Purpose Criticality what to shed first Deadline when to stop bothering Tenant / account fairness Trace id debugging the decision afterwards How it relates Same plumbing as deadline propagation, and best added at the same time."
+        },
+        {
+          "id": "term-shedding-signal",
+          "term": "Shedding signal",
+          "def": "The measurement that decides when to start refusing — and the choice that determines whether shedding helps or flaps.",
+          "detail": "CPU is the tempting signal and the worst one: it saturates late, it is noisy, and it says nothing about latency when you are blocked on I/O. Queue sojourn time is the best general-purpose signal, because it is expressed in the same unit as your SLO and adapts automatically when capacity changes. Concurrency in flight is a good second choice — by Little's Law it is proportional to latency — and it is trivial to implement with a semaphore. Signals, ranked Signal Verdict Queue sojourn time best — matches the SLO, self-adapting Concurrency in flight good — simple, proportional to latency Observed latency vs target good — direct, slightly laggy Queue depth poor — meaningless without a drain rate CPU utilisation poor — late, noisy, blind to I/O waits Why depth is the wrong trigger How it relates CoDel applies the sojourn-time idea to network queues; the same logic works for request queues."
+        },
+        {
+          "id": "term-queue-sojourn",
+          "term": "Queue sojourn",
+          "def": "How long a request has already waited — the signal that stays correct when capacity changes underneath you.",
+          "detail": "Timestamp on enqueue, measure on dequeue. If the oldest waiting item has been there longer than your latency budget allows, you are behind and should shed. A halved capacity shows up immediately as doubled sojourn time, while the depth-based rule sees nothing until it is far too late. It composes with deadlines: a request whose remaining budget is already exhausted should be dropped on dequeue without being processed at all. CoDel-style parameters Parameter Typical Target sojourn 5–20 ms Interval before acting 100 ms Action drop / reject, increasing in rate How it relates Envoy and several gRPC middlewares ship CoDel-style overload filters out of the box."
+        },
+        {
+          "id": "term-cost-aware-shedding",
+          "term": "Cost-aware shedding",
+          "def": "Rejecting before the expensive part, and accounting for the fact that not all requests cost the same.",
+          "detail": "A rejection issued after authentication, a database lookup and a downstream call is not a rejection — it is a full-price request with a 503 on the end. Admission has to happen in the first few microseconds. The second half is that a \"request\" is not a unit of capacity. One report query can cost as much as a thousand key lookups, so shedding by request count protects you badly. Weighting by expected cost, or giving expensive endpoints their own smaller limit, fixes it. Weighting ideas Approach Use when Per-endpoint concurrency limits costs differ by route Weighted admission (cost units) cost is predictable per request Separate pool for heavy work reports, exports, search Shed by measured p50 cost cost varies with parameters How it relates Separate pools per class of work are the bulkhead pattern applied to admission."
+        },
+        {
+          "id": "term-fail-fast",
+          "term": "Fail fast",
+          "def": "Refusing in a fraction of a millisecond, which is what makes shedding cheap enough to work.",
+          "detail": "The arithmetic is the argument. A rejection costing 0.1 ms lets a single server refuse tens of thousands of requests a second while still serving its full real capacity. A rejection that arrives as a two-second timeout costs 20,000 times more, and consumes the very capacity you were trying to protect. Say no with a real status code and a real hint — 503 with Retry-After, or 429 when the cause is a quota — so clients can behave sensibly instead of hammering. Status codes Code Means 503 + Retry-After I am overloaded; come back 429 + Retry-After you exceeded your quota 504 a dependency timed out — not shedding Silence / timeout the expensive mistake How it relates Fast rejections only help if clients back off; pair with jitter and a retry budget."
+        },
+        {
+          "id": "term-retry-after",
+          "term": "Retry-After",
+          "def": "Telling the client when to come back, so your fast rejection does not become their fast retry loop.",
+          "detail": "A rejection that costs 0.1 ms is a gift to a client that retries immediately: you have built an efficient way to be hammered. Retry-After, jittered exponential backoff and a client-side retry budget are what convert cheap rejections into actual relief. Jitter is not optional. Without it, every rejected client returns at the same instant and you get a synchronised thundering herd on a system that has not yet recovered. Client-side contract Control Typical Backoff exponential, full jitter Retry budget ≤ 10% of request volume Retry on 503, 429, connection errors Never retry 4xx other than 429 How it relates Retry amplification is the failure this prevents; see the backpressure page for the full loop."
+        },
+        {
+          "id": "term-brownout",
+          "term": "Brownout",
+          "def": "Shedding part of a response rather than the whole request — degrade the answer instead of refusing it.",
+          "detail": "Instead of a 503, return the page without recommendations, without personalisation, with a cached price, or with ten results instead of a hundred. The user gets something useful and you spend a fraction of the capacity. This is usually the better first move for user-facing traffic: a page that renders with less on it beats an error page, and most pages contain far more optional content than critical content. What to drop first Drop Keep Personalisation the product and its price Recommendations the add-to-cart button Live stock count a cached estimate Full search ranking a cheap ranking How it relates The graceful degradation page is this idea developed into a product strategy."
+        },
+        {
+          "id": "term-fairness",
+          "term": "Fairness",
+          "def": "Making sure shedding does not fall entirely on one tenant, region or unlucky client.",
+          "detail": "Naive shedding is biased in ways you did not intend: the client with the most retries wins, the nearest region wins, and one heavy tenant can consume all the admitted capacity. Shedding per tenant, or weighting admission by recent usage, keeps a single noisy customer from eating everybody's share. This is where load shedding and rate limiting genuinely overlap — per-tenant quotas provide the fairness, shedding provides the overload response, and most real systems need both. Approaches Approach Effect Per-tenant concurrency limit hard isolation Weighted fair queueing proportional shares Shed heaviest user first protects the long tail of small users Global FIFO simplest, and least fair How it relates In a multi-tenant system this is the difference between one customer's incident and everybody's incident."
+        },
+        {
+          "id": "term-hysteresis",
+          "term": "Hysteresis",
+          "def": "Different thresholds for starting and stopping, so the system does not oscillate between shedding and not shedding.",
+          "detail": "A single threshold produces flapping: you shed, load drops below the line, you stop shedding, load returns, you shed again — many times a second, with wildly variable behaviour for clients. Shedding in at a higher mark and out at a lower one, with a ramp rather than a cliff, keeps it stable. A proportional response is better still: shed 10% of background traffic, then 40%, then all of it, rather than switching the whole class off at once. Stability measures Measure Why Separate in/out thresholds prevents oscillation Ramp the shed fraction no cliff edge Smooth the signal (EWMA) ignores single-sample noise Minimum dwell time bounds the switching rate How it relates Same reasoning as a circuit breaker's half-open state: never flip instantly on one observation."
+        },
+        {
+          "id": "term-where-to-shed",
+          "term": "Where to shed",
+          "def": "At the edge, in the service, or in a sidecar — each sees different information and can take different action.",
+          "detail": "The edge is the only place that can talk to the client, so final rejections belong there. But the edge does not know which internal dependency is struggling, so services need their own admission control too — and a sidecar proxy can apply uniform limits without each service implementing them. In practice you want both: cheap global protection at the edge, and local protection per service so that one slow dependency does not take everything with it. Division of labour Layer Knows Can do Edge client, criticality, global load 503 with Retry-After Sidecar per-service latency uniform concurrency limits Service which dependency is slow shed by feature, brownout How it relates Envoy's overload manager and adaptive concurrency filter do this at the sidecar layer."
+        },
+        {
+          "id": "term-measuring-it",
+          "term": "Measuring it",
+          "def": "Shed rate, goodput and the SLO — because shedding that nobody measures looks exactly like an outage.",
+          "detail": "Count rejections separately from errors, labelled by class and reason, or your error rate graph will show a catastrophe when the system is in fact working as designed. Then watch goodput and p99 latency for admitted traffic — those are the numbers shedding is supposed to protect. It is worth deciding in advance whether shed requests count against your SLI. Usually they should: the user did not get served, and pretending otherwise makes the error budget meaningless. Dashboard Metric Expectation shed_total by class zero normally; bursts under load Goodput flat at capacity during overload p99 for admitted traffic unchanged under load Critical class shed always zero — page if not How it relates \"Critical traffic shed > 0\" is one of the few alerts worth paging on immediately."
+        }
+      ],
+      "related": [
+        "backpressure",
+        "graceful-degradation",
+        "circuit-breaker",
+        "sli-slo-sla",
         "rate-limiting",
-        "sli-slo-sla"
+        "queueing-theory"
       ]
     },
     {
@@ -2490,11 +3580,11 @@
       ],
       "related": [
         "domain-driven-design",
+        "saga-pattern",
         "cqrs",
         "backend-for-frontend",
-        "multitenancy",
-        "outbox-pattern",
-        "percentiles"
+        "event-storming",
+        "multitenancy"
       ]
     },
     {
@@ -2852,11 +3942,11 @@
       ],
       "related": [
         "cqrs",
+        "saga-pattern",
         "domain-driven-design",
+        "event-store",
         "kafka",
-        "database-performance",
-        "sidecar-pattern",
-        "azure-durable-functions"
+        "database-performance"
       ]
     },
     {
@@ -3036,10 +4126,195 @@
       "related": [
         "sli-slo-sla",
         "littles-law",
+        "queueing-theory",
         "database-performance",
         "rate-limiting",
+        "back-of-the-envelope"
+      ]
+    },
+    {
+      "slug": "queueing-theory",
+      "url": "cheatsheets/queueing-theory.html",
+      "title": "Queueing theory",
+      "aliases": [
+        "Queueing theory",
+        "queuing theory",
+        "M/M/1",
+        "M/M/c",
+        "Kendall notation",
+        "Kingman's formula",
+        "Erlang C",
+        "utilisation",
+        "queue discipline"
+      ],
+      "tagline": "Waiting is not caused by being out of capacity. It is caused by being nearly out of capacity, at random moments.",
+      "asOf": "As of Nov 2026 · Erlang 1909, Kendall 1953, Kingman 1961 · the maths behind every capacity decision you make",
+      "description": "Queueing theory cheatsheet: why waiting time explodes near full utilisation, how variability multiplies it, Kendall notation, M/M/1 versus M/M/c, and why pooling beats dedicated queues.",
+      "tags": [
+        "queueing theory",
+        "queuing",
+        "utilisation",
+        "mm1",
+        "mmc",
+        "kingman",
+        "erlang",
+        "latency",
+        "capacity planning",
+        "performance"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential formulas"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-utilisation",
+          "term": "Utilisation",
+          "def": "ρ = λ / (cμ): the fraction of capacity in use, and the single number that drives waiting time.",
+          "detail": "The trap is that it feels linear and is not. Going from 50% to 80% utilisation adds 30 points and multiplies the wait by 2.5. Going from 80% to 95% adds 15 points and multiplies it by four. The resource you are consuming as you approach 100% is not capacity — it is latency headroom, and it runs out much faster than the capacity does. It also explains why high utilisation is a target in batch systems and a mistake in interactive ones: nobody is waiting for a batch job, so you may as well run the machine flat out. W / S for M/M/1 &rho; Multiplier 20 ms of work takes 0.50 2× 40 ms 0.80 5× 100 ms 0.90 10× 200 ms 0.95 20× 400 ms 0.99 100× 2 s How it relates Autoscale on latency or concurrency rather than CPU: CPU looks fine right up to the cliff."
+        },
+        {
+          "id": "term-arrival-rate",
+          "term": "Arrival rate",
+          "def": "λ — how often work arrives, and, just as importantly, how evenly.",
+          "detail": "The average alone is not enough. 100 requests a second arriving one every 10 ms is a completely different system from 100 arriving in a single burst at the top of each second, even though λ is identical. The second queues; the first does not. Real traffic is usually burstier than Poisson, because of client retries, cron schedules aligned to the minute, and humans acting on the same notification. Sources of burstiness Source Effect Cron at :00 synchronised spike Retry storms correlated arrivals Push notification thundering herd Batch producers arrivals in clumps How it relates Jitter is burstiness reduction: it lowers cₐ and therefore the wait, at no cost."
+        },
+        {
+          "id": "term-service-rate",
+          "term": "Service rate",
+          "def": "μ — how fast one server completes work; S = 1/μ is the service time.",
+          "detail": "Service time is what the work actually costs with no queueing at all: the latency you would measure on an idle system. Everything above that figure in production is queueing somewhere, which is why the gap between \"it takes 20 ms in a benchmark\" and \"p99 is 400 ms\" is a queueing question and not a code question. Its variability matters as much as its mean — see the coefficient of variation. How it relates Reducing S helps twice: directly, and by lowering ρ for the same λ."
+        },
+        {
+          "id": "term-kendall-notation",
+          "term": "Kendall notation",
+          "def": "A/S/c — the shorthand that names a queueing model: arrival process, service distribution, number of servers.",
+          "detail": "M means memoryless (Poisson arrivals, exponential service), D means deterministic, G means a general distribution. So M/M/1 is Poisson arrivals, exponential service, one server; M/D/1 has perfectly constant service times; M/G/c is the realistic and much harder case. You will mostly use it as a label for which formula applies — and to notice when the model you are quoting does not match the system you are describing. Common models Model Means Use for M/M/1 random in, random service, 1 server the default mental model M/M/c c interchangeable servers thread pools, replicas M/D/1 constant service time fixed-cost work M/G/1 any service distribution real systems; use Kingman M/M/c/K bounded queue of size K anything with backpressure How it relates Real software is almost always M/G/c, which has no tidy closed form — hence approximations."
+        },
+        {
+          "id": "term-m-m-1",
+          "term": "M/M/1",
+          "def": "The single-server model, and the source of W = S / (1 − ρ).",
+          "detail": "One queue, one server, random arrivals, random service times. It is the simplest model that produces the hockey-stick curve, and its formulas are worth memorising because they give you the right order of magnitude in seconds. Its practical relevance is higher than it looks: a single-threaded event loop, one database connection, a lock, a partition consumer and a leader replica are all M/M/1-ish. The formulas Quantity Formula Utilisation &rho; = λ/&mu; Time in system W = S / (1 − &rho;) Time queueing Wₔ = S&rho; / (1 − &rho;) Number in system L = &rho; / (1 − &rho;) Number queueing Lₔ = &rho;² / (1 − &rho;) How it relates L = λW connects these: Little's Law holds for every row in that table."
+        },
+        {
+          "id": "term-m-m-c",
+          "term": "M/M/c",
+          "def": "Several interchangeable servers sharing one queue — and dramatically better than the same servers with separate queues.",
+          "detail": "With c servers and the same per-server utilisation, waiting time falls sharply, because the probability that every server is busy is much lower than the probability that one is. At ρ = 0.8, a single server makes you wait 4× its service time; three pooled servers make you wait about 1.08×. This is the formal version of why a supermarket snake beats one line per till, and why a shared thread pool beats a thread with its own inbox. Queueing time at ρ = 0.8 Servers Wₔ / S 1 4.00 2 1.78 3 1.08 5 0.55 10 0.18 How it relates The gain is free unless the servers are not interchangeable — which is what sharding and session affinity cost you."
+        },
+        {
+          "id": "term-pooling",
+          "term": "Pooling",
+          "def": "Sharing one queue across many servers instead of giving each its own — the cheapest latency improvement in queueing.",
+          "detail": "Dedicated queues waste capacity at random moments: because arrivals are uneven, one line will be empty while another has four people in it, and the idle server cannot help. Pooling removes that waste entirely, with no extra hardware. The engineering version: prefer a shared work queue over per-worker inboxes, least-connections over round-robin, and a shared connection pool over per-caller pools — unless something genuinely prevents it. When you cannot pool Constraint Why Sharded state only one node has the data Session affinity state lives in one process Cache locality pooling destroys hit rate Ordering per key parallel servers reorder How it relates Each of those constraints has a measurable cost, and this is the formula that prices it."
+        },
+        {
+          "id": "term-coefficient-of-variation",
+          "term": "Coefficient of variation",
+          "def": "c = σ/mean — how irregular arrivals or service times are, and the second dial on waiting time.",
+          "detail": "Zero means perfectly regular; 1 is exponential (the \"random\" baseline); above 1 is bursty or heavy-tailed. Most real service-time distributions sit well above 1, because a small fraction of requests cost far more than the median — a cache miss, a large customer, a cold start. It matters because Kingman's formula multiplies the wait by the average of the squared coefficients. Halving variability halves the queue, without buying anything. Same utilisation, same average, 90 ms apart How it relates Percentiles are what variability looks like once it reaches your monitoring."
+        },
+        {
+          "id": "term-kingman-s-formula",
+          "term": "Kingman's formula",
+          "def": "The practical approximation for a realistic queue: wait = utilisation factor × variability factor × service time.",
+          "detail": "Wₔ ≈ (&rho;/(1−&rho;)) × ((cₐ²+cₛ²)/2) × S. Sometimes called the VUT equation — Variability, Utilisation, Time — and it is the most useful single formula in applied queueing, because it tells you there are exactly three levers and lets you compare them. Check it against M/M/1: with cₐ = cₛ = 1 the middle term is 1 and you recover &rho;/(1−&rho;) × S. With deterministic everything, the middle term is 0 and there is no queue at all. Three levers Lever How Typical gain Lower &rho; add capacity, shed load large, costs money Lower variability jitter, batching, caps on outliers large, often free Lower S make the work faster helps twice over How it relates The variability lever is the one teams forget, and it rarely requires new hardware."
+        },
+        {
+          "id": "term-instability",
+          "term": "Instability",
+          "def": "At ρ ≥ 1 there is no steady state: the queue grows without bound and no formula applies.",
+          "detail": "Every result on this page assumes a steady state, which requires arrivals to be slower than service. Once ρ reaches 1 the queue grows linearly forever, latency grows linearly forever, and the only question is which runs out first — memory, patience or the client's timeout. This is why an overloaded system does not settle at a worse-but-stable latency: there is no such equilibrium to settle into. It needs the arrival rate reduced, which is what shedding does. Regimes &rho; Behaviour < 0.7 comfortable; queue mostly empty 0.7–0.85 sensitive; bursts hurt 0.85–1 the cliff ≥ 1 unbounded; shed or fail How it relates Load shedding is the operational way to force ρ back below 1."
+        },
+        {
+          "id": "term-queue-discipline",
+          "term": "Queue discipline",
+          "def": "The order work is taken in — which changes nothing about the average and everything about who suffers.",
+          "detail": "FIFO is fair and has a cruel property under overload: everybody waits the maximum, so everybody times out. LIFO serves the freshest request first, so under overload some requests succeed while old ones are abandoned — usually a better outcome, if an unfair-sounding one. Shortest-job-first minimises average wait but starves long jobs. Priority queues implement business criticality directly. Disciplines Discipline Good for Cost FIFO fairness, ordering under overload, everyone fails LIFO overload survival old requests starve Shortest job first minimising mean wait starves big jobs Priority criticality classes needs classification How it relates Little's Law is indifferent to discipline — the average is the same; the distribution is not."
+        },
+        {
+          "id": "term-erlang-c",
+          "term": "Erlang C",
+          "def": "The formula for \"what fraction of arrivals have to wait at all\" with c servers — the basis of staffing maths.",
+          "detail": "Developed by Agner Erlang for Copenhagen's telephone exchange in 1917, and still what call centres use to decide how many agents to roster. It gives the probability that all c servers are busy, from which the average wait follows directly. In software it answers the same question for thread pools, connection pools and replica counts: how many do I need so that the probability of queueing is acceptably small? What it is used for Domain Question Call centres agents for an 80/20 service level Thread pools threads before requests queue Connection pools connections for a latency target Replicas instances for a p99 target How it relates Erlang B is the lossy variant: calls are dropped rather than queued, which is load shedding in 1917."
+        },
+        {
+          "id": "term-heavy-tail",
+          "term": "Heavy tail",
+          "def": "A service-time distribution where rare, very expensive requests dominate the average — and break the tidy formulas.",
+          "detail": "Software workloads are rarely exponential. A handful of requests cost a hundred times the median: the customer with 50,000 orders, the cold cache, the regex that backtracks. With a heavy tail the coefficient of variation is large, so Kingman's variability term dominates and the queue is far worse than an M/M/1 estimate suggests. The practical response is to cap the tail rather than chase the mean: timeouts, pagination limits, separate pools for expensive work. Taming a tail Technique Effect Timeouts truncates the tail directly Pagination / result caps bounds the worst case Separate pool for heavy work stops it blocking cheap work Hedged requests sidesteps a slow server How it relates This is why the percentiles page insists you never reason about latency from a mean."
+        },
+        {
+          "id": "term-little-s-law",
+          "term": "Little's Law",
+          "def": "L = λW — the identity that connects every quantity here, and the one result that needs no assumptions.",
+          "detail": "Queueing theory's models tell you what W is for a given ρ and variability. Little's Law then converts freely between W, L and λ, for any discipline and any distribution. They are complementary: one is an identity, the other a set of models. In practice you use Little's Law to measure (queue depth gives you latency) and queueing theory to predict (utilisation gives you latency). Division of labour Question Tool Queue is 200 deep — how slow? Little's Law If I run at 90%, how slow? queueing theory How many servers for 50 ms? both How it relates Little's Law holds even at ρ ≥ 1; the queueing formulas do not."
+        },
+        {
+          "id": "term-waiting-vs-sojourn-time",
+          "term": "Waiting vs sojourn time",
+          "def": "Wq is time queueing; W is time in the system, including service. Mixing them up changes answers by a lot.",
+          "detail": "W = Wₔ + S. At low utilisation they differ hugely in relative terms (Wq near zero, W near S); at high utilisation they converge, because queueing dominates. Published formulas use both, often without saying which, so check before you compare numbers. Your monitoring almost always measures W — the client sees the whole thing — while the interesting engineering quantity is usually Wq, because that is the part you can remove. At S = 20 ms &rho; Wₔ W 0.5 20 ms 40 ms 0.8 80 ms 100 ms 0.9 180 ms 200 ms How it relates The gap between an idle-system benchmark and production p99 is almost entirely Wₔ."
+        },
+        {
+          "id": "term-bounded-queues",
+          "term": "Bounded queues",
+          "def": "Real systems are M/M/c/K: the queue has a maximum, and arrivals beyond it are rejected rather than queued.",
+          "detail": "The textbook models assume an infinite queue, which no real system has or should have. Adding a bound K changes the question from \"how long is the wait?\" to \"what fraction is rejected, and how long do the rest wait?\" — which is a far better question. Bounding the queue is what makes latency predictable under overload: by Little's Law, maximum wait is K/(cμ), a number you can choose. Choosing K Goal K Max wait 25 ms at 800/s 20 Absorb a 2 s burst at +200/s 400 \"Whatever fits in memory\" wrong question How it relates Backpressure is the engineering name for choosing K and deciding what happens at the boundary."
+        },
+        {
+          "id": "term-measuring-it",
+          "term": "Measuring it",
+          "def": "Which numbers to collect so that the theory becomes usable rather than decorative.",
+          "detail": "You need four: arrival rate, service time on an unloaded system, concurrency in flight, and queue sojourn time. From those you get ρ, you can compute the coefficient of variation, and you can check Little's Law as a sanity test — if L ≠ λW your instrumentation is wrong somewhere. Note what is not on the list: CPU. It is a poor proxy for ρ in anything that waits on I/O, and it gives no warning before the cliff. The four measurements Measure Gives you Arrival rate λ load Service time S (unloaded) &mu;, and &rho; with λ Concurrency in flight L, and &rho; against the limit Queue sojourn p50/p99 Wₔ and its variability How it relates These are the same signals load shedding triggers on, which is not a coincidence."
+        }
+      ],
+      "related": [
+        "littles-law",
         "back-of-the-envelope",
-        "domain-driven-design"
+        "percentiles",
+        "backpressure",
+        "load-shedding",
+        "database-performance"
       ]
     },
     {
@@ -3208,11 +4483,11 @@
       ],
       "related": [
         "azure-api-management",
+        "backpressure",
         "redis",
+        "load-shedding",
         "littles-law",
-        "percentiles",
-        "sli-slo-sla",
-        "kubernetes"
+        "percentiles"
       ]
     },
     {
@@ -3319,7 +4594,7 @@
           "id": "term-pipelining",
           "term": "pipelining",
           "def": "Send many commands without waiting for each reply. Cuts network round trips; usually the biggest client-side speedup.",
-          "detail": "Without pipelining each command waits for its reply: 1,000 commands × 0.5 ms round trip = 0.5 s, mostly waiting on the network. With a pipeline you send all 1,000, then read 1,000 replies: a few milliseconds. pipe = r.pipeline(transaction=False) for uid in user_ids: pipe.hgetall(f\"user:{uid}\") profiles = pipe.execute() Pipelining is a client-side batching trick, not a transaction: other clients' commands can still run in between. Keep batches to a few thousand commands to bound memory."
+          "detail": "Without pipelining each command waits for its reply: 1,000 commands × 0.5 ms round trip = 0.5 s, mostly waiting on the network. With a pipeline you send all 1,000, then read 1,000 replies: a few milliseconds. var batch = db.CreateBatch(); // client-side batching, not a transaction var tasks = userIds.Select(id => batch.HashGetAllAsync($\"user:{id}\")).ToArray(); batch.Execute(); // one round trip for the whole set var profiles = await Task.WhenAll(tasks); pipe = r.pipeline(transaction=False) for uid in user_ids: pipe.hgetall(f\"user:{uid}\") profiles = pipe.execute() Pipelining is a client-side batching trick, not a transaction: other clients' commands can still run in between. Keep batches to a few thousand commands to bound memory."
         },
         {
           "id": "term-multi-exec",
@@ -3375,8 +4650,186 @@
         "caching-strategies",
         "kafka",
         "database-performance",
-        "cqrs",
-        "docker"
+        "event-store",
+        "cqrs"
+      ]
+    },
+    {
+      "slug": "saga-pattern",
+      "url": "cheatsheets/saga-pattern.html",
+      "title": "Saga pattern",
+      "aliases": [
+        "Saga pattern",
+        "saga",
+        "sagas",
+        "process manager",
+        "compensating transaction",
+        "choreography",
+        "orchestration",
+        "distributed transaction"
+      ],
+      "tagline": "You cannot roll back a transaction that already committed in someone else's database. You can only do something that undoes it in business terms.",
+      "asOf": "As of Nov 2026 · Garcia-Molina & Salem, 1987; examples in C#, Python and workflow engines",
+      "description": "Saga pattern cheatsheet: local transactions with compensating actions, choreography versus orchestration, the pivot step, and the isolation anomalies nobody warns you about.",
+      "tags": [
+        "saga",
+        "distributed transaction",
+        "compensating transaction",
+        "orchestration",
+        "choreography",
+        "microservices",
+        "process manager",
+        "eventual consistency",
+        "resilience",
+        "workflow"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential code patterns"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-saga",
+          "term": "Saga",
+          "def": "A business transaction spread across several services as a sequence of local transactions, each with a way to be undone in business terms.",
+          "detail": "The term comes from a 1987 paper about long-lived database transactions, and was adopted by the microservices world for the same reason: holding locks across several systems for the duration of a business process is not viable, so you give up atomicity and buy consistency back with explicit compensation. What you lose is isolation. A saga's intermediate states are visible to everyone while it runs, which is the source of most of its surprises and all of its countermeasures. ACID, minus one Property In a saga Atomicity simulated by compensation Consistency eventual Isolation gone — needs countermeasures Durability yes, per local transaction How it relates Each step publishes its events reliably with an outbox; the saga assumes nothing is ever lost."
+        },
+        {
+          "id": "term-local-transaction",
+          "term": "Local transaction",
+          "def": "One step: a single ACID transaction inside one service, which commits and becomes permanent immediately.",
+          "detail": "Each step does its own work and publishes the event (or replies to the command) that moves the saga along. The critical property is that it commits: by the time step 3 starts, steps 1 and 2 are real, durable and visible to every other reader in the system. Keep steps small and single-purpose. A step that does three things cannot be compensated precisely, and partial failure inside a step is the hardest case to reason about. A step's obligations Obligation Why Commit atomically it is the unit of durability Publish its outcome reliably outbox, not a direct broker call Be idempotent it will be retried Have a compensation, or be after the pivot otherwise the saga cannot unwind How it relates The outbox pattern is what makes \"publish its outcome reliably\" true rather than hopeful."
+        },
+        {
+          "id": "term-compensating-transaction",
+          "term": "Compensating transaction",
+          "def": "A new transaction that undoes a previous step's effect in business terms — never a rollback.",
+          "detail": "Refund the charge, cancel the reservation, release the stock, mark the order failed. Each is a forward transaction of its own, with its own rules and its own side effects — a cancellation may incur a fee, a refund may take three days, a released seat may already have been taken by someone else. Two hard requirements: compensations must be idempotent, because they will be retried, and they must be designed to always eventually succeed, because there is nothing to compensate a failed compensation with. Anything that might genuinely fail belongs after the pivot instead. Forward and back Step Compensation Not Charge card issue refund delete the charge Reserve room cancel reservation delete the row Reserve stock release reservation re-add the quantity blindly Send email — none possible put it after the pivot How it relates Steps 6–8 of the first animation are three compensations running in reverse order."
+        },
+        {
+          "id": "term-semantic-rollback",
+          "term": "Semantic rollback",
+          "def": "The acknowledgement that undoing is a business act with its own trail, not the erasure of what happened.",
+          "detail": "A database rollback leaves no trace. A saga compensation leaves two: the original fact and its reversal. The customer sees a charge and a refund; the ledger shows both; the audit log shows both. That is usually correct — it is what actually happened — but it surprises stakeholders who expected \"the booking just didn't happen\". Agree the trail explicitly. Decide what the customer sees, what finance reconciles, and whether a cancellation fee applies, before you write the code. Who needs to agree Question Owner Does the customer see both lines? product Is a fee charged on cancellation? business / legal How does finance reconcile it? finance What does support see? operations How it relates This is why compensations are designed in a workshop, not invented during implementation."
+        },
+        {
+          "id": "term-pivot-transaction",
+          "term": "Pivot transaction",
+          "def": "The step after which the saga can no longer be undone — everything before it must be compensatable, everything after it must be retriable.",
+          "detail": "Every saga has one, whether or not you named it. Charging the card, dispatching the parcel, filing with the regulator, sending the confirmation email — past that point the only acceptable outcome is forward completion, so the remaining steps must be designed to retry until they succeed. Identifying it changes the design: irreversible actions get pushed as late as possible, and anything that can genuinely fail gets pulled before it. The three zones Zone Requirement Before the pivot every step compensatable The pivot the point of no return After the pivot every step retriable, never compensated How it relates Ordering the steps around the pivot is the single highest-leverage design decision in a saga."
+        },
+        {
+          "id": "term-retriable-step",
+          "term": "Retriable step",
+          "def": "A step after the pivot: it may fail temporarily but must eventually succeed, so it is retried rather than undone.",
+          "detail": "Issuing the ticket, printing the label, notifying the warehouse. These are retried with backoff forever, because the alternative — unwinding a charged card and a dispatched parcel — is worse. They therefore need to be idempotent and to have an escalation path when \"eventually\" becomes \"two hours\". An alert on retriable steps stuck beyond a threshold is not optional: this is precisely where a saga quietly stops and nobody notices. Retry policy Setting Typical Backoff exponential with jitter Cap minutes, not milliseconds Give up never — escalate to a human instead Alert after a stated business threshold How it relates Retries make duplicates certain, which is why idempotency is a saga-wide requirement."
+        },
+        {
+          "id": "term-choreography",
+          "term": "Choreography",
+          "def": "Each service reacts to the previous one's events and publishes its own. No coordinator exists.",
+          "detail": "Attractive at the start: nothing new to deploy, no central component, and each service only knows the events it subscribes to. For a two or three step flow that rarely changes, it is the right answer. It degrades badly with size. The flow exists only as the sum of everyone's subscriptions and is written down nowhere, so nobody can answer \"where is order 42?\", adding a step means editing several services, and cyclic dependencies appear quickly. Compensation logic is scattered across every participant. Good and bad signs Sign Meaning 2–4 steps, stable choreography fits Nobody can draw the flow you have outgrown it Service A listens to its own downstream a cycle; time to orchestrate Compensation logic duplicated time to orchestrate How it relates Steps 1–5 of the second animation; the purple policies on an EventStorming wall are choreography drawn out."
+        },
+        {
+          "id": "term-orchestration",
+          "term": "Orchestration",
+          "def": "A coordinator owns the flow as an explicit state machine and tells each service what to do.",
+          "detail": "The orchestrator sends commands and waits for replies, holding the whole sequence — including compensation order and timeouts — in one readable artefact. You can query it, test it, draw it and change it in one place. The costs are real: a component that knows about every participant, and one that must itself be durable, because a crash mid-saga must not lose the state. The usual mistake is letting it accumulate business rules that belong in the services. Trade-offs Choreography Orchestration Flow visible nowhere one place Coupling pairwise, implicit hub, explicit Adding a step several services one \"Where is order 42?\" unanswerable a query Extra infrastructure none durable state How it relates Durable execution engines exist precisely to make the orchestrator's state somebody else's problem."
+        },
+        {
+          "id": "term-process-manager",
+          "term": "Process manager",
+          "def": "The implementation of an orchestrator: a stateful object that receives events, decides the next command, and remembers where it is.",
+          "detail": "In DDD terms it is the lilac policy made durable. It holds the saga's state, handles the replies, applies the timeout rules and, on failure, runs the compensations in reverse. It should contain sequencing logic and nothing else — pricing, eligibility and validation belong to the aggregates in the services. Model it explicitly as a state machine. Implicit state spread across boolean flags is how sagas become unmaintainable. What it owns Owns Does not own Step order business rules Compensation order pricing, validation Timeouts data the services own Saga state and history the aggregates themselves How it relates An EventStorming lilac policy that spans contexts usually becomes a process manager."
+        },
+        {
+          "id": "term-saga-log",
+          "term": "Saga log",
+          "def": "Durable storage of which step a saga reached, so a crash resumes instead of losing the business process.",
+          "detail": "Without it, an orchestrator restart leaves a trip half booked and nobody tracking it. The log records the saga id, the current step, the data gathered so far and the compensations already run, updated transactionally with each decision. It also becomes your operations console: the list of in-flight sagas, how long each has been in its current step, and which ones are stuck. That table is the first thing support will ask for. Minimum columns Column Why saga_id correlation state current step data jsonb ids collected so far updated_at stuck detection compensated[] never compensate twice How it relates Update the log and enqueue the next command in one transaction, which is the outbox pattern again."
+        },
+        {
+          "id": "term-correlation-id",
+          "term": "Correlation id",
+          "def": "The identifier carried through every message so that replies can be matched to the saga that is waiting for them.",
+          "detail": "Every command carries the saga id; every reply echoes it. Without it an orchestrator cannot tell which of five hundred in-flight bookings a PaymentCompleted belongs to. It is also what makes distributed tracing usable: one id ties together six services and twenty messages. Generate it when the saga starts, never later, and propagate it through every hop including the external ones you control. Ids worth carrying Id Purpose saga_id which saga instance message_id deduplication causation_id which message caused this one trace_id observability across services How it relates The message id comes from the outbox row; the saga id comes from the orchestrator."
+        },
+        {
+          "id": "term-lost-isolation",
+          "term": "Lost isolation",
+          "def": "The property a saga gives up: its half-finished state is visible to everybody while it runs.",
+          "detail": "Between step 2 and step 4 the hotel is reserved and the flight is not. Any other process reading that data sees a trip that does not exist yet, and may act on it. The classic anomalies are the database ones: dirty reads of uncommitted saga state, lost updates when another process writes over a saga's work, and fuzzy reads where a value changes mid-saga. These are not theoretical. A support agent refunding an order mid-saga, and the saga then compensating as well, is a real and common double-refund. A dirty read, and the semantic lock that stops it How it relates Every saga needs at least one countermeasure; \"we'll be careful\" is not one."
+        },
+        {
+          "id": "term-countermeasures",
+          "term": "Countermeasures",
+          "def": "The standard techniques for coping with a saga's missing isolation, from cheap to thorough.",
+          "detail": "Chris Richardson catalogues five. A semantic lock marks the record as in-progress (PENDING) and makes every reader handle that state. Commutative updates are designed so order does not matter, so compensation is exact. A pessimistic view reorders the steps so the risky data is written last. Re-read value checks nothing changed before writing, which is optimistic locking. A version file records operations so out-of-order ones can be reconciled. Start with the semantic lock — it is cheap, it is explicit, and it makes the intermediate state legible to humans as well as to code. The five Countermeasure Cost Use when Semantic lock low almost always Commutative updates low counters, balances Pessimistic view medium reordering is possible Re-read value medium concurrent writers Version file high out-of-order is unavoidable How it relates Semantic locks show up in the UI too: \"processing\" is a countermeasure, not a loading state."
+        },
+        {
+          "id": "term-idempotency",
+          "term": "Idempotency",
+          "def": "Every step and every compensation must tolerate being executed more than once.",
+          "detail": "Messaging is at-least-once, orchestrators restart, and retries are routine, so duplicates are certain. A refund handler that refunds twice is not a rare bug; it is the default behaviour unless you prevent it. The standard defences: an inbox table keyed by message id, natural upserts, and state checks that make a repeated step a no-op (\"already cancelled → return success\"). Where duplicates come from Source Frequency Broker redelivery routine Outbox relay restart routine Orchestrator crash and resume occasional Manual replay by an operator rare and dangerous How it relates The inbox table from the outbox pattern is the ready-made answer."
+        },
+        {
+          "id": "term-stuck-saga",
+          "term": "Stuck saga",
+          "def": "An instance that stopped: a reply never arrived, a step keeps failing, or a compensation cannot complete.",
+          "detail": "Sagas fail quietly. No request is pending, no user is waiting on a response, no HTTP 500 is logged — there is simply a row in the saga log that has not moved for three hours while a customer's money sits in limbo. Treat the age of the oldest in-flight saga per state as a first-class metric, and build a console where an operator can inspect, retry or force-compensate an instance. Both will be needed in the first month. Operational minimum Need Why Age of oldest saga per state the only alert that catches this Per-step timeouts a saga must never wait forever Manual retry / force-compensate someone will have to Full history per instance support cannot work without it How it relates Same failure shape as outbox lag: everything looks healthy while nothing is progressing."
+        },
+        {
+          "id": "term-timeout",
+          "term": "Timeout",
+          "def": "The deadline on each step, after which the saga gives up waiting and takes a decision.",
+          "detail": "Every step needs one, and the timeout has to be a business decision rather than a technical default: if the payment provider has not replied in ninety seconds, do we compensate, or do we wait — given that the charge may have gone through and we simply have not heard? This is where sagas get genuinely hard. A timeout is not knowledge of failure; it is the absence of knowledge, and the compensating action has to be safe in both cases. Querying the provider before compensating is usually the honest answer. Choosing one Step Typical timeout On expiry Internal service call seconds retry, then compensate Payment provider 1–2 min query status, then decide Human approval hours or days escalate, do not compensate Overnight batch partner a day alert a human How it relates In an orchestrated saga all the timeouts live in one file, which is a strong argument for orchestration."
+        }
+      ],
+      "related": [
+        "azure-durable-functions",
+        "outbox-pattern",
+        "event-storming",
+        "domain-driven-design",
+        "circuit-breaker",
+        "cqrs"
       ]
     },
     {
@@ -3555,11 +5008,11 @@
       ],
       "related": [
         "kubernetes",
+        "circuit-breaker",
         "outbox-pattern",
         "docker",
         "backend-for-frontend",
-        "rate-limiting",
-        "azure-api-management"
+        "rate-limiting"
       ]
     },
     {
@@ -3730,11 +5183,11 @@
       ],
       "related": [
         "percentiles",
+        "load-shedding",
+        "graceful-degradation",
         "rate-limiting",
         "back-of-the-envelope",
-        "littles-law",
-        "azure-api-management",
-        "domain-driven-design"
+        "littles-law"
       ]
     }
   ]

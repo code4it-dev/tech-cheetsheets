@@ -269,6 +269,10 @@ PERSIST cart:7                      # remove the TTL</code></pre>
         </template></div>
         <div class="term"><b>pipelining</b><span>Send many commands without waiting for each reply. Cuts network round trips; usually the biggest client-side speedup.</span><template class="term-detail" data-see="atomicity, MULTI / EXEC">
 <p>Without pipelining each command waits for its reply: 1,000 commands × 0.5 ms round trip = 0.5 s, mostly waiting on the network. With a pipeline you send all 1,000, then read 1,000 replies: a few milliseconds.</p>
+<pre class="language-csharp"><code class="language-csharp">var batch = db.CreateBatch();        // client-side batching, not a transaction
+var tasks = userIds.Select(id =&gt; batch.HashGetAllAsync($"user:{id}")).ToArray();
+batch.Execute();                     // one round trip for the whole set
+var profiles = await Task.WhenAll(tasks);</code></pre>
 <pre class="language-python"><code class="language-python">pipe = r.pipeline(transaction=False)
 for uid in user_ids:
     pipe.hgetall(f"user:{uid}")
@@ -352,6 +356,12 @@ LASTSAVE                       # when was the last one</code></pre>
         <h3>Setup</h3>
         <div class="cmd"><pre class="language-bash"><code class="language-bash">docker run -d --name redis -p 6379:6379 redis:8</code></pre><div class="what">Run a local Redis server.</div></div>
         <div class="cmd"><pre class="language-bash"><code class="language-bash">redis-cli -h localhost -p 6379 PING</code></pre><div class="what">Connect from the CLI. Answers <code>PONG</code>.</div></div>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// dotnet add package StackExchange.Redis
+var mux = await ConnectionMultiplexer.ConnectAsync("localhost:6379");
+var db  = mux.GetDatabase();
+
+await db.StringSetAsync("user:1", "Ada", TimeSpan.FromMinutes(1));
+var name = await db.StringGetAsync("user:1");</code></pre><div class="what">Keep one <code>ConnectionMultiplexer</code> for the lifetime of the app and share it — it multiplexes every command over a single connection.</div></div>
         <div class="cmd"><pre class="language-python"><code class="language-python">import redis
 r = redis.Redis(decode_responses=True)
 r.set("user:1", "Ada", ex=60)</code></pre><div class="what">Python (<code>pip install redis</code>). <code>decode_responses</code> returns <code>str</code> instead of <code>bytes</code>.</div></div>
@@ -514,15 +524,15 @@ XREADGROUP GROUP billing w1 COUNT 10 STREAMS orders &gt;</code></pre><div class=
             <span>Index, then query, then schema, then cache, then replicate, then partition — and only then shard.</span>
             <small>Mentioned here in Key concepts and Pros &amp; cons · Shared tags: database</small>
           </a>
+          <a class="related-card" href="event-store.html">
+            <b>Event store</b>
+            <span>Store what happened, not what is. Everything else is a fold over the facts.</span>
+            <small>Mentioned here in Overview and Key concepts · Shared tags: streams</small>
+          </a>
           <a class="related-card" href="cqrs.html">
             <b>CQRS</b>
             <span>Writes and reads want opposite things from a schema. Stop making one model do both jobs badly.</span>
             <small>CQRS mentions Redis in Key concepts and Pros &amp; cons</small>
-          </a>
-          <a class="related-card" href="docker.html">
-            <b>Docker</b>
-            <span>Package an app with everything it needs, then run it the same way on any machine.</span>
-            <small>Docker mentions Redis in Essential commands &amp; syntax and Concrete use cases</small>
           </a>
       </div>
     </section>

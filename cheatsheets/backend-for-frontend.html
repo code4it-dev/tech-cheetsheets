@@ -473,7 +473,7 @@ static async Task&lt;T&gt; Safe&lt;T&gt;(Func&lt;Task&lt;T&gt;&gt; call, T fallb
 <tr><td>HTTP caching</td><td>normal</td><td>hard: one URL, usually POST</td></tr>
 <tr><td>Cost control</td><td>you wrote the aggregation</td><td>needs depth and complexity limits</td></tr>
 <tr><td>N+1</td><td>visible in your own code</td><td>the default, until you add batching</td></tr></table>
-<pre class="language-bash line-numbers"><code class="language-bash"># one request, exactly the fields the screen draws
+<pre class="language-none line-numbers"><code class="language-none"># one request, exactly the fields the screen draws
 query Home {
   me { displayName avatarUrl }
   basket { count total }
@@ -507,6 +507,26 @@ query Home {
         Basket:   new(basketTask.Result.Items.Count, Money(basketTask.Result.Total)),
         Panels:   BuildPanels(recsTask.Result, loyaltyTask.Result)));
 }).RequireAuthorization();</code></pre><div class="what">One wave of parallel calls, optional panels degraded safely, and a response shaped like the screen.</div></div>
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">@app.get("/mobile/home")
+async def mobile_home(user_id: str) -&gt; dict:
+    profile, orders, recs = await asyncio.gather(
+        profile_api.get(user_id),
+        orders_api.recent(user_id, limit=3),
+        safe(recs_api.get(user_id), fallback=[]),    # optional: never fails the page
+    )
+    return {                                          # exactly what this screen renders
+        "name": profile["displayName"],
+        "orders": [{"id": o["id"], "status": o["status"]} for o in orders],
+        "recommended": recs[:4],
+    }
+
+
+async def safe(coro, *, fallback, timeout=0.2):
+    try:
+        return await asyncio.wait_for(coro, timeout)
+    except Exception:                                 # timeout, 5xx, breaker open
+        return fallback</code></pre><div class="what">The same BFF in FastAPI. <code>asyncio.gather</code> is the fan-out, and <code>safe()</code> is what keeps an optional dependency from taking the screen down.</div></div>
+        
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">static async Task&lt;T&gt; Safe&lt;T&gt;(Func&lt;Task&lt;T&gt;&gt; call, T fallback)
 {
     try { return await call(); }
@@ -554,7 +574,7 @@ app.MapRemoteBffApiEndpoint("/api/orders", "https://orders.internal")
       return new JObject(new JProperty("name", p["displayName"])).ToString();
   }&lt;/set-body&gt;
 &lt;/return-response&gt;</code></pre><div class="what">Perfectly workable for simple composition &mdash; and the moment it needs a real rule, you are writing C# inside XML.</div></div>
-        <div class="cmd"><pre class="language-bash"><code class="language-bash"># YARP: routing and transforms, no aggregation
+        <div class="cmd"><pre class="language-none"><code class="language-none"># YARP: routing and transforms, no aggregation
 "Routes": { "orders": { "ClusterId": "orders", "Match": { "Path": "/api/orders/{**rest}" } } }</code></pre><div class="what">A reverse proxy handles routing and cross-cutting concerns. Aggregation is not its job.</div></div>
       </div>
 

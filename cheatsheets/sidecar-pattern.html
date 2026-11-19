@@ -464,7 +464,7 @@ spec:
         - name: app
           image: registry.example/orders:1.4.2
           ports: [{ containerPort: 8080 }]</code></pre><div class="what">Starts before the app, stops after it, and does not block a Job from completing. Stable since Kubernetes 1.29.</div></div>
-        <div class="cmd"><pre class="language-bash line-numbers"><code class="language-bash"># the old workaround, still needed on clusters below 1.29
+        <div class="cmd"><pre class="language-yaml line-numbers"><code class="language-yaml"># the old workaround, still needed on clusters below 1.29
 lifecycle:
   preStop:
     exec:
@@ -506,7 +506,7 @@ kubectl rollout restart deployment -n orders      # injection happens at pod cre
 
 # opt a workload out (batch jobs usually want this)
 kubectl annotate pod/import-job sidecar.istio.io/inject=false</code></pre><div class="what">A webhook rewrites the pod spec on creation, so application manifests stay clean — and differ from what actually runs.</div></div>
-        <div class="cmd"><pre class="language-bash line-numbers"><code class="language-bash"># policy as config, applied to every proxy — no application release
+        <div class="cmd"><pre class="language-yaml line-numbers"><code class="language-yaml"># policy as config, applied to every proxy — no application release
 apiVersion: networking.istio.io/v1
 kind: DestinationRule
 spec:
@@ -640,6 +640,11 @@ kubectl top pods -A --containers | grep -E 'istio-proxy|envoy' \
             <span>You declare what should run; it keeps a fleet of machines making that true, forever.</span>
             <small>Mentioned here in Overview, Key concepts, Essential manifests &amp; commands and Resources · Kubernetes mentions Sidecar pattern in Key concepts · Shared tags: containers</small>
           </a>
+          <a class="related-card" href="circuit-breaker.html">
+            <b>Circuit breaker</b>
+            <span>Stop calling the thing that is broken. You are not helping it, and it is destroying you.</span>
+            <small>Mentioned here in Key concepts and Concrete use cases · Shared tags: envoy</small>
+          </a>
           <a class="related-card" href="outbox-pattern.html">
             <b>Outbox pattern</b>
             <span>You cannot commit a database and a broker together. So write the message as a row, and let it ride along.</span>
@@ -660,11 +665,6 @@ kubectl top pods -A --containers | grep -E 'istio-proxy|envoy' \
             <span>Say no on purpose, before the system says no by falling over.</span>
             <small>Closely related topic</small>
           </a>
-          <a class="related-card" href="azure-api-management.html">
-            <b>Azure API Management</b>
-            <span>One front door for every API you own — and a place to put all the things that are not business logic.</span>
-            <small>Azure API Management mentions Sidecar pattern in When to use / when not to and Alternatives</small>
-          </a>
       </div>
     </section>
     <!-- RELATED:END -->
@@ -675,10 +675,10 @@ kubectl top pods -A --containers | grep -E 'istio-proxy|envoy' \
 <script>
 createAnimation('anim-req', [
   { say: 'A request arrives at the pod on port 443. It does not reach the application: iptables rules installed at pod creation redirect everything inbound to the sidecar first.', hl: ['rq-cli'] },
-  { say: 'The proxy terminates mTLS and checks the caller\'s workload identity certificate against the authorization policy. The application will never see a certificate or an identity.', move: { 'rq-msg': [190, 104] }, unhl: ['rq-cli'], hl: ['rq-car'], text: { 'rq-c1': 'mTLS terminated', 'rq-c2': 'identity: web-frontend ✓', 'rq-c3': 'policy: allow' } },
-  { say: 'It records the golden metrics and starts a trace span, then forwards the request over loopback to <code>localhost:8080</code>. Same network namespace, so there is no network hop and nothing to encrypt.', move: { 'rq-msg': [360, 104] }, text: { 'rq-msgt': 'GET /orders · plain HTTP', 'rq-c4': 'metrics + trace span recorded' } },
+  { say: 'The proxy terminates mTLS and checks the caller\'s workload identity certificate against the authorization policy. The application will never see a certificate or an identity.', move: { 'rq-msg': [190, 0] }, unhl: ['rq-cli'], hl: ['rq-car'], text: { 'rq-c1': 'mTLS terminated', 'rq-c2': 'identity: web-frontend ✓', 'rq-c3': 'policy: allow' } },
+  { say: 'It records the golden metrics and starts a trace span, then forwards the request over loopback to <code>localhost:8080</code>. Same network namespace, so there is no network hop and nothing to encrypt.', move: { 'rq-msg': [360, 0] }, text: { 'rq-msgt': 'GET /orders · plain HTTP', 'rq-c4': 'metrics + trace span recorded' } },
   { say: 'The application handles an ordinary HTTP request. Its code has no TLS, no auth, no retry policy and no tracing library. It could have been written in 2009 and never touched since.', unhl: ['rq-car'], hl: ['rq-app'], text: { 'rq-a3': 'handling /orders' } },
-  { say: 'Now outbound. The app calls <code>payments:8080</code> as if it were a plain hostname. That connection is captured too and handed straight back to the sidecar.', move: { 'rq-msg': [190, 104] }, unhl: ['rq-app'], hl: ['rq-car'], text: { 'rq-msgt': 'POST payments/charge', 'rq-a3': 'calling payments…', 'rq-c1': 'outbound captured :15001', 'rq-c2': 'discovery + load balancing', 'rq-c3': 'timeout 2s · retry 2 · breaker', 'rq-c4': 'originating mTLS' } },
+  { say: 'Now outbound. The app calls <code>payments:8080</code> as if it were a plain hostname. That connection is captured too and handed straight back to the sidecar.', move: { 'rq-msg': [190, 0] }, unhl: ['rq-app'], hl: ['rq-car'], text: { 'rq-msgt': 'POST payments/charge', 'rq-a3': 'calling payments…', 'rq-c1': 'outbound captured :15001', 'rq-c2': 'discovery + load balancing', 'rq-c3': 'timeout 2s · retry 2 · breaker', 'rq-c4': 'originating mTLS' } },
   { say: 'The first payments endpoint is slow. The proxy times out at two seconds and retries against a different healthy endpoint &mdash; a policy the application never agreed to and does not know about.', unhl: ['rq-car'], hl: ['rq-up'], text: { 'rq-upt': 'endpoint 1 slow → retry', 'rq-c3': 'timeout fired · retrying' }, fill: { 'rq-upt': '#c53b3b' } },
   { say: 'The retry succeeds. From the application\'s point of view the call simply took a little longer; from the platform\'s, an outlier was detected and will be ejected from the pool.', text: { 'rq-upt': 'endpoint 2 · 200 OK', 'rq-c3': 'retry succeeded · outlier ejected', 'rq-a3': 'got 200 from payments' }, fill: { 'rq-upt': '#2f6b3f' } },
   { say: 'All of that policy &mdash; the timeout, the retry budget, the breaker, who may call whom &mdash; arrived from the control plane as configuration. Changing it for three hundred services is a config push, not three hundred releases.', unhl: ['rq-up'], text: { 'rq-n': 'policy is configuration, not a library version in 300 repositories' } },

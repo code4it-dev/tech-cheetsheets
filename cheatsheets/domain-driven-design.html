@@ -81,11 +81,12 @@
           <text x="269" y="138" font-size="11" text-anchor="middle" fill="#c53b3b" font-weight="700" transform="rotate(-90 269 138)">ACL</text>
 
           <line x1="514" y1="122" x2="544" y2="122" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#dd-arr)"/>
-          <text x="529" y="112" font-size="10.5" text-anchor="middle" fill="#5f6f66">events</text>
+          <text x="531" y="112" font-size="10" text-anchor="middle" fill="#5f6f66">events</text>
 
           <rect x="24" y="226" width="752" height="62" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
-          <text x="40" y="248" font-size="12.5" font-weight="700" fill="#23362e">Context map &mdash; the relationship, written down</text>
-          <text x="40" y="270" font-size="11.5" fill="#5f6f66">Sales &rarr; Shipping: customer / supplier, translated by an anti-corruption layer &nbsp;·&nbsp; Sales &rarr; Billing: published language (OrderPlaced event) &nbsp;·&nbsp; Billing: conformist, we bend to the vendor's model</text>
+          <text x="40" y="246" font-size="12.5" font-weight="700" fill="#23362e">Context map &mdash; the relationship, written down</text>
+          <text x="40" y="266" font-size="11" fill="#5f6f66">Sales &rarr; Shipping: customer / supplier, translated by an anti-corruption layer</text>
+          <text x="40" y="282" font-size="11" fill="#5f6f66">Sales &rarr; Billing: published language (OrderPlaced) &nbsp;·&nbsp; Billing: conformist &mdash; we bend to the vendor's model</text>
 
           <text class="hand" x="30" y="316" font-size="16" fill="#c53b3b">one shared "Customer" class across all three is how you get a 90-field god object</text>
         </svg>
@@ -136,7 +137,7 @@
             </g>
 
             <text id="cx-msg" x="400" y="276" font-size="12" text-anchor="middle" fill="#5f6f66">one word, about to be pulled in three directions</text>
-            <text id="cx-hand" class="hand hidden" x="470" y="212" font-size="16" fill="#c53b3b">translate at the border, never share the class</text>
+            <text id="cx-hand" class="hand hidden" x="20" y="238" font-size="16" fill="#c53b3b">translate at the border, never share the class</text>
           </svg>
         </div>
         <div class="controls"></div>
@@ -185,7 +186,7 @@
             <rect id="ag-l2" class="hidden" x="446" y="184" width="178" height="26" rx="4" fill="#e8ece2" stroke="#a9b5a6"/>
             <text id="ag-l2t" class="hidden" x="458" y="202" font-size="11" fill="#5f6f66" font-family="Fira Code, monospace">3 x SKU-91</text>
 
-            <text id="ag-inv" x="426" y="236" font-size="11" fill="#5f6f66">invariant: at most 10 items, total under 5000</text>
+            <text id="ag-inv" x="426" y="236" font-size="10" fill="#5f6f66">invariant: at most 10 items, total under 5000</text>
             <text id="ag-status" x="426" y="258" font-size="11.5" fill="#5f6f66" font-family="Fira Code, monospace">state: 1 line, 2 items</text>
 
             <line x1="664" y1="131" x2="696" y2="131" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#ag-arr)"/>
@@ -697,6 +698,16 @@ dotnet add package NetArchTest.Rules
             <span>Writes and reads want opposite things from a schema. Stop making one model do both jobs badly.</span>
             <small>Mentioned here in Key concepts, Common mistakes &amp; gotchas and Alternatives · CQRS mentions Domain-Driven Design in Overview, Key concepts, Essential code patterns, Concrete use cases, When to use / when not to and Common mistakes &amp; gotchas · Shared tags: ddd, architecture</small>
           </a>
+          <a class="related-card" href="event-storming.html">
+            <b>EventStorming</b>
+            <span>Put everyone who knows something in front of one very long wall, and find out what the business actually does.</span>
+            <small>Mentioned here in Common mistakes &amp; gotchas and Resources · EventStorming mentions Domain-Driven Design in Overview, Key concepts, Running one — the practical bits, Pros &amp; cons and Resources · Shared tags: ddd, bounded context</small>
+          </a>
+          <a class="related-card" href="event-store.html">
+            <b>Event store</b>
+            <span>Store what happened, not what is. Everything else is a fold over the facts.</span>
+            <small>Mentioned here in Alternatives · Event store mentions Domain-Driven Design in Overview, Architecture / mental model, Key concepts, Essential code patterns, Common mistakes &amp; gotchas and Alternatives</small>
+          </a>
           <a class="related-card" href="backend-for-frontend.html">
             <b>Backend-for-Frontend</b>
             <span>One backend per experience, so no client has to negotiate with a general-purpose API.</span>
@@ -711,16 +722,6 @@ dotnet add package NetArchTest.Rules
             <b>Modular monolith</b>
             <span>One deployable, with walls the compiler actually enforces.</span>
             <small>Mentioned here in Alternatives · Modular monolith mentions Domain-Driven Design in Key concepts · Shared tags: ddd, bounded context, architecture</small>
-          </a>
-          <a class="related-card" href="cqs.html">
-            <b>CQS</b>
-            <span>Asking a question should not change the answer.</span>
-            <small>CQS mentions Domain-Driven Design in Key concepts</small>
-          </a>
-          <a class="related-card" href="multitenancy.html">
-            <b>Multitenancy strategies</b>
-            <span>One system, many customers — the only real question is where you draw the isolation line.</span>
-            <small>Closely related topic</small>
           </a>
       </div>
     </section>
@@ -748,10 +749,10 @@ createAnimation('anim-agg', [
   { say: 'The repository reads orders and order_lines and rebuilds the aggregate: the root plus the one existing line. The database shape is its problem, not the domain\'s.', show: ['ag-l1', 'ag-l1t'], hl: ['ag-db'], text: { 'ag-dbt': 'read: 1 order, 1 line' } },
   { say: 'Now the only business call: <code>order.AddItem(SKU-91, 3)</code>. The service cannot touch the lines collection — it is read-only — so the rule cannot be bypassed.', move: { 'ag-cmd': [390, 0] }, text: { 'ag-cmdt': 'order.AddItem(SKU-91, 3)' }, unhl: ['ag-repo', 'ag-db'], hl: ['ag-aggr'], show: ['ag-hand'] },
   { say: 'The root checks the invariant against the <em>whole</em> aggregate: 2 items already there plus 3 more is 5, under the limit of 10. Allowed — so the line is added.', show: ['ag-l2', 'ag-l2t'], text: { 'ag-status': 'state: 2 lines, 5 items — invariant holds' }, fill: { 'ag-status': '#2f6b3f' } },
-  { say: 'The root also records what happened: <code>ItemAdded</code>, past tense, a fact. It stays inside the aggregate for now — publishing before the commit would announce work that might roll back.', text: { 'ag-cmdt': 'ItemAdded(42, SKU-91, 3) recorded' } },
-  { say: 'The repository saves the whole aggregate in one transaction. This is what "aggregate = consistency boundary" means in practice: everything inside is atomic, and nothing outside is touched.', move: { 'ag-cmd': [220, 100] }, text: { 'ag-cmdt': 'commit — one aggregate, one transaction', 'ag-dbt': 'write: 1 order, 2 lines' }, unhl: ['ag-aggr'], hl: ['ag-db'] },
+  { say: 'The root also records what happened: <code>ItemAdded</code>, past tense, a fact. It stays inside the aggregate for now — publishing before the commit would announce work that might roll back.', text: { 'ag-cmdt': 'ItemAdded recorded' } },
+  { say: 'The repository saves the whole aggregate in one transaction. This is what "aggregate = consistency boundary" means in practice: everything inside is atomic, and nothing outside is touched.', move: { 'ag-cmd': [220, 100] }, text: { 'ag-cmdt': 'commit · 1 transaction', 'ag-dbt': 'write: 1 order, 2 lines' }, unhl: ['ag-aggr'], hl: ['ag-db'] },
   { say: 'Only after the commit is the event published. Shipping and Billing react in their own transactions, in their own time — eventual consistency between aggregates, no distributed lock anywhere.', move: { 'ag-cmd': [660, 0] }, text: { 'ag-cmdt': 'publish ItemAdded', 'ag-bust': 'ItemAdded →' }, unhl: ['ag-db'], hl: ['ag-bus'] },
-  { say: 'Now try to add 9 more units. The root recomputes against the whole aggregate — 5 + 9 = 14 — and refuses. Nothing is persisted, nothing is published, and the rule was enforced in exactly one place.', text: { 'ag-cmdt': 'AddItem(SKU-77, 9) → rejected', 'ag-status': '5 + 9 = 14 > 10 — DomainException' }, fill: { 'ag-status': '#c53b3b', 'ag-bust': '#5f6f66' }, unhl: ['ag-bus'], hl: ['ag-aggr'] },
+  { say: 'Now try to add 9 more units. The root recomputes against the whole aggregate — 5 + 9 = 14 — and refuses. Nothing is persisted, nothing is published, and the rule was enforced in exactly one place.', text: { 'ag-cmdt': 'AddItem(SKU-77,9) ✗', 'ag-status': '5 + 9 = 14 > 10 — DomainException' }, fill: { 'ag-status': '#c53b3b', 'ag-bust': '#5f6f66' }, unhl: ['ag-bus'], hl: ['ag-aggr'] },
 ]);
 
 window.TERM_ANIMS = {
