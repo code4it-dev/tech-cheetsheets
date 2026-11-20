@@ -168,12 +168,12 @@
         }
       ],
       "related": [
+        "idempotency",
         "database-performance",
         "outbox-pattern",
         "backpressure",
         "redis",
-        "cqrs",
-        "event-store"
+        "cqrs"
       ]
     },
     {
@@ -361,10 +361,10 @@
       "related": [
         "rate-limiting",
         "caching-strategies",
-        "circuit-breaker",
-        "azure-durable-functions",
-        "kubernetes",
-        "sli-slo-sla"
+        "jwt",
+        "load-balancing",
+        "oauth2",
+        "circuit-breaker"
       ]
     },
     {
@@ -545,11 +545,11 @@
       ],
       "related": [
         "saga-pattern",
+        "retry-backoff-jitter",
         "azure-api-management",
         "outbox-pattern",
-        "event-store",
-        "domain-driven-design",
-        "kafka"
+        "idempotency",
+        "event-store"
       ]
     },
     {
@@ -891,12 +891,12 @@
         }
       ],
       "related": [
+        "oauth2",
         "domain-driven-design",
+        "jwt",
         "caching-strategies",
         "modular-monolith",
-        "multitenancy",
-        "sidecar-pattern",
-        "percentiles"
+        "multitenancy"
       ]
     },
     {
@@ -1079,7 +1079,7 @@
         "rate-limiting",
         "littles-law",
         "queueing-theory",
-        "kafka"
+        "retry-backoff-jitter"
       ]
     },
     {
@@ -1440,11 +1440,11 @@
       ],
       "related": [
         "graceful-degradation",
+        "retry-backoff-jitter",
         "backpressure",
         "load-shedding",
         "sidecar-pattern",
-        "saga-pattern",
-        "rate-limiting"
+        "saga-pattern"
       ]
     },
     {
@@ -1773,11 +1773,11 @@
       ],
       "related": [
         "cqrs",
+        "idempotency",
         "caching-strategies",
         "domain-driven-design",
         "rate-limiting",
-        "database-performance",
-        "event-storming"
+        "retry-backoff-jitter"
       ]
     },
     {
@@ -2881,6 +2881,393 @@
       ]
     },
     {
+      "slug": "idempotency",
+      "url": "cheatsheets/idempotency.html",
+      "title": "Idempotency & deduplication",
+      "aliases": [
+        "Idempotency & deduplication",
+        "Idempotency",
+        "idempotency key",
+        "idempotent",
+        "deduplication",
+        "dedup window",
+        "at-least-once",
+        "at-most-once",
+        "exactly-once",
+        "effectively-once",
+        "delivery semantics",
+        "inbox pattern"
+      ],
+      "tagline": "Exactly-once delivery does not exist. Exactly-once effect does, and this is how you build it.",
+      "asOf": "As of Nov 2026 · examples in C#, Python, SQL and Kafka · the impossibility result is the Two Generals Problem",
+      "description": "Idempotency cheatsheet: why exactly-once delivery is impossible, how idempotency keys and dedup windows give you effectively-once processing, and how to size the window.",
+      "tags": [
+        "idempotency",
+        "idempotency key",
+        "deduplication",
+        "exactly once",
+        "at least once",
+        "delivery semantics",
+        "messaging",
+        "retries",
+        "inbox",
+        "distributed systems"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential code patterns"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-idempotent-operation",
+          "term": "Idempotent operation",
+          "def": "One whose repetition changes nothing beyond the first application — naturally safe to retry.",
+          "detail": "Setting a value is idempotent; adding to it is not. status = 'shipped' applied five times leaves the same state, while balance = balance + 10 applied five times does not. The distinction is the first thing to check before adding any retry. Where you have a choice, prefer absolute values to increments. Writing the new total rather than a delta turns an operation that needs deduplication into one that does not. Naturally idempotent or not Operation Idempotent? SET status = 'shipped' yes UPSERT … SET total = 42 yes DELETE WHERE id = 7 yes balance = balance + 10 no INSERT with a generated id no Send an email, charge a card no How it relates HTTP already classifies this: PUT and DELETE are idempotent, POST is not."
+        },
+        {
+          "id": "term-idempotency-key",
+          "term": "Idempotency key",
+          "def": "A client-generated identifier for one logical operation, stable across every retry of it.",
+          "detail": "It is what lets a server make a non-idempotent operation safe. The client generates a UUID once, before the first attempt, and sends the same value on every retry. The server records it and recognises the repeat. The single most common implementation bug is generating the key inside the retry loop, so each attempt carries a fresh one and the server sees three unrelated requests. Generate it with the intent, not with the attempt. Properties Property Requirement Generated by the client, before attempt 1 Stable across every retry of that operation Unique across different operations, always Form UUIDv4/v7, or a hash of the intent How it relates The second animation follows one key through a first call, a retry and a concurrent duplicate."
+        },
+        {
+          "id": "term-key-scope",
+          "term": "Key scope",
+          "def": "What the key is unique within — and the thing that decides whether one tenant can affect another.",
+          "detail": "Scope the key to the authenticated caller, not globally. A global namespace lets one client guess or collide with another's key and either read their response or suppress their request — a cross-tenant leak dressed as a correctness feature. The usual key is (client_or_tenant_id, endpoint, idempotency_key), which also stops the same key being reused accidentally across different operations. Scoping Scope Verdict Global unsafe — cross-tenant collisions Per tenant minimum acceptable Per tenant + endpoint the usual choice How it relates In a multi-tenant system the tenant comes from the validated token, never from the request body."
+        },
+        {
+          "id": "term-request-fingerprint",
+          "term": "Request fingerprint",
+          "def": "A hash of the request body stored with the key, so the same key with different content is rejected rather than silently answered.",
+          "detail": "If a client sends key K with a &euro;40 charge and later sends K with a &euro;4,000 charge, replaying the first response would silently swallow the second request. That is a client bug, and the only safe behaviour is to say so. Stripe returns a 422 in this case. Hash the canonical body at write time, compare on every repeat, and fail loudly when it differs. Responses Situation Return New key process; 200/201 Same key, same body, complete replay the stored response Same key, same body, in flight 409 or wait Same key, different body 422 — never replay How it relates Canonicalise before hashing, or whitespace and key order produce false mismatches."
+        },
+        {
+          "id": "term-response-replay",
+          "term": "Response replay",
+          "def": "Returning the stored result of the first attempt, so a retry is indistinguishable from the original.",
+          "detail": "Deduplication that returns a bare 409 is only half useful: the client still does not know whether the charge succeeded and still cannot show a result. Storing the status code and body against the key makes the retry transparent — the client receives exactly what it would have received the first time. Store it in the same transaction as the effect, so there is never a moment where the charge exists and the recorded response does not. What to store Field Why Status code + body replay the exact answer Request fingerprint detect a changed body State: in-flight / done handle concurrency Created-at window expiry How it relates Replay the response for failures too — a stored 422 avoids re-running a doomed request."
+        },
+        {
+          "id": "term-concurrent-duplicates",
+          "term": "Concurrent duplicates",
+          "def": "Two attempts in flight at once — the case a naive check-then-act misses entirely.",
+          "detail": "\"Look up the key; if absent, process\" has a race: both attempts look up, both find nothing, both process. Retries with low backoff make this likely rather than theoretical. The fix is an atomic claim: insert the key first and let the unique constraint decide. Exactly one insert succeeds and does the work; the other sees the conflict and either waits briefly or returns 409. Approaches Approach Safe? Check, then insert no — a race INSERT … ON CONFLICT DO NOTHING yes SET NX in Redis yes A lock on the key yes, with a timeout How it relates An in-flight record also needs a timeout, or a crashed attempt blocks its own retry forever."
+        },
+        {
+          "id": "term-at-most-once",
+          "term": "At-most-once",
+          "def": "Never retry: no duplicates, and silent loss whenever something goes wrong.",
+          "detail": "Fire and forget. It is the correct choice when a lost item is genuinely cheaper than a duplicate one and nobody will miss it: a metrics sample, a log line, a presence ping. It is the wrong choice for anything a human or a ledger will notice, because the failure is invisible — there is no artefact to find, no alert to fire, and nothing to reconcile against. How it relates Choosing it should be deliberate. Most at-most-once systems got there by forgetting to handle an error."
+        },
+        {
+          "id": "term-at-least-once",
+          "term": "At-least-once",
+          "def": "Retry until acknowledged: nothing is lost, and duplicates are guaranteed to happen eventually.",
+          "detail": "The right default, for one asymmetry: duplicates are detectable and losses are not. A repeat carries an identifier you can match; a message that never arrived leaves no trace anywhere. Accepting it means accepting an obligation: every consumer must tolerate repeats. That is not a caveat to note in a document — it is a requirement to test, by replaying the same message twice. Where duplicates come from Source Frequency Client or library retry routine Broker redelivery after a restart routine Consumer group rebalance routine Outbox relay restart routine An operator replaying a queue rare, and large How it relates The outbox pattern produces at-least-once by construction, which is why it mandates idempotent consumers."
+        },
+        {
+          "id": "term-exactly-once-delivery",
+          "term": "Exactly-once delivery",
+          "def": "The thing that cannot be built — and the phrase to push back on in a design review.",
+          "detail": "It would require the sender to distinguish \"lost on the way there\" from \"processed, lost on the way back\". Doing so needs a reliable acknowledgement, which needs a reliable acknowledgement of the acknowledgement, and so on. The regress is the proof. When a product claims exactly-once, it almost always means at-least-once delivery plus deduplication inside its own boundary — which is genuinely useful and stops at the edge of that boundary. What the claims mean Claim Actually Kafka \"exactly-once\" idempotent producer + transactions, within Kafka Flink \"exactly-once\" checkpointing + transactional sinks Queue \"exactly-once\" at-least-once + a dedup window How it relates The moment an effect leaves the system — an email, a card charge — the guarantee ends."
+        },
+        {
+          "id": "term-effectively-once",
+          "term": "Effectively-once",
+          "def": "At-least-once delivery whose duplicates have been made harmless. What everyone means by exactly-once.",
+          "detail": "Three parts: delivery that retries until acknowledged, a key that is stable across those retries, and a store that remembers which keys have been handled — written atomically with the effect itself. The atomicity is the part that gets skipped. Recording the key in Redis and then writing to the database leaves a window where a crash loses one and keeps the other, which reintroduces exactly the problem. The three parts Part Supplied by At-least-once delivery retries, broker, outbox A stable key the client or the producer Dedup, atomic with the effect one transaction in your store How it relates If the dedup record and the effect are in different stores, you need an outbox between them."
+        },
+        {
+          "id": "term-dedup-store",
+          "term": "Dedup store",
+          "def": "Where processed keys live — a table or a cache, read and written on the hot path.",
+          "detail": "A relational table alongside the business data is the simplest correct answer, because the dedup record and the effect commit together. Redis is faster and introduces a second store, which means the atomicity has to be designed rather than inherited. Whatever you choose, the key must be the primary key, and expiry must be automatic — a dedup table nobody prunes becomes the largest table you own. Options Store Trade-off Same database atomic with the effect; simplest Redis with TTL fast, self-expiring, not atomic with the DB Broker-native dedup free, but only within the broker Bloom filter tiny; false positives drop real work How it relates A Bloom filter's false positives mean \"silently discarded a genuine request\" — rarely an acceptable trade."
+        },
+        {
+          "id": "term-dedup-window",
+          "term": "Dedup window",
+          "def": "How long a key is remembered. Too short and duplicates slip through; too long and you store everything forever.",
+          "detail": "Outside the window the same key looks new, and the operation runs a second time. The window is therefore not a storage decision dressed up as a correctness one — it is the correctness boundary. Twenty-four hours is the common default (Stripe uses it) because it comfortably exceeds any plausible client retry horizon while keeping the table bounded. What happens at the edge of the window How it relates Broker-side dedup windows are usually far shorter — check yours before relying on it."
+        },
+        {
+          "id": "term-window-sizing",
+          "term": "Window sizing",
+          "def": "The window must outlast every mechanism that could redeliver — retries, broker redelivery, operator replays.",
+          "detail": "Add up the worst cases: the client's full retry schedule, the broker's maximum redelivery delay, any dead-letter replay you might perform, and a margin for clock skew. The window must exceed that sum, not the typical case. Then check the cost: storage is roughly rate × window × row size. At 1,000 operations a second over 24 hours that is 86 million rows, which is why the row should be small and the index tight. Worked sizing Input Value Client retry horizon 5 min Broker max redelivery 1 h Manual replay window 12 h → dedup window 24 h, comfortably → storage at 1k/s ~86M rows How it relates If a replay older than the window is ever needed, dedup on a business key instead — it never expires."
+        },
+        {
+          "id": "term-business-key-dedup",
+          "term": "Business key dedup",
+          "def": "Deduplicating on something the domain already guarantees unique, instead of a separate key with a window.",
+          "detail": "A unique constraint on (order_id, line_no) or on an invoice number does the job permanently, with no window to size and no table to prune. Where the domain offers such a key, it is strictly better than an idempotency key. It also survives replays from any era, which is the one case a windowed dedup store cannot handle. Prefer a business key when Situation Key Creating an order line (order_id, line_no) Recording a payment provider's transaction id Importing a row source system's primary key Arbitrary client command idempotency key — no natural one exists How it relates A unique index is deduplication; catching the conflict and returning success is the whole implementation."
+        },
+        {
+          "id": "term-inbox-pattern",
+          "term": "Inbox pattern",
+          "def": "The consumer-side table recording processed message ids, written in the same transaction as the work.",
+          "detail": "The mirror of the outbox. On receipt, insert the message id; if the insert conflicts, this message has already been handled and you acknowledge without doing anything. Because the insert and the business change share a transaction, a crash cannot leave one without the other. That atomicity is the entire value. Checking a cache and then writing to the database is the same pattern with the guarantee removed. How it relates Outbox plus inbox is the complete transactional messaging pair."
+        },
+        {
+          "id": "term-broker-level-dedup",
+          "term": "Broker-level dedup",
+          "def": "What Kafka and friends provide — real, useful, and bounded to the broker.",
+          "detail": "Kafka's idempotent producer (enable.idempotence=true) stops a retried produce creating duplicate records, using a producer id and sequence numbers. Transactions extend that to atomic read-process-write across partitions. Both guarantees end at the broker boundary. The moment your consumer charges a card or sends an email, you are back to needing your own idempotency — which is why \"we use exactly-once Kafka\" is not an answer to \"can this charge twice?\". What it covers Scenario Covered? Producer retry duplicating a record yes Read → process → write, within Kafka yes, with transactions Consumer writing to your database no — your inbox Consumer calling an external API no — idempotency key How it relates The Kafka page covers the producer and consumer settings in detail."
+        },
+        {
+          "id": "term-out-of-order-writes",
+          "term": "Out-of-order writes",
+          "def": "Duplicates are not the only hazard — a redelivered older message can overwrite a newer state.",
+          "detail": "A retry can arrive after a later update has already been applied. Blindly applying it reverts the record, which is a correctness bug deduplication alone does not catch. Carry a monotonic version or sequence number and guard the write: apply only when the incoming version is greater than the stored one. That makes the operation both idempotent and order-insensitive. Guarded write Write Safe? SET status=… WHERE seq < @seq yes SET status=… unconditionally no — can revert total = total + x no — duplicates accumulate How it relates CQRS projections need exactly this guard, for exactly this reason."
+        },
+        {
+          "id": "term-external-side-effects",
+          "term": "External side effects",
+          "def": "Emails, charges and webhooks leave your transaction boundary — and your guarantees with it.",
+          "detail": "A database write can be made idempotent locally. Sending an email cannot: once it is gone, a duplicate is visible to a human. The only defence is to push the idempotency outward — use the provider's idempotency key, or record \"sent\" atomically with the send attempt and accept the small ambiguity that remains. Order matters here. Do the local, reversible work first and the irreversible external call last, so a failure in between leaves less to explain. Making externals safer Effect Defence Card charge provider's idempotency key Email / SMS dedup on a message id you generate Outbound webhook send a delivery id; the receiver dedups File write write to a temp name, then rename How it relates This is the pivot point in a saga: after it, you can only retry forwards."
+        }
+      ],
+      "related": [
+        "retry-backoff-jitter",
+        "outbox-pattern",
+        "kafka",
+        "cqs",
+        "saga-pattern",
+        "cqrs"
+      ]
+    },
+    {
+      "slug": "jwt",
+      "url": "cheatsheets/jwt.html",
+      "title": "JWT & token handling",
+      "aliases": [
+        "JWT & token handling",
+        "JWT",
+        "JSON Web Token",
+        "JWS",
+        "JWE",
+        "JWKS",
+        "alg none",
+        "alg confusion",
+        "bearer token",
+        "token validation",
+        "claims"
+      ],
+      "tagline": "Signed, not secret. Verifiable, not revocable. Everything else follows from those two facts.",
+      "asOf": "As of Nov 2026 · RFC 7519 (JWT), RFC 7515 (JWS), RFC 7517 (JWK), RFC 8725 (BCP) · examples in C# and Python",
+      "description": "JWT cheatsheet: the three segments, the validation checks in order, the alg-confusion and none attacks, the revocation problem, and where to store a token.",
+      "tags": [
+        "jwt",
+        "json web token",
+        "jws",
+        "jwks",
+        "token validation",
+        "security",
+        "claims",
+        "bearer",
+        "signature",
+        "revocation"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential code & commands"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-jws",
+          "term": "JWS",
+          "def": "A signed JWT — the kind you almost always mean. Three segments, integrity-protected, publicly readable.",
+          "detail": "JSON Web Signature is the structure behind the familiar a.b.c string. The signature covers the Base64URL-encoded header and payload exactly as transmitted, which is why re-encoding a token can invalidate it even when the JSON is equivalent. \"JWT\" in conversation almost always means a JWS. A plain unsecured JWT — alg: none, no signature — is part of the spec and should be treated as a forgery in every production context. How it relates Compact serialisation is what makes it fit in a header; the JSON serialisation exists but is rarely used."
+        },
+        {
+          "id": "term-jwe",
+          "term": "JWE",
+          "def": "An encrypted JWT, five segments instead of three — for when the claims themselves must be hidden.",
+          "detail": "JWS gives integrity; JWE gives confidentiality. If a token must carry something the holder should not read — an internal identifier, a sensitive attribute — encryption is the mechanism, not base64. In practice JWE is uncommon. The usual and better answer is to keep sensitive data out of the token and look it up server-side by sub. Which one Need Use Nobody may tamper with it JWS Nobody may read it JWE, or keep it out Both JWS inside JWE (nested) How it relates Reaching for JWE is usually a sign the token is carrying data that belongs in a database."
+        },
+        {
+          "id": "term-header",
+          "term": "Header",
+          "def": "The first segment: which algorithm signed the token and which key to verify it with.",
+          "detail": "Three fields matter. alg names the algorithm — and is attacker-controlled, so it must never decide how you verify. kid selects a key from the JWKS, which is what allows rotation. typ distinguishes token types and matters where several kinds circulate. The correct use of alg is as a filter against your own allow-list: if it is not in your list, reject before doing anything else. Fields Field Use Trust it? alg algorithm no — check against your list kid which public key as a lookup hint only typ token type useful for token confusion defence How it relates Both attacks in the second animation are header manipulation."
+        },
+        {
+          "id": "term-payload",
+          "term": "Payload",
+          "def": "The claims — and a reminder that Base64URL is an encoding, not a protection.",
+          "detail": "Anyone holding the token can read every claim: paste it into a decoder and it is plain JSON. This surprises people regularly, and it is how internal identifiers, email addresses and role structures end up visible to users and to anyone who finds the token in a log. The payload is also the thing that grows. Large group lists and custom claim sets produce tokens of several kilobytes, which then hit header size limits in proxies. Do not put in it Never Instead Secrets, keys, passwords nowhere near a token Personal data you would not log look up by sub Hundreds of group ids a claim pointing at a lookup Anything that changes often your own session store How it relates \"It's encoded\" is not a security property; treat the payload as public."
+        },
+        {
+          "id": "term-registered-claims",
+          "term": "Registered claims",
+          "def": "The standard seven: iss, sub, aud, exp, nbf, iat, jti — each with a defined meaning and a reason to check it.",
+          "detail": "They exist so that validation can be generic. A library given an issuer and an audience can check a token from any provider, because these names mean the same thing everywhere. jti is the one most often ignored and the one you need if you ever want replay protection or a revocation list — it is the token's unique id. The seven Claim Meaning Check iss issuer exact match sub subject key your data on it aud intended recipient must be you exp expires at now < exp nbf not before now ≥ nbf iat issued at sanity / max age jti token id replay and revocation lists How it relates All times are seconds since the Unix epoch, in UTC — not milliseconds, which is a common integration bug."
+        },
+        {
+          "id": "term-signature",
+          "term": "Signature",
+          "def": "The only part that makes the other two trustworthy, and the only part an attacker cannot forge.",
+          "detail": "Computed over the exact Base64URL text of the header and payload. Any change to either — a single character in a claim — invalidates it, which is what lets a service trust claims it did not create. Verification must be constant-time and must happen before any claim is read. Code that decodes the payload, acts on it, and verifies afterwards is code that trusts an attacker's input. How it relates Decoding without verifying is fine for logging and debugging, and a vulnerability anywhere else."
+        },
+        {
+          "id": "term-symmetric-vs-asymmetric",
+          "term": "Symmetric vs asymmetric",
+          "def": "HS256 shares one secret; RS256 and ES256 split signing from verification. The choice decides who can mint tokens.",
+          "detail": "With HMAC, the key that verifies is the key that signs — so every service able to validate a token is also able to forge one. That is acceptable inside a single application and unacceptable across a fleet. With RSA or ECDSA the issuer holds a private key and everyone else holds only the public one. That asymmetry is what makes JWKS and key rotation possible, and it is the right default for anything multi-service. Choosing Algorithm Use when HS256 one app signs and verifies its own tokens RS256 the default for an identity provider ES256 same, smaller signatures; good for mobile EdDSA modern, fast; check library support none never How it relates Using one key for both HMAC and RSA is what makes algorithm confusion possible."
+        },
+        {
+          "id": "term-jwks",
+          "term": "JWKS",
+          "def": "The issuer's public keys as JSON, fetched over HTTPS and cached — what makes rotation invisible.",
+          "detail": "Each key carries a kid; the token's header names the one it used. Providers publish a new key before signing with it, so a client that caches the set and refreshes on an unknown kid keeps working across a rotation with no coordination. Rate-limit that refresh. A stream of tokens with random kid values is otherwise a cheap denial-of-service against your identity provider — and, through it, against you. Caching rules Rule Why Cache for minutes to hours never fetch per request Refresh on unknown kid handles rotation Rate-limit the refresh prevents amplification HTTPS, validated certificate the keys are the trust anchor How it relates Most frameworks do all of this if you give them the authority URL instead of a hard-coded key."
+        },
+        {
+          "id": "term-alg-confusion",
+          "term": "alg confusion",
+          "def": "Forging a token by changing the header so the verifier uses an algorithm — and a key — the attacker controls.",
+          "detail": "The API expects RS256 and verifies with a public key. The attacker edits the header to say HS256 and signs the token using that same public key as the HMAC secret. A library that reads the algorithm from the header will dutifully run HMAC-SHA256 with the key it has — and the signature matches, because the attacker used the same key. The sibling attack is alg: none: strip the signature and declare the token unsecured. Both exist only because the verifier asked the token how to verify itself. The fix, in both cases Do Not Pin an algorithm allow-list read alg from the token One key, one algorithm reuse a key across algorithms Reject none explicitly assume the library does How it relates The second animation walks both attacks and the one configuration line that ends them."
+        },
+        {
+          "id": "term-expiry-clock-skew",
+          "term": "Expiry & clock skew",
+          "def": "exp and nbf decide whether a token is current — and servers whose clocks disagree decide whether that works.",
+          "detail": "Both are Unix seconds in UTC. Because clocks drift, validators allow a small tolerance — but several libraries default to five minutes, which quietly extends every token's life by five minutes in both directions. Thirty seconds is plenty on machines running NTP, and shortening it is one of the cheapest hardening changes available. Skew defaults Setting Recommended Clock skew 30 s (not the 5 min default) Access token lifetime 5–60 min ID token lifetime minutes Require exp always — reject tokens without it How it relates Lifetime is also your revocation window, which is the next concept."
+        },
+        {
+          "id": "term-revocation",
+          "term": "Revocation",
+          "def": "The thing a JWT cannot do. Validation is offline, so nothing server-side can stop an issued token early.",
+          "detail": "Deactivate a user at 10:05 and their token minted at 10:00 with a 10:15 expiry keeps working until 10:15, because the API never asks anyone whether it should. That window is the price of stateless validation. There are three answers, in increasing cost: short lifetimes so the window is small; a denylist of jti values for high-value tokens; or introspection, which gives immediate revocation and reintroduces the per-request dependency JWTs existed to remove. The revocation window How it relates Short access tokens plus revocable refresh tokens is the standard compromise."
+        },
+        {
+          "id": "term-jti-replay",
+          "term": "jti & replay",
+          "def": "The token's unique id — the hook for one-time use and for denylists.",
+          "detail": "A bearer token can be used any number of times until it expires, which is usually fine for an access token and unacceptable for a one-shot artefact like a password-reset or magic-link token. Recording the jti on first use and rejecting repeats turns it into a single-use credential. The same store doubles as a revocation denylist for high-value tokens — small, bounded by the token lifetime, and cheap to check. When to track jti Token Track? Password reset, magic link yes — one use only Refresh token yes — rotation and reuse detection Ordinary access token no — that is a session store again How it relates Tracking every access token's jti reintroduces exactly the state JWTs were chosen to avoid."
+        },
+        {
+          "id": "term-audience",
+          "term": "Audience",
+          "def": "Which service the token was minted for — and the check whose absence turns one compromise into many.",
+          "detail": "Without it, any token your issuer ever signed is accepted by your API: a token for another service, an ID token meant for a client, a token obtained by a different application entirely. One service can then replay a token at another and act as the user. When a service genuinely needs to call another on the user's behalf, exchange the token for one with the right audience rather than forwarding yours. How it relates This is the single most commonly skipped check, and the most commonly exploited."
+        },
+        {
+          "id": "term-token-confusion",
+          "term": "Token confusion",
+          "def": "Accepting a token of the wrong kind — an ID token where an access token belongs, or a refresh token at an API.",
+          "detail": "All of them are JWTs from the same issuer with valid signatures, so signature-only validation accepts all of them. Audience catches most cases; the typ header and an explicit check on token-type claims catch the rest. Deciding which token types your API accepts, and rejecting everything else, is a five-line policy that closes a whole class of confusion. How it relates The OIDC page's first animation is this failure mode in full."
+        },
+        {
+          "id": "term-token-size",
+          "term": "Token size",
+          "def": "JWTs are sent on every request, and a fat one costs bandwidth, cache space and sometimes a 431.",
+          "detail": "A token with a few standard claims is around 500–800 bytes. Add group memberships, permissions and custom claims and it reaches several kilobytes — at which point proxies start rejecting the request, because default header limits are commonly 4–8 KB. The fix is to carry an identifier rather than the data: put sub and a tenant in the token, and look up roles and groups server-side with a cache. Rough sizes Contents Size Standard claims only ~0.5 KB Plus a few roles ~1 KB Plus 200 group ids 8 KB+ — expect 431s How it relates Cookie storage makes this worse: browsers cap total cookie size per domain at around 4 KB."
+        },
+        {
+          "id": "term-storage",
+          "term": "Storage",
+          "def": "Where a browser keeps a token, and why every option is a trade rather than a solution.",
+          "detail": "localStorage is readable by any script on the page, so one XSS or one compromised dependency is a full account takeover. An httpOnly cookie is unreadable by scripts but is sent automatically, which reintroduces CSRF and needs SameSite plus a token or origin check. The honest answer for a browser application is not to hold tokens at all: a BFF keeps them server-side and gives the browser a session cookie instead. Options Where XSS CSRF localStorage exposed safe httpOnly cookie protected needs SameSite + checks In memory only partly safe; lost on reload BFF, server-side best available cookie rules apply How it relates The BFF page covers the server-side-token arrangement in detail."
+        },
+        {
+          "id": "term-sender-constrained-tokens",
+          "term": "Sender-constrained tokens",
+          "def": "Binding a token to the client that obtained it, so a stolen copy cannot be used — DPoP or mTLS.",
+          "detail": "Everything above assumes a bearer token: possession is sufficient. Sender-constraining breaks that by requiring an additional proof only the legitimate client can produce — a per-request signed JWT in DPoP, or a client certificate with mTLS. It is the strongest defence against theft, and it is the direction the specifications are moving, but support across providers and SDKs is still uneven. How it relates It does not remove the need for short lifetimes; it removes the value of a stolen token."
+        },
+        {
+          "id": "term-don-t-write-your-own",
+          "term": "Don't write your own",
+          "def": "Token validation is a solved problem with many sharp edges — use a maintained library and configure it.",
+          "detail": "The failures are not exotic: algorithm confusion, missing audience checks, unverified signatures, generous clock skew, non-constant-time comparison, mishandled kid. Every one has appeared in widely used code written by competent people. Your job is configuration, not cryptography: pin the algorithms, set the issuer and audience, tighten the skew, point at the authority and let it manage JWKS. How it relates If you find yourself splitting a token on '.' in application code, stop."
+        }
+      ],
+      "related": [
+        "openid-connect",
+        "oauth2",
+        "azure-api-management",
+        "backend-for-frontend",
+        "multitenancy",
+        "domain-driven-design"
+      ]
+    },
+    {
       "slug": "kubernetes",
       "url": "cheatsheets/kubernetes.html",
       "title": "Kubernetes",
@@ -3058,11 +3445,205 @@
       ],
       "related": [
         "docker",
+        "load-balancing",
         "sidecar-pattern",
         "rate-limiting",
         "azure-api-management",
-        "graceful-degradation",
-        "kafka"
+        "graceful-degradation"
+      ]
+    },
+    {
+      "slug": "load-balancing",
+      "url": "cheatsheets/load-balancing.html",
+      "title": "L4 vs L7 load balancing",
+      "aliases": [
+        "L4 vs L7 load balancing",
+        "Load balancing",
+        "load balancer",
+        "L4",
+        "L7",
+        "layer 4",
+        "layer 7",
+        "reverse proxy",
+        "least connections",
+        "round robin",
+        "sticky sessions",
+        "power of two choices"
+      ],
+      "tagline": "One reads the envelope, the other opens the letter. That single difference explains every trade-off between them.",
+      "asOf": "As of Nov 2026 · examples use nginx, HAProxy, Envoy, YARP and Kubernetes Gateway API",
+      "description": "Load balancing cheatsheet: what an L4 balancer can and cannot see, what L7 buys you, why HTTP/2 breaks connection-level balancing, and the power of two choices.",
+      "tags": [
+        "load balancing",
+        "l4",
+        "l7",
+        "reverse proxy",
+        "nginx",
+        "envoy",
+        "haproxy",
+        "health checks",
+        "http2",
+        "least connections"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential config & code"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-l4-load-balancing",
+          "term": "L4 load balancing",
+          "def": "Choosing a backend from the TCP/UDP five-tuple, then forwarding packets without inspecting them.",
+          "detail": "The decision is made once, when the connection is established, and every subsequent packet follows the same path. Because nothing is parsed, it runs at line rate — in the kernel with IPVS or eBPF, or on dedicated hardware — and it works for any protocol: HTTP, gRPC, Postgres, SMTP, a custom binary protocol. Its blindness is the whole trade. It cannot route by path, cannot retry a failed request elsewhere, and cannot tell the difference between a connection carrying one request and one carrying ten thousand. Where you meet it Product Notes Kubernetes Service kube-proxy / IPVS — L4 AWS NLB, Azure Load Balancer L4, very high throughput HAProxy in mode tcp L4 IPVS, eBPF, Maglev kernel-level L4 How it relates A Kubernetes Service is L4; an Ingress or Gateway is L7. Knowing which you have explains a lot of behaviour."
+        },
+        {
+          "id": "term-l7-load-balancing",
+          "term": "L7 load balancing",
+          "def": "Terminating the connection, parsing the request, and choosing a backend per request.",
+          "detail": "Once the request is parsed, everything becomes possible: route /api and /static to different pools, send 5% of traffic to a canary, retry an idempotent request on another backend, inject headers, enforce per-user rate limits, serve from cache. It also balances the right unit. An L7 balancer picks a backend for each request, which is what keeps distribution even when one connection carries thousands of them. What it unlocks Capability Needs L7? Route by path or host yes Retry on another backend yes Canary by header or percentage yes Per-request balancing yes Rate limit per user yes Raw TCP throughput no — use L4 How it relates A service mesh sidecar is an L7 balancer placed next to every workload."
+        },
+        {
+          "id": "term-five-tuple-hashing",
+          "term": "Five-tuple hashing",
+          "def": "How an L4 balancer picks: hash the connection's identity and map it onto a backend.",
+          "detail": "Source IP, source port, destination IP, destination port, protocol. The source port varies per connection, so a single client spreads naturally across backends — unless the balancer hashes on source IP alone, which is sometimes done deliberately to pin a client. With plain modulo hashing, adding or removing a backend reshuffles nearly every connection. Production balancers use consistent hashing or Maglev hashing so a change moves only a small fraction. Hash inputs Input Effect Full 5-tuple even spread, new connection may move Source IP only pins a client; uneven behind NAT Consistent hash minimal disruption when the pool changes How it relates Source-IP hashing behind a corporate NAT sends an entire office to one backend."
+        },
+        {
+          "id": "term-request-level-balancing",
+          "term": "Request-level balancing",
+          "def": "Choosing per request rather than per connection — the thing HTTP/2 makes essential.",
+          "detail": "Under HTTP/1.1 a connection carries one request at a time, so balancing connections approximately balances requests. Under HTTP/2 and gRPC, a single long-lived connection multiplexes thousands of concurrent streams — and an L4 balancer still sees one connection. The result is that connections can be perfectly distributed while requests are not distributed at all. Only something that parses the protocol can pick a backend per request. How it relates The second animation is this failure, with numbers."
+        },
+        {
+          "id": "term-http-2-imbalance",
+          "term": "HTTP/2 imbalance",
+          "def": "The classic gRPC-behind-an-L4-balancer problem: even connections, wildly uneven load.",
+          "detail": "A handful of long-lived clients — a gateway, a mesh, a batch worker — each open one connection and keep it for hours. Every request on that connection lands on the backend chosen at connection time, so one backend can take the overwhelming majority of traffic while others idle. It is worse than uneven: it also defeats scaling out, because new backends receive no traffic until someone dials a new connection. Fixes, best first Fix Note L7 balancer or sidecar per-request; the real answer Client-side balancing gRPC name resolver + picker Max connection age forces periodic re-dial Max requests per connection same idea, request-based How it relates Queueing theory names the underlying problem: per-connection pinning is dedicated queues, and pooling beats them."
+        },
+        {
+          "id": "term-tls-termination",
+          "term": "TLS termination",
+          "def": "Where encryption ends — and the thing that decides whether L7 features are available at all.",
+          "detail": "Three arrangements. Termination decrypts at the balancer, enabling every L7 feature and leaving the last hop in plaintext. Passthrough forwards encrypted bytes, so only L4 decisions are possible — though SNI can still be read for routing. Re-encryption decrypts, inspects and re-encrypts to the backend, which is the usual answer when the internal network is not trusted. The three Mode L7 features Backend hop Termination all plaintext Re-encryption all encrypted Passthrough none (SNI only) end-to-end TLS How it relates SNI routing is the useful middle ground: route by hostname without decrypting anything."
+        },
+        {
+          "id": "term-balancing-algorithms",
+          "term": "Balancing algorithms",
+          "def": "Round robin, least connections, least response time — and why the obvious one is rarely best.",
+          "detail": "Round robin ignores load entirely, so one slow backend keeps receiving its full share. Least connections approximates load well and is a good default. Least response time (or a latency EWMA) reacts fastest to a degrading instance. The subtlety is that \"send to the least loaded\" behaves badly across many independent balancers: they all observe the same idle backend and all send to it at once, producing a herd. Power of two choices How it relates Envoy's default is weighted least-request using two random choices, for exactly this reason."
+        },
+        {
+          "id": "term-power-of-two-choices",
+          "term": "Power of two choices",
+          "def": "Sample two backends at random and take the less loaded one — nearly optimal, with no global state.",
+          "detail": "The surprising result from randomised load balancing: picking the better of two random samples reduces the maximum load from roughly log n / log log n to log log n. One extra sample buys an exponential improvement. Practically, it gets you most of least-connections' quality without needing a consistent global view, and without several balancers stampeding the same idle backend. Comparison Strategy State needed Herding Random none none, but uneven Round robin a counter none; ignores load Least connections global view yes, across balancers Two choices local only no How it relates It is the default in Envoy, Finagle and several meshes; worth knowing why before changing it."
+        },
+        {
+          "id": "term-health-checks",
+          "term": "Health checks",
+          "def": "How a balancer learns a backend is unfit — actively by probing, or passively by watching real traffic.",
+          "detail": "Active checks probe an endpoint on a schedule. They are predictable and catch a dead instance even with no traffic, but a shallow check (TCP connect, or a handler that returns 200 unconditionally) tells you only that the process is running. Passive checks observe real responses and eject a backend that starts failing. They catch problems a synthetic probe misses, and they are what the sidecar page calls outlier detection. Designing the probe Check Catches TCP connect process is dead HTTP 200 on /healthz app is running Readiness incl. dependencies cannot serve — careful, cascades Passive 5xx ejection partial, real failures How it relates A readiness check that fails when a shared dependency is slow removes every backend at once — the check becomes the outage."
+        },
+        {
+          "id": "term-connection-draining",
+          "term": "Connection draining",
+          "def": "Removing a backend gently: stop sending new work, let in-flight requests finish.",
+          "detail": "Without it, every deploy produces a burst of errors: the instance disappears while requests are still being served. With it, the balancer stops routing new requests, waits for the existing ones, and only then lets the instance go. The drain timeout must exceed your slowest normal request, and the application must fail its readiness check before it stops accepting connections, so the balancer learns first. Shutdown order # Step 1 fail readiness — balancer stops sending 2 wait for the balancer to notice 3 finish in-flight requests 4 close and exit How it relates Step 2 is the one teams omit, and it is why \"we drain properly\" still produces 502s."
+        },
+        {
+          "id": "term-slow-start",
+          "term": "Slow start",
+          "def": "Ramping traffic to a new backend instead of giving it a full share immediately.",
+          "detail": "A freshly started instance has a cold cache, an unJITted runtime and empty connection pools. Sending it an equal share immediately makes it slow, which with a least-connections algorithm can even attract more traffic — because it has few open connections. Slow start gives it a linearly increasing weight over a warm-up window, typically 30 to 60 seconds, so it has time to become as fast as its peers. How it relates Without it, scaling out during an incident can briefly make latency worse."
+        },
+        {
+          "id": "term-session-affinity",
+          "term": "Session affinity",
+          "def": "Pinning a client to a backend — useful, and a constraint you pay for in every other dimension.",
+          "detail": "L4 does it by hashing the source IP; L7 does it properly with a cookie, which survives NAT and mobile network changes. Either way it trades away even distribution, easy scaling and graceful draining. Prefer removing the need: put session state in Redis or a signed cookie, and any instance can serve any request. Keep affinity for genuine cases — in-memory caches with high hit rates, stateful connections like WebSockets. Cost of affinity You lose Because Even load clients are not equal Easy scale-out existing clients stay put Clean draining pinned sessions must move Pooling gains dedicated queues, by definition How it relates Queueing theory prices this exactly: at &rho; = 0.8, pinning costs about four times the queueing delay."
+        },
+        {
+          "id": "term-consistent-hashing",
+          "term": "Consistent hashing",
+          "def": "Mapping keys to backends so that adding or removing one moves only a small fraction of them.",
+          "detail": "With plain modulo, changing the pool size reshuffles nearly everything — disastrous when the hash is choosing a cache node or a sticky session. Consistent hashing with virtual nodes moves roughly 1/n of keys instead. Google's Maglev adds near-perfect evenness with minimal disruption, which is why it is the scheme in several cloud L4 balancers. How it relates Use it whenever the hash picks something stateful: a cache shard, a session, a partition owner."
+        },
+        {
+          "id": "term-preserving-the-client-ip",
+          "term": "Preserving the client IP",
+          "def": "Behind a balancer every request appears to come from the balancer — unless you arrange otherwise.",
+          "detail": "L7 balancers add X-Forwarded-For; L4 balancers can use the PROXY protocol to prepend the original addresses. Without one of these, rate limiting, geo-rules and audit logs all see a handful of balancer addresses. And X-Forwarded-For is client-supplied until you prove otherwise: trust only the hops you control, counting from the right, or an attacker simply sets whatever address they like. Mechanisms Mechanism Layer X-Forwarded-For L7, trust-boundary aware Forwarded (RFC 7239) L7, standardised PROXY protocol L4, prepends a header to the stream Direct server return backend sees the real client How it relates Rate limiting on an untrusted X-Forwarded-For is trivially bypassed."
+        },
+        {
+          "id": "term-direct-server-return",
+          "term": "Direct server return",
+          "def": "An L4 technique where responses bypass the balancer and go straight to the client.",
+          "detail": "Requests go through the balancer, responses do not. Since most traffic is outbound — a small request, a large response — this removes the balancer from the expensive direction and lets modest hardware front enormous bandwidth. The cost is sophistication: it needs layer-2 adjacency or tunnelling, backends configured with the virtual IP, and it rules out anything requiring the balancer to see the response. How it relates Common in large CDN and video deployments; rarely needed below that scale."
+        },
+        {
+          "id": "term-global-load-balancing",
+          "term": "Global load balancing",
+          "def": "Choosing a region or a point of presence before any connection is made — DNS or anycast.",
+          "detail": "DNS-based steering returns different addresses per client, which is flexible but slow to change because of caching and resolvers that ignore TTLs. Anycast advertises the same address from many locations and lets BGP pick, which fails over in seconds but gives coarse control. Either way this is a separate tier above your L4 and L7 balancers, with its own failure modes and its own health signals. Comparison DNS Anycast Granularity per client per network path Failover speed minutes (TTL) seconds Control fine coarse How it relates DNS TTLs are advisory; plan for clients that cache far longer than you asked."
+        },
+        {
+          "id": "term-retries-at-the-balancer",
+          "term": "Retries at the balancer",
+          "def": "An L7 balancer can resend a failed request to another backend — which is powerful and easy to misconfigure.",
+          "detail": "Because it sees the request, it can retry on a connection failure or a 503 without the client knowing. The dangers are the usual ones: retrying non-idempotent requests, and adding another layer to an already-retrying stack. Restrict retries to safe methods and connection-level failures, cap them, and set a retry budget so a broad failure does not multiply load. Safe defaults Setting Value Retry on connect failure, reset, 503 Methods idempotent only, unless keyed Attempts 1–2 Budget 10–20% of active requests How it relates Count the balancer's retries when auditing your total amplification — they are easy to forget."
+        },
+        {
+          "id": "term-where-it-runs",
+          "term": "Where it runs",
+          "def": "Hardware, cloud service, software proxy or sidecar — the same decisions at different places.",
+          "detail": "Cloud L4 and L7 services cover most needs with no operations. A software proxy — nginx, HAProxy, Envoy, YARP — gives full control at the cost of running it. A sidecar puts an L7 balancer next to every workload, which is how a mesh does per-request balancing for east-west traffic. North-south (internet to you) and east-west (service to service) have different requirements, and it is common to use different tools for each. Typical stack Tier Usually Global DNS or anycast Edge cloud L4 — volume, DDoS Ingress L7 — routing, TLS, canary East-west sidecar or client-side L7 How it relates The sidecar page covers the per-workload case, including what it costs per pod."
+        }
+      ],
+      "related": [
+        "kubernetes",
+        "sidecar-pattern",
+        "queueing-theory",
+        "azure-api-management",
+        "circuit-breaker",
+        "retry-backoff-jitter"
       ]
     },
     {
@@ -3410,9 +3991,9 @@
         "backpressure",
         "graceful-degradation",
         "circuit-breaker",
+        "retry-backoff-jitter",
         "sli-slo-sla",
-        "rate-limiting",
-        "queueing-theory"
+        "rate-limiting"
       ]
     },
     {
@@ -3771,11 +4352,381 @@
       ],
       "related": [
         "database-performance",
+        "jwt",
+        "openid-connect",
         "backend-for-frontend",
         "domain-driven-design",
-        "modular-monolith",
-        "back-of-the-envelope",
-        "caching-strategies"
+        "modular-monolith"
+      ]
+    },
+    {
+      "slug": "oauth2",
+      "url": "cheatsheets/oauth2.html",
+      "title": "OAuth 2.0",
+      "aliases": [
+        "OAuth 2.0",
+        "OAuth",
+        "OAuth2",
+        "OAuth 2.1",
+        "authorization code flow",
+        "PKCE",
+        "client credentials",
+        "refresh token",
+        "access token",
+        "scopes"
+      ],
+      "tagline": "A way to let an app act on your behalf without ever showing it your password.",
+      "asOf": "As of Nov 2026 · RFC 6749 (2012), PKCE RFC 7636, Security BCP RFC 9700 · OAuth 2.1 is still an IETF draft (rev 16)",
+      "description": "OAuth 2.0 cheatsheet: the four roles, the authorization code flow with PKCE, what PKCE actually defends against, refresh token rotation, and the flows you should never use.",
+      "tags": [
+        "oauth",
+        "oauth2",
+        "pkce",
+        "authorization code",
+        "access token",
+        "refresh token",
+        "security",
+        "api",
+        "delegated authorization",
+        "scopes"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential requests & code"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-resource-owner",
+          "term": "Resource owner",
+          "def": "The person who owns the data and grants consent — usually the end user, sitting in front of a browser.",
+          "detail": "The resource owner's defining property is that they authenticate at the authorization server, never at the client. That single arrangement is what lets you revoke an app's access without changing your password, and what stops a compromised app leaking credentials that work everywhere. In a client credentials flow there is no resource owner at all: the client is acting as itself, not on anyone's behalf, which is why no consent screen appears. How it relates If your \"OAuth integration\" collects a username and password in your own form, there is no resource owner in the protocol sense — you have built a password proxy."
+        },
+        {
+          "id": "term-client",
+          "term": "Client",
+          "def": "The application requesting access. Public if it cannot keep a secret, confidential if it can.",
+          "detail": "The distinction decides everything about which protections apply. A single-page app, a mobile app and a desktop app are all public: their code ships to the user, so any embedded secret is readable. A server-side web app or a backend service is confidential: it can hold a client secret or, better, a private key or managed identity. Public clients cannot authenticate themselves at the token endpoint, which is exactly the gap PKCE fills. Classification Client Type Proves itself with Server-rendered web app confidential secret / private key Backend service confidential secret / managed identity SPA in a browser public PKCE only Mobile / desktop app public PKCE only How it relates A BFF turns a public SPA into a confidential client by keeping tokens server-side."
+        },
+        {
+          "id": "term-authorization-server",
+          "term": "Authorization server",
+          "def": "The component that authenticates the user, collects consent and issues tokens. The only place credentials are ever entered.",
+          "detail": "Entra ID, Auth0, Okta, Keycloak, Duende IdentityServer. It owns the authorization endpoint (browser-facing, where the user logs in), the token endpoint (back-channel, where codes become tokens) and usually a JWKS endpoint publishing the keys that sign tokens. Almost nobody should write one. The surface area — flows, token formats, key rotation, consent, revocation, session management — is large and the failure modes are security incidents. Its endpoints Endpoint Used by /authorize the browser, front channel /token the client, back channel /jwks APIs, to validate signatures /introspect, /revoke APIs and clients /.well-known/… discovery of all of the above How it relates An API gateway often validates tokens on the resource server's behalf."
+        },
+        {
+          "id": "term-resource-server",
+          "term": "Resource server",
+          "def": "The API holding the data. It validates the token and enforces scope — and should never call the authorization server per request.",
+          "detail": "Validation of a JWT access token is local: check the signature against the cached JWKS, then the issuer, the audience, the expiry and the scopes. No network call, no shared session store, which is what makes bearer tokens scale. The two checks most often skipped are audience and scope. A token minted for a different API, or one with no relevant scope, must be rejected even though its signature is perfectly valid. Validation checklist Check Why Signature against JWKS it came from the right issuer iss the issuer you expect aud it was minted for this API exp / nbf it is current scope / roles it may do this operation How it relates The JWT page covers the validation traps in detail, including the alg confusion attack."
+        },
+        {
+          "id": "term-authorization-code-flow",
+          "term": "Authorization code flow",
+          "def": "The redirect-based flow where the browser carries a short-lived code and the client swaps it for tokens on a back channel.",
+          "detail": "The two-step design exists so that tokens never travel through the browser. The front channel — URLs, redirects, history, referrers, logs — carries only a code that is single-use, expires in about a minute and is useless without the matching verifier or client secret. With PKCE it is now the correct flow for every kind of client, including SPAs and mobile apps that used to be told to use implicit. Front channel vs back channel Channel Carries Visible to Front (browser redirects) code, state URL bar, history, logs Back (server to server) tokens, verifier, secret only the two endpoints How it relates The first animation walks this flow step by step."
+        },
+        {
+          "id": "term-pkce",
+          "term": "PKCE",
+          "def": "Proof Key for Code Exchange: the client proves at the token endpoint that it is the same client that started the flow.",
+          "detail": "The client generates a high-entropy random code_verifier, sends only its SHA-256 hash (code_challenge) when starting the flow, and presents the verifier when redeeming the code. An attacker who intercepts the code cannot redeem it, because they never saw the verifier and cannot reverse the hash. Originally designed for mobile apps and custom URL schemes, it is now recommended for every client in the security BCP and required in the OAuth 2.1 draft — it also defends confidential clients against authorization code injection. Parameters Parameter Value code_verifier 43–128 chars, cryptographically random code_challenge BASE64URL(SHA256(verifier)) code_challenge_method S256 — never plain How it relates The second animation is the attack PKCE was invented to stop."
+        },
+        {
+          "id": "term-access-token",
+          "term": "Access token",
+          "def": "The credential the client presents to the API. Short-lived, scoped, and treated as a password by anyone who holds it.",
+          "detail": "Usually a JWT, sometimes an opaque string the API has to introspect. Either way it is a bearer credential: possession is sufficient, so leaking one is equivalent to leaking a password for its lifetime and scope. That is why lifetimes are measured in minutes rather than days. The two defences are brevity and narrow scope, with sender-constraining as the stronger option where supported. Typical lifetimes Token Lifetime Access token 5–60 min Refresh token (rotating) days to months Authorization code ≤ 1 min, single use ID token (OIDC) minutes — for login, not API calls How it relates Never send an ID token to an API, and never send an access token to your own frontend to parse for identity."
+        },
+        {
+          "id": "term-refresh-token",
+          "term": "Refresh token",
+          "def": "A long-lived credential used to obtain new access tokens without involving the user again.",
+          "detail": "It exists so access tokens can be short. The client keeps the refresh token, and when the access token expires it quietly exchanges the refresh token for a new one at the token endpoint — no redirect, no login prompt. Because it is long-lived it is the most valuable thing in the system. Public clients must rotate them; confidential clients should still bind them to the client and revoke on logout. Storage Client Store it in Server-side web app server session / encrypted store SPA nowhere — use a BFF Mobile Keychain / Keystore Anywhere never localStorage How it relates Rotation plus reuse detection is what turns a stolen refresh token into a detectable incident."
+        },
+        {
+          "id": "term-refresh-token-rotation",
+          "term": "Refresh token rotation",
+          "def": "Issuing a new refresh token on every use and invalidating the old one, so a replayed token exposes the theft.",
+          "detail": "Without rotation, a stolen refresh token gives an attacker indefinite, silent access. With rotation, the old token is dead the moment it is used once — so if it is ever presented again, either the attacker or the legitimate client is replaying, and the server can revoke the entire token family. The consequence is that theft stops being silent. The user gets logged out and has to re-authenticate, which is a visible event rather than an invisible compromise. Rotation and reuse detection How it relates Mandatory for public clients in the OAuth 2.1 draft, unless the token is sender-constrained instead."
+        },
+        {
+          "id": "term-scope",
+          "term": "Scope",
+          "def": "The permissions a token carries, requested by the client and approved by the user.",
+          "detail": "calendar.read, invoices:write. Scopes are coarse-grained delegation, not an authorization model: they say what the app may attempt, while whether this user may read that invoice remains the API's job. Ask for the least you need and ask late. An app that requests every scope at install time gets refused by cautious users and becomes a bigger prize when compromised. Scopes are not permissions Question Answered by May this app try to read invoices? scope May this user read invoice 42? your authorization logic Which tenant is this? a claim, not a scope How it relates Treating scopes as roles is how systems end up with a token that can do everything."
+        },
+        {
+          "id": "term-redirect-uri",
+          "term": "Redirect URI",
+          "def": "Where the authorization server sends the browser back. Registered in advance and matched exactly.",
+          "detail": "This is the single most security-critical piece of client configuration. If an attacker can get the server to redirect to a URI they control, the authorization code goes to them. Wildcards, open redirects on the registered host and \"just match the prefix\" are all ways to lose the code. The current guidance is exact string matching — no wildcards, no partial paths — which the OAuth 2.1 draft makes a requirement. Rules Rule Why Exact match, no wildcards any flexibility is an attack surface HTTPS, except localhost codes must not cross plaintext No open redirects on that host they forward the code onward Mobile: claimed https links custom schemes can be hijacked How it relates The second animation is exactly what a hijackable redirect target costs you."
+        },
+        {
+          "id": "term-state-parameter",
+          "term": "state parameter",
+          "def": "An opaque, unguessable value the client sends and checks on return — the CSRF defence for the flow itself.",
+          "detail": "Without it, an attacker can start their own authorization flow, capture the resulting code, and feed it to your redirect endpoint in a victim's browser — silently linking the victim's session to the attacker's account. Generating state, storing it in the session and rejecting any callback whose state does not match prevents that. state and PKCE solve different problems and you need both: PKCE protects the code, state protects the session. Two different jobs Parameter Defends against state CSRF / session fixation on the callback PKCE stolen or injected authorization codes nonce (OIDC) replayed ID tokens How it relates It is also the natural place to carry a return URL — signed or keyed, never as a raw redirect target."
+        },
+        {
+          "id": "term-client-credentials",
+          "term": "Client credentials",
+          "def": "The machine-to-machine flow: the client authenticates as itself and gets a token, with no user involved.",
+          "detail": "A background job calling an internal API, a service talking to a partner. There is no resource owner, no redirect and no consent — just the client proving its identity at the token endpoint and receiving a token representing itself. Prefer a certificate or a platform-managed identity over a shared secret. A secret in an environment variable is the thing that ends up in a repository. Authenticating the client Method Strength Managed / workload identity best — no secret exists Private key JWT, mTLS strong Client secret weakest; rotate it How it relates Tokens from this flow have no user, so an API must not look for a user id in them."
+        },
+        {
+          "id": "term-device-authorization-flow",
+          "term": "Device authorization flow",
+          "def": "For input-constrained devices: the device shows a code, you approve it on your phone.",
+          "detail": "A TV, a CLI, a printer. The device asks the authorization server for a user code, displays it with a short URL, and polls the token endpoint while you complete the login on a device that actually has a keyboard. It is also the right flow for command-line tools, and much better than asking for a password or pasting a long-lived personal access token. How it relates Rate-limit the polling: the spec defines slow_down and clients must honour it."
+        },
+        {
+          "id": "term-token-introspection-revocation",
+          "term": "Token introspection & revocation",
+          "def": "Endpoints for asking whether an opaque token is still valid, and for actively killing one.",
+          "detail": "Introspection (RFC 7662) trades scale for immediacy: the API asks the authorization server about every token, so revocation is instant but every request now depends on that server. JWTs invert the trade — validation is local and fast, and revocation takes until expiry. The usual compromise is short-lived JWT access tokens plus revocable refresh tokens, so the worst-case window of a compromised session is the access token lifetime. Trade-off JWT, local validation Opaque + introspection Latency none a call per request Revocation at expiry immediate Coupling JWKS only hard dependency How it relates Caching introspection results reintroduces the revocation delay you were trying to avoid."
+        },
+        {
+          "id": "term-audience",
+          "term": "Audience",
+          "def": "Which API a token was minted for — and the check that stops one service replaying your token at another.",
+          "detail": "If service A accepts a token and forwards it to service B, and B does not check aud, then A can act as the user anywhere B is reachable. Validating the audience turns a token into a credential for one API rather than for your whole estate. When a service genuinely needs to call another on the user's behalf, exchange the token (RFC 8693) for one with the right audience rather than passing yours along. How it relates \"We pass the token through\" is the most common way an internal API becomes a confused deputy."
+        },
+        {
+          "id": "term-sender-constrained-tokens",
+          "term": "Sender-constrained tokens",
+          "def": "Binding a token to the client that obtained it, so a stolen copy is useless — DPoP or mTLS.",
+          "detail": "A bearer token is a password: whoever holds it wins. Sender-constraining attaches a proof-of-possession, so the API also requires a signature from a key only the legitimate client holds. DPoP (RFC 9449) does this at the application layer with a per-request proof JWT; mTLS does it at the transport layer with a client certificate. It is the strongest available defence against token theft, and the OAuth 2.1 draft treats it as the alternative to refresh token rotation for public clients. Options Mechanism Where Cost DPoP app layer, per request client key handling mTLS transport certificate logistics Bearer — theft = full access How it relates Support is uneven; check your authorization server before designing around it."
+        }
+      ],
+      "related": [
+        "openid-connect",
+        "backend-for-frontend",
+        "jwt",
+        "azure-api-management",
+        "rate-limiting"
+      ]
+    },
+    {
+      "slug": "openid-connect",
+      "url": "cheatsheets/openid-connect.html",
+      "title": "OpenID Connect",
+      "aliases": [
+        "OpenID Connect",
+        "OIDC",
+        "ID token",
+        "id_token",
+        "UserInfo",
+        "nonce",
+        "single sign-on",
+        "SSO",
+        "discovery document",
+        "back-channel logout"
+      ],
+      "tagline": "OAuth tells an API what you may do. OIDC tells an app who you are — and they are not the same token.",
+      "asOf": "As of Nov 2026 · OpenID Connect Core 1.0 (2014, errata set 2) · built on OAuth 2.0, certified by the OpenID Foundation",
+      "description": "OpenID Connect cheatsheet: the ID token versus the access token, the nonce, discovery and JWKS, single sign-on across apps, and why logging out is the hard part.",
+      "tags": [
+        "openid connect",
+        "oidc",
+        "id token",
+        "sso",
+        "authentication",
+        "identity",
+        "jwks",
+        "discovery",
+        "logout",
+        "claims"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential requests & code"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-id-token",
+          "term": "ID token",
+          "def": "A signed JWT describing an authentication event: who logged in, when, how, and for which client.",
+          "detail": "It is issued to your client — its aud is your client_id — and it is meant to be read once, validated, and turned into whatever session your application normally uses. It is not a bearer credential, not a cookie and not something to forward anywhere. Its distinguishing claims are about the login rather than about permissions: auth_time says when the user actually authenticated, acr / amr say how strongly and by what method. Claims that matter Claim Means iss who issued it — must match your provider exactly sub stable user id, unique per issuer aud your client_id — reject anything else exp, iat validity window nonce binds the token to this login attempt auth_time, acr, amr when and how they authenticated How it relates The JWT page covers how to validate one without falling into the classic traps."
+        },
+        {
+          "id": "term-access-token",
+          "term": "Access token",
+          "def": "The OAuth credential for calling an API. Present in an OIDC response, but a different token with a different audience.",
+          "detail": "Your client should treat it as opaque even when it happens to be a readable JWT. It was minted for the API, its format is the API's business, and decoding it to find a user id is how applications break the moment the provider changes the token format — which they are entitled to do. If your client needs user information, read the ID token or call UserInfo. Never take it from an access token. Side by side ID token Access token Audience your client the API Answers who logged in what may be done Format always a JWT JWT or opaque You may parse it yes no Send to an API never yes How it relates The first animation ends on exactly this confusion and what a correct API does about it."
+        },
+        {
+          "id": "term-openid-scope",
+          "term": "openid scope",
+          "def": "The one word that turns an OAuth authorization request into an OIDC authentication request.",
+          "detail": "Without openid in the scope list you get plain OAuth and no ID token, no matter what the rest of the request says. With it, the provider authenticates the user and issues one. The optional companions request standard claim sets: profile (name, picture), email, address, phone. offline_access is OAuth's, and asks for a refresh token. Common scope lists Scopes Gets you openid an ID token with sub only openid profile email name and email claims too openid … api://calendar/read login plus an API access token … offline_access and a refresh token How it relates Everything else about the request — PKCE, state, redirect URI — is unchanged OAuth."
+        },
+        {
+          "id": "term-nonce",
+          "term": "nonce",
+          "def": "A random value the client sends and finds echoed inside the ID token, binding that token to this login attempt.",
+          "detail": "It defeats token replay. Without it, an ID token captured elsewhere — from a log, from another session, from a different flow — could be presented to your callback and accepted, because everything else about it is valid. It is easy to confuse with state, and you need both: state is checked against the request and protects the callback from CSRF; nonce is checked inside the token and protects against replay. Why state is not enough How it relates Any decent OIDC library generates and checks both; hand-rolling is where one of them goes missing."
+        },
+        {
+          "id": "term-claims",
+          "term": "Claims",
+          "def": "The statements inside the ID token or from UserInfo — name, email, roles, tenant.",
+          "detail": "OIDC standardises a core set so that email and given_name mean the same thing across providers. Anything beyond that is custom and provider-specific, usually namespaced to avoid collisions. Two cautions. email is not an identifier — it can change and be reassigned, so key users on sub. And email_verified matters: an unverified email claim is an account-takeover vector if you use it to match existing accounts. Standard claims worth knowing Claim Note sub the only stable identifier email + email_verified never trust the first without the second name, given_name, picture display only updated_at when the profile last changed How it relates In multi-tenant systems the tenant comes from a claim, and must be checked rather than taken from the request."
+        },
+        {
+          "id": "term-userinfo-endpoint",
+          "term": "UserInfo endpoint",
+          "def": "An OAuth-protected endpoint returning claims about the user, called with the access token.",
+          "detail": "It exists so the ID token can stay small. Providers often put only sub and a few essentials in the token and leave the rest — picture, address, large group lists — to be fetched on demand. Call it once at login and cache the result in your session. Calling it per request turns the identity provider into a dependency of every page load. ID token or UserInfo? Need Source Who logged in, right now ID token Profile details, avatar UserInfo, cached Large or volatile claims UserInfo Anything on every request your own session How it relates UserInfo takes the access token, which is one of the few places your client uses it directly."
+        },
+        {
+          "id": "term-discovery",
+          "term": "Discovery",
+          "def": "A well-known JSON document describing every endpoint, algorithm and capability of the provider.",
+          "detail": "/.well-known/openid-configuration lists the authorization, token, UserInfo, JWKS and end-session endpoints, the supported scopes and response types, and the signing algorithms. Libraries fetch it at startup and refresh it periodically. Hard-coding these instead is how an application breaks when the provider rotates keys or moves an endpoint — both of which they are entitled to do without telling you. How it relates Discovery plus a cached JWKS is what makes signing-key rotation invisible to you."
+        },
+        {
+          "id": "term-jwks",
+          "term": "JWKS",
+          "def": "The provider's public signing keys, published as JSON so your app can verify tokens without any shared secret.",
+          "detail": "Each key has a kid; the token header names the kid it was signed with, so your library picks the right one. Providers publish the new key before they start using it, which is what allows rotation with no downtime. Cache the set, refresh on an unknown kid, and rate-limit that refresh — otherwise a stream of tokens with bogus kid s becomes a denial-of-service against your provider. Rules Rule Why Cache the JWKS do not fetch per request Refresh on unknown kid handles rotation automatically Rate-limit that refresh stops a cheap DoS Pin expected algorithms never trust the token's own alg How it relates Trusting the header's alg is the classic JWT vulnerability; the JWT page covers it."
+        },
+        {
+          "id": "term-validation",
+          "term": "Validation",
+          "def": "The ordered set of checks an ID token must pass before you believe a single claim in it.",
+          "detail": "Signature first, using a key from the JWKS and an algorithm you chose — not one the token proposed. Then issuer, then audience against your own client id, then expiry and issued-at with a small clock skew allowance, then the nonce against your session. If several audiences are present, or an azp claim appears, check that azp is your client. Skipping that lets a token minted for a different client of the same provider be replayed at your login. In order # Check 1 signature, with a pinned algorithm 2 iss exactly matches 3 aud contains your client_id 4 azp is you, if present 5 exp / iat, small skew 6 nonce matches the session How it relates Use a certified library. Every one of these has been got wrong in production by someone competent."
+        },
+        {
+          "id": "term-single-sign-on",
+          "term": "Single sign-on",
+          "def": "One authentication at the provider giving the user access to many applications without logging in again.",
+          "detail": "It works because the identity provider sets its own cookie on its own domain. When a second application redirects there, the provider recognises the session and immediately redirects back with a code — no prompt, often no visible page. The consequence people miss is arithmetic: after signing into three apps there are four sessions, each with its own lifetime and its own idea of when it ends. What exists after three logins Session Lives in IdP session cookie on the provider's domain App A, B, C sessions cookie per application domain How it relates The second animation builds exactly this picture and then tries to tear it down."
+        },
+        {
+          "id": "term-prompt-max-age",
+          "term": "prompt & max_age",
+          "def": "Parameters that control whether the user is asked to authenticate again, and how recently they must have done so.",
+          "detail": "prompt=none asks the provider to answer without any UI: if a session exists you get a code, otherwise an error. It is how a SPA silently checks whether someone is still signed in. prompt=login forces re-authentication regardless of session. max_age says the authentication must be newer than N seconds — the right tool before a sensitive action, with auth_time in the resulting token proving it. Values Value Effect prompt=none silent; errors instead of prompting prompt=login always re-authenticate prompt=consent re-ask for scope consent max_age=300 authentication must be < 5 min old How it relates Step-up authentication before a payment is max_age plus a check on acr."
+        },
+        {
+          "id": "term-acr-amr",
+          "term": "acr & amr",
+          "def": "How strongly and by what method the user authenticated — the basis for step-up authentication.",
+          "detail": "amr lists the methods used (pwd, otp, mfa, hwk ); acr names a context class the provider defines. Together they let an application say \"viewing is fine with a password, but transferring money needs MFA in the last five minutes\". Values beyond the few standard ones are provider-specific, so treat them as configuration rather than constants in your code. How it relates Requesting a stronger acr_values is how you trigger MFA for one operation rather than for every login."
+        },
+        {
+          "id": "term-idp-session",
+          "term": "IdP session",
+          "def": "The provider's own session cookie — the thing that actually makes SSO work, and the thing your logout does not touch.",
+          "detail": "It lives on the provider's domain and is invisible to your application. You cannot read it, clear it, or know its lifetime. All you can do is ask the provider to end it, by sending the user to the end-session endpoint. This is why \"log out\" in an application that only clears its own cookie puts the user straight back in on the next click: the provider still recognises them and re-issues a code without a prompt. How it relates Steps 6–9 of the second animation are this problem and the three available answers."
+        },
+        {
+          "id": "term-rp-initiated-logout",
+          "term": "RP-initiated logout",
+          "def": "The application sends the user to the provider's end-session endpoint to terminate the IdP session too.",
+          "detail": "A redirect to end_session_endpoint with id_token_hint and a registered post_logout_redirect_uri. The provider clears its own session and sends the user back to you. It ends the IdP session, which stops silent re-login — but it does not by itself end the sessions held by other applications. For that you need one of the logout propagation mechanisms. How it relates Register the post-logout redirect URI; providers reject unregistered ones, which produces a confusing dead end."
+        },
+        {
+          "id": "term-back-channel-logout",
+          "term": "Back-channel logout",
+          "def": "The provider POSTs a signed logout token directly to each application's server, with no browser involved.",
+          "detail": "The reliable mechanism, and the one to use now. Each application registers a logout endpoint; on logout the provider calls them server-to-server with a logout token identifying the session, and each application destroys its own session. It replaced front-channel logout, which worked by loading hidden iframes from every application — a technique that browsers broke when they started blocking third-party cookies. The three mechanisms Mechanism Status Back-channel reliable; server to server Front-channel (iframes) broken by third-party cookie blocking Session polling legacy; same problem How it relates It needs your session store to be addressable by sid or sub, which is a design decision to take early."
+        },
+        {
+          "id": "term-subject-identifier",
+          "term": "Subject identifier",
+          "def": "sub — the stable, issuer-scoped user id, and the only claim safe to key your data on.",
+          "detail": "It is unique within an issuer but means nothing outside it, so the real key is the pair (iss, sub ). With several identity providers, storing sub alone eventually produces a collision or a wrong match. Providers may also use pairwise subjects, giving each client a different sub for the same person — good for privacy, and a surprise if you expected to correlate users across applications. Do not key on Claim Why not email changes, and can be reassigned name not unique, changes sub alone only unique per issuer (iss, sub) — this is the right key How it relates Account linking by unverified email is a well-known takeover path; require email_verified."
+        },
+        {
+          "id": "term-hybrid-flow",
+          "term": "Hybrid flow",
+          "def": "Returning an ID token in the redirect alongside the code. Legacy, and rarely the right answer now.",
+          "detail": "response_type=code id_token exists so a client can see who logged in before completing the code exchange. It costs you a token in the front channel — in the URL fragment, the browser history and possibly the referrer. With PKCE and a fast token endpoint there is almost no reason to use it. Treat it as something you may meet in an existing integration rather than something to choose. How it relates If a provider's sample still shows response_type=id_token token, it predates the current security guidance."
+        }
+      ],
+      "related": [
+        "oauth2",
+        "jwt",
+        "multitenancy",
+        "azure-api-management",
+        "backend-for-frontend"
       ]
     },
     {
@@ -3941,12 +4892,12 @@
         }
       ],
       "related": [
+        "idempotency",
         "cqrs",
         "saga-pattern",
         "domain-driven-design",
         "event-store",
-        "kafka",
-        "database-performance"
+        "kafka"
       ]
     },
     {
@@ -4128,8 +5079,8 @@
         "littles-law",
         "queueing-theory",
         "database-performance",
-        "rate-limiting",
-        "back-of-the-envelope"
+        "retry-backoff-jitter",
+        "rate-limiting"
       ]
     },
     {
@@ -4311,10 +5262,10 @@
       "related": [
         "littles-law",
         "back-of-the-envelope",
+        "retry-backoff-jitter",
         "percentiles",
         "backpressure",
-        "load-shedding",
-        "database-performance"
+        "load-shedding"
       ]
     },
     {
@@ -4486,8 +5437,8 @@
         "backpressure",
         "redis",
         "load-shedding",
-        "littles-law",
-        "percentiles"
+        "retry-backoff-jitter",
+        "littles-law"
       ]
     },
     {
@@ -4649,9 +5600,191 @@
         "rate-limiting",
         "caching-strategies",
         "kafka",
-        "database-performance",
-        "event-store",
-        "cqrs"
+        "load-balancing",
+        "retry-backoff-jitter",
+        "database-performance"
+      ]
+    },
+    {
+      "slug": "retry-backoff-jitter",
+      "url": "cheatsheets/retry-backoff-jitter.html",
+      "title": "Retry, backoff & jitter",
+      "aliases": [
+        "Retry, backoff & jitter",
+        "Retry",
+        "retry pattern",
+        "retries",
+        "backoff",
+        "exponential backoff",
+        "jitter",
+        "full jitter",
+        "decorrelated jitter",
+        "retry budget",
+        "retry storm",
+        "thundering herd"
+      ],
+      "tagline": "Retrying is the cheapest way to survive a blip, and the cheapest way to turn one into an outage.",
+      "asOf": "As of Nov 2026 · examples use Polly 8 and Tenacity; the jitter analysis is AWS's, from 2015",
+      "description": "Retry cheatsheet: which errors are worth retrying, why exponential backoff without jitter just rearranges the thundering herd, retry budgets, and how three layers turn one request into twenty-seven.",
+      "tags": [
+        "retry",
+        "exponential backoff",
+        "jitter",
+        "thundering herd",
+        "retry budget",
+        "resilience",
+        "transient faults",
+        "polly",
+        "tenacity",
+        "distributed systems"
+      ],
+      "sections": [
+        {
+          "id": "architecture",
+          "title": "Architecture / mental model"
+        },
+        {
+          "id": "how-it-works",
+          "title": "How it works"
+        },
+        {
+          "id": "concepts",
+          "title": "Key concepts"
+        },
+        {
+          "id": "commands",
+          "title": "Essential code patterns"
+        },
+        {
+          "id": "pros-cons",
+          "title": "Pros & cons"
+        },
+        {
+          "id": "use-cases",
+          "title": "Concrete use cases"
+        },
+        {
+          "id": "when",
+          "title": "When to use / when not to"
+        },
+        {
+          "id": "gotchas",
+          "title": "Common mistakes & gotchas"
+        },
+        {
+          "id": "alternatives",
+          "title": "Alternatives"
+        },
+        {
+          "id": "resources",
+          "title": "Resources"
+        }
+      ],
+      "terms": [
+        {
+          "id": "term-transient-error",
+          "term": "Transient error",
+          "def": "A failure likely to go away on its own — the only kind worth retrying.",
+          "detail": "Connection resets, timeouts, 503s, lock contention, leader elections. They share a property: nothing about the request was wrong, so the same request may well succeed shortly. A 400, a 404 or a validation failure is deterministic. Retrying it wastes capacity, delays the error the caller needs to see, and in aggregate looks exactly like an attack. Retry or not Outcome Retry? Connection reset, DNS blip yes Timeout yes, if idempotent 503, 429 (honour Retry-After) yes 500 cautiously — may not be transient 400, 404, 409, 422 never 401 / 403 no — refresh the token instead, once How it relates A circuit breaker is what you add when \"transient\" turns out to mean \"for the next twenty minutes\"."
+        },
+        {
+          "id": "term-idempotency-requirement",
+          "term": "Idempotency requirement",
+          "def": "A retry is only safe if repeating the operation cannot do the work twice.",
+          "detail": "The dangerous case is the timeout, because it is ambiguous: the request may have been processed and only the response lost. Retrying a GET is free; retrying a payment on a timeout can charge the customer twice. Reads and natural replacements are safe by construction. For anything that creates or moves money, attach an idempotency key so the server can recognise the repeat. Safety by operation Operation Safe to retry? GET, HEAD yes — no effect at all PUT, DELETE yes — idempotent by definition POST that creates only with an idempotency key Increment, append no — needs a key or a dedup window How it relates The idempotency page covers the server-side half: keys, windows and delivery semantics."
+        },
+        {
+          "id": "term-exponential-backoff",
+          "term": "Exponential backoff",
+          "def": "Doubling the wait after each failure, so a persistent problem is not hammered.",
+          "detail": "base × 2ⁿ. With a 100 ms base: 100, 200, 400, 800, 1600. It adapts automatically — a one-off blip costs a tenth of a second, while a real outage quickly drops your request rate by orders of magnitude. It is necessary and, on its own, not sufficient: it spaces out each client's attempts without doing anything about the fact that all clients are stepping in time. Strategies Strategy Waits Use Immediate 0 one quick retry on a fresh connection Constant 1, 1, 1 polling a known-slow resource Linear 1, 2, 3 rarely the right answer Exponential 1, 2, 4, 8 the default How it relates Always pair it with jitter and a cap; the three together are the actual pattern."
+        },
+        {
+          "id": "term-jitter",
+          "term": "Jitter",
+          "def": "Randomising the wait so that clients which failed together do not return together.",
+          "detail": "The failure event synchronises every client. Deterministic backoff preserves that synchronisation perfectly, so the retries arrive as a spike no matter how far apart the spikes are. Randomness is the only thing that breaks the lockstep. AWS's analysis compared the options and found full jitter — random(0, min(cap, base × 2ⁿ)) — gave the lowest contention and the shortest completion time. It is the default worth using unless you have a reason otherwise. Three ways to randomise the wait How it relates The first animation is the same point at the scale of a thousand clients."
+        },
+        {
+          "id": "term-thundering-herd",
+          "term": "Thundering herd",
+          "def": "Many clients retrying in unison, producing a spike far above capacity exactly when the system is weakest.",
+          "detail": "Anything that fails everyone at once creates it: a restart, a failover, a cache flush, an expiring token with a round-number lifetime, a cron job at the top of the hour. The clients were independent until a shared event put them in step. Jitter fixes the retry case. The others need the same medicine — randomised cache TTLs, staggered cron schedules, token lifetimes with a random component. Other herds worth jittering Source Fix Cache entries expiring together randomise the TTL ±10% Cron at :00 spread over the window Token refresh refresh at a random point before expiry Reconnect after a deploy jittered reconnect backoff How it relates From the server's side, this is a load-shedding problem; from the client's, a jitter problem."
+        },
+        {
+          "id": "term-retry-amplification",
+          "term": "Retry amplification",
+          "def": "Retries at several layers multiplying rather than adding — the reason one blip becomes an outage.",
+          "detail": "Three layers each retrying three times is 3&sup3; = 27 requests from one user action, all aimed at a dependency that is already failing. The load arrives precisely when there is least capacity to absorb it, which is how a recoverable degradation becomes congestion collapse. The rule is to retry at exactly one layer. Usually the one closest to the failure, because it knows most about the error and wastes the least work; sometimes the edge, if only it can see the whole operation. Multiplication Layers retrying Calls per request 1 3 2 9 3 27 4 81 How it relates The second animation builds this number step by step."
+        },
+        {
+          "id": "term-retry-budget",
+          "term": "Retry budget",
+          "def": "A cap on retries as a fraction of total traffic, so the system cannot retry itself to death.",
+          "detail": "A per-request attempt limit does nothing about aggregate load: if every request fails, a limit of three still triples your traffic. A budget works on the whole client — typically \"retries may not exceed 10% of successful requests\" — and once exhausted, failures are returned immediately. This is what turns retry from a local decision into a system-level one, and it is the control that gRPC and modern service meshes expose for exactly this reason. Two different limits Limit Bounds Attempts per request one request's latency Retry budget total extra load on the dependency How it relates Without a budget, a widespread failure means every client retries at once — which is the amplification case again."
+        },
+        {
+          "id": "term-attempt-limit-cap",
+          "term": "Attempt limit & cap",
+          "def": "How many tries, and the longest a single wait may become.",
+          "detail": "Three to five attempts covers almost all genuinely transient faults; beyond that you are no longer riding out a blip, you are waiting for an outage to end — which is a circuit breaker's job. The cap matters because unbounded doubling reaches absurd waits quickly: without one, the eighth attempt is 25 seconds away and the user left long ago. Sensible defaults Setting Interactive Background Attempts 2–3 5–8 Base delay 50–200 ms 1 s Cap 1–2 s 30–60 s Total budget the request deadline minutes How it relates An interactive request's real limit is the user's patience, which the deadline encodes."
+        },
+        {
+          "id": "term-deadline-awareness",
+          "term": "Deadline awareness",
+          "def": "Retrying only while there is time left in the caller's budget, rather than a fixed number of times.",
+          "detail": "A retry that starts 50 ms before the caller gives up is pure waste: it consumes a connection and a worker to produce a result nobody will read. Checking the remaining deadline before each attempt removes that work entirely. It also bounds latency honestly. With a propagated deadline, the user's two-second budget is the limit regardless of how many layers would like to retry inside it. Before each attempt Check If no Time left > expected attempt duration? fail now Budget left in the retry quota? fail now Circuit closed? fail now How it relates Deadline propagation is the same plumbing the backpressure page recommends for discarding dead work."
+        },
+        {
+          "id": "term-timeout-interaction",
+          "term": "Timeout interaction",
+          "def": "Retries multiply the timeout: three attempts at two seconds is a six-second wait unless something stops it.",
+          "detail": "Teams set a per-attempt timeout and forget that the caller experiences the sum. With backoff added, three attempts at two seconds plus waits is closer to seven — well past the point the user refreshed the page and created a second request. Size the per-attempt timeout so that the attempts plus their waits fit inside the overall deadline, not the other way round. How it relates Without a timeout there is nothing to retry on: the call simply hangs, which is worse than failing."
+        },
+        {
+          "id": "term-retry-after",
+          "term": "Retry-After",
+          "def": "The server telling you when to come back — and the one input that beats any backoff formula.",
+          "detail": "Returned with 429 and often with 503, as seconds or an HTTP date. The server knows more about its own recovery than your exponential curve does, so honour it — and add a small jitter on top, because every client received the same value and would otherwise return together. Precedence Signal Priority Retry-After highest — obey it Your backoff schedule when no header Immediate retry at most once, on a fresh connection How it relates Jitter the value you were given; identical sleeps re-synchronise the herd you were avoiding."
+        },
+        {
+          "id": "term-circuit-breaker-interaction",
+          "term": "Circuit breaker interaction",
+          "def": "Retry handles a blip; a breaker handles an outage. They need to be arranged deliberately.",
+          "detail": "If the retry sits inside the breaker, one logical call records three failures and the breaker trips three times faster than configured. If it sits outside, it will retry the breaker's instant rejections and spin. The arrangement that works: timeout, then retry, then breaker — one recorded outcome per logical operation — with the open-circuit error marked non-retryable. How it relates The circuit breaker page covers the full ordering, including bulkheads and fallbacks."
+        },
+        {
+          "id": "term-hedged-requests",
+          "term": "Hedged requests",
+          "def": "Sending a second request before the first has failed, to cut tail latency rather than to handle errors.",
+          "detail": "If the p99 is ten times the p50, issue a duplicate once the p95 has elapsed and take whichever answer arrives first. It trades a few percent extra load for a dramatically shorter tail, and it is how large systems hide slow replicas. It demands idempotency and a tight budget — typically hedging at most 5% of requests — because it adds load by design rather than only on failure. Retry vs hedge Retry Hedge Triggered by an error slowness Fixes failures tail latency Extra load only on failure always, by design How it relates Both are retries in the server's eyes, so both must respect the same budget."
+        },
+        {
+          "id": "term-where-to-retry",
+          "term": "Where to retry",
+          "def": "One layer, chosen deliberately — not everywhere a library made it easy.",
+          "detail": "Closest to the failure wastes the least work and knows most about the error. The edge sees the whole operation and can decide whether a retry is still useful. Both are defensible; doing both is not. Watch for retries you did not write: HTTP client defaults, SDK policies, service mesh configuration and database drivers all retry silently, and they compose with yours. Audit these Layer Often retries by default HTTP client / SDK yes — check the policy Service mesh (Envoy) yes, if configured Database driver yes, on connection errors Message consumer yes — redelivery is a retry How it relates Count the real attempt multiplier before adding one more layer of \"resilience\"."
+        },
+        {
+          "id": "term-dead-letter",
+          "term": "Dead letter",
+          "def": "Where a message goes when the retries are exhausted, so the queue keeps moving.",
+          "detail": "In message-driven systems a failing message is redelivered, which is a retry under another name. Without a maximum delivery count, one poison message is retried forever and blocks everything behind it. Move it aside after a bounded number of attempts, with the error and enough context to replay it later. An empty dead-letter queue nobody monitors is as bad as not having one. How it relates Alert on dead-letter depth; it is usually the first signal of a systematic failure rather than a transient one."
+        },
+        {
+          "id": "term-observability",
+          "term": "Observability",
+          "def": "Counting attempts separately from requests, so retries are visible before they become an incident.",
+          "detail": "If retries are invisible, a dependency degrading shows up as \"traffic increased\" — and the obvious response, scaling up, feeds the amplification. Separating attempts from logical requests makes the real story legible. The most useful single number is the attempt multiplier: attempts divided by logical requests. At 1.0 nothing is retrying; at 3.0 you are sending three times the load you think you are. What to export Metric Watch for attempts / requests rising above ~1.1 retries_exhausted_total real failures, not blips retry_budget_rejected the budget is engaging Dead-letter depth poison messages How it relates Trace spans should record the attempt number, or a retried call looks like several unrelated ones."
+        }
+      ],
+      "related": [
+        "idempotency",
+        "circuit-breaker",
+        "load-shedding",
+        "queueing-theory",
+        "backpressure",
+        "percentiles"
       ]
     },
     {
@@ -4828,8 +5961,8 @@
         "outbox-pattern",
         "event-storming",
         "domain-driven-design",
-        "circuit-breaker",
-        "cqrs"
+        "idempotency",
+        "circuit-breaker"
       ]
     },
     {
@@ -5008,11 +6141,11 @@
       ],
       "related": [
         "kubernetes",
+        "load-balancing",
         "circuit-breaker",
         "outbox-pattern",
         "docker",
-        "backend-for-frontend",
-        "rate-limiting"
+        "retry-backoff-jitter"
       ]
     },
     {

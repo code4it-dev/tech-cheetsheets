@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Retry, backoff &amp; jitter · Tech cheatsheets</title>
+<meta name="description" content="Retry cheatsheet: which errors are worth retrying, why exponential backoff without jitter just rearranges the thundering herd, retry budgets, and how three layers turn one request into twenty-seven.">
+<meta name="aliases" content="Retry, retry pattern, retries, backoff, exponential backoff, jitter, full jitter, decorrelated jitter, retry budget, retry storm, thundering herd">
+<meta name="related" content="circuit-breaker, backpressure, load-shedding, idempotency, queueing-theory">
+<meta name="keywords" content="retry, exponential backoff, jitter, thundering herd, retry budget, resilience, transient faults, polly, tenacity, distributed systems">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../assets/notebook.css?v=389a30cc">
+<script src="../assets/site.js?v=b55fb986" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
+</head>
+<body data-root="..">
+<div class="layout">
+  <nav class="toc" aria-label="Sections">
+    <a href="#overview">Overview</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#concepts">Key concepts</a>
+    <a href="#commands">Code patterns</a>
+    <a href="#pros-cons">Pros &amp; cons</a>
+    <a href="#use-cases">Use cases</a>
+    <a href="#when">When to use</a>
+    <a href="#gotchas">Gotchas</a>
+    <a href="#alternatives">Alternatives</a>
+    <a href="#resources">Resources</a>
+    <a href="#related">Related</a>
+  </nav>
+
+  <main>
+    <header class="hero" id="overview">
+      <h1>Retry, backoff &amp; jitter</h1>
+      <p class="tagline">Retrying is the cheapest way to survive a blip, and the cheapest way to turn one into an outage.</p>
+      <span class="meta">As of Nov 2026 · examples use Polly 8 and Tenacity; the jitter analysis is AWS's, from 2015</span>
+      <p>Networks drop packets, instances get rescheduled, leaders fail over. A large share of distributed-system errors are transient, and simply trying again a moment later fixes them &mdash; which is why retry is the first resilience pattern anyone adds and the one most likely to be added carelessly.</p>
+      <p>Two separate questions decide whether it helps. <b>Should you retry?</b> &mdash; is this error actually transient, is the operation safe to repeat, and is there budget left. And <b>how should you space the attempts?</b> &mdash; which is where exponential backoff and, crucially, jitter come in. Getting the first wrong corrupts data; getting the second wrong turns a two-second blip into a congestion collapse.</p>
+      <p>The single most important fact on this page is that <b>exponential backoff without jitter does not solve the thundering herd</b>. If a thousand clients fail at the same instant and each waits exactly one second, a thousand retries arrive at the same instant. Backoff spaces the spikes out; only randomness breaks up the spike itself. The second most important fact is that retries <em>multiply</em> through layers: three layers each retrying three times turns one user action into twenty-seven requests, arriving precisely when the system can least afford them.</p>
+    </header>
+
+    <section id="architecture">
+      <h2>Architecture / mental model</h2>
+      <div class="diagram">
+        <svg viewBox="0 0 800 346" role="img" aria-label="A decision path for whether to retry, followed by the backoff schedule and the amplification caused by retrying at several layers">
+          <defs>
+            <marker id="rb-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            <marker id="rb-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#c53b3b"/></marker>
+          </defs>
+          <text x="400" y="22" font-size="12.5" text-anchor="middle" fill="#5f6f66">three questions before the attempt, one formula for the wait &mdash; and never at more than one layer</text>
+
+          <rect x="20" y="40" width="760" height="82" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="400" y="60" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">should I retry at all?</text>
+          <rect x="36" y="72" width="226" height="38" rx="5" fill="#e3eedc" stroke="#2f6b3f"/>
+          <text x="149" y="88" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">1 &middot; is the error transient?</text>
+          <text x="149" y="103" font-size="9.5" text-anchor="middle" fill="#5f6f66">timeout, 503, connection reset</text>
+          <text x="272" y="94" font-size="12" fill="#5f6f66">&rarr;</text>
+          <rect x="288" y="72" width="226" height="38" rx="5" fill="#e3eedc" stroke="#2f6b3f"/>
+          <text x="401" y="88" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">2 &middot; is it safe to repeat?</text>
+          <text x="401" y="103" font-size="9.5" text-anchor="middle" fill="#5f6f66">idempotent, or has an idempotency key</text>
+          <text x="524" y="94" font-size="12" fill="#5f6f66">&rarr;</text>
+          <rect x="540" y="72" width="226" height="38" rx="5" fill="#e3eedc" stroke="#2f6b3f"/>
+          <text x="653" y="88" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">3 &middot; is there budget?</text>
+          <text x="653" y="103" font-size="9.5" text-anchor="middle" fill="#5f6f66">attempts, deadline, retry budget</text>
+
+          <rect x="20" y="136" width="372" height="96" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="2"/>
+          <text x="206" y="158" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">how long to wait</text>
+          <text x="206" y="184" font-size="12.5" text-anchor="middle" fill="#23362e" font-weight="700" font-family="Fira Code, monospace">random(0, min(cap, base &times; 2ⁿ))</text>
+          <text x="206" y="204" font-size="10.5" text-anchor="middle" fill="#5f6f66">exponential, capped, and <em>fully jittered</em></text>
+          <text x="206" y="222" font-size="10.5" text-anchor="middle" fill="#c53b3b">without the random(), backoff only moves the spike</text>
+
+          <rect x="408" y="136" width="372" height="96" rx="8" fill="#f9e3df" stroke="#e6b3ad" stroke-width="2"/>
+          <text x="594" y="158" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">retries multiply, they do not add</text>
+          <text x="424" y="182" font-size="10.5" fill="#5f6f66">client 3&times; &nbsp;&rarr;&nbsp; gateway 3&times; &nbsp;&rarr;&nbsp; service 3&times;</text>
+          <text x="594" y="206" font-size="14" text-anchor="middle" fill="#c53b3b" font-weight="700" font-family="Fira Code, monospace">1 request = 27 calls</text>
+          <text x="594" y="224" font-size="10.5" text-anchor="middle" fill="#5f6f66">retry at one layer only, and budget it</text>
+
+          <rect x="20" y="246" width="760" height="76" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="400" y="266" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">the layers, in order &mdash; each one needs the one above it</text>
+          <text x="36" y="288" font-size="10.5" fill="#5f6f66">timeout &mdash; bound every attempt &nbsp;·&nbsp; retry &mdash; only transient, only idempotent</text>
+          <text x="36" y="308" font-size="10.5" fill="#5f6f66">backoff + jitter &mdash; space them out &nbsp;·&nbsp; budget &mdash; cap the total &nbsp;·&nbsp; circuit breaker &mdash; stop entirely</text>
+        </svg>
+      </div>
+      <p class="caption">A retry is a decision, a delay and a limit. Most retry bugs are a missing limit.</p>
+    </section>
+
+    <section id="how-it-works">
+      <h2>How it works</h2>
+      <p style="margin:0 0 18px">The first animation is why jitter is not optional. The second is why you should retry at exactly one layer.</p>
+      <span class="note" style="margin:-8px 0 18px">the failure synchronised your clients. only randomness un-synchronises them.</span>
+
+      <div class="anim" id="anim-herd">
+        <h3>1 &middot; Exponential backoff alone just moves the spike</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 320" role="img" aria-label="A thousand clients retrying in synchronised spikes with plain exponential backoff, then spread smoothly by jitter">
+            <text id="hb-phase" x="400" y="20" font-size="12.5" text-anchor="middle" fill="#5f6f66">1,000 clients, one two-second blip &mdash; and everyone fails at the same instant</text>
+
+            <line x1="80" y1="250" x2="770" y2="250" stroke="#a9b5a6" stroke-width="1.5"/>
+            <line x1="80" y1="46" x2="80" y2="250" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="72" y="88" font-size="10" text-anchor="end" fill="#5f6f66">1,000</text>
+            <text x="72" y="221" font-size="10" text-anchor="end" fill="#5f6f66">200</text>
+            <text x="72" y="254" font-size="10" text-anchor="end" fill="#5f6f66">0</text>
+            <text x="30" y="150" font-size="10.5" fill="#5f6f66">req/s</text>
+            <line x1="80" y1="217" x2="770" y2="217" stroke="#2f6b3f" stroke-width="1" stroke-dasharray="4 4"/>
+            <text x="794" y="221" font-size="9.5" text-anchor="end" fill="#2f6b3f">capacity</text>
+            <text x="420" y="276" font-size="10.5" text-anchor="middle" fill="#5f6f66">time after the failure &rarr;</text>
+            <text x="148" y="266" font-size="9.5" text-anchor="middle" fill="#5f6f66">1 s</text>
+            <text x="216" y="266" font-size="9.5" text-anchor="middle" fill="#5f6f66">2 s</text>
+            <text x="352" y="266" font-size="9.5" text-anchor="middle" fill="#5f6f66">4 s</text>
+            <text x="624" y="266" font-size="9.5" text-anchor="middle" fill="#5f6f66">8 s</text>
+
+            <rect id="hb-s1" class="hidden" x="140" y="83" width="18" height="167" fill="#f9e3df" stroke="#c53b3b"/>
+            <rect id="hb-s2" class="hidden" x="208" y="83" width="18" height="167" fill="#f9e3df" stroke="#c53b3b"/>
+            <rect id="hb-s3" class="hidden" x="344" y="83" width="18" height="167" fill="#f9e3df" stroke="#c53b3b"/>
+            <rect id="hb-s4" class="hidden" x="616" y="83" width="18" height="167" fill="#f9e3df" stroke="#c53b3b"/>
+
+            <g id="hb-jit" class="hidden">
+              <rect x="112" y="222" width="12" height="28" fill="#e3eedc" stroke="#2f6b3f"/>
+              <rect x="156" y="226" width="12" height="24" fill="#e3eedc" stroke="#2f6b3f"/>
+              <rect x="196" y="220" width="12" height="30" fill="#e3eedc" stroke="#2f6b3f"/>
+              <rect x="246" y="228" width="12" height="22" fill="#e3eedc" stroke="#2f6b3f"/>
+              <rect x="292" y="222" width="12" height="28" fill="#e3eedc" stroke="#2f6b3f"/>
+              <rect x="338" y="230" width="12" height="20" fill="#e3eedc" stroke="#2f6b3f"/>
+              <rect x="390" y="224" width="12" height="26" fill="#e3eedc" stroke="#2f6b3f"/>
+              <rect x="442" y="228" width="12" height="22" fill="#e3eedc" stroke="#2f6b3f"/>
+              <rect x="498" y="232" width="12" height="18" fill="#e3eedc" stroke="#2f6b3f"/>
+              <rect x="556" y="228" width="12" height="22" fill="#e3eedc" stroke="#2f6b3f"/>
+              <rect x="618" y="232" width="12" height="18" fill="#e3eedc" stroke="#2f6b3f"/>
+              <rect x="688" y="234" width="12" height="16" fill="#e3eedc" stroke="#2f6b3f"/>
+            </g>
+
+            <rect id="hb-panel" x="80" y="288" width="690" height="24" rx="5" fill="#fbfcf8" stroke="#a9b5a6"/>
+            <text id="hb-read" x="94" y="305" font-size="10.5" fill="#5f6f66" font-family="Fira Code, monospace">peak: — · recovered at: —</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <div class="anim" id="anim-amp">
+        <h3>2 &middot; One request, twenty-seven calls</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 320" role="img" aria-label="Retries at three layers multiplying one user request into twenty-seven database calls">
+            <defs>
+              <marker id="ra-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+            <text id="ra-phase" x="400" y="20" font-size="12.5" text-anchor="middle" fill="#5f6f66">every layer is "just being resilient" &mdash; and nobody counts the product</text>
+
+            <rect id="ra-c" x="20" y="48" width="170" height="70" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="105" y="72" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="700">client</text>
+            <text id="ra-ct" x="105" y="94" font-size="10" text-anchor="middle" fill="#5f6f66">retry 3&times;</text>
+            <text id="ra-cn" x="105" y="110" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">1</text>
+            <line x1="194" y1="83" x2="214" y2="83" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#ra-arr)"/>
+
+            <rect id="ra-g" x="218" y="48" width="170" height="70" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="303" y="72" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="700">gateway</text>
+            <text id="ra-gt" x="303" y="94" font-size="10" text-anchor="middle" fill="#5f6f66">retry 3&times;</text>
+            <text id="ra-gn" x="303" y="110" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">—</text>
+            <line x1="392" y1="83" x2="412" y2="83" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#ra-arr)"/>
+
+            <rect id="ra-s" x="416" y="48" width="170" height="70" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="501" y="72" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="700">orders service</text>
+            <text id="ra-st" x="501" y="94" font-size="10" text-anchor="middle" fill="#5f6f66">retry 3&times;</text>
+            <text id="ra-sn" x="501" y="110" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">—</text>
+            <line x1="590" y1="83" x2="610" y2="83" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#ra-arr)"/>
+
+            <rect id="ra-d" x="614" y="48" width="166" height="70" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+            <text x="697" y="72" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="700">database</text>
+            <text id="ra-dt" x="697" y="94" font-size="10" text-anchor="middle" fill="#5f6f66">struggling</text>
+            <text id="ra-dn" x="697" y="110" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">—</text>
+
+            <rect id="ra-panel" x="20" y="142" width="760" height="78" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text id="ra-p1" x="36" y="166" font-size="11" fill="#23362e" font-weight="700">calls reaching the database from one user action: 1</text>
+            <text id="ra-p2" x="36" y="188" font-size="10.5" fill="#5f6f66">latency the user waits: 1 attempt</text>
+            <text id="ra-p3" x="36" y="208" font-size="10.5" fill="#5f6f66">at 1,000 concurrent users: 1,000 calls</text>
+
+            <rect id="ra-verd" x="20" y="236" width="760" height="68" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text id="ra-v" x="400" y="260" font-size="12.5" text-anchor="middle" fill="#23362e" font-weight="700">the database starts failing &mdash; watch the arithmetic</text>
+            <text id="ra-v2" x="400" y="284" font-size="10.5" text-anchor="middle" fill="#5f6f66">each layer retries three times, independently, and none of them knows about the others</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+    </section>
+
+    <section id="concepts">
+      <h2>Key concepts</h2>
+      <div class="terms">
+        <div class="term"><b>Transient error</b><span>A failure likely to go away on its own — the only kind worth retrying.</span><template class="term-detail" data-see="Retryable errors, Retry budget, Circuit breaker">
+          <p>Connection resets, timeouts, 503s, lock contention, leader elections. They share a property: nothing about the request was wrong, so the same request may well succeed shortly.</p>
+          <p>A 400, a 404 or a validation failure is deterministic. Retrying it wastes capacity, delays the error the caller needs to see, and in aggregate looks exactly like an attack.</p>
+          <h4>Retry or not</h4>
+          <table>
+            <tr><th>Outcome</th><th>Retry?</th></tr>
+            <tr><td>Connection reset, DNS blip</td><td>yes</td></tr>
+            <tr><td>Timeout</td><td>yes, if idempotent</td></tr>
+            <tr><td>503, 429 (honour Retry-After)</td><td>yes</td></tr>
+            <tr><td>500</td><td>cautiously &mdash; may not be transient</td></tr>
+            <tr><td>400, 404, 409, 422</td><td>never</td></tr>
+            <tr><td>401 / 403</td><td>no &mdash; refresh the token instead, once</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>A circuit breaker is what you add when "transient" turns out to mean "for the next twenty minutes".</li></ul>
+        </template></div>
+
+        <div class="term"><b>Idempotency requirement</b><span>A retry is only safe if repeating the operation cannot do the work twice.</span><template class="term-detail" data-see="Transient error, Timeout, Idempotency keys">
+          <p>The dangerous case is the timeout, because it is <em>ambiguous</em>: the request may have been processed and only the response lost. Retrying a <code>GET</code> is free; retrying a payment on a timeout can charge the customer twice.</p>
+          <p>Reads and natural replacements are safe by construction. For anything that creates or moves money, attach an idempotency key so the server can recognise the repeat.</p>
+          <h4>Safety by operation</h4>
+          <table>
+            <tr><th>Operation</th><th>Safe to retry?</th></tr>
+            <tr><td><code>GET</code>, <code>HEAD</code></td><td>yes &mdash; no effect at all</td></tr>
+            <tr><td><code>PUT</code>, <code>DELETE</code></td><td>yes &mdash; idempotent by definition</td></tr>
+            <tr><td><code>POST</code> that creates</td><td>only with an idempotency key</td></tr>
+            <tr><td>Increment, append</td><td>no &mdash; needs a key or a dedup window</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>The idempotency page covers the server-side half: keys, windows and delivery semantics.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Exponential backoff</b><span>Doubling the wait after each failure, so a persistent problem is not hammered.</span><template class="term-detail" data-see="Jitter, Cap, Attempt limit">
+          <p><code>base &times; 2ⁿ</code>. With a 100&nbsp;ms base: 100, 200, 400, 800, 1600. It adapts automatically &mdash; a one-off blip costs a tenth of a second, while a real outage quickly drops your request rate by orders of magnitude.</p>
+          <p>It is necessary and, on its own, not sufficient: it spaces out <em>each client's</em> attempts without doing anything about the fact that all clients are stepping in time.</p>
+          <h4>Strategies</h4>
+          <table>
+            <tr><th>Strategy</th><th>Waits</th><th>Use</th></tr>
+            <tr><td>Immediate</td><td>0</td><td>one quick retry on a fresh connection</td></tr>
+            <tr><td>Constant</td><td>1, 1, 1</td><td>polling a known-slow resource</td></tr>
+            <tr><td>Linear</td><td>1, 2, 3</td><td>rarely the right answer</td></tr>
+            <tr><td>Exponential</td><td>1, 2, 4, 8</td><td>the default</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Always pair it with jitter and a cap; the three together are the actual pattern.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Jitter</b><span>Randomising the wait so that clients which failed together do not return together.</span><template class="term-detail" data-see="Exponential backoff, Thundering herd, Retry budget">
+          <p>The failure event synchronises every client. Deterministic backoff preserves that synchronisation perfectly, so the retries arrive as a spike no matter how far apart the spikes are. Randomness is the only thing that breaks the lockstep.</p>
+          <p>AWS's analysis compared the options and found <b>full jitter</b> &mdash; <code>random(0, min(cap, base &times; 2ⁿ))</code> &mdash; gave the lowest contention and the shortest completion time. It is the default worth using unless you have a reason otherwise.</p>
+          <div class="anim" id="jit-anim" data-steps="jit"><h4>Three ways to randomise the wait</h4>
+            <div class="stage">
+              <svg viewBox="0 0 560 210" role="img" aria-label="Retry arrival times under no jitter, full jitter and decorrelated jitter">
+                <text x="280" y="22" font-size="11.5" text-anchor="middle" fill="#5f6f66">where 12 clients' third retry lands, under each strategy</text>
+                <text x="30" y="58" font-size="10.5" fill="#23362e" font-weight="600">none</text>
+                <line x1="110" y1="52" x2="530" y2="52" stroke="#d5dccf"/>
+                <g id="jt-n"><rect x="296" y="42" width="10" height="20" fill="#c53b3b"/></g>
+                <text id="jt-nt" x="110" y="76" font-size="9.5" fill="#5f6f66">&nbsp;</text>
+
+                <text x="30" y="116" font-size="10.5" fill="#23362e" font-weight="600">full</text>
+                <line x1="110" y1="110" x2="530" y2="110" stroke="#d5dccf"/>
+                <g id="jt-f" class="hidden" fill="#2f6b3f">
+                  <rect x="124" y="102" width="6" height="16"/><rect x="158" y="102" width="6" height="16"/>
+                  <rect x="186" y="102" width="6" height="16"/><rect x="214" y="102" width="6" height="16"/>
+                  <rect x="242" y="102" width="6" height="16"/><rect x="268" y="102" width="6" height="16"/>
+                  <rect x="292" y="102" width="6" height="16"/><rect x="322" y="102" width="6" height="16"/>
+                  <rect x="352" y="102" width="6" height="16"/><rect x="386" y="102" width="6" height="16"/>
+                  <rect x="424" y="102" width="6" height="16"/><rect x="468" y="102" width="6" height="16"/>
+                </g>
+                <text id="jt-ft" x="110" y="134" font-size="9.5" fill="#5f6f66">&nbsp;</text>
+
+                <text x="30" y="174" font-size="10.5" fill="#23362e" font-weight="600">decorr.</text>
+                <line x1="110" y1="168" x2="530" y2="168" stroke="#d5dccf"/>
+                <g id="jt-d" class="hidden" fill="#2f6b3f">
+                  <rect x="176" y="160" width="6" height="16"/><rect x="208" y="160" width="6" height="16"/>
+                  <rect x="236" y="160" width="6" height="16"/><rect x="272" y="160" width="6" height="16"/>
+                  <rect x="304" y="160" width="6" height="16"/><rect x="338" y="160" width="6" height="16"/>
+                  <rect x="372" y="160" width="6" height="16"/><rect x="404" y="160" width="6" height="16"/>
+                  <rect x="438" y="160" width="6" height="16"/><rect x="466" y="160" width="6" height="16"/>
+                  <rect x="492" y="160" width="6" height="16"/><rect x="516" y="160" width="6" height="16"/>
+                </g>
+                <text id="jt-dt" x="110" y="192" font-size="9.5" fill="#5f6f66">&nbsp;</text>
+              </svg>
+            </div><div class="controls"></div><div class="narration"></div></div>
+          <h4>How it relates</h4>
+          <ul><li>The first animation is the same point at the scale of a thousand clients.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Thundering herd</b><span>Many clients retrying in unison, producing a spike far above capacity exactly when the system is weakest.</span><template class="term-detail" data-see="Jitter, Retry budget, Load shedding">
+          <p>Anything that fails everyone at once creates it: a restart, a failover, a cache flush, an expiring token with a round-number lifetime, a cron job at the top of the hour. The clients were independent until a shared event put them in step.</p>
+          <p>Jitter fixes the retry case. The others need the same medicine &mdash; randomised cache TTLs, staggered cron schedules, token lifetimes with a random component.</p>
+          <h4>Other herds worth jittering</h4>
+          <table>
+            <tr><th>Source</th><th>Fix</th></tr>
+            <tr><td>Cache entries expiring together</td><td>randomise the TTL &plusmn;10%</td></tr>
+            <tr><td>Cron at :00</td><td>spread over the window</td></tr>
+            <tr><td>Token refresh</td><td>refresh at a random point before expiry</td></tr>
+            <tr><td>Reconnect after a deploy</td><td>jittered reconnect backoff</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>From the server's side, this is a load-shedding problem; from the client's, a jitter problem.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Retry amplification</b><span>Retries at several layers multiplying rather than adding — the reason one blip becomes an outage.</span><template class="term-detail" data-see="Retry budget, Deadline, Timeout">
+          <p>Three layers each retrying three times is 3&sup3; = 27 requests from one user action, all aimed at a dependency that is already failing. The load arrives precisely when there is least capacity to absorb it, which is how a recoverable degradation becomes congestion collapse.</p>
+          <p>The rule is to retry at exactly one layer. Usually the one closest to the failure, because it knows most about the error and wastes the least work; sometimes the edge, if only it can see the whole operation.</p>
+          <h4>Multiplication</h4>
+          <table>
+            <tr><th>Layers retrying</th><th>Calls per request</th></tr>
+            <tr><td>1</td><td>3</td></tr>
+            <tr><td>2</td><td>9</td></tr>
+            <tr><td>3</td><td>27</td></tr>
+            <tr><td>4</td><td>81</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>The second animation builds this number step by step.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Retry budget</b><span>A cap on retries as a fraction of total traffic, so the system cannot retry itself to death.</span><template class="term-detail" data-see="Retry amplification, Attempt limit, Load shedding">
+          <p>A per-request attempt limit does nothing about aggregate load: if every request fails, a limit of three still triples your traffic. A budget works on the whole client &mdash; typically "retries may not exceed 10% of successful requests" &mdash; and once exhausted, failures are returned immediately.</p>
+          <p>This is what turns retry from a local decision into a system-level one, and it is the control that gRPC and modern service meshes expose for exactly this reason.</p>
+          <h4>Two different limits</h4>
+          <table>
+            <tr><th>Limit</th><th>Bounds</th></tr>
+            <tr><td>Attempts per request</td><td>one request's latency</td></tr>
+            <tr><td>Retry budget</td><td>total extra load on the dependency</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Without a budget, a widespread failure means every client retries at once &mdash; which is the amplification case again.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Attempt limit &amp; cap</b><span>How many tries, and the longest a single wait may become.</span><template class="term-detail" data-see="Exponential backoff, Deadline, Retry budget">
+          <p>Three to five attempts covers almost all genuinely transient faults; beyond that you are no longer riding out a blip, you are waiting for an outage to end &mdash; which is a circuit breaker's job.</p>
+          <p>The cap matters because unbounded doubling reaches absurd waits quickly: without one, the eighth attempt is 25 seconds away and the user left long ago.</p>
+          <h4>Sensible defaults</h4>
+          <table>
+            <tr><th>Setting</th><th>Interactive</th><th>Background</th></tr>
+            <tr><td>Attempts</td><td>2&ndash;3</td><td>5&ndash;8</td></tr>
+            <tr><td>Base delay</td><td>50&ndash;200 ms</td><td>1 s</td></tr>
+            <tr><td>Cap</td><td>1&ndash;2 s</td><td>30&ndash;60 s</td></tr>
+            <tr><td>Total budget</td><td>the request deadline</td><td>minutes</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>An interactive request's real limit is the user's patience, which the deadline encodes.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Deadline awareness</b><span>Retrying only while there is time left in the caller's budget, rather than a fixed number of times.</span><template class="term-detail" data-see="Timeout, Attempt limit, Retry amplification">
+          <p>A retry that starts 50&nbsp;ms before the caller gives up is pure waste: it consumes a connection and a worker to produce a result nobody will read. Checking the remaining deadline before each attempt removes that work entirely.</p>
+          <p>It also bounds latency honestly. With a propagated deadline, the user's two-second budget is the limit regardless of how many layers would like to retry inside it.</p>
+          <h4>Before each attempt</h4>
+          <table>
+            <tr><th>Check</th><th>If no</th></tr>
+            <tr><td>Time left &gt; expected attempt duration?</td><td>fail now</td></tr>
+            <tr><td>Budget left in the retry quota?</td><td>fail now</td></tr>
+            <tr><td>Circuit closed?</td><td>fail now</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Deadline propagation is the same plumbing the backpressure page recommends for discarding dead work.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Timeout interaction</b><span>Retries multiply the timeout: three attempts at two seconds is a six-second wait unless something stops it.</span><template class="term-detail" data-see="Deadline, Attempt limit, Retry amplification">
+          <p>Teams set a per-attempt timeout and forget that the caller experiences the sum. With backoff added, three attempts at two seconds plus waits is closer to seven &mdash; well past the point the user refreshed the page and created a second request.</p>
+          <p>Size the per-attempt timeout so that the attempts <em>plus</em> their waits fit inside the overall deadline, not the other way round.</p>
+          <h4>How it relates</h4>
+          <ul><li>Without a timeout there is nothing to retry on: the call simply hangs, which is worse than failing.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Retry-After</b><span>The server telling you when to come back — and the one input that beats any backoff formula.</span><template class="term-detail" data-see="Transient error, Jitter, Retry budget">
+          <p>Returned with 429 and often with 503, as seconds or an HTTP date. The server knows more about its own recovery than your exponential curve does, so honour it &mdash; and add a small jitter on top, because every client received the same value and would otherwise return together.</p>
+          <h4>Precedence</h4>
+          <table>
+            <tr><th>Signal</th><th>Priority</th></tr>
+            <tr><td><code>Retry-After</code></td><td>highest &mdash; obey it</td></tr>
+            <tr><td>Your backoff schedule</td><td>when no header</td></tr>
+            <tr><td>Immediate retry</td><td>at most once, on a fresh connection</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Jitter the value you were given; identical sleeps re-synchronise the herd you were avoiding.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Circuit breaker interaction</b><span>Retry handles a blip; a breaker handles an outage. They need to be arranged deliberately.</span><template class="term-detail" data-see="Retry budget, Transient error, Attempt limit">
+          <p>If the retry sits <em>inside</em> the breaker, one logical call records three failures and the breaker trips three times faster than configured. If it sits <em>outside</em>, it will retry the breaker's instant rejections and spin.</p>
+          <p>The arrangement that works: timeout, then retry, then breaker &mdash; one recorded outcome per logical operation &mdash; with the open-circuit error marked non-retryable.</p>
+          <h4>How it relates</h4>
+          <ul><li>The circuit breaker page covers the full ordering, including bulkheads and fallbacks.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Hedged requests</b><span>Sending a second request before the first has failed, to cut tail latency rather than to handle errors.</span><template class="term-detail" data-see="Idempotency requirement, Retry budget, Timeout">
+          <p>If the p99 is ten times the p50, issue a duplicate once the p95 has elapsed and take whichever answer arrives first. It trades a few percent extra load for a dramatically shorter tail, and it is how large systems hide slow replicas.</p>
+          <p>It demands idempotency and a tight budget &mdash; typically hedging at most 5% of requests &mdash; because it adds load by design rather than only on failure.</p>
+          <h4>Retry vs hedge</h4>
+          <table>
+            <tr><th></th><th>Retry</th><th>Hedge</th></tr>
+            <tr><td>Triggered by</td><td>an error</td><td>slowness</td></tr>
+            <tr><td>Fixes</td><td>failures</td><td>tail latency</td></tr>
+            <tr><td>Extra load</td><td>only on failure</td><td>always, by design</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Both are retries in the server's eyes, so both must respect the same budget.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Where to retry</b><span>One layer, chosen deliberately — not everywhere a library made it easy.</span><template class="term-detail" data-see="Retry amplification, Retry budget, Deadline">
+          <p>Closest to the failure wastes the least work and knows most about the error. The edge sees the whole operation and can decide whether a retry is still useful. Both are defensible; doing both is not.</p>
+          <p>Watch for retries you did not write: HTTP client defaults, SDK policies, service mesh configuration and database drivers all retry silently, and they compose with yours.</p>
+          <h4>Audit these</h4>
+          <table>
+            <tr><th>Layer</th><th>Often retries by default</th></tr>
+            <tr><td>HTTP client / SDK</td><td>yes &mdash; check the policy</td></tr>
+            <tr><td>Service mesh (Envoy)</td><td>yes, if configured</td></tr>
+            <tr><td>Database driver</td><td>yes, on connection errors</td></tr>
+            <tr><td>Message consumer</td><td>yes &mdash; redelivery is a retry</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Count the real attempt multiplier before adding one more layer of "resilience".</li></ul>
+        </template></div>
+
+        <div class="term"><b>Dead letter</b><span>Where a message goes when the retries are exhausted, so the queue keeps moving.</span><template class="term-detail" data-see="Attempt limit, Transient error, Retry budget">
+          <p>In message-driven systems a failing message is redelivered, which is a retry under another name. Without a maximum delivery count, one poison message is retried forever and blocks everything behind it.</p>
+          <p>Move it aside after a bounded number of attempts, with the error and enough context to replay it later. An empty dead-letter queue nobody monitors is as bad as not having one.</p>
+          <h4>How it relates</h4>
+          <ul><li>Alert on dead-letter depth; it is usually the first signal of a systematic failure rather than a transient one.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Observability</b><span>Counting attempts separately from requests, so retries are visible before they become an incident.</span><template class="term-detail" data-see="Retry budget, Retry amplification, Thundering herd">
+          <p>If retries are invisible, a dependency degrading shows up as "traffic increased" &mdash; and the obvious response, scaling up, feeds the amplification. Separating attempts from logical requests makes the real story legible.</p>
+          <p>The most useful single number is the attempt multiplier: attempts divided by logical requests. At 1.0 nothing is retrying; at 3.0 you are sending three times the load you think you are.</p>
+          <h4>What to export</h4>
+          <table>
+            <tr><th>Metric</th><th>Watch for</th></tr>
+            <tr><td><code>attempts / requests</code></td><td>rising above ~1.1</td></tr>
+            <tr><td><code>retries_exhausted_total</code></td><td>real failures, not blips</td></tr>
+            <tr><td><code>retry_budget_rejected</code></td><td>the budget is engaging</td></tr>
+            <tr><td>Dead-letter depth</td><td>poison messages</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Trace spans should record the attempt number, or a retried call looks like several unrelated ones.</li></ul>
+        </template></div>
+      </div>
+    </section>
+
+    <section id="commands">
+      <h2>Essential code patterns</h2>
+      <div class="cmd-group">
+        <h3>The whole pattern, correctly ordered</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">var pipeline = new ResiliencePipelineBuilder&lt;HttpResponseMessage&gt;()
+    // 3 — stop entirely once it is clearly not transient
+    .AddCircuitBreaker(new CircuitBreakerStrategyOptions&lt;HttpResponseMessage&gt;
+    {
+        FailureRatio = 0.5, MinimumThroughput = 20,
+        BreakDuration = TimeSpan.FromSeconds(30),
+    })
+    // 2 — retry, exponentially, with jitter
+    .AddRetry(new RetryStrategyOptions&lt;HttpResponseMessage&gt;
+    {
+        MaxRetryAttempts = 3,
+        BackoffType      = DelayBackoffType.Exponential,
+        UseJitter        = true,                    // the line that matters
+        Delay            = TimeSpan.FromMilliseconds(200),
+        MaxDelay         = TimeSpan.FromSeconds(2),
+        ShouldHandle     = args =&gt; ValueTask.FromResult(IsTransient(args.Outcome)),
+    })
+    // 1 — a call that never ends can never be retried
+    .AddTimeout(TimeSpan.FromSeconds(2))
+    .Build();</code></pre><div class="what">Polly applies strategies outermost-first, so at run time this is timeout, then retry, then breaker — one recorded outcome per logical call.</div></div>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">static bool IsTransient(Outcome&lt;HttpResponseMessage&gt; o) =&gt;
+    o.Exception is TimeoutRejectedException or HttpRequestException
+    || o.Result?.StatusCode is HttpStatusCode.RequestTimeout
+                           or HttpStatusCode.TooManyRequests
+                           or HttpStatusCode.ServiceUnavailable
+                           or HttpStatusCode.GatewayTimeout;
+
+// NOT retryable: 400, 401, 403, 404, 409, 422 — repeating them changes nothing
+// and a retried 401 should instead refresh the token, exactly once</code></pre><div class="what">The predicate is where most retry bugs live. Retrying a 400 forever looks, from the server's side, indistinguishable from an attack.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>The same thing in Python</h3>
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">from tenacity import (retry, stop_after_attempt, wait_random_exponential,
+                      retry_if_exception_type, before_sleep_log)
+
+@retry(
+    retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
+    wait=wait_random_exponential(multiplier=0.2, max=2),   # full jitter, capped at 2 s
+    stop=stop_after_attempt(3),
+    before_sleep=before_sleep_log(log, logging.WARNING),   # make retries visible
+    reraise=True,                                          # surface the real error
+)
+async def fetch_order(order_id: str) -&gt; Order:
+    res = await client.get(f"/orders/{order_id}", timeout=2.0)   # per-attempt timeout
+    res.raise_for_status()
+    return Order(**res.json())</code></pre><div class="what"><code>wait_random_exponential</code> is full jitter — <code>random(0, min(max, multiplier × 2ⁿ))</code>. Plain <code>wait_exponential</code> is the version that keeps the herd in step.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>The jitter strategies, written out</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">static readonly Random Rng = Random.Shared;
+
+TimeSpan NoJitter(int n)      =&gt; Min(Cap, Base * Math.Pow(2, n));          // don't
+TimeSpan FullJitter(int n)    =&gt; Rng.NextDouble() * Min(Cap, Base * Math.Pow(2, n));
+TimeSpan EqualJitter(int n)   =&gt; { var t = Min(Cap, Base * Math.Pow(2, n));
+                                   return t / 2 + Rng.NextDouble() * t / 2; }
+TimeSpan Decorrelated(double prev) =&gt; Min(Cap, Base + Rng.NextDouble() * (prev * 3 - Base));
+
+// AWS measured these: full jitter gave the lowest contention and completion time.
+// Equal jitter guarantees a minimum wait; decorrelated keeps growing and self-limits.</code></pre><div class="what">Four one-liners. The only wrong answer is the first, and it is the one most libraries still make the default.</div></div>
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">import random
+
+def full_jitter(attempt, base=0.2, cap=2.0):
+    return random.uniform(0, min(cap, base * 2 ** attempt))
+
+def equal_jitter(attempt, base=0.2, cap=2.0):
+    t = min(cap, base * 2 ** attempt)
+    return t / 2 + random.uniform(0, t / 2)
+
+def decorrelated(prev, base=0.2, cap=2.0):
+    return min(cap, random.uniform(base, prev * 3))
+
+&gt;&gt;&gt; [round(full_jitter(n), 2) for n in range(5)]
+[0.07, 0.31, 0.44, 1.21, 1.88]      # same client, five different waits</code></pre><div class="what">Note what the output shows: even one client's waits are unpredictable, which is exactly what stops a thousand of them colliding.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Honour Retry-After, then jitter it</h3>
+        <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">static TimeSpan NextDelay(HttpResponseMessage res, int attempt)
+{
+    // the server knows more about its recovery than your curve does
+    if (res.Headers.RetryAfter?.Delta is { } delta)
+        return delta + TimeSpan.FromMilliseconds(Random.Shared.Next(0, 500));  // jitter it
+    if (res.Headers.RetryAfter?.Date is { } at)
+        return at - DateTimeOffset.UtcNow + TimeSpan.FromMilliseconds(Random.Shared.Next(0, 500));
+
+    return FullJitter(attempt);
+}</code></pre><div class="what">Every rejected client got the same <code>Retry-After</code> value. Sleeping exactly that long recreates the herd the header was meant to prevent.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Budget, not just attempts</h3>
+        <div class="cmd"><pre class="language-yaml line-numbers"><code class="language-yaml"># Envoy — a per-request attempt limit AND a fleet-wide budget
+retry_policy:
+  retry_on: "5xx,reset,connect-failure"
+  num_retries: 2                       # bounds one request's latency
+  retry_back_off: { base_interval: 0.1s, max_interval: 2s }
+  retry_budget:
+    budget_percent: { value: 20 }      # retries may not exceed 20% of active requests
+    min_retry_concurrency: 3</code></pre><div class="what">The attempt limit protects one request; the budget protects the dependency. A system-wide failure needs the second.</div></div>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// a budget in code: a token bucket refilled by successes
+sealed class RetryBudget(double ratio = 0.1, int minPerSecond = 3)
+{
+    private readonly SlidingWindow _ok = new(TimeSpan.FromSeconds(10));
+    private readonly SlidingWindow _retries = new(TimeSpan.FromSeconds(10));
+
+    public bool TryConsume()
+    {
+        var allowed = Math.Max(minPerSecond, _ok.Count * ratio);
+        if (_retries.Count &gt;= allowed) return false;   // out of budget: fail now
+        _retries.Add();
+        return true;
+    }
+    public void RecordSuccess() =&gt; _ok.Add();
+}</code></pre><div class="what">When everything is failing there are no successes, so the budget empties and retries stop — which is precisely when they were doing harm.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Respect the deadline</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">async Task&lt;T&gt; WithRetries&lt;T&gt;(Func&lt;CancellationToken, Task&lt;T&gt;&gt; call, CancellationToken ct)
+{
+    for (var attempt = 0; ; attempt++)
+    {
+        try { return await call(ct); }
+        catch (Exception ex) when (IsTransient(ex) &amp;&amp; attempt &lt; MaxAttempts)
+        {
+            var delay = FullJitter(attempt);
+            // do not start an attempt we cannot finish inside the caller's budget
+            if (RemainingBudget(ct) &lt; delay + ExpectedAttemptDuration) throw;
+            await Task.Delay(delay, ct);
+        }
+    }
+}</code></pre><div class="what">A retry begun 50 ms before the caller gives up costs a connection and a worker to produce a result nobody reads.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Make them visible</h3>
+        <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">attempts_total / requests_total        # the attempt multiplier — 1.0 is healthy
+retries_exhausted_total{dep="orders"}  # genuine failures, not blips
+retry_budget_rejected_total            # the budget is doing its job
+dead_letter_depth                      # poison messages
+
+# alert when the multiplier exceeds ~1.1 for a sustained period:
+# a dependency is degrading, and scaling up will make it worse</code></pre><div class="what">Without this, a degrading dependency looks like a traffic increase — and the instinctive response feeds the amplification.</div></div>
+      </div>
+    </section>
+
+    <section id="pros-cons">
+      <h2>Pros &amp; cons</h2>
+      <div class="cols">
+        <div class="col good"><h3>Pros</h3><ul>
+          <li>Removes a large class of transient failures for a few lines of configuration.</li>
+          <li>Exponential backoff adapts automatically from a blip to a sustained outage.</li>
+          <li>Jitter turns a synchronised spike into smooth load at no cost.</li>
+          <li>Budgets make the aggregate effect bounded and predictable.</li>
+          <li>Hedging uses the same machinery to cut tail latency.</li>
+          <li>Every mainstream library implements it; you configure rather than build.</li>
+        </ul></div>
+        <div class="col bad"><h3>Cons</h3><ul>
+          <li>Retrying non-idempotent work duplicates it, and timeouts are ambiguous by nature.</li>
+          <li>Retries multiply through layers, turning degradation into collapse.</li>
+          <li>Without jitter, backoff preserves the herd it was supposed to break up.</li>
+          <li>Multiplies user-visible latency unless deadlines are enforced.</li>
+          <li>Hides a chronically failing dependency behind "it usually works eventually".</li>
+          <li>Libraries retry silently by default, so the real multiplier is rarely what you think.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="use-cases">
+      <h2>Concrete use cases</h2>
+      <div class="cards">
+        <div class="card"><h3>A database failover</h3><p>The primary fails over and connections drop for four seconds. Three attempts with jittered exponential backoff ride straight through it: users see a slightly slow request instead of an error page, and nothing is paged.</p></div>
+        <div class="card"><h3>A rate-limited partner API</h3><p>The partner returns 429 with <code>Retry-After: 30</code>. Honouring the header plus a small random offset means your fleet returns spread across a few seconds rather than all at the thirty-second mark.</p></div>
+        <div class="card"><h3>The outage that scaling made worse</h3><p>A dependency degrades, every layer retries, and traffic appears to triple. The team scales up, which adds load to the failing dependency. An attempt-multiplier metric would have shown the "traffic" was their own retries.</p></div>
+        <div class="card"><h3>Double charges from a timeout</h3><p>A payment call times out after the charge succeeded but before the response arrived. The retry charges again. An idempotency key on the request would have let the provider recognise the repeat and return the original result.</p></div>
+        <div class="card"><h3>Tail latency on a read path</h3><p>p50 is 20 ms and p99 is 400 ms because one replica is slow. Hedging at the p95 and taking the first response cuts p99 to near p50, for about 5% extra load and no error handling at all.</p></div>
+      </div>
+    </section>
+
+    <section id="when">
+      <h2>When to use / when not to</h2>
+      <span class="note" style="margin:-6px 0 14px">transient, idempotent, budgeted, jittered &mdash; four boxes, and all four must be ticked</span>
+      <div class="cols">
+        <div class="col good"><h3>Use it when…</h3><ul>
+          <li>The failure is genuinely transient &mdash; a timeout, a reset, a failover, a 503.</li>
+          <li>The operation is idempotent, or carries an idempotency key.</li>
+          <li>The caller has time left in its deadline for another attempt.</li>
+          <li>No other layer in the path is already retrying the same thing.</li>
+          <li>You want to hide a slow replica behind a hedged duplicate request.</li>
+        </ul></div>
+        <div class="col bad"><h3>Avoid it when…</h3><ul>
+          <li>The error is deterministic &mdash; 400, 404, 422. Use <b>a clear error response</b>; retrying changes nothing.</li>
+          <li>The operation is not safe to repeat. Use <b>idempotency keys</b> first, then retry.</li>
+          <li>The dependency is down rather than flaky. Use <b>a circuit breaker</b> and stop calling.</li>
+          <li>Another layer already retries. Use <b>that one</b> and make yours fail fast.</li>
+          <li>You are overloaded yourself. Use <b>load shedding</b> &mdash; retries make an overload worse by definition.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="gotchas">
+      <h2>Common mistakes &amp; gotchas</h2>
+      <div class="gotcha"><b>Backoff without jitter</b><span>A thousand clients fail together and each waits exactly one second, so a thousand retries arrive together. Doubling the delay moves the spike; it never shrinks it.</span><div class="fix">Fix: full jitter &mdash; <code>random(0, min(cap, base × 2ⁿ))</code>. In Polly set <code>UseJitter = true</code>; in Tenacity use <code>wait_random_exponential</code>.</div></div>
+      <div class="gotcha"><b>Retrying at every layer</b><span>Client, gateway and service each retry three times, so one user action becomes twenty-seven calls at a dependency that is already failing.</span><div class="fix">Fix: retry at exactly one layer, and audit the ones you did not write &mdash; SDK defaults, mesh policies and database drivers all retry silently.</div></div>
+      <div class="gotcha"><b>Retrying non-idempotent operations</b><span>A timeout is ambiguous: the work may have completed and only the response been lost. Retrying a payment on a timeout is how customers get charged twice.</span><div class="fix">Fix: attach an idempotency key so the server recognises the repeat, or restrict retries to genuinely idempotent operations.</div></div>
+      <div class="gotcha"><b>No retry budget</b><span>An attempt limit bounds one request. When <em>everything</em> is failing, a limit of three still triples the load on the thing that is already on fire.</span><div class="fix">Fix: add a budget &mdash; retries capped at around 10% of successful traffic. When successes stop, the budget empties and retries stop with it.</div></div>
+      <div class="gotcha"><b>Ignoring the deadline</b><span>Three attempts at a two-second timeout, plus backoff, is a seven-second wait. The user gave up at two and pressed refresh, creating a second request.</span><div class="fix">Fix: propagate a deadline and check it before each attempt. Size per-attempt timeouts so attempts plus waits fit inside it.</div></div>
+      <div class="gotcha"><b>Retrying 4xx</b><span>400, 404 and 422 are deterministic: the same request will fail identically forever. A retry loop on them is indistinguishable from an attack at the receiving end.</span><div class="fix">Fix: an explicit allow-list of retryable outcomes. Treat 401 specially &mdash; refresh the token once, then give up.</div></div>
+      <div class="gotcha"><b>Invisible retries</b><span>When attempts are not counted separately from requests, a degrading dependency looks like a traffic spike &mdash; and the team scales up, feeding the amplification.</span><div class="fix">Fix: export the attempt multiplier and alert when it rises above about 1.1. Record the attempt number on trace spans too.</div></div>
+      <div class="gotcha"><b>Retry as a substitute for fixing it</b><span>A dependency that needs three attempts to succeed is broken. Retries hide it until the day they stop being enough.</span><div class="fix">Fix: alert on <code>retries_exhausted</code> and on a sustained multiplier. A retry policy is a shock absorber, not a repair.</div></div>
+    </section>
+
+    <section id="alternatives">
+      <h2>Alternatives</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs retry</th></tr></thead>
+          <tbody>
+            <tr class="self"><td><b>Retry + backoff + jitter</b></td><td>transient faults</td><td>Low</td><td>free</td><td>&mdash;</td></tr>
+            <tr><td><b>Circuit breaker</b></td><td>a dependency that is down, not flaky</td><td>Low</td><td>free</td><td>Stops calling entirely; retry assumes the next attempt may work</td></tr>
+            <tr><td><b>Idempotency keys</b></td><td>making retries safe at all</td><td>Medium</td><td>free</td><td>A prerequisite rather than an alternative for anything that writes</td></tr>
+            <tr><td><b>Queue it</b></td><td>work with no user waiting</td><td>Medium</td><td>a broker</td><td>Redelivery is a retry with durability and no user-facing latency</td></tr>
+            <tr><td><b>Hedged requests</b></td><td>tail latency, not errors</td><td>Medium</td><td>a few % extra load</td><td>Fires on slowness rather than failure; same budget concerns</td></tr>
+            <tr><td><b>Failover to a replica</b></td><td>one bad instance</td><td>Medium</td><td>redundancy</td><td>Tries somewhere else rather than again; needs health signals</td></tr>
+            <tr><td><b>Fail fast and degrade</b></td><td>optional dependencies</td><td>Low</td><td>free</td><td>Gives up immediately and serves less; often the kindest option for a user</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul style="margin-top:12px">
+        <li><b>Pick a circuit breaker</b> once "transient" has lasted more than a few seconds &mdash; retries past that point are pure harm.</li>
+        <li><b>Pick idempotency keys</b> before retrying anything that writes; they are what makes the retry legal.</li>
+        <li><b>Pick a queue</b> when nobody is waiting &mdash; durable redelivery beats in-process retries every time.</li>
+        <li><b>Pick failover</b> when the problem is one instance; retrying the same bad host just wastes the budget.</li>
+        <li><b>Pick graceful degradation</b> for optional work: a page without recommendations beats a page that took seven seconds to fail.</li>
+      </ul>
+    </section>
+
+    <section id="resources">
+      <h2>Resources</h2>
+      <ul>
+        <li><a href="https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/" target="_blank" rel="noopener">AWS &mdash; Exponential Backoff and Jitter</a>: the simulations that settled the argument, including decorrelated jitter.</li>
+        <li><a href="https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/" target="_blank" rel="noopener">Amazon Builders' Library &mdash; Timeouts, retries and backoff</a>: how the three fit together in production, with retry budgets.</li>
+        <li><a href="https://sre.google/sre-book/handling-overload/" target="_blank" rel="noopener">Google SRE &mdash; Handling Overload</a>: retry budgets, and why a retrying client is indistinguishable from an attacker.</li>
+        <li><a href="https://www.pollydocs.org/strategies/retry.html" target="_blank" rel="noopener">Polly &mdash; Retry strategy</a>: .NET configuration, including how strategies nest in a pipeline.</li>
+        <li><a href="https://tenacity.readthedocs.io/" target="_blank" rel="noopener">Tenacity</a>: the Python library, with every wait strategy including full jitter.</li>
+        <li><a href="https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/router_filter#config-http-filters-router-x-envoy-retry-on" target="_blank" rel="noopener">Envoy &mdash; retry policies and budgets</a>: doing it at the proxy, with a fleet-wide budget.</li>
+      </ul>
+    </section>
+    <!-- RELATED:START (generated by scripts/build-index.mjs, do not edit) -->
+    <section id="related">
+      <h2>Related pages</h2>
+      <div class="related-list">
+          <a class="related-card" href="idempotency.html">
+            <b>Idempotency &amp; deduplication</b>
+            <span>Exactly-once delivery does not exist. Exactly-once effect does, and this is how you build it.</span>
+            <small>Mentioned here in Key concepts, Concrete use cases, When to use / when not to, Common mistakes &amp; gotchas and Alternatives · Idempotency &amp; deduplication mentions Retry, backoff &amp; jitter in Key concepts, Essential code patterns, Pros &amp; cons, Concrete use cases, When to use / when not to, Common mistakes &amp; gotchas and Resources · Shared tags: distributed systems</small>
+          </a>
+          <a class="related-card" href="circuit-breaker.html">
+            <b>Circuit breaker</b>
+            <span>Stop calling the thing that is broken. You are not helping it, and it is destroying you.</span>
+            <small>Mentioned here in Key concepts, Essential code patterns, When to use / when not to and Alternatives · Circuit breaker mentions Retry, backoff &amp; jitter in Key concepts, Essential code patterns, Pros &amp; cons, Common mistakes &amp; gotchas and Alternatives · Shared tags: resilience, polly</small>
+          </a>
+          <a class="related-card" href="load-shedding.html">
+            <b>Load shedding</b>
+            <span>Past capacity you will fail some requests whatever you do. Shedding is choosing which ones, instead of letting the overload choose for you.</span>
+            <small>Mentioned here in When to use / when not to · Load shedding mentions Retry, backoff &amp; jitter in Key concepts, Pros &amp; cons, When to use / when not to and Common mistakes &amp; gotchas · Shared tags: resilience</small>
+          </a>
+          <a class="related-card" href="queueing-theory.html">
+            <b>Queueing theory</b>
+            <span>Waiting is not caused by being out of capacity. It is caused by being nearly out of capacity, at random moments.</span>
+            <small>Queueing theory mentions Retry, backoff &amp; jitter in Key concepts, Essential formulas, Pros &amp; cons, Common mistakes &amp; gotchas and Alternatives</small>
+          </a>
+          <a class="related-card" href="backpressure.html">
+            <b>Backpressure</b>
+            <span>When a fast producer meets a slow consumer, the queue between them is not a solution. It is where the outage is hiding.</span>
+            <small>Backpressure mentions Retry, backoff &amp; jitter in Key concepts, Common mistakes &amp; gotchas and Resources · Shared tags: resilience</small>
+          </a>
+          <a class="related-card" href="percentiles.html">
+            <b>Percentiles</b>
+            <span>The average is a number nobody experienced. Percentiles are measurements of real requests.</span>
+            <small>Mentioned here in Key concepts, Pros &amp; cons, Concrete use cases and Alternatives · Percentiles mentions Retry, backoff &amp; jitter in Key concepts and Concrete use cases</small>
+          </a>
+      </div>
+    </section>
+    <!-- RELATED:END -->
+  </main>
+</div>
+
+<script src="../assets/player.js?v=e098a7b2"></script>
+<script>
+createAnimation('anim-herd', [
+  { say: 'A server blips for two seconds. A thousand clients get an error &mdash; and crucially, they all get it at the same instant. The failure has just synchronised them.', text: { 'hb-read': 'peak: — · all 1,000 clients failed at t=0' } },
+  { say: 'Each client does the sensible thing and retries after one second. All thousand of them. Capacity is 200 a second.', show: ['hb-s1'], text: { 'hb-read': 'peak: 1,000/s at t=1s · 5× capacity' }, fill: { 'hb-read': '#c53b3b' } },
+  { say: 'That spike causes more errors, so they back off and retry at two seconds. Then four. Then eight. The backoff is working exactly as designed.', show: ['hb-s2', 'hb-s3'], text: { 'hb-read': 'peak: still 1,000/s · the spikes just move further apart' } },
+  { say: 'And there is the problem: the spikes never get smaller. Exponential backoff spaces out <em>one client’s</em> attempts, but every client computes the same delay from the same failure time.', show: ['hb-s4'], text: { 'hb-read': 'peak: 1,000/s at 1s, 2s, 4s, 8s · recovery: never' } },
+  { say: 'Nothing in the system de-synchronises them. The original event put every client in step, and deterministic backoff preserves that perfectly &mdash; forever.', text: { 'hb-read': 'backoff alone preserves the lockstep it was meant to fix' } },
+  { say: 'Now add jitter: each client waits a <em>random</em> duration inside its backoff window rather than the exact value.', hide: ['hb-s1', 'hb-s2', 'hb-s3', 'hb-s4'], show: ['hb-jit'], text: { 'hb-phase': 'same thousand clients, same backoff, one random() added', 'hb-read': 'peak: ~180/s · under capacity' }, fill: { 'hb-read': '#2f6b3f' } },
+  { say: 'The same thousand retries, spread across the window. No instant is overloaded, so the server answers them as they arrive instead of failing them in batches.', text: { 'hb-read': 'peak: ~180/s · every retry served · no new failures' } },
+  { say: 'And recovery is <em>faster</em>, not slower. Without jitter each spike generated a fresh wave of failures; with it, the first wave succeeds and there is no second wave.', text: { 'hb-read': 'recovered by t≈7s — versus not recovering at all' } },
+  { say: 'The formula is one line: <code>sleep = random(0, min(cap, base × 2ⁿ))</code>. AWS measured the alternatives and this one &mdash; full jitter &mdash; gave both the lowest contention and the shortest total completion time.', text: { 'hb-phase': 'full jitter: random(0, min(cap, base × 2ⁿ))' } },
+  { say: 'So jitter is not a refinement of backoff. Without it, exponential backoff mostly rearranges the problem &mdash; and the same reasoning applies to cache TTLs, cron schedules and token refreshes, which all create herds of their own.', text: { 'hb-phase': 'anything that fails everyone at once needs randomness, not just spacing', 'hb-read': 'jitter your TTLs, your crons and your token refreshes too' } },
+]);
+
+createAnimation('anim-amp', [
+  { say: 'A single user action: load an order. It passes through a gateway and a service before reaching the database. Each layer has a sensible-looking retry policy of three attempts.', hl: ['ra-c', 'ra-g', 'ra-s'] },
+  { say: 'While everything is healthy the policies are invisible. One request in, one query out.', unhl: ['ra-c', 'ra-g', 'ra-s'], text: { 'ra-gn': '1', 'ra-sn': '1', 'ra-dn': '1' } },
+  { say: 'Now the database starts failing. The orders service does what it was configured to do and retries three times.', hl: ['ra-s'], text: { 'ra-dt': 'failing', 'ra-sn': '1 in', 'ra-dn': '3', 'ra-p1': 'calls reaching the database from one user action: 3' }, fill: { 'ra-dt': '#c53b3b' } },
+  { say: 'The service still ends up returning an error, so the gateway retries <em>the service</em> three times &mdash; and each of those attempts retries the database three times.', unhl: ['ra-s'], hl: ['ra-g'], text: { 'ra-gn': '1 in', 'ra-sn': '3', 'ra-dn': '9', 'ra-p1': 'calls reaching the database from one user action: 9' } },
+  { say: 'And the client retries the gateway three times. One user action is now twenty-seven database calls.', unhl: ['ra-g'], hl: ['ra-c'], text: { 'ra-cn': '1 in', 'ra-gn': '3', 'ra-sn': '9', 'ra-dn': '27', 'ra-p1': 'calls reaching the database from one user action: 27', 'ra-v': 'retries multiply through layers — they never add' }, fill: { 'ra-dn': '#c53b3b', 'ra-v': '#c53b3b', 'ra-verd': '#f9e3df' } },
+  { say: 'With a thousand concurrent users that is twenty-seven thousand requests, arriving at a database that was already struggling with one thousand. The load peaks exactly when capacity is lowest.', unhl: ['ra-c'], text: { 'ra-p3': 'at 1,000 concurrent users: 27,000 calls', 'ra-v2': 'nobody configured a 27× amplifier — it is the product of three reasonable choices' } },
+  { say: 'The latency is just as bad. Each layer’s timeout must cover its own retries, so the user’s wait is the product too &mdash; and they refreshed the page several seconds ago, creating another request.', text: { 'ra-p2': 'latency the user waits: 3 × 3 × 3 attempts plus backoff ≈ 20 s' }, fill: { 'ra-p2': '#c53b3b' } },
+  { say: 'Fix one: retry at exactly one layer. Usually the one closest to the failure, because it knows most about the error and wastes the least work getting there.', hl: ['ra-s'], text: { 'ra-phase': 'retry at one layer only', 'ra-ct': 'no retry — fail fast', 'ra-gt': 'no retry — fail fast', 'ra-st': 'retry 3× (the only one)', 'ra-cn': '1 in', 'ra-gn': '1', 'ra-sn': '1', 'ra-dn': '3', 'ra-p1': 'calls reaching the database from one user action: 3', 'ra-p2': 'latency the user waits: 3 attempts plus backoff ≈ 2 s', 'ra-p3': 'at 1,000 concurrent users: 3,000 calls', 'ra-v': 'one layer retries; the rest fail fast and let the error through' }, fill: { 'ra-dn': '#23362e', 'ra-p2': '#5f6f66', 'ra-v': '#2f6b3f', 'ra-verd': '#e3eedc' } },
+  { say: 'Fix two: a retry budget. An attempt limit bounds one request, but when everything is failing a limit of three still triples the load. A budget caps retries at around 10% of successful traffic &mdash; and when successes stop, it empties.', unhl: ['ra-s'], text: { 'ra-st': 'retry 3×, budget 10%', 'ra-dn': '~1.1×', 'ra-p1': 'calls reaching the database: bounded at ~10% above normal', 'ra-v': 'the budget is what stops a system-wide failure becoming a self-inflicted flood' } },
+  { say: 'Fix three: propagate a deadline, so no layer starts an attempt it cannot finish inside the user’s budget. Together these three turn retries from an amplifier into a shock absorber.', text: { 'ra-phase': 'one layer · a budget · a propagated deadline', 'ra-p2': 'latency the user waits: bounded by the deadline, not by the policy', 'ra-v2': 'and export attempts ÷ requests, or you will mistake your own retries for traffic' } },
+]);
+
+window.TERM_ANIMS = {
+  jit: [
+    { say: 'Twelve clients all failed at the same moment and are now computing their third retry. With no jitter, every one of them calculates the identical delay.', hl: ['jt-n'], text: { 'jt-nt': 'all 12 land on the same instant — a spike' } },
+    { say: 'Full jitter picks uniformly between zero and the backoff value: <code>random(0, min(cap, base × 2ⁿ))</code>. The same twelve retries spread across the whole window.', show: ['jt-f'], unhl: ['jt-n'], hl: ['jt-f'], text: { 'jt-ft': 'random(0, backoff) — widest spread, lowest peak' } },
+    { say: 'It is counter-intuitive that throwing away the carefully computed delay helps, but the spread is worth far more than the precision &mdash; AWS measured both lower contention and shorter completion times.', unhl: ['jt-f'] },
+    { say: 'Decorrelated jitter takes a different route: <code>random(base, previous × 3)</code>, capped. It spreads just as well and keeps growing from wherever it last landed, so it self-limits under a long outage.', show: ['jt-d'], hl: ['jt-d'], text: { 'jt-dt': 'random(base, prev × 3) — spreads and keeps climbing' } },
+    { say: 'Either is fine; the only wrong choice is the first row. Equal jitter &mdash; <code>backoff/2 + random(0, backoff/2)</code> &mdash; sits between them when you need a guaranteed minimum wait.', unhl: ['jt-d'], text: { 'jt-nt': 'never ship this one', 'jt-ft': 'full jitter — the default worth using', 'jt-dt': 'decorrelated — equally good, self-limiting' } },
+  ],
+};
+</script>
+</body>
+</html>
