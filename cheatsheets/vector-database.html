@@ -39,8 +39,8 @@
       <h1>Vector database</h1>
       <p class="tagline">Every other index answers "equal to". This one answers "near" — and it is allowed to be slightly wrong about it.</p>
       <span class="meta">As of Nov 2026 · examples use pgvector, Qdrant and Postgres</span>
-      <p>A vector database stores high-dimensional embeddings and answers one question fast: <em>which stored vectors are closest to this one?</em> A B-tree cannot help &mdash; there is no ordering in 1,536 dimensions &mdash; and a brute-force scan compares the query against every row, which is exact but linear. So these systems use <b>approximate</b> nearest-neighbour indexes that trade a few percent of recall for one to three orders of magnitude of speed.</p>
-      <p>That trade is the defining property, and it is unlike any other database you run. Your index has a recall knob, it is not set to 100%, and when it is set badly the system does not error &mdash; it quietly returns worse results. A <b>RAG</b> pipeline with low recall looks like a model problem from the outside.</p>
+      <p>A vector database stores high-dimensional embeddings and answers one question fast: <em>which stored vectors are closest to this one?</em> A B-tree cannot help — there is no ordering in 1,536 dimensions — and a brute-force scan compares the query against every row, which is exact but linear. So these systems use <b>approximate</b> nearest-neighbour indexes that trade a few percent of recall for one to three orders of magnitude of speed.</p>
+      <p>That trade is the defining property, and it is unlike any other database you run. Your index has a recall knob, it is not set to 100%, and when it is set badly the system does not error — it quietly returns worse results. A <b>RAG</b> pipeline with low recall looks like a model problem from the outside.</p>
       <p>The second thing that makes them distinctive is <em>filtered</em> search: "nearest neighbours, but only this tenant's documents". Combining a graph traversal with a selective predicate is genuinely hard, and it is the single biggest difference in behaviour between engines. The third is memory: vectors are large, indexes are usually in RAM, and sizing is simple arithmetic that is worth doing before you choose anything.</p>
     </header>
 
@@ -103,11 +103,10 @@
 
     <section id="how-it-works">
       <h2>How it works</h2>
-      <p style="margin:0 0 18px">The first animation walks an HNSW search and shows exactly where the "approximate" comes from. The second is filtered search, which is where engines differ most and where tenants get surprising results.</p>
-      <span class="note" style="margin:-8px 0 18px">measure recall against brute force once. you will be glad you did.</span>
-
+      <p>The first animation walks an HNSW search and shows exactly where the "approximate" comes from. The second is filtered search, which is where engines differ most and where tenants get surprising results.</p>
+      <span class="note" style="margin:-6px 0 14px">measure recall against brute force once. you will be glad you did.</span>
       <div class="anim" id="anim-hnsw">
-        <h3>1 &middot; An HNSW search, layer by layer</h3>
+        <h3>1 · An HNSW search, layer by layer</h3>
         <div class="stage">
           <svg viewBox="0 0 800 348" role="img" aria-label="A hierarchical navigable small world graph: a greedy walk through a sparse top layer, descending to denser layers, and a candidate list at the bottom">
             <text id="hn-phase" x="400" y="20" font-size="12.5" text-anchor="middle" fill="#5f6f66">one query vector, one million stored vectors, and about 3,000 distance comparisons</text>
@@ -175,9 +174,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-filter">
-        <h3>2 &middot; "Nearest, but only this tenant's" — the hard one</h3>
+        <h3>2 · "Nearest, but only this tenant's" — the hard one</h3>
         <div class="stage">
           <svg viewBox="0 0 800 328" role="img" aria-label="Three strategies for combining a selective filter with an approximate nearest neighbour search: post-filtering, pre-filtering with brute force, and filtered graph traversal">
             <text id="fl-phase" x="400" y="20" font-size="12.5" text-anchor="middle" fill="#5f6f66">1,000,000 vectors · the filter <tspan font-family="Fira Code, monospace">tenant = "acme"</tspan> matches 2,000 of them (0.2%)</text>
@@ -210,242 +208,231 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>Approximate nearest neighbour</b><span>Trading a few percent of correctness for one to three orders of magnitude of speed.</span><template class="term-detail" data-see="Recall@k, HNSW, IVF, Brute force">
-          <p>Exact search compares the query to every vector: perfectly correct, and linear in the number of rows. At a million rows and 1,536 dimensions that is about six billion floating-point operations per query &mdash; hundreds of milliseconds even with SIMD. ANN indexes look at a few thousand candidates instead and get the right answer <em>almost</em> always.</p>
-          <p>The word "almost" is the whole topic. There is no error, no warning and no log line when recall drops; results just get slightly worse. This is why recall must be measured explicitly, against a brute-force baseline, on your own data.</p>
-          <h4>Rough numbers, 1M vectors &times; 1536 dims</h4>
-          <table>
-            <tr><th>Method</th><th>Latency</th><th>Recall</th></tr>
-            <tr><td>Brute force</td><td>200&ndash;800 ms</td><td>100%</td></tr>
-            <tr><td>IVF, nprobe=8</td><td>5&ndash;15 ms</td><td>~90%</td></tr>
-            <tr><td>HNSW, ef_search=40</td><td>1&ndash;3 ms</td><td>~95%</td></tr>
-            <tr><td>HNSW, ef_search=200</td><td>5&ndash;12 ms</td><td>~99%</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Below roughly 50,000 vectors, brute force is fast enough and exactly right. Do not build an index you do not need.</li></ul>
+        <p>Exact search compares the query to every vector: perfectly correct, and linear in the number of rows. At a million rows and 1,536 dimensions that is about six billion floating-point operations per query — hundreds of milliseconds even with SIMD. ANN indexes look at a few thousand candidates instead and get the right answer <em>almost</em> always.</p>
+        <p>The word "almost" is the whole topic. There is no error, no warning and no log line when recall drops; results just get slightly worse. This is why recall must be measured explicitly, against a brute-force baseline, on your own data.</p>
+        <h4>Rough numbers, 1M vectors × 1536 dims</h4>
+        <table><tr><th>Method</th><th>Latency</th><th>Recall</th></tr>
+        <tr><td>Brute force</td><td>200–800 ms</td><td>100%</td></tr>
+        <tr><td>IVF, nprobe=8</td><td>5–15 ms</td><td>~90%</td></tr>
+        <tr><td>HNSW, ef_search=40</td><td>1–3 ms</td><td>~95%</td></tr>
+        <tr><td>HNSW, ef_search=200</td><td>5–12 ms</td><td>~99%</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Below roughly 50,000 vectors, brute force is fast enough and exactly right. Do not build an index you do not need.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>HNSW</b><span>A layered graph of "small world" links: long hops at the top, short ones at the bottom.</span><template class="term-detail" data-see="ef_search, Approximate nearest neighbour, Memory sizing, IVF">
-          <p>Hierarchical Navigable Small World is the default index in almost every engine. Each vector is a node; each node has up to <code>m</code> neighbours on layer 0 and progressively fewer nodes exist on higher layers. A search enters at the top, greedily walks to the closest node it can see, drops a layer, repeats &mdash; so the top layers cover distance quickly and the bottom layer refines.</p>
-          <p>Its strengths are high recall at low latency and support for incremental inserts. Its costs are memory (the graph lives beside the vectors, in RAM) and a build time that is substantial on large collections.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Parameter</th><th>Typical</th><th>Raising it</th></tr>
-            <tr><td><code>m</code></td><td>16 (32 for high recall)</td><td>better recall, more memory, slower build</td></tr>
-            <tr><td><code>ef_construction</code></td><td>64&ndash;200</td><td>better graph, much slower build, no query cost</td></tr>
-            <tr><td><code>ef_search</code></td><td>40&ndash;200</td><td>better recall, slower queries &mdash; set per query</td></tr>
-          </table>
-          <p><code>m</code> and <code>ef_construction</code> are build-time and need a rebuild to change; <code>ef_search</code> is per query. Tune the cheap one first.</p>
-          <h4>How it relates</h4>
-          <ul><li>Deletions are tombstones in the graph, not removals &mdash; see <b>Segments and compaction</b> for why that matters.</li></ul>
+        <p>Hierarchical Navigable Small World is the default index in almost every engine. Each vector is a node; each node has up to <code>m</code> neighbours on layer 0 and progressively fewer nodes exist on higher layers. A search enters at the top, greedily walks to the closest node it can see, drops a layer, repeats — so the top layers cover distance quickly and the bottom layer refines.</p>
+        <p>Its strengths are high recall at low latency and support for incremental inserts. Its costs are memory (the graph lives beside the vectors, in RAM) and a build time that is substantial on large collections.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Parameter</th><th>Typical</th><th>Raising it</th></tr>
+        <tr><td><code>m</code></td><td>16 (32 for high recall)</td><td>better recall, more memory, slower build</td></tr>
+        <tr><td><code>ef_construction</code></td><td>64–200</td><td>better graph, much slower build, no query cost</td></tr>
+        <tr><td><code>ef_search</code></td><td>40–200</td><td>better recall, slower queries — set per query</td></tr></table>
+        <p><code>m</code> and <code>ef_construction</code> are build-time and need a rebuild to change; <code>ef_search</code> is per query. Tune the cheap one first.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Deletions are tombstones in the graph, not removals — see <b>Segments and compaction</b> for why that matters.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>ef_search</b><span>The size of the candidate list during the layer-0 walk — the one knob that trades recall for latency at query time.</span><template class="term-detail" data-see="HNSW, Recall@k, Oversampling">
-          <p>During the final layer the algorithm keeps a dynamic list of the <code>ef_search</code> best candidates found so far and keeps expanding their neighbours until none improves. A larger list explores more of the graph, so it is less likely to get stuck in a local minimum &mdash; and does more distance comparisons.</p>
-          <p>It must be at least <code>k</code>, and in practice 2&ndash;10&times; <code>k</code>. It can be set per query, which is the useful part: raise it for the queries that matter, keep it low for cheap ones.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Goal</th><th><code>ef_search</code></th><th>Effect</th></tr>
-            <tr><td>Fast, good enough</td><td>40</td><td>~95% recall, 1&ndash;3 ms</td></tr>
-            <tr><td>Balanced default</td><td>100</td><td>~98% recall</td></tr>
-            <tr><td>High recall</td><td>200&ndash;400</td><td>~99.5%, several times slower</td></tr>
-            <tr><td>With a reranker after</td><td>higher than you think</td><td>recall matters more than order</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>If <b>RAG</b> quality is poor, raising this is the cheapest experiment available &mdash; one session setting, no rebuild.</li></ul>
+        <p>During the final layer the algorithm keeps a dynamic list of the <code>ef_search</code> best candidates found so far and keeps expanding their neighbours until none improves. A larger list explores more of the graph, so it is less likely to get stuck in a local minimum — and does more distance comparisons.</p>
+        <p>It must be at least <code>k</code>, and in practice 2–10× <code>k</code>. It can be set per query, which is the useful part: raise it for the queries that matter, keep it low for cheap ones.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Goal</th><th><code>ef_search</code></th><th>Effect</th></tr>
+        <tr><td>Fast, good enough</td><td>40</td><td>~95% recall, 1–3 ms</td></tr>
+        <tr><td>Balanced default</td><td>100</td><td>~98% recall</td></tr>
+        <tr><td>High recall</td><td>200–400</td><td>~99.5%, several times slower</td></tr>
+        <tr><td>With a reranker after</td><td>higher than you think</td><td>recall matters more than order</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>If <b>RAG</b> quality is poor, raising this is the cheapest experiment available — one session setting, no rebuild.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>IVF</b><span>Partition the space into clusters, search only the few nearest clusters.</span><template class="term-detail" data-see="HNSW, Approximate nearest neighbour, Quantisation">
-          <p>An inverted file index runs k-means over a sample to find <code>nlist</code> centroids, assigns every vector to one, and at query time compares the query to the centroids and scans only the <code>nprobe</code> closest lists. Much less memory than HNSW, much faster to build &mdash; and lower recall at the same speed.</p>
-          <p>Its weakness is the boundary problem: a true nearest neighbour sitting just across a cluster boundary is invisible unless <code>nprobe</code> covers that cluster. It also needs <em>training</em> on representative data, and a collection whose distribution drifts away from the training sample degrades until it is retrained.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Parameter</th><th>Typical</th></tr>
-            <tr><td><code>nlist</code></td><td>&radic;n, so ~1,000 for 1M vectors</td></tr>
-            <tr><td><code>nprobe</code></td><td>1&ndash;5% of <code>nlist</code></td></tr>
-            <tr><td>Training sample</td><td>30&ndash;256 &times; <code>nlist</code> vectors</td></tr>
-            <tr><td>Best for</td><td>huge collections, memory-constrained</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>IVF-PQ combines it with product quantisation for billion-scale collections where HNSW would not fit in memory at any price.</li></ul>
+        <p>An inverted file index runs k-means over a sample to find <code>nlist</code> centroids, assigns every vector to one, and at query time compares the query to the centroids and scans only the <code>nprobe</code> closest lists. Much less memory than HNSW, much faster to build — and lower recall at the same speed.</p>
+        <p>Its weakness is the boundary problem: a true nearest neighbour sitting just across a cluster boundary is invisible unless <code>nprobe</code> covers that cluster. It also needs <em>training</em> on representative data, and a collection whose distribution drifts away from the training sample degrades until it is retrained.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Parameter</th><th>Typical</th></tr>
+        <tr><td><code>nlist</code></td><td>√n, so ~1,000 for 1M vectors</td></tr>
+        <tr><td><code>nprobe</code></td><td>1–5% of <code>nlist</code></td></tr>
+        <tr><td>Training sample</td><td>30–256 × <code>nlist</code> vectors</td></tr>
+        <tr><td>Best for</td><td>huge collections, memory-constrained</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>IVF-PQ combines it with product quantisation for billion-scale collections where HNSW would not fit in memory at any price.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Recall@k</b><span>The share of the true top-k that your index actually returned — the number nobody measures and everybody should.</span><template class="term-detail" data-see="ef_search, Approximate nearest neighbour, Brute force">
-          <p>Measuring it is easy and nobody does it: take a few hundred real queries, run them with the index <em>off</em> (brute force) to get ground truth, run them with the index on, and compute the overlap of the two top-k sets. Thirty lines of code, run once per configuration change.</p>
-          <p>Without it you are tuning blind, and the symptom of bad recall is indistinguishable from a bad embedding model, bad chunking or a weak LLM. With it, you know within an hour which of those to work on.</p>
-          <h4>How to read the number</h4>
-          <table>
-            <tr><th>recall@10</th><th>Verdict</th></tr>
-            <tr><td>&gt; 0.98</td><td>index is not your problem</td></tr>
-            <tr><td>0.90&ndash;0.98</td><td>raise <code>ef_search</code>; usually free</td></tr>
-            <tr><td>&lt; 0.90</td><td>check filters, quantisation, <code>m</code></td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>In <b>RAG</b>, index recall multiplies with retrieval recall. 95% here caps everything downstream at 95%.</li></ul>
+        <p>Measuring it is easy and nobody does it: take a few hundred real queries, run them with the index <em>off</em> (brute force) to get ground truth, run them with the index on, and compute the overlap of the two top-k sets. Thirty lines of code, run once per configuration change.</p>
+        <p>Without it you are tuning blind, and the symptom of bad recall is indistinguishable from a bad embedding model, bad chunking or a weak LLM. With it, you know within an hour which of those to work on.</p>
+        <h4>How to read the number</h4>
+        <table><tr><th>recall@10</th><th>Verdict</th></tr>
+        <tr><td>&gt; 0.98</td><td>index is not your problem</td></tr>
+        <tr><td>0.90–0.98</td><td>raise <code>ef_search</code>; usually free</td></tr>
+        <tr><td>&lt; 0.90</td><td>check filters, quantisation, <code>m</code></td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>In <b>RAG</b>, index recall multiplies with retrieval recall. 95% here caps everything downstream at 95%.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Distance metric</b><span>Cosine, inner product or L2 — and it must match what the embedding model was trained for.</span><template class="term-detail" data-see="Embedding dimensions, Approximate nearest neighbour">
-          <p>Cosine measures angle and ignores magnitude; inner product rewards magnitude as well; L2 is straight-line distance. For normalised vectors cosine and inner product rank identically, and L2 ranks identically too &mdash; which is why the choice only bites when vectors are <em>not</em> normalised.</p>
-          <p>Nearly every text embedding model is trained for cosine. Pick it unless the model card says otherwise, and store the metric alongside the model name as part of the index's identity.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Metric</th><th>Use when</th><th>pgvector operator</th></tr>
-            <tr><td>Cosine</td><td>text embeddings, the default</td><td><code>&lt;=&gt;</code></td></tr>
-            <tr><td>Inner product</td><td>recommenders, trained that way</td><td><code>&lt;#&gt;</code></td></tr>
-            <tr><td>L2</td><td>images, some vision models</td><td><code>&lt;-&gt;</code></td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Build the index with the matching operator class &mdash; a cosine index does not accelerate an L2 query, it is simply not used.</li></ul>
+        <p>Cosine measures angle and ignores magnitude; inner product rewards magnitude as well; L2 is straight-line distance. For normalised vectors cosine and inner product rank identically, and L2 ranks identically too — which is why the choice only bites when vectors are <em>not</em> normalised.</p>
+        <p>Nearly every text embedding model is trained for cosine. Pick it unless the model card says otherwise, and store the metric alongside the model name as part of the index's identity.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Metric</th><th>Use when</th><th>pgvector operator</th></tr>
+        <tr><td>Cosine</td><td>text embeddings, the default</td><td><code>&lt;=&gt;</code></td></tr>
+        <tr><td>Inner product</td><td>recommenders, trained that way</td><td><code>&lt;#&gt;</code></td></tr>
+        <tr><td>L2</td><td>images, some vision models</td><td><code>&lt;-&gt;</code></td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Build the index with the matching operator class — a cosine index does not accelerate an L2 query, it is simply not used.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Filtered search</b><span>Combining "nearest" with "where" — the feature that most differentiates engines in practice.</span><template class="term-detail" data-see="Payload, Multi-tenancy, HNSW, Recall@k">
-          <p>Three strategies. <b>Post-filter</b>: do the ANN search, discard non-matching results &mdash; fast, and catastrophic with a selective filter, because the top-k can contain zero matches. <b>Pre-filter</b>: find matching ids, then compare exactly &mdash; correct, and linear in the matching set. <b>Filtered traversal</b>: walk the graph but only accept matching nodes &mdash; good, until the matching subgraph is disconnected and the walk cannot reach parts of it.</p>
-          <p>Good engines estimate selectivity and switch: brute force below a threshold, filtered traversal above it. That is why the same query can be fast and correct for a tenant with 2 million documents and slow or empty for one with 200.</p>
-          <h4>Which strategy, by selectivity</h4>
-          <table>
-            <tr><th>Matching share</th><th>Best strategy</th></tr>
-            <tr><td>&lt; 1%</td><td>pre-filter + exact comparison</td></tr>
-            <tr><td>1&ndash;20%</td><td>filtered traversal, raise <code>ef_search</code></td></tr>
-            <tr><td>&gt; 20%</td><td>filtered traversal, or even post-filter</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Never post-filter an ACL. The result is not just wrong, it is a permissions bug with no error.</li></ul>
+        <p>Three strategies. <b>Post-filter</b>: do the ANN search, discard non-matching results — fast, and catastrophic with a selective filter, because the top-k can contain zero matches. <b>Pre-filter</b>: find matching ids, then compare exactly — correct, and linear in the matching set. <b>Filtered traversal</b>: walk the graph but only accept matching nodes — good, until the matching subgraph is disconnected and the walk cannot reach parts of it.</p>
+        <p>Good engines estimate selectivity and switch: brute force below a threshold, filtered traversal above it. That is why the same query can be fast and correct for a tenant with 2 million documents and slow or empty for one with 200.</p>
+        <h4>Which strategy, by selectivity</h4>
+        <table><tr><th>Matching share</th><th>Best strategy</th></tr>
+        <tr><td>&lt; 1%</td><td>pre-filter + exact comparison</td></tr>
+        <tr><td>1–20%</td><td>filtered traversal, raise <code>ef_search</code></td></tr>
+        <tr><td>&gt; 20%</td><td>filtered traversal, or even post-filter</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Never post-filter an ACL. The result is not just wrong, it is a permissions bug with no error.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Payload</b><span>The JSON stored next to each vector: tenant, permissions, source, date, and the text itself.</span><template class="term-detail" data-see="Filtered search, Multi-tenancy, Memory sizing">
-          <p>A pure vector store would be useless: you need to know what you matched, whether the user may see it, and where it came from. The payload carries that, and fields used in filters need their own index &mdash; usually a keyword, integer or geo index maintained separately from the vector index.</p>
-          <p>Keep it lean. Payloads sit beside vectors, often on disk but cached, and a megabyte of original text per row turns a 7 GB collection into a 60 GB one. Store a reference and fetch the body from your primary store when you need it.</p>
-          <h4>Typical fields</h4>
-          <table>
-            <tr><th>Field</th><th>Indexed?</th></tr>
-            <tr><td><code>tenant_id</code></td><td>yes &mdash; always filtered</td></tr>
-            <tr><td><code>acl</code> / <code>groups</code></td><td>yes</td></tr>
-            <tr><td><code>updated_at</code></td><td>yes, for freshness</td></tr>
-            <tr><td><code>source</code>, <code>url</code>, <code>title</code></td><td>no &mdash; returned, not filtered</td></tr>
-            <tr><td>Full text</td><td>only if small; otherwise a reference</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>In Postgres this is just other columns, which is the single strongest argument for <b>pgvector</b>.</li></ul>
+        <p>A pure vector store would be useless: you need to know what you matched, whether the user may see it, and where it came from. The payload carries that, and fields used in filters need their own index — usually a keyword, integer or geo index maintained separately from the vector index.</p>
+        <p>Keep it lean. Payloads sit beside vectors, often on disk but cached, and a megabyte of original text per row turns a 7 GB collection into a 60 GB one. Store a reference and fetch the body from your primary store when you need it.</p>
+        <h4>Typical fields</h4>
+        <table><tr><th>Field</th><th>Indexed?</th></tr>
+        <tr><td><code>tenant_id</code></td><td>yes — always filtered</td></tr>
+        <tr><td><code>acl</code> / <code>groups</code></td><td>yes</td></tr>
+        <tr><td><code>updated_at</code></td><td>yes, for freshness</td></tr>
+        <tr><td><code>source</code>, <code>url</code>, <code>title</code></td><td>no — returned, not filtered</td></tr>
+        <tr><td>Full text</td><td>only if small; otherwise a reference</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>In Postgres this is just other columns, which is the single strongest argument for <b>pgvector</b>.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Quantisation</b><span>Storing smaller, lossier copies of the vectors so more of them fit in memory.</span><template class="term-detail" data-see="Memory sizing, Oversampling, IVF">
-          <p>Scalar quantisation maps each float32 to an int8: 4&times; smaller, usually 1&ndash;2% recall lost. Binary quantisation keeps one bit per dimension: 32&times; smaller, with distance computed as a Hamming distance that is extraordinarily fast but much lossier. Product quantisation splits the vector into sub-vectors and codebooks them, reaching 16&ndash;64&times;.</p>
-          <p>The standard pattern is <b>oversample and rescore</b>: search the quantised index for 4&ndash;10&times; more candidates than you need, then rescore those few with the full-precision vectors. You get most of the memory saving and nearly all of the recall.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Mode</th><th>Size for 1536 dims</th><th>Recall impact</th></tr>
-            <tr><td>float32</td><td>6,144 B</td><td>baseline</td></tr>
-            <tr><td>int8 scalar</td><td>1,536 B</td><td>&minus;1&ndash;2%</td></tr>
-            <tr><td>binary</td><td>192 B</td><td>&minus;5&ndash;15%, rescore essential</td></tr>
-            <tr><td>product (PQ)</td><td>~100&ndash;400 B</td><td>&minus;3&ndash;10%, needs training</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Many newer embedding models are Matryoshka-trained, so truncating 3072 dims to 1024 often beats quantising &mdash; try that first.</li></ul>
+        <p>Scalar quantisation maps each float32 to an int8: 4× smaller, usually 1–2% recall lost. Binary quantisation keeps one bit per dimension: 32× smaller, with distance computed as a Hamming distance that is extraordinarily fast but much lossier. Product quantisation splits the vector into sub-vectors and codebooks them, reaching 16–64×.</p>
+        <p>The standard pattern is <b>oversample and rescore</b>: search the quantised index for 4–10× more candidates than you need, then rescore those few with the full-precision vectors. You get most of the memory saving and nearly all of the recall.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Mode</th><th>Size for 1536 dims</th><th>Recall impact</th></tr>
+        <tr><td>float32</td><td>6,144 B</td><td>baseline</td></tr>
+        <tr><td>int8 scalar</td><td>1,536 B</td><td>−1–2%</td></tr>
+        <tr><td>binary</td><td>192 B</td><td>−5–15%, rescore essential</td></tr>
+        <tr><td>product (PQ)</td><td>~100–400 B</td><td>−3–10%, needs training</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Many newer embedding models are Matryoshka-trained, so truncating 3072 dims to 1024 often beats quantising — try that first.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Memory sizing</b><span>Arithmetic you can do in two minutes that decides your architecture.</span><template class="term-detail" data-see="Quantisation, HNSW, Embedding dimensions">
-          <p>Per vector: <code>4 &times; dims</code> bytes for float32, plus the graph. A reasonable HNSW estimate is <code>1.1 &times; (4 &times; dims + 8 &times; m)</code> bytes, plus payload and filter indexes. Everything performance-critical wants to be in RAM; spilling to disk is supported by most engines and costs an order of magnitude.</p>
-          <h4>Worked examples</h4>
-          <table>
-            <tr><th>Collection</th><th>dims</th><th>Mode</th><th>RAM</th></tr>
-            <tr><td>100k chunks</td><td>1536</td><td>float32</td><td>~0.7 GB &mdash; a laptop</td></tr>
-            <tr><td>1M chunks</td><td>1536</td><td>float32</td><td>~6.9 GB</td></tr>
-            <tr><td>1M chunks</td><td>1536</td><td>int8</td><td>~1.9 GB</td></tr>
-            <tr><td>10M chunks</td><td>1536</td><td>float32</td><td>~69 GB &mdash; now it is a cluster</td></tr>
-            <tr><td>10M chunks</td><td>768</td><td>int8</td><td>~9 GB &mdash; still one machine</td></tr>
-          </table>
-          <p>The lesson from the last two rows: halving dimensions and quantising is a 7&times; saving, and usually costs less recall than you fear.</p>
-          <h4>How it relates</h4>
-          <ul><li>Same spirit as <b>Back-of-the-envelope estimates</b> &mdash; one multiplication tells you whether this is a table or a cluster.</li></ul>
+        <p>Per vector: <code>4 × dims</code> bytes for float32, plus the graph. A reasonable HNSW estimate is <code>1.1 × (4 × dims + 8 × m)</code> bytes, plus payload and filter indexes. Everything performance-critical wants to be in RAM; spilling to disk is supported by most engines and costs an order of magnitude.</p>
+        <h4>Worked examples</h4>
+        <table><tr><th>Collection</th><th>dims</th><th>Mode</th><th>RAM</th></tr>
+        <tr><td>100k chunks</td><td>1536</td><td>float32</td><td>~0.7 GB — a laptop</td></tr>
+        <tr><td>1M chunks</td><td>1536</td><td>float32</td><td>~6.9 GB</td></tr>
+        <tr><td>1M chunks</td><td>1536</td><td>int8</td><td>~1.9 GB</td></tr>
+        <tr><td>10M chunks</td><td>1536</td><td>float32</td><td>~69 GB — now it is a cluster</td></tr>
+        <tr><td>10M chunks</td><td>768</td><td>int8</td><td>~9 GB — still one machine</td></tr></table>
+        <p>The lesson from the last two rows: halving dimensions and quantising is a 7× saving, and usually costs less recall than you fear.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Same spirit as <b>Back-of-the-envelope estimates</b> — one multiplication tells you whether this is a table or a cluster.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Embedding dimensions</b><span>How long each vector is — and the fact that you can often shorten it for free.</span><template class="term-detail" data-see="Memory sizing, Quantisation, Distance metric">
-          <p>Dimensions drive storage, memory and comparison cost linearly: 3072 dims cost twice 1536 in every respect. Bigger is usually slightly better for recall, but the curve flattens quickly, and the difference between 1536 and 3072 is often under a percent on real retrieval tasks.</p>
-          <p>Matryoshka representation learning changes the calculus: models trained this way put the most information in the leading dimensions, so a 3072-dim vector can be truncated to 1024 and renormalised with a small loss. Always check whether your model supports it before paying for the full width.</p>
-          <h4>How it relates</h4>
-          <ul><li>Changing dimensions, like changing models, means rebuilding the collection &mdash; so decide before the first million rows, not after.</li></ul>
+        <p>Dimensions drive storage, memory and comparison cost linearly: 3072 dims cost twice 1536 in every respect. Bigger is usually slightly better for recall, but the curve flattens quickly, and the difference between 1536 and 3072 is often under a percent on real retrieval tasks.</p>
+        <p>Matryoshka representation learning changes the calculus: models trained this way put the most information in the leading dimensions, so a 3072-dim vector can be truncated to 1024 and renormalised with a small loss. Always check whether your model supports it before paying for the full width.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Changing dimensions, like changing models, means rebuilding the collection — so decide before the first million rows, not after.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Segments and compaction</b><span>How writes land, why deletes are tombstones, and why a collection gets slower with churn.</span><template class="term-detail" data-see="HNSW, Freshness, Memory sizing">
-          <p>Most engines write into immutable segments, each with its own index, and a query searches all of them and merges. Deletes mark a tombstone rather than removing a node, because removing from an HNSW graph would break its connectivity. Updates are a delete plus an insert.</p>
-          <p>So a collection with heavy churn accumulates dead nodes that are still traversed and still occupy memory. Compaction rebuilds segments without them. If search slows down over weeks while row counts stay flat, this is almost always why.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Signal</th><th>Action</th></tr>
-            <tr><td>Deleted ratio &gt; 20%</td><td>compact / vacuum</td></tr>
-            <tr><td>Many small segments</td><td>merge &mdash; each is searched</td></tr>
-            <tr><td>Latency up, rows flat</td><td>tombstones</td></tr>
-            <tr><td>Bulk load</td><td>insert first, build the index after</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>In Postgres this is ordinary <code>VACUUM</code> territory &mdash; see <b>Database performance</b>.</li></ul>
+        <p>Most engines write into immutable segments, each with its own index, and a query searches all of them and merges. Deletes mark a tombstone rather than removing a node, because removing from an HNSW graph would break its connectivity. Updates are a delete plus an insert.</p>
+        <p>So a collection with heavy churn accumulates dead nodes that are still traversed and still occupy memory. Compaction rebuilds segments without them. If search slows down over weeks while row counts stay flat, this is almost always why.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Signal</th><th>Action</th></tr>
+        <tr><td>Deleted ratio &gt; 20%</td><td>compact / vacuum</td></tr>
+        <tr><td>Many small segments</td><td>merge — each is searched</td></tr>
+        <tr><td>Latency up, rows flat</td><td>tombstones</td></tr>
+        <tr><td>Bulk load</td><td>insert first, build the index after</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>In Postgres this is ordinary <code>VACUUM</code> territory — see <b>Database performance</b>.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Freshness</b><span>How quickly a new or changed vector becomes searchable, and the deletion path nobody builds.</span><template class="term-detail" data-see="Segments and compaction, Payload, Multi-tenancy">
-          <p>HNSW supports incremental insertion, so new vectors are usually searchable within seconds. The problems are at the edges: a bulk load is far faster if you insert first and build the index afterwards, and a document that is deleted at source must be deleted here too.</p>
-          <p>Use deterministic ids (<code>docId#chunkIndex</code>) so re-ingestion is an upsert, delete by document id on removal, prune trailing chunks when a document shrinks, and run a periodic reconcile that diffs source ids against index ids. Without the last one, retracted content stays retrievable indefinitely.</p>
-          <h4>How it relates</h4>
-          <ul><li>The ingestion half of <b>RAG</b> is exactly this, and the <b>Outbox pattern</b> is the usual way to make it reliable.</li></ul>
+        <p>HNSW supports incremental insertion, so new vectors are usually searchable within seconds. The problems are at the edges: a bulk load is far faster if you insert first and build the index afterwards, and a document that is deleted at source must be deleted here too.</p>
+        <p>Use deterministic ids (<code>docId#chunkIndex</code>) so re-ingestion is an upsert, delete by document id on removal, prune trailing chunks when a document shrinks, and run a periodic reconcile that diffs source ids against index ids. Without the last one, retracted content stays retrievable indefinitely.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The ingestion half of <b>RAG</b> is exactly this, and the <b>Outbox pattern</b> is the usual way to make it reliable.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Multi-tenancy</b><span>One collection with a tenant filter, or one collection per tenant — and when to switch.</span><template class="term-detail" data-see="Filtered search, Payload, Memory sizing">
-          <p>A shared collection with a <code>tenant_id</code> filter scales to many tenants cheaply and is the right default. It relies on filtered search working well at your tenants' selectivity, and on the filter being applied inside the search rather than after it.</p>
-          <p>A collection per tenant gives perfect isolation and perfect recall per tenant, but each collection carries fixed overhead &mdash; so ten thousand small tenants becomes expensive. Several engines offer a middle option: one collection, partitioned by a tenant key, with the graph built per partition.</p>
-          <h4>Choosing</h4>
-          <table>
-            <tr><th>Situation</th><th>Shape</th></tr>
-            <tr><td>Many small tenants</td><td>shared collection + filter</td></tr>
-            <tr><td>A few very large tenants</td><td>collection per tenant</td></tr>
-            <tr><td>Strict data residency</td><td>collection per tenant, per region</td></tr>
-            <tr><td>Wildly uneven sizes</td><td>partitioned, or split the whales out</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The same trade-off, with the same names, as on the <b>Multitenancy strategies</b> page.</li></ul>
+        <p>A shared collection with a <code>tenant_id</code> filter scales to many tenants cheaply and is the right default. It relies on filtered search working well at your tenants' selectivity, and on the filter being applied inside the search rather than after it.</p>
+        <p>A collection per tenant gives perfect isolation and perfect recall per tenant, but each collection carries fixed overhead — so ten thousand small tenants becomes expensive. Several engines offer a middle option: one collection, partitioned by a tenant key, with the graph built per partition.</p>
+        <h4>Choosing</h4>
+        <table><tr><th>Situation</th><th>Shape</th></tr>
+        <tr><td>Many small tenants</td><td>shared collection + filter</td></tr>
+        <tr><td>A few very large tenants</td><td>collection per tenant</td></tr>
+        <tr><td>Strict data residency</td><td>collection per tenant, per region</td></tr>
+        <tr><td>Wildly uneven sizes</td><td>partitioned, or split the whales out</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The same trade-off, with the same names, as on the <b>Multitenancy strategies</b> page.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Oversampling</b><span>Retrieve more than you need, then rescore the few exactly — the universal recall repair.</span><template class="term-detail" data-see="Quantisation, ef_search, Recall@k">
-          <p>Whenever an approximation is in the path &mdash; a quantised index, a low <code>ef_search</code>, a binary first pass &mdash; the fix is the same: ask for 4&ndash;10&times; <code>k</code> candidates, then rescore that small set with full-precision vectors or a proper reranker, and keep the best <code>k</code>.</p>
-          <p>It works because the approximation is good at excluding the obviously distant and bad at ordering the close ones. Oversampling covers exactly that weakness, and rescoring 100 vectors is microseconds.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>First pass</th><th>Oversample</th></tr>
-            <tr><td>int8 quantised</td><td>2&ndash;4&times;</td></tr>
-            <tr><td>binary quantised</td><td>8&ndash;16&times;</td></tr>
-            <tr><td>Low <code>ef_search</code></td><td>3&ndash;5&times;</td></tr>
-            <tr><td>Feeding a cross-encoder</td><td>10&ndash;25&times;</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>It is the same shape as retrieve-wide-then-rerank in <b>RAG</b>, applied one layer lower.</li></ul>
+        <p>Whenever an approximation is in the path — a quantised index, a low <code>ef_search</code>, a binary first pass — the fix is the same: ask for 4–10× <code>k</code> candidates, then rescore that small set with full-precision vectors or a proper reranker, and keep the best <code>k</code>.</p>
+        <p>It works because the approximation is good at excluding the obviously distant and bad at ordering the close ones. Oversampling covers exactly that weakness, and rescoring 100 vectors is microseconds.</p>
+        <h4>Common values</h4>
+        <table><tr><th>First pass</th><th>Oversample</th></tr>
+        <tr><td>int8 quantised</td><td>2–4×</td></tr>
+        <tr><td>binary quantised</td><td>8–16×</td></tr>
+        <tr><td>Low <code>ef_search</code></td><td>3–5×</td></tr>
+        <tr><td>Feeding a cross-encoder</td><td>10–25×</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>It is the same shape as retrieve-wide-then-rerank in <b>RAG</b>, applied one layer lower.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Hybrid search</b><span>Running keyword search alongside vector search and fusing the results.</span><template class="term-detail" data-see="Filtered search, Payload, Recall@k">
-          <p>Embeddings are weak on exact tokens: identifiers, SKUs, error codes, rare proper nouns. BM25 is strong on exactly those and weak on paraphrase. Running both and fusing with Reciprocal Rank Fusion is the single most reliable quality improvement available, and most engines now support it natively.</p>
-          <p>It changes what the database must store: a keyword index as well as a vector index, over the same rows, with filters applied consistently to both. In Postgres that is a <code>tsvector</code> column beside the <code>vector</code> one.</p>
-          <h4>How it relates</h4>
-          <ul><li>The fusion maths and when each retriever wins are covered on the <b>RAG</b> page.</li></ul>
+        <p>Embeddings are weak on exact tokens: identifiers, SKUs, error codes, rare proper nouns. BM25 is strong on exactly those and weak on paraphrase. Running both and fusing with Reciprocal Rank Fusion is the single most reliable quality improvement available, and most engines now support it natively.</p>
+        <p>It changes what the database must store: a keyword index as well as a vector index, over the same rows, with filters applied consistently to both. In Postgres that is a <code>tsvector</code> column beside the <code>vector</code> one.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The fusion maths and when each retriever wins are covered on the <b>RAG</b> page.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Brute force</b><span>No index at all — and the right answer far more often than vendors suggest.</span><template class="term-detail" data-see="Approximate nearest neighbour, Memory sizing, Recall@k">
-          <p>A full scan with SIMD compares roughly 10&ndash;50 million dimensions per millisecond per core. At 1,536 dimensions that is a few thousand vectors per millisecond, so 50,000 vectors is a 10&ndash;30 ms query &mdash; with 100% recall, no parameters, no index build, no rebuild on model change, and no tombstones.</p>
-          <p>A great many production systems have fewer than 100,000 chunks. For those, an exact scan in Postgres is simpler, cheaper and <em>more correct</em> than any index, and it is also the ground truth you measure recall against later.</p>
-          <h4>Where the crossover sits</h4>
-          <table>
-            <tr><th>Vectors</th><th>Advice</th></tr>
-            <tr><td>&lt; 50k</td><td>no index; exact scan</td></tr>
-            <tr><td>50k&ndash;1M</td><td>HNSW in Postgres is usually plenty</td></tr>
-            <tr><td>1M&ndash;50M</td><td>a dedicated engine starts to pay</td></tr>
-            <tr><td>&gt; 50M</td><td>quantisation and sharding, seriously</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Also use it as the recall baseline: the same query with the index disabled is your ground truth.</li></ul>
+        <p>A full scan with SIMD compares roughly 10–50 million dimensions per millisecond per core. At 1,536 dimensions that is a few thousand vectors per millisecond, so 50,000 vectors is a 10–30 ms query — with 100% recall, no parameters, no index build, no rebuild on model change, and no tombstones.</p>
+        <p>A great many production systems have fewer than 100,000 chunks. For those, an exact scan in Postgres is simpler, cheaper and <em>more correct</em> than any index, and it is also the ground truth you measure recall against later.</p>
+        <h4>Where the crossover sits</h4>
+        <table><tr><th>Vectors</th><th>Advice</th></tr>
+        <tr><td>&lt; 50k</td><td>no index; exact scan</td></tr>
+        <tr><td>50k–1M</td><td>HNSW in Postgres is usually plenty</td></tr>
+        <tr><td>1M–50M</td><td>a dedicated engine starts to pay</td></tr>
+        <tr><td>&gt; 50M</td><td>quantisation and sharding, seriously</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Also use it as the recall baseline: the same query with the index disabled is your ground truth.</li>
+        </ul>
         </template></div>
       </div>
     </section>
 
     <section id="commands">
       <h2>Essential commands &amp; code</h2>
-
       <div class="cmd-group">
-        <h3>Postgres with pgvector &mdash; start here</h3>
+        <h3>Postgres with pgvector — start here</h3>
         <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE chunks (
@@ -466,12 +453,12 @@ CREATE INDEX ON chunks USING gin (tsv);          -- the keyword half of hybrid s
 CREATE INDEX ON chunks (tenant_id);              -- the filter
 CREATE INDEX ON chunks (doc_id);                 -- for delete-by-document
 
-SET hnsw.ef_search = 100;                        -- per session: recall vs latency</code></pre><div class="what">One table holds vectors, payload, keyword index and filters &mdash; which is the entire argument for not running a separate system.</div></div>
+SET hnsw.ef_search = 100;                        -- per session: recall vs latency</code></pre><div class="what">One table holds vectors, payload, keyword index and filters — which is the entire argument for not running a separate system.</div></div>
         <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">-- query: filter INSIDE the search, never after
 SELECT id, content, 1 - (embedding &lt;=&gt; $1) AS similarity
 FROM chunks
 WHERE tenant_id = $2                      -- Postgres decides: index scan, or exact for small tenants
-ORDER BY embedding &lt;=&gt; $1                 -- <=> cosine distance; must match the operator class
+ORDER BY embedding &lt;=&gt; $1                 -- &lt;=&gt; cosine distance; must match the operator class
 LIMIT 20;
 
 -- is the index actually being used? the plan is the only honest answer
@@ -481,9 +468,8 @@ SELECT id FROM chunks WHERE tenant_id = 'acme' ORDER BY embedding &lt;=&gt; $1 L
 --  Seq Scan + Sort                        → exact, correct, and linear: fine if the tenant is small
 
 -- churn check: tombstones make searches slower while the row count stays flat
-SELECT n_live_tup, n_dead_tup, last_autovacuum FROM pg_stat_user_tables WHERE relname = 'chunks';</code></pre><div class="what">A missing index scan is not always a bug &mdash; for a selective filter the planner choosing an exact scan is the correct, higher-recall answer.</div></div>
+SELECT n_live_tup, n_dead_tup, last_autovacuum FROM pg_stat_user_tables WHERE relname = 'chunks';</code></pre><div class="what">A missing index scan is not always a bug — for a selective filter the planner choosing an exact scan is the correct, higher-recall answer.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>A dedicated engine, when the arithmetic says so</h3>
         <div class="cmd"><pre class="language-bash line-numbers"><code class="language-bash"># Qdrant — a collection with int8 quantisation and rescoring
@@ -532,13 +518,12 @@ await client.DeleteAsync("docs", filter: MatchKeyword("doc_id", docId) &amp;
 // and the one that keeps you out of a compliance conversation
 await client.DeleteAsync("docs", filter: MatchKeyword("doc_id", retractedDocId));</code></pre><div class="what">Deterministic ids turn re-ingestion into an upsert; the trailing delete and the retraction delete are what keep the index honest.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Measuring what actually matters</h3>
         <div class="cmd"><pre class="language-python line-numbers"><code class="language-python"># recall@k against brute force — thirty lines, run it once per config change
 import numpy as np
 
-def brute_force(q: np.ndarray, vectors: np.ndarray, k: int) -> set[int]:
+def brute_force(q: np.ndarray, vectors: np.ndarray, k: int) -&gt; set[int]:
     """Ground truth. Slow, exact, and the only honest baseline."""
     sims = vectors @ q / (np.linalg.norm(vectors, axis=1) * np.linalg.norm(q))
     return set(np.argsort(-sims)[:k].tolist())
@@ -550,7 +535,7 @@ def measure(queries, vectors, k=10, ef_values=(40, 100, 200, 400)):
         hits, t0 = 0, time.perf_counter()
         for q, want in zip(queries, truth):
             got = {p.id for p in search(q, k=k)}
-            hits += len(got & want)
+            hits += len(got &amp; want)
         ms = (time.perf_counter() - t0) / len(queries) * 1000
         print(f"ef_search={ef:4}  recall@{k}={hits / (k * len(queries)):.3f}  {ms:5.1f} ms")
 
@@ -559,7 +544,7 @@ def measure(queries, vectors, k=10, ef_values=(40, 100, 200, 400)):
 # ef_search= 200  recall@10=0.994   6.9 ms      ← usually the right trade
 # ef_search= 400  recall@10=0.998  13.1 ms</code></pre><div class="what">This table is the whole tuning exercise. Without it, "retrieval feels bad" turns into weeks of changing embedding models.</div></div>
         <div class="cmd"><pre class="language-python line-numbers"><code class="language-python"># sizing, before you choose anything
-def ram_gb(n_vectors: int, dims: int, m: int = 16, bytes_per_dim: int = 4) -> float:
+def ram_gb(n_vectors: int, dims: int, m: int = 16, bytes_per_dim: int = 4) -&gt; float:
     per_vector = 1.1 * (bytes_per_dim * dims + 8 * m)     # vectors + HNSW graph
     return n_vectors * per_vector / 1024 ** 3
 
@@ -589,7 +574,7 @@ print(f"{ram_gb(10_000_000, 768, bytes_per_dim=1):.1f} GB")#  9.0 GB  int8, half
           <li>Filtered search behaves very differently between engines and at different selectivities.</li>
           <li>Deletes are tombstones, so churn degrades performance until compaction.</li>
           <li>Changing the embedding model or dimensions means rebuilding everything.</li>
-          <li>Another stateful system to run, back up, monitor and secure &mdash; often for data that fits in Postgres.</li>
+          <li>Another stateful system to run, back up, monitor and secure — often for data that fits in Postgres.</li>
           <li>Benchmarks are run on clean public datasets and rarely predict your filtered, multi-tenant workload.</li>
         </ul></div>
       </div>
@@ -600,9 +585,9 @@ print(f"{ram_gb(10_000_000, 768, bytes_per_dim=1):.1f} GB")#  9.0 GB  int8, half
       <div class="cards">
         <div class="card"><h3>Retrieval for RAG</h3><p>The most common use by a wide margin: chunk embeddings with tenant and ACL payloads, hybrid retrieval, top-50 to a reranker. The quality of the whole assistant is capped by this index's recall, which is why it is worth measuring on day one.</p></div>
         <div class="card"><h3>Semantic product search</h3><p>"Waterproof jacket for hiking in spring" matches products whose descriptions never use those words. Filters on stock, region and price run in the same query, and a keyword lane catches searches by exact SKU.</p></div>
-        <div class="card"><h3>Deduplication at ingest</h3><p>Before storing a new support ticket or article, search for anything above 0.97 similarity. Catches near-duplicates that a hash never would &mdash; reposts, reformats, minor edits &mdash; in a couple of milliseconds.</p></div>
+        <div class="card"><h3>Deduplication at ingest</h3><p>Before storing a new support ticket or article, search for anything above 0.97 similarity. Catches near-duplicates that a hash never would — reposts, reformats, minor edits — in a couple of milliseconds.</p></div>
         <div class="card"><h3>Recommendations</h3><p>Item and user embeddings in one collection; "more like this" is a nearest-neighbour query from an item's own vector, with filters for availability and region. No model call at request time at all.</p></div>
-        <div class="card"><h3>The store behind a semantic cache</h3><p>A <b>semantic cache</b> is a vector index over past questions, partitioned hard by tenant and prompt version. Small, high-churn, and extremely latency-sensitive &mdash; often a different collection, tuned differently, from the RAG one.</p></div>
+        <div class="card"><h3>The store behind a semantic cache</h3><p>A <b>semantic cache</b> is a vector index over past questions, partitioned hard by tenant and prompt version. Small, high-churn, and extremely latency-sensitive — often a different collection, tuned differently, from the RAG one.</p></div>
       </div>
     </section>
 
@@ -623,7 +608,7 @@ print(f"{ram_gb(10_000_000, 768, bytes_per_dim=1):.1f} GB")#  9.0 GB  int8, half
           <li>Queries are exact lookups by id or keyword. Use an ordinary index or <b>full-text search</b>.</li>
           <li>You need transactions across vectors and business rows. Keep them in the same database.</li>
           <li>Nobody will own a new stateful service. The operational cost outlives the enthusiasm.</li>
-          <li>You have not measured recall yet &mdash; you may be solving a problem you do not have.</li>
+          <li>You have not measured recall yet — you may be solving a problem you do not have.</li>
         </ul></div>
       </div>
     </section>
@@ -631,15 +616,15 @@ print(f"{ram_gb(10_000_000, 768, bytes_per_dim=1):.1f} GB")#  9.0 GB  int8, half
     <section id="gotchas">
       <h2>Common mistakes &amp; gotchas</h2>
       <div class="gotcha"><b>Never measuring recall</b><span>The index is "working": queries return results, latency is good, nobody sees an error. Recall is 0.83 and a sixth of all answers are built from the wrong chunks.</span><div class="fix">Fix: run a few hundred queries with the index disabled to get ground truth, compare top-k overlap, and print the recall-versus-<code>ef_search</code> table. Repeat it whenever the configuration or the data distribution changes.</div></div>
-      <div class="gotcha"><b>Post-filtering a permission predicate</b><span>Top-50 is taken globally and then filtered to the user's tenant. A small tenant gets two results, or none, and the latency looks fine &mdash; so it reads as "we have no content" rather than as a bug.</span><div class="fix">Fix: push the filter into the search, index the filter fields, and add a test proving a tenant-B user can never retrieve a tenant-A row.</div></div>
-      <div class="gotcha"><b>Mismatched metric and operator class</b><span>The index is built with <code>vector_l2_ops</code> and queried with <code>&lt;=&gt;</code>. Postgres silently ignores the index and does an exact scan: correct, and a hundred times slower &mdash; or, with the wrong metric, simply wrong.</span><div class="fix">Fix: pick cosine for text embeddings, build the index with the matching operator class, and check the plan with <code>EXPLAIN</code> after creating it.</div></div>
+      <div class="gotcha"><b>Post-filtering a permission predicate</b><span>Top-50 is taken globally and then filtered to the user's tenant. A small tenant gets two results, or none, and the latency looks fine — so it reads as "we have no content" rather than as a bug.</span><div class="fix">Fix: push the filter into the search, index the filter fields, and add a test proving a tenant-B user can never retrieve a tenant-A row.</div></div>
+      <div class="gotcha"><b>Mismatched metric and operator class</b><span>The index is built with <code>vector_l2_ops</code> and queried with <code>&lt;=&gt;</code>. Postgres silently ignores the index and does an exact scan: correct, and a hundred times slower — or, with the wrong metric, simply wrong.</span><div class="fix">Fix: pick cosine for text embeddings, build the index with the matching operator class, and check the plan with <code>EXPLAIN</code> after creating it.</div></div>
       <div class="gotcha"><b>Mixing embedding models in one collection</b><span>The model was upgraded and new rows use new vectors while old rows keep old ones. The two live in different spaces, so distances are meaningless and quality degrades without any error.</span><div class="fix">Fix: make the model name and dimension part of the collection's identity. Build a new collection, backfill, switch reads atomically, drop the old one.</div></div>
       <div class="gotcha"><b>Building the index before the bulk load</b><span>Ten million rows are inserted one at a time into an existing HNSW graph. The load takes all night and produces a worse graph than building it afterwards would have.</span><div class="fix">Fix: load first, create the index second, and raise maintenance memory for the build. Most engines also offer an explicit "indexing off during load" mode.</div></div>
       <div class="gotcha"><b>No deletion path</b><span>Documents are upserted happily, but retracted and deleted ones stay. They keep being retrieved and cited, and a compliance request has no answer.</span><div class="fix">Fix: deterministic ids, delete by document id on removal, prune chunks beyond the new chunk count, and run a periodic reconcile that diffs source ids against index ids.</div></div>
       <div class="gotcha"><b>Ignoring tombstones</b><span>A high-churn collection gets steadily slower and uses more memory while the row count is flat. Deleted vectors are still nodes in the graph, still traversed, still resident.</span><div class="fix">Fix: monitor the deleted ratio, compact when it exceeds about 20%, and for Postgres make sure autovacuum is actually keeping up on that table.</div></div>
-      <div class="gotcha"><b>Quantising without rescoring</b><span>Binary quantisation cuts memory 32&times; and recall falls off a cliff. The saving is real and so is the damage, and nothing reports the second one.</span><div class="fix">Fix: oversample by 4&ndash;16&times; and rescore the candidates with full-precision vectors. Measure recall before and after &mdash; this is exactly the knob that needs evidence.</div></div>
-      <div class="gotcha"><b>Trusting public benchmarks</b><span>A vendor chart shows 99% recall at 20,000 queries per second &mdash; on a clean one-million-vector public dataset, unfiltered, single-tenant, with the index warm.</span><div class="fix">Fix: benchmark your own vectors, your own filters, your own tenant distribution and your own update rate. Filtered multi-tenant performance is where engines genuinely diverge.</div></div>
-      <div class="gotcha"><b>Buying a cluster for 80,000 rows</b><span>A new stateful service is deployed, with backups, monitoring and an on-call rotation, to hold a collection a laptop could scan exactly in 20 ms.</span><div class="fix">Fix: start in Postgres with <code>pgvector</code>, measure, and migrate when the arithmetic &mdash; not the roadmap &mdash; says the index no longer fits.</div></div>
+      <div class="gotcha"><b>Quantising without rescoring</b><span>Binary quantisation cuts memory 32× and recall falls off a cliff. The saving is real and so is the damage, and nothing reports the second one.</span><div class="fix">Fix: oversample by 4–16× and rescore the candidates with full-precision vectors. Measure recall before and after — this is exactly the knob that needs evidence.</div></div>
+      <div class="gotcha"><b>Trusting public benchmarks</b><span>A vendor chart shows 99% recall at 20,000 queries per second — on a clean one-million-vector public dataset, unfiltered, single-tenant, with the index warm.</span><div class="fix">Fix: benchmark your own vectors, your own filters, your own tenant distribution and your own update rate. Filtered multi-tenant performance is where engines genuinely diverge.</div></div>
+      <div class="gotcha"><b>Buying a cluster for 80,000 rows</b><span>A new stateful service is deployed, with backups, monitoring and an on-call rotation, to hold a collection a laptop could scan exactly in 20 ms.</span><div class="fix">Fix: start in Postgres with <code>pgvector</code>, measure, and migrate when the arithmetic — not the roadmap — says the index no longer fits.</div></div>
     </section>
 
     <section id="alternatives">
@@ -648,7 +633,7 @@ print(f"{ram_gb(10_000_000, 768, bytes_per_dim=1):.1f} GB")#  9.0 GB  int8, half
         <table>
           <thead><tr><th>Option</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference</th></tr></thead>
           <tbody>
-            <tr class="self"><td><b>Dedicated vector DB</b></td><td>millions of vectors, heavy query load</td><td>Medium&ndash;High</td><td>self-hosted or managed</td><td>&mdash;</td></tr>
+            <tr class="self"><td><b>Dedicated vector DB</b></td><td>millions of vectors, heavy query load</td><td>Medium–High</td><td>self-hosted or managed</td><td>—</td></tr>
             <tr><td><b>pgvector</b></td><td>up to a few million, data already in Postgres</td><td>Low</td><td>free, one system</td><td>Transactions and joins with your real data; fewer knobs and no sharding</td></tr>
             <tr><td><b>Elasticsearch / OpenSearch</b></td><td>existing search estate</td><td>Medium</td><td>free / licensed tiers</td><td>Mature keyword search with vectors added; heavier, excellent hybrid</td></tr>
             <tr><td><b>Redis vector search</b></td><td>low-latency, smaller sets, caching</td><td>Low</td><td>free / enterprise</td><td>In-memory and extremely fast; capacity is your RAM budget</td></tr>
@@ -660,7 +645,7 @@ print(f"{ram_gb(10_000_000, 768, bytes_per_dim=1):.1f} GB")#  9.0 GB  int8, half
       </div>
       <ul style="margin-top:12px">
         <li><b>Pick pgvector</b> by default. One system, real transactions, filters that are just <code>WHERE</code> clauses.</li>
-        <li><b>Pick Elasticsearch or OpenSearch</b> if you already run it &mdash; hybrid search comes nearly free.</li>
+        <li><b>Pick Elasticsearch or OpenSearch</b> if you already run it — hybrid search comes nearly free.</li>
         <li><b>Pick Redis</b> for a <b>semantic cache</b> or any small, hot, latency-critical collection.</li>
         <li><b>Pick a dedicated engine</b> when the sizing arithmetic says tens of millions of vectors, or when filtered multi-tenant search is the core of the product.</li>
         <li><b>Pick a library</b> like FAISS only inside a batch pipeline, where there is no serving, no filtering and no freshness requirement.</li>
@@ -670,10 +655,10 @@ print(f"{ram_gb(10_000_000, 768, bytes_per_dim=1):.1f} GB")#  9.0 GB  int8, half
     <section id="resources">
       <h2>Resources</h2>
       <ul>
-        <li><a href="https://arxiv.org/abs/1603.09320" target="_blank" rel="noopener">Malkov &amp; Yashunin &mdash; HNSW (2016)</a>: the original paper; the figures explain the layered walk better than any blog post.</li>
+        <li><a href="https://arxiv.org/abs/1603.09320" target="_blank" rel="noopener">Malkov &amp; Yashunin — HNSW (2016)</a>: the original paper; the figures explain the layered walk better than any blog post.</li>
         <li><a href="https://github.com/pgvector/pgvector" target="_blank" rel="noopener">pgvector</a>: operators, index parameters, and honest guidance on when exact search is better.</li>
-        <li><a href="https://qdrant.tech/documentation/concepts/indexing/" target="_blank" rel="noopener">Qdrant &mdash; indexing and filtering</a>: the clearest explanation of filtered traversal and the selectivity threshold.</li>
-        <li><a href="https://ann-benchmarks.com/" target="_blank" rel="noopener">ANN-Benchmarks</a>: recall-versus-speed curves across algorithms &mdash; read them as shapes, not as rankings.</li>
+        <li><a href="https://qdrant.tech/documentation/concepts/indexing/" target="_blank" rel="noopener">Qdrant — indexing and filtering</a>: the clearest explanation of filtered traversal and the selectivity threshold.</li>
+        <li><a href="https://ann-benchmarks.com/" target="_blank" rel="noopener">ANN-Benchmarks</a>: recall-versus-speed curves across algorithms — read them as shapes, not as rankings.</li>
         <li><a href="https://redis.io/docs/latest/develop/get-started/vector-database/" target="_blank" rel="noopener">Redis vector search</a>: index creation, KNN queries and tag pre-filtering for in-memory collections.</li>
       </ul>
     </section>
@@ -720,31 +705,31 @@ print(f"{ram_gb(10_000_000, 768, bytes_per_dim=1):.1f} GB")#  9.0 GB  int8, half
 <script src="../assets/player.js?v=3658cbc7"></script>
 <script>
 createAnimation('anim-hnsw', [
-  { say: 'A query vector arrives. One million vectors are stored, and comparing against all of them would take hundreds of milliseconds &mdash; so instead we walk a graph.', show: ['hn-q'], hl: ['hn-b2'], text: { 'hn-s1': 'k = 10', 'hn-s2': 'ef_search = 40', 'hn-s3': 'compared: 0', 'hn-n1': 'every vector is a node; each node links to its nearest neighbours' } },
-  { say: 'The search always starts at the same entry point in the sparsest top layer. Few nodes live up here, so each link covers an enormous distance.', hl: ['hn-l2a'], text: { 'hn-s3': 'compared: 3', 'hn-n2': 'layer 2 holds ~0.1% of the vectors — it is a map, not a street' } },
-  { say: 'Greedy step: compare the query against this node&rsquo;s neighbours, move to whichever is closest, repeat until none is closer. Two hops cross most of the space.', move: { 'hn-q': [340, 0] }, unhl: ['hn-l2a'], hl: ['hn-l2c'], text: { 'hn-s3': 'compared: 9', 'hn-n2': 'greedy: always move to the closest visible neighbour, never backtrack' } },
-  { say: 'No neighbour up here improves on this node, so drop a layer. The same node exists on layer 1, now with many more neighbours to compare against.', move: { 'hn-q': [340, 60] }, unhl: ['hn-l2c', 'hn-b2'], hl: ['hn-b1', 'hn-l1e'], text: { 'hn-s3': 'compared: 24', 'hn-n1': 'descend: same position, denser graph, shorter links' } },
-  { say: 'Greedy again on layer 1, which refines the position. Each layer narrows the search region while the links get shorter.', move: { 'hn-q': [250, 60] }, unhl: ['hn-l1e'], hl: ['hn-l1d'], text: { 'hn-s3': 'compared: 58', 'hn-n2': 'coarse-to-fine: the hierarchy is the whole trick' } },
-  { say: 'Drop to layer 0, where every one of the million vectors lives. This is where the real work happens, and where <code>ef_search</code> starts to matter.', move: { 'hn-q': [280, 126] }, unhl: ['hn-l1d', 'hn-b1'], hl: ['hn-b0', 'hn-l0h'], text: { 'hn-s3': 'compared: 112', 'hn-n1': 'layer 0: all 1,000,000 vectors, each with up to m=16 neighbours' } },
-  { say: 'Here it is not purely greedy. A dynamic list of the best <code>ef_search</code> candidates is kept, and their neighbours are expanded until nothing improves &mdash; which lets it escape small local minima.', hl: ['hn-l0g', 'hn-l0i'], text: { 'hn-s4': 'candidate list: 40 best', 'hn-s5': 'best so far: d=0.082', 'hn-s3': 'compared: 1,940', 'hn-n2': 'the candidate list is what distinguishes HNSW from a plain greedy walk' }, fill: { 'hn-l0g': '#e3eedc', 'hn-l0h': '#e3eedc', 'hn-l0i': '#e3eedc' } },
-  { say: 'It settles and returns the top 10. About 3,000 distance comparisons instead of 1,000,000 &mdash; roughly two milliseconds instead of several hundred.', unhl: ['hn-l0g', 'hn-l0i'], hl: ['hn-l0h'], text: { 'hn-s3': 'compared: 3,120 of 1,000,000', 'hn-s6': 'returned: 10 ids + scores', 'hn-s7': 'latency: 1.9 ms', 'hn-n1': '0.3% of the work for most of the answer' }, fill: { 'hn-l0h': '#2f6b3f', 'hn-s7': '#2f6b3f' } },
-  { say: 'And now the part that matters. The walk is greedy over a graph, so a genuine nearest neighbour reachable only through a worse-looking node can be missed. Here, one of the true top 10 never got visited.', unhl: ['hn-l0h'], hl: ['hn-l0c'], text: { 'hn-s8': 'recall@10 = 0.95  ← missed one', 'hn-n2': 'no error, no warning, no log line. the result is simply slightly wrong.' }, fill: { 'hn-l0c': '#f9e3df', 'hn-s8': '#c53b3b', 'hn-n2': '#c53b3b' } },
-  { say: 'Raising <code>ef_search</code> widens the candidate list, explores more of the graph, and finds it. Recall goes to 0.99 and latency roughly triples &mdash; that is the entire trade, and it is set per query.', unhl: ['hn-l0c'], hl: ['hn-l0h'], text: { 'hn-s2': 'ef_search = 200', 'hn-s3': 'compared: 9,400', 'hn-s7': 'latency: 6.2 ms', 'hn-s8': 'recall@10 = 0.994', 'hn-n1': 'ef_search is per query: expensive questions can afford more', 'hn-n2': 'm and ef_construction are build-time — changing them needs a rebuild' }, fill: { 'hn-l0c': '#e3eedc', 'hn-s8': '#2f6b3f' } },
-  { say: 'Which is why you measure it. Run a few hundred queries with the index off to get ground truth, compare the sets, and print recall against <code>ef_search</code>. Thirty lines, and it ends the guessing.', unhl: ['hn-l0h', 'hn-b0'], text: { 'hn-phase': 'the only honest baseline is brute force on your own data', 'hn-n1': 'ef= 40 → 0.952 @ 1.8 ms   ·   ef=100 → 0.981 @ 3.4 ms', 'hn-n2': 'ef=200 → 0.994 @ 6.9 ms   ·   ef=400 → 0.998 @ 13.1 ms', 'hn-n3': 'pick a row. without the table, you are tuning an invisible dial.' }, fill: { 'hn-n2': '#5f6f66', 'hn-n3': '#c53b3b', 'hn-verd': '#e3eedc' } },
+  { say: "A query vector arrives. One million vectors are stored, and comparing against all of them would take hundreds of milliseconds — so instead we walk a graph.", show: ["hn-q"], hl: ["hn-b2"], text: {"hn-s1":"k = 10","hn-s2":"ef_search = 40","hn-s3":"compared: 0","hn-n1":"every vector is a node; each node links to its nearest neighbours"} },
+  { say: "The search always starts at the same entry point in the sparsest top layer. Few nodes live up here, so each link covers an enormous distance.", hl: ["hn-l2a"], text: {"hn-s3":"compared: 3","hn-n2":"layer 2 holds ~0.1% of the vectors — it is a map, not a street"} },
+  { say: "Greedy step: compare the query against this node’s neighbours, move to whichever is closest, repeat until none is closer. Two hops cross most of the space.", hl: ["hn-l2c"], unhl: ["hn-l2a"], move: {"hn-q":[340,0]}, text: {"hn-s3":"compared: 9","hn-n2":"greedy: always move to the closest visible neighbour, never backtrack"} },
+  { say: "No neighbour up here improves on this node, so drop a layer. The same node exists on layer 1, now with many more neighbours to compare against.", hl: ["hn-b1","hn-l1e"], unhl: ["hn-l2c","hn-b2"], move: {"hn-q":[340,60]}, text: {"hn-s3":"compared: 24","hn-n1":"descend: same position, denser graph, shorter links"} },
+  { say: "Greedy again on layer 1, which refines the position. Each layer narrows the search region while the links get shorter.", hl: ["hn-l1d"], unhl: ["hn-l1e"], move: {"hn-q":[250,60]}, text: {"hn-s3":"compared: 58","hn-n2":"coarse-to-fine: the hierarchy is the whole trick"} },
+  { say: "Drop to layer 0, where every one of the million vectors lives. This is where the real work happens, and where <code>ef_search</code> starts to matter.", hl: ["hn-b0","hn-l0h"], unhl: ["hn-l1d","hn-b1"], move: {"hn-q":[280,126]}, text: {"hn-s3":"compared: 112","hn-n1":"layer 0: all 1,000,000 vectors, each with up to m=16 neighbours"} },
+  { say: "Here it is not purely greedy. A dynamic list of the best <code>ef_search</code> candidates is kept, and their neighbours are expanded until nothing improves — which lets it escape small local minima.", hl: ["hn-l0g","hn-l0i"], text: {"hn-s4":"candidate list: 40 best","hn-s5":"best so far: d=0.082","hn-s3":"compared: 1,940","hn-n2":"the candidate list is what distinguishes HNSW from a plain greedy walk"}, fill: {"hn-l0g":"#e3eedc","hn-l0h":"#e3eedc","hn-l0i":"#e3eedc"} },
+  { say: "It settles and returns the top 10. About 3,000 distance comparisons instead of 1,000,000 — roughly two milliseconds instead of several hundred.", hl: ["hn-l0h"], unhl: ["hn-l0g","hn-l0i"], text: {"hn-s3":"compared: 3,120 of 1,000,000","hn-s6":"returned: 10 ids + scores","hn-s7":"latency: 1.9 ms","hn-n1":"0.3% of the work for most of the answer"}, fill: {"hn-l0h":"#2f6b3f","hn-s7":"#2f6b3f"} },
+  { say: "And now the part that matters. The walk is greedy over a graph, so a genuine nearest neighbour reachable only through a worse-looking node can be missed. Here, one of the true top 10 never got visited.", hl: ["hn-l0c"], unhl: ["hn-l0h"], text: {"hn-s8":"recall@10 = 0.95  ← missed one","hn-n2":"no error, no warning, no log line. the result is simply slightly wrong."}, fill: {"hn-l0c":"#f9e3df","hn-s8":"#c53b3b","hn-n2":"#c53b3b"} },
+  { say: "Raising <code>ef_search</code> widens the candidate list, explores more of the graph, and finds it. Recall goes to 0.99 and latency roughly triples — that is the entire trade, and it is set per query.", hl: ["hn-l0h"], unhl: ["hn-l0c"], text: {"hn-s2":"ef_search = 200","hn-s3":"compared: 9,400","hn-s7":"latency: 6.2 ms","hn-s8":"recall@10 = 0.994","hn-n1":"ef_search is per query: expensive questions can afford more","hn-n2":"m and ef_construction are build-time — changing them needs a rebuild"}, fill: {"hn-l0c":"#e3eedc","hn-s8":"#2f6b3f"} },
+  { say: "Which is why you measure it. Run a few hundred queries with the index off to get ground truth, compare the sets, and print recall against <code>ef_search</code>. Thirty lines, and it ends the guessing.", unhl: ["hn-l0h","hn-b0"], text: {"hn-phase":"the only honest baseline is brute force on your own data","hn-n1":"ef= 40 → 0.952 @ 1.8 ms   ·   ef=100 → 0.981 @ 3.4 ms","hn-n2":"ef=200 → 0.994 @ 6.9 ms   ·   ef=400 → 0.998 @ 13.1 ms","hn-n3":"pick a row. without the table, you are tuning an invisible dial."}, fill: {"hn-n2":"#5f6f66","hn-n3":"#c53b3b","hn-verd":"#e3eedc"} },
 ]);
 
 createAnimation('anim-filter', [
-  { say: 'The hard query: nearest neighbours to this vector, <em>but only</em> within one tenant. That tenant owns 2,000 of the million rows &mdash; two tenths of one percent.', hl: ['fl-phase'] },
-  { say: 'Strategy A, the naive one: run the ANN search normally, then throw away results that do not match. It is one line of code and it is the default in a lot of hand-rolled integrations.', unhl: ['fl-phase'], hl: ['fl-r1'], text: { 'fl-a1': 'search top-20 globally → filter → ?' } },
-  { say: 'The top 20 nearest vectors in the whole collection are almost certainly all from other tenants. Filtering leaves nothing &mdash; and the query reports success.', text: { 'fl-a1': 'search top-20 globally → 20 results → filter → 0 results', 'fl-a2': 'fast, and empty. looks like "we have no content", not like a bug.' }, fill: { 'fl-a2': '#c53b3b', 'fl-r1': '#f9e3df' } },
-  { say: 'Raising the limit to 10,000 and filtering is the usual patch. It is slow, it uses far more memory, and it still gives no guarantee of finding the tenant&rsquo;s actual nearest neighbours.', text: { 'fl-a1': 'search top-10,000 → filter → 6 results, 180 ms, still no guarantee' }, fill: { 'fl-a1': '#c53b3b' } },
-  { say: 'Strategy B: pre-filter. Use the payload index to get the 2,000 matching ids, then compare the query against those 2,000 vectors exactly.', unhl: ['fl-r1'], hl: ['fl-r2'], text: { 'fl-b1': 'payload index → 2,000 ids → exact comparison over 2,000 vectors', 'fl-r1': ' ' }, fill: { 'fl-r1': '#fbfcf8' } },
-  { say: 'Perfect recall, and genuinely fast at this size: 2,000 comparisons is a fraction of a millisecond. The ANN index is not used at all, and does not need to be.', text: { 'fl-b2': '100% recall · ~0.9 ms · the graph is simply bypassed' }, fill: { 'fl-b2': '#2f6b3f', 'fl-r2': '#e3eedc' } },
-  { say: 'But it is linear in the matching set. The same strategy against a tenant with 400,000 matching rows is a 400,000-vector scan &mdash; correct, and far too slow.', text: { 'fl-b1': 'tenant with 400,000 matching rows → 400,000 exact comparisons', 'fl-b2': '100% recall · ~140 ms · correct and unusable' }, fill: { 'fl-b2': '#c53b3b', 'fl-r2': '#f9e3df' } },
-  { say: 'Strategy C: walk the HNSW graph as usual, but only accept steps onto nodes that match the filter. The index is used, and non-matching rows can never be returned.', unhl: ['fl-r2'], hl: ['fl-r3'], text: { 'fl-c1': 'graph walk, skipping non-matching nodes → top-20 from within the tenant', 'fl-r2': ' ' }, fill: { 'fl-r2': '#fbfcf8' } },
-  { say: 'This scales well when the filter is loose. When it is very selective, the matching nodes form a sparse, often disconnected subgraph &mdash; and the walk cannot reach parts of it, so recall quietly falls.', text: { 'fl-c2': 'loose filter: excellent · very selective filter: disconnected subgraph, recall drops' }, fill: { 'fl-c2': '#c53b3b' } },
-  { say: 'Which is why good engines do not pick one. They estimate selectivity from the payload index and switch: exact comparison below a threshold, filtered traversal above it.', unhl: ['fl-r3'], text: { 'fl-phase': 'the engine chooses, per query, from the estimated selectivity', 'fl-a1': '< 1% matching   → pre-filter + exact      (fast, 100% recall)', 'fl-a2': '1–20% matching  → filtered traversal, raise ef_search', 'fl-b1': '> 20% matching  → filtered traversal, cheap', 'fl-b2': 'and this is why the same query behaves differently for two tenants' }, fill: { 'fl-a1': '#2f6b3f', 'fl-b1': '#2f6b3f', 'fl-b2': '#5f6f66', 'fl-c2': '#5f6f66' } },
-  { say: 'Two practical consequences. Index every field you filter on, or the engine cannot estimate selectivity and falls back to a scan. And never post-filter a permission check &mdash; that is not a performance bug, it is a correctness one.', text: { 'fl-c1': 'index your filter fields: without them there is no selectivity estimate', 'fl-c2': 'never post-filter an ACL — an empty result is the nicest failure it has' }, fill: { 'fl-c1': '#2f6b3f', 'fl-c2': '#c53b3b', 'fl-verd': '#e3eedc' } },
+  { say: "The hard query: nearest neighbours to this vector, <em>but only</em> within one tenant. That tenant owns 2,000 of the million rows — two tenths of one percent.", hl: ["fl-phase"] },
+  { say: "Strategy A, the naive one: run the ANN search normally, then throw away results that do not match. It is one line of code and it is the default in a lot of hand-rolled integrations.", hl: ["fl-r1"], unhl: ["fl-phase"], text: {"fl-a1":"search top-20 globally → filter → ?"} },
+  { say: "The top 20 nearest vectors in the whole collection are almost certainly all from other tenants. Filtering leaves nothing — and the query reports success.", text: {"fl-a1":"search top-20 globally → 20 results → filter → 0 results","fl-a2":"fast, and empty. looks like \"we have no content\", not like a bug."}, fill: {"fl-a2":"#c53b3b","fl-r1":"#f9e3df"} },
+  { say: "Raising the limit to 10,000 and filtering is the usual patch. It is slow, it uses far more memory, and it still gives no guarantee of finding the tenant’s actual nearest neighbours.", text: {"fl-a1":"search top-10,000 → filter → 6 results, 180 ms, still no guarantee"}, fill: {"fl-a1":"#c53b3b"} },
+  { say: "Strategy B: pre-filter. Use the payload index to get the 2,000 matching ids, then compare the query against those 2,000 vectors exactly.", hl: ["fl-r2"], unhl: ["fl-r1"], text: {"fl-b1":"payload index → 2,000 ids → exact comparison over 2,000 vectors","fl-r1":" "}, fill: {"fl-r1":"#fbfcf8"} },
+  { say: "Perfect recall, and genuinely fast at this size: 2,000 comparisons is a fraction of a millisecond. The ANN index is not used at all, and does not need to be.", text: {"fl-b2":"100% recall · ~0.9 ms · the graph is simply bypassed"}, fill: {"fl-b2":"#2f6b3f","fl-r2":"#e3eedc"} },
+  { say: "But it is linear in the matching set. The same strategy against a tenant with 400,000 matching rows is a 400,000-vector scan — correct, and far too slow.", text: {"fl-b1":"tenant with 400,000 matching rows → 400,000 exact comparisons","fl-b2":"100% recall · ~140 ms · correct and unusable"}, fill: {"fl-b2":"#c53b3b","fl-r2":"#f9e3df"} },
+  { say: "Strategy C: walk the HNSW graph as usual, but only accept steps onto nodes that match the filter. The index is used, and non-matching rows can never be returned.", hl: ["fl-r3"], unhl: ["fl-r2"], text: {"fl-c1":"graph walk, skipping non-matching nodes → top-20 from within the tenant","fl-r2":" "}, fill: {"fl-r2":"#fbfcf8"} },
+  { say: "This scales well when the filter is loose. When it is very selective, the matching nodes form a sparse, often disconnected subgraph — and the walk cannot reach parts of it, so recall quietly falls.", text: {"fl-c2":"loose filter: excellent · very selective filter: disconnected subgraph, recall drops"}, fill: {"fl-c2":"#c53b3b"} },
+  { say: "Which is why good engines do not pick one. They estimate selectivity from the payload index and switch: exact comparison below a threshold, filtered traversal above it.", unhl: ["fl-r3"], text: {"fl-phase":"the engine chooses, per query, from the estimated selectivity","fl-a1":"< 1% matching   → pre-filter + exact      (fast, 100% recall)","fl-a2":"1–20% matching  → filtered traversal, raise ef_search","fl-b1":"> 20% matching  → filtered traversal, cheap","fl-b2":"and this is why the same query behaves differently for two tenants"}, fill: {"fl-a1":"#2f6b3f","fl-b1":"#2f6b3f","fl-b2":"#5f6f66","fl-c2":"#5f6f66"} },
+  { say: "Two practical consequences. Index every field you filter on, or the engine cannot estimate selectivity and falls back to a scan. And never post-filter a permission check — that is not a performance bug, it is a correctness one.", text: {"fl-c1":"index your filter fields: without them there is no selectivity estimate","fl-c2":"never post-filter an ACL — an empty result is the nicest failure it has"}, fill: {"fl-c1":"#2f6b3f","fl-c2":"#c53b3b","fl-verd":"#e3eedc"} },
 ]);
 </script>
 </body>

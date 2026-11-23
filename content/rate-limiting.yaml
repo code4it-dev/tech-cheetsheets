@@ -1,0 +1,957 @@
+title: Rate limiting
+slug: rate-limiting
+tagline: Say no on purpose, before the system says no by falling over.
+asof: Nov 2026 · the algorithms are stable; only the implementations move
+description: "Rate limiting cheatsheet: fixed window, sliding window, token bucket, leaky bucket and GCRA, with animated walk-throughs, distributed counters, headers and gotchas."
+aliases: [ Rate limiting, rate limiter, rate limits, throttling ]
+keywords:
+  - rate limiting
+  - throttling
+  - token bucket
+  - leaky bucket
+  - sliding window
+  - fixed window
+  - api gateway
+  - resilience
+  - backpressure
+related: [ azure-api-management, caching-strategies ]
+overview:
+  - Every service has a capacity. Rate limiting is the decision, taken on each request, of whether this caller may proceed <em>now</em> — and the cheap, predictable rejection (`429 Too Many Requests`) when they may not. Without it, one buggy retry loop, one scraper or one noisy tenant consumes the capacity everybody else is paying for.
+  - All the common algorithms answer the same question — "how many requests has this key made recently?" — and differ only in how they measure "recently" and how much burst they forgive. **Fixed window** counts per clock minute; **sliding window** smooths the boundary; **token bucket** saves up credit for bursts; **leaky bucket** flattens bursts into a constant output rate; **GCRA** gets the same answer from a single timestamp.
+  - "You meet rate limiting in three places at once: at the edge (CDN, API gateway, nginx), in the application (ASP.NET Core's `RateLimiter` middleware, Envoy, a Redis script), and on the client side as the retry and backoff logic that has to live with somebody else's limits. The algorithms below are the same in all three."
+architecture:
+  svg: rate-limiting/architecture.svg
+  alt: Clients pass through an edge limiter and an application limiter, both reading a shared counter store, before reaching the service
+  caption: "Limit twice: coarsely at the edge so floods never reach your code, and precisely in the app where you know who the caller is and what they paid for."
+howItWorks:
+  - md: Every algorithm below is fed **exactly the same nine requests**, from one API key, against the same limit of **5 per minute**. Only the bookkeeping differs — and it produces a different set of rejections each time. Step through them in order and then read the comparison at the end.
+  - note: same input, six verdicts — that difference <em>is</em> the choice you're making
+  - anim:
+      id: anim-fixed
+      title: 1 · Fixed window counter
+      svg: rate-limiting/anim-fixed.svg
+      alt: Animated fixed window counter evaluating nine requests across a minute boundary
+      steps:
+        - say: "The counter is named after the clock minute: `rl:acme:00`. Each request is an `INCR`, and the value it returns <em>is</em> the decision. One key, one integer — this is the cheapest limiter there is."
+          hl: [ fw-wa ]
+        - say: Requests **1, 2 and 3** arrive at :10, :20 and :30. The counter reaches 3.
+          text:
+            fw-ca: counter 3 / 5
+            fw-tally: allowed 3 · rejected 0
+          fill:
+            fw-q1: "#e3eedc"
+            fw-q2: "#e3eedc"
+            fw-q3: "#e3eedc"
+            fw-ca: "#c53b3b"
+        - say: Requests **4 and 5** arrive late in the minute, at :58 and :59. The counter hits exactly 5. Both are allowed, and so far the limit has been respected perfectly.
+          text:
+            fw-ca: counter 5 / 5
+            fw-na: at the limit
+            fw-tally: allowed 5 · rejected 0
+          fill:
+            fw-q4: "#e3eedc"
+            fw-q5: "#e3eedc"
+        - say: "Request **6**, half a second later, makes `INCR` return 6. Rejected with `429`. Note what the caller is told to do: retry after the minute ends — in half a second."
+          text:
+            fw-tally: allowed 5 · rejected 1
+          fill:
+            fw-q6: "#f9e3df"
+        - say: The clock ticks to 01:00. The key name changed, so this is a **different key**, and it starts at zero. Nothing in the store remembers the five requests from one second ago.
+          hl: [ fw-wb ]
+          unhl: [ fw-wa ]
+          text:
+            fw-cb: counter 0 / 5
+            fw-nb: brand new key — no memory of minute 00
+            fw-na: expired, irrelevant
+        - say: Requests **7, 8 and 9** — the same caller, one, two and three seconds later — are all allowed.
+          text:
+            fw-cb: counter 3 / 5
+            fw-tally: allowed 8 · rejected 1
+          fill:
+            fw-q7: "#e3eedc"
+            fw-q8: "#e3eedc"
+            fw-q9: "#e3eedc"
+        - say: "Count what actually reached the service between 00:58 and 01:02: requests 4, 5, 7, 8 and 9 — **five in four seconds**, against a limit of five per <em>minute</em>. That is the boundary burst, and because every caller shares the same clock, they all do it at the same instant."
+          show: [ fw-note ]
+          unhl: [ fw-wb ]
+  - anim:
+      id: anim-log
+      title: 2 · Sliding window log
+      svg: rate-limiting/anim-log.svg
+      alt: Animated sliding window log storing every request timestamp in a sorted set
+      steps:
+        - say: "Store the timestamp of **every** request in a sorted set. On each new request: trim everything older than `now − 60 s`, count what is left, and admit only if the count is under 5."
+          hl: [ wl-cnt ]
+        - say: Requests **1, 2 and 3** are recorded. Nothing is old enough to trim yet.
+          text:
+            wl-set: "{ 00:10, 00:20, 00:30 }"
+            wl-win: cutoff = now - 60 s · trimmed 0
+            wl-cnt: count 3 / 5
+            wl-tally: allowed 3 · rejected 0
+          fill:
+            wl-q1: "#e3eedc"
+            wl-q2: "#e3eedc"
+            wl-q3: "#e3eedc"
+        - say: Requests **4 and 5**. Before admitting number 5 the count is 4, so it goes through. The set now holds exactly five timestamps.
+          text:
+            wl-set: "{ 00:10, 00:20, 00:30, 00:58, 00:59 }"
+            wl-cnt: count 5 / 5
+            wl-tally: allowed 5 · rejected 0
+          fill:
+            wl-q4: "#e3eedc"
+            wl-q5: "#e3eedc"
+        - say: "Request **6**: the count is already 5, so it is rejected — and crucially, **nothing is written**. A rejected request must not consume a slot, or a caller who keeps retrying can keep itself locked out forever."
+          text:
+            wl-tally: allowed 5 · rejected 1
+          fill:
+            wl-q6: "#f9e3df"
+        - say: "Request **7**, at 01:00. Here is where this algorithm parts company with the fixed window: the cutoff is now 00:00, and the oldest entry (00:10) is only 50 seconds old. It stays. The count is still 5 — **rejected**."
+          text:
+            wl-win: cutoff = 00:00 · 00:10 is 50 s old, kept
+            wl-tally: allowed 5 · rejected 2
+          fill:
+            wl-q7: "#f9e3df"
+        - say: "Requests **8 and 9**: same story. The first slot does not free up until 01:10, exactly sixty seconds after request 1. Four rejections where the fixed window had one."
+          text:
+            wl-win: next slot frees at 01:10
+            wl-tally: allowed 5 · rejected 4
+          fill:
+            wl-q8: "#f9e3df"
+            wl-q9: "#f9e3df"
+        - say: "This is the only algorithm here that is **exactly right**: never more than five in any sixty-second window, measured from any instant. The bill is memory — one sorted-set entry per request, so a 10,000/min limit costs around 700 KB <em>per caller</em> — plus three or four Redis operations instead of one."
+          show: [ wl-note ]
+          unhl: [ wl-cnt ]
+  - anim:
+      id: anim-counter
+      title: 3 · Sliding window counter
+      svg: rate-limiting/anim-counter.svg
+      alt: Animated sliding window counter weighting the previous minute by its overlap
+      steps:
+        - say: "Keep two counters: this minute and the previous one. Estimate the trailing-sixty-second count by assuming the previous minute’s requests were spread evenly through it, and weighting it by how much of it is still in range."
+          hl: [ wc-est ]
+        - say: Requests **1, 2 and 3**. There is no previous minute, so `prev = 0` and the estimate is just the current counter. For this first minute the algorithm behaves exactly like a fixed window.
+          text:
+            wc-curr: curr minute = 3
+            wc-ovl: elapsed 30 s → overlap 0.50
+            wc-est: = 2.00  → allow
+            wc-tally: allowed 3 · rejected 0
+          fill:
+            wc-q1: "#e3eedc"
+            wc-q2: "#e3eedc"
+            wc-q3: "#e3eedc"
+        - say: Requests **4 and 5** push the current counter to 5. The estimate before admitting number 5 was 4.00, so it was allowed.
+          text:
+            wc-curr: curr minute = 5
+            wc-ovl: elapsed 59 s → overlap 0.02
+            wc-est: = 4.00  → allow
+            wc-tally: allowed 5 · rejected 0
+          fill:
+            wc-q4: "#e3eedc"
+            wc-q5: "#e3eedc"
+        - say: "Request **6**: the estimate is 5.00, which is not below 5. Rejected — same as the fixed window, so far."
+          text:
+            wc-est: = 5.00  → reject
+            wc-tally: allowed 5 · rejected 1
+          fill:
+            wc-q6: "#f9e3df"
+        - say: "Request **7**, at 01:00. The windows roll: `prev` becomes 5 and `curr` resets to 0. But zero seconds have elapsed, so the overlap is **1.00** — the whole previous minute is still inside the trailing sixty seconds. Estimate 5 × 1.00 + 0 = 5.00. **Rejected**, where the fixed window waved it through."
+          text:
+            wc-prev: prev minute = 5
+            wc-curr: curr minute = 0
+            wc-ovl: elapsed 0 s → overlap 1.00
+            wc-est: = 5.00  → reject
+            wc-tally: allowed 5 · rejected 2
+          fill:
+            wc-q7: "#f9e3df"
+        - say: "Request **8**, one second later: the overlap has slipped to 0.983, so the estimate is 4.92 — just under the line. **Allowed**, and `curr` becomes 1. Request **9** then estimates 4.83 + 1 = 5.83 and is rejected."
+          text:
+            wc-curr: curr minute = 1
+            wc-ovl: elapsed 2 s → overlap 0.97
+            wc-est: = 5.83  → reject
+            wc-tally: allowed 6 · rejected 3
+          fill:
+            wc-q8: "#e3eedc"
+            wc-q9: "#f9e3df"
+        - say: "Six allowed against the log’s five — one request of slack, in exchange for two integers instead of one entry per request. The approximation only misleads when the previous minute’s traffic was very unevenly spread, and it errs on the <em>strict</em> side for the pattern that matters: a burst at the end of the previous window."
+          show: [ wc-note ]
+          unhl: [ wc-est ]
+  - anim:
+      id: anim-token
+      title: 4 · Token bucket
+      svg: rate-limiting/anim-token.svg
+      alt: Animated token bucket spending and refilling credit across nine requests
+      steps:
+        - say: "Five tokens in the bucket, refilling at one every twelve seconds — five per minute sustained, with a burst of five. No timer runs anywhere: the tokens are recomputed from the elapsed time when a request shows up."
+          hl: [ tb-cnt ]
+        - say: Requests **1, 2 and 3** each spend a token, and each gap of ten seconds refills about 0.83 of one back. After three requests there are 3.67 left.
+          hide: [ tb-t5, tb-t4 ]
+          text:
+            tb-cnt: tokens 3.67 / 5
+            tb-last: "last seen: 00:30"
+            tb-tally: allowed 3 · rejected 0
+          fill:
+            tb-q1: "#e3eedc"
+            tb-q2: "#e3eedc"
+            tb-q3: "#e3eedc"
+        - say: Then the caller goes quiet for twenty-eight seconds. Request **4** arrives at :58 and the refill is 28 / 12 = 2.33 tokens — which would be 6.00, so the cap throws the excess away. Idle time is credit, but only up to the capacity.
+          show: [ tb-t4 ]
+          text:
+            tb-cnt: tokens 4.00 / 5
+            tb-calc: refill 2.33, capped at 5.00, then spend 1
+            tb-last: "last seen: 00:58"
+            tb-tally: allowed 4 · rejected 0
+          fill:
+            tb-q4: "#e3eedc"
+        - say: Request **5** leaves 3.08. And request **6** — the one the fixed window rejected — is **allowed** here, leaving 2.13. The caller had genuinely been quiet; there is credit to spend.
+          hide: [ tb-t4, tb-t3 ]
+          text:
+            tb-cnt: tokens 2.13 / 5
+            tb-calc: refill = elapsed / 12 s, capped at 5
+            tb-last: "last seen: 00:59.5"
+            tb-tally: allowed 6 · rejected 0
+          fill:
+            tb-q5: "#e3eedc"
+            tb-q6: "#e3eedc"
+        - say: Request **7** crosses the minute boundary, and <em>nothing happens</em>. There is no window here, no key name with a minute in it, nothing to reset. It simply costs a token like any other.
+          hide: [ tb-t2 ]
+          text:
+            tb-cnt: tokens 1.17 / 5
+            tb-last: "last seen: 01:00"
+            tb-tally: allowed 7 · rejected 0
+          fill:
+            tb-q7: "#e3eedc"
+        - say: "Request **8** takes it down to 0.25. Request **9** finds 0.33 tokens — not enough — and is rejected. Because we know the refill rate, the wait is exact: `(1 − 0.33) × 12 = 8 s`."
+          hide: [ tb-t1 ]
+          text:
+            tb-cnt: tokens 0.33 / 5
+            tb-calc: "need 1.00, have 0.33 → 429, Retry-After: 8"
+            tb-last: "last seen: 01:02"
+            tb-tally: allowed 8 · rejected 1
+          fill:
+            tb-q8: "#e3eedc"
+            tb-q9: "#f9e3df"
+        - say: Eight allowed — the same count as the fixed window — but it rejected a **different request**. The fixed window refused number 6 because a clock ticked; the token bucket refused number 9 because the caller really had exceeded five per minute. One of those two is measuring the thing it claims to measure.
+          show: [ tb-note ]
+          unhl: [ tb-cnt ]
+  - anim:
+      id: anim-leaky
+      title: 5 · Leaky bucket (queueing form)
+      svg: rate-limiting/anim-leaky.svg
+      alt: Animated queueing leaky bucket delaying requests instead of rejecting them
+      steps:
+        - say: This one does not reject. Requests join a queue that drains at a constant one every twelve seconds, and the caller waits for its turn. The limit becomes a promise about <em>output rate</em> rather than about admission.
+          hl: [ lb-depth ]
+        - say: Request **1** finds an empty queue and leaves immediately. Request **2** arrives at :20, but the next release slot is :22 — it waits 2 seconds. Request **3** waits 4.
+          text:
+            lb-depth: queue depth 1 / 5
+            lb-out: "output: 1 every 12 s"
+            lb-delay: "added delay: 4 s"
+            lb-tally: served 3 · dropped 0
+          fill:
+            lb-q1: "#e3eedc"
+            lb-q2: "#fbf3c4"
+            lb-q3: "#fbf3c4"
+            lb-s1: "#fbf3c4"
+        - say: The twenty-eight-second gap before request **4** drains the queue completely, so it goes straight through with no delay at all. A quiet caller is never penalised.
+          text:
+            lb-depth: queue depth 0 / 5
+            lb-delay: "added delay: 0 s"
+            lb-tally: served 4 · dropped 0
+          fill:
+            lb-q4: "#e3eedc"
+            lb-s1: "#fbfcf8"
+        - say: Requests **5 and 6** arrive one second apart. Their release slots are 01:10 and 01:22, so they wait 11 and 22 seconds. Both are accepted — they are just not served yet.
+          text:
+            lb-depth: queue depth 2 / 5
+            lb-delay: "added delay: 22 s"
+            lb-tally: served 4 · queued 2
+          fill:
+            lb-q5: "#fbf3c4"
+            lb-q6: "#fbf3c4"
+            lb-s1: "#fbf3c4"
+            lb-s2: "#fbf3c4"
+        - say: Request **7** is slotted for 01:34 — a 34-second wait. Notice that the minute boundary is as meaningless here as it was for the token bucket.
+          text:
+            lb-depth: queue depth 3 / 5
+            lb-delay: "added delay: 34 s"
+            lb-tally: served 4 · queued 3
+          fill:
+            lb-q7: "#fbf3c4"
+            lb-s3: "#fbf3c4"
+        - say: Requests **8 and 9** take the queue to its capacity of five, with waits of 45 and 56 seconds. A tenth request right now would overflow and be <em>dropped</em> — which is the only way this algorithm ever returns an error.
+          text:
+            lb-depth: queue depth 5 / 5 — full
+            lb-delay: "added delay: 56 s"
+            lb-out: "output: perfectly smooth, 1 every 12 s"
+            lb-tally: served 4 · queued 5 · dropped 0
+          fill:
+            lb-q8: "#fbf3c4"
+            lb-q9: "#fbf3c4"
+            lb-s4: "#fbf3c4"
+            lb-s5: "#fbf3c4"
+        - say: "Nobody got a `429`, and the service behind this bucket saw a flawlessly even trickle. The cost went somewhere else entirely: request 9 sat there for **56 seconds**. Use this when the thing you are protecting is more fragile than your caller is impatient — a legacy backend, a partner with a contractual rate — and never in front of a user waiting for a page."
+          show: [ lb-note ]
+          unhl: [ lb-depth ]
+  - anim:
+      id: anim-gcra
+      title: 6 · GCRA
+      svg: rate-limiting/anim-gcra.svg
+      alt: Animated GCRA tracking a single theoretical arrival time across nine requests
+      steps:
+        - say: "GCRA stores **one value**: the theoretical arrival time, or TAT — the moment the next request would be perfectly on schedule. With five per minute the emission interval `T` is 12 seconds, and a burst of five buys a tolerance `tau` of 48 seconds."
+          hl: [ gc-tat ]
+        - say: "Request **1** at 00:10. There is no TAT yet, so it starts at now. The test passes trivially and the TAT is pushed one interval into the future: 00:22. Requests **2 and 3** push it to 00:34, then 00:46."
+          text:
+            gc-tat: TAT = 00:46
+            gc-calc: 00:30 >= 00:46 - 48 s → allow
+            gc-tally: allowed 3 · rejected 0
+          fill:
+            gc-q1: "#e3eedc"
+            gc-q2: "#e3eedc"
+            gc-q3: "#e3eedc"
+        - say: "Request **4** at 00:58. The TAT (00:46) is now <em>behind</em> real time, so `max(now, TAT)` resets it to now: 00:58 + 12 = 01:10. That reset is the bucket draining during the idle gap, expressed as arithmetic."
+          text:
+            gc-tat: TAT = 01:10
+            gc-calc: TAT had fallen behind → reset to now + T
+            gc-tally: allowed 4 · rejected 0
+          fill:
+            gc-q4: "#e3eedc"
+        - say: "Requests **5 and 6** push the TAT to 01:22 and then 01:34. Both are allowed: at 00:59.5 the TAT is 34 seconds ahead of now, and tau permits it to run up to 48 ahead. Same verdict the token bucket gave."
+          text:
+            gc-tat: TAT = 01:34
+            gc-calc: 00:59.5 >= 01:34 - 48 s → allow
+            gc-tally: allowed 6 · rejected 0
+          fill:
+            gc-q5: "#e3eedc"
+            gc-q6: "#e3eedc"
+        - say: Request **7** at 01:00 takes the TAT to 01:46. The gap between the TAT and now is the credit you have spent; tau is how much credit you are allowed to be in.
+          text:
+            gc-tat: TAT = 01:46
+            gc-calc: 01:00 >= 01:46 - 48 s → allow
+            gc-tally: allowed 7 · rejected 0
+          fill:
+            gc-q7: "#e3eedc"
+        - say: "Request **8** pushes it to 01:58. Request **9** then fails the test: `01:58 − 48 s = 01:10`, which is later than 01:02. Rejected — and the retry-after falls straight out of the subtraction: **8 seconds**."
+          text:
+            gc-tat: TAT = 01:58
+            gc-calc: "01:02 < 01:10 → reject, Retry-After: 8"
+            gc-tally: allowed 8 · rejected 1
+          fill:
+            gc-q8: "#e3eedc"
+            gc-q9: "#f9e3df"
+        - say: "Identical verdicts to the token bucket, identical retry-after, from **one timestamp** instead of a counter plus a timestamp — which makes it trivially atomic with a single `GET`/`SET`. And look at that final TAT of 01:58: it is exactly the moment the leaky bucket would have released request 9. They are the same bucket, written down two different ways."
+          show: [ gc-note ]
+          unhl: [ gc-tat ]
+  - heading: "Comparing them: same nine requests, six different answers"
+    id: compare-algorithms
+  - md: Requests 1–5 are allowed by everything. The interesting column is the last one.
+  - table:
+      columns:
+        - Algorithm
+        - State per key
+        - Ops / request
+        - Burst it permits
+        - Exact `Retry-After`?
+        - Rejected, of the nine
+      rows:
+        - cells:
+            - "**Fixed window**"
+            - 1 counter
+            - 1–2
+            - up to **2×** the limit, by accident, at the boundary
+            - no — only "end of minute"
+            - "**6** — and then it forgives 7, 8, 9"
+        - cells:
+            - "**Sliding window log**"
+            - one entry <em>per request</em>
+            - 3–4
+            - none — exactly the limit, always
+            - yes
+            - "**6, 7, 8, 9**"
+        - cells:
+            - "**Sliding window counter**"
+            - 2 counters
+            - 2–3
+            - slight, and bounded
+            - approximate
+            - "**6, 7, 9**"
+        - cells:
+            - "**Token bucket**"
+            - tokens + timestamp
+            - 1 (one script)
+            - exactly the capacity, <em>on purpose</em>
+            - yes, exact
+            - "**9**"
+        - cells:
+            - "**Leaky bucket** (queue)"
+            - a queue
+            - "1"
+            - none in the output; it becomes latency
+            - n/a — it waits instead
+            - "**none** — 9 was delayed 56 s"
+        - self: true
+          cells:
+            - "**GCRA**"
+            - one timestamp
+            - "1"
+            - exactly tau, on purpose
+            - yes, exact
+            - "**9**"
+  - md: |-
+      Three things fall out of that table that are hard to see from the descriptions alone:
+
+      - **The fixed window and the token bucket both allowed eight requests — but rejected different ones.** The fixed window refused number 6 because a clock ticked, then waved through three more a second later. The token bucket let 6 through because the caller had been quiet for 28 seconds, and refused 9 because the sustained rate really had been exceeded. Only one of those is a limiter measuring what it claims to measure.
+      - **GCRA and the token bucket are the same algorithm.** Identical verdicts, identical retry-after, from one timestamp instead of a counter plus a timestamp. If your store makes a single atomic value easier than a hash, prefer GCRA.
+      - **The leaky bucket is not in the same business as the others.** It never returned an error; it converted the excess into 56 seconds of latency. That is the right trade only when the thing behind it is more fragile than the caller is impatient.
+
+      **Choosing, in one line each:**
+
+      - **Sliding window counter** for a public API. Near-exact, two integers, no boundary burst. This is the default.
+      - **Token bucket** (or **GCRA**) when bursts are legitimate, or when you want to charge expensive endpoints more than one token.
+      - **Sliding window log** for small, high-value limits where every single call matters — login attempts, one-time codes, payments.
+      - **Fixed window** for internal APIs with generous limits, where the cheapest correct-ish thing wins.
+      - **Leaky bucket** in front of something fragile, when added latency is cheaper than a rejection.
+concepts:
+  - term: limit and window
+    short: "The policy itself: <em>N</em> requests per unit of time, e.g. `100 / minute`. Everything else is how you measure the window."
+    see: [ quota key, burst, token bucket ]
+    detail: |-
+      A limit is a pair: a count and a period. The period is what makes the algorithms differ — a minute measured from the clock behaves very differently from a minute measured backwards from now.
+
+      #### Common values
+
+      | Surface | Typical limit | Keyed on |
+      | --- | --- | --- |
+      | Public read API | 60–1,000 / min | API key |
+      | Login / password reset | 5–10 / 15 min | account + IP |
+      | Expensive report endpoint | 5–20 / hour | tenant |
+      | Outbound call to a partner | their published limit minus 10% | your whole fleet |
+      | SMS / email send | 1 / min, 10 / day | phone or address |
+
+      Pick limits from measured capacity, not from a round number: load-test one instance, divide by the number of tenants you must serve concurrently, then leave headroom. Publish the limit in your docs and in response headers — an undocumented limit is indistinguishable from an outage.
+  - term: quota key
+    short: "What you count <em>per</em>: API key, user id, tenant, IP, endpoint, or a combination. Choosing it wrong is the most common design mistake."
+    see: [ limit and window, distributed counters, concurrency limiting ]
+    detail: |-
+      The key decides who suffers when the limit bites. A key that is too broad punishes innocent callers; a key that is too narrow is trivially bypassed.
+
+      | Key | Good for | Weakness |
+      | --- | --- | --- |
+      | `ip` | anonymous traffic, scrapers | NAT and CGNAT share one IP; IPv6 hands an attacker a whole /64 |
+      | `api-key` / `tenant` | paid APIs, fairness between customers | useless before authentication |
+      | `user-id` | abuse of a feature by one account | new accounts are cheap |
+      | `tenant + route` | protecting one expensive endpoint | many counters to manage |
+      | `account` <em>and</em> `ip` (both) | credential stuffing | needs two checks per request |
+
+      Compose the key as a string you can read in a dump: `rl:{tenant:acme}:POST:/reports:10:05`. In Redis Cluster, wrap the part that must stay on one node in braces so a multi-key script still works.
+
+      Layer keys rather than choosing one: a coarse IP limit at the edge, a precise tenant limit in the app.
+  - term: fixed window counter
+    short: "One counter per clock period: `INCR` a key named after the current minute, reject above the limit, let it expire. The cheapest correct-ish option."
+    see: [ sliding window counter, sliding window log, limit and window ]
+    detail: |-
+      Two operations per request and one key per active caller per period. The key name <em>is</em> the window, so expiry does the cleanup for you.
+
+      ```
+      key = f"rl:{user}:{int(time.time() // 60)}"
+      n = r.incr(key)
+      if n == 1: r.expire(key, 120)
+      allowed = n <= limit
+      ```
+
+      #### Cost and accuracy
+
+      | Property | Value |
+      | --- | --- |
+      | Memory per caller | ~1 small key (60–100 B) |
+      | Ops per request | 1–2 (`INCR`, sometimes `EXPIRE`) |
+      | Worst-case burst | **2x the limit**, across the boundary |
+      | Fairness | poor: whoever arrives first in the window wins |
+
+      The boundary burst (see the first animation) is not theoretical: clients that retry on a schedule all align to the start of the minute, so you get a thundering herd at `:00` every minute. Add jitter on the client, or move to a sliding window.
+
+      Use it when the limit is generous and the cost of 2x is acceptable — which covers most internal APIs.
+  - term: sliding window log
+    short: Store the timestamp of every request, drop the ones older than the window, count what is left. Exact, and the most expensive.
+    see: [ sliding window counter, fixed window counter, distributed counters ]
+    detail: |-
+      Keep a sorted set per caller, scored by timestamp. On each request: remove entries older than `now − window`, count, add the new entry if under the limit.
+
+      ```bash
+      ZREMRANGEBYSCORE rl:acme 0 (now-60000)
+      ZCARD rl:acme                    -- how many in the last 60 s
+      ZADD rl:acme now now:req-id      -- only if under the limit
+      EXPIRE rl:acme 60
+      ```
+
+      #### Cost
+
+      | Property | Value |
+      | --- | --- |
+      | Memory per caller | limit x 50–80 B (a 10,000/min limit is ~700 KB <em>per key</em>) |
+      | Ops per request | 3–4, best run as one Lua script |
+      | Accuracy | exact — never more than the limit in any 60 s |
+
+      Perfect accuracy is rarely worth the memory. Reserve it for small, high-value limits where every single call matters: login attempts, one-time-code sends, payment submissions, free-tier trial calls.
+  - term: sliding window counter
+    short: "Two fixed windows, weighted: `prev x overlap + current`. Nearly as accurate as the log, at the cost of a fixed window."
+    see: [ fixed window counter, sliding window log ]
+    detail: |-
+      Keep the current window's counter and the previous one's. Estimate the count over the trailing window by assuming the previous window's requests were spread evenly through it.
+
+      ```
+      elapsed = now % 60                       # seconds into the current minute
+      overlap = (60 - elapsed) / 60            # how much of prev is still in range
+      estimate = prev * overlap + current
+      allowed  = estimate < limit
+      ```
+
+      #### Worked example
+
+      | Moment | prev | curr | estimate | Verdict |
+      | --- | --- | --- | --- | --- |
+      | 10:01:02 (2 s in) | 5 | 5 | 5 x 0.97 + 5 = 9.85 | reject |
+      | 10:01:30 (30 s in) | 5 | 2 | 5 x 0.50 + 2 = 4.50 | allow |
+      | 10:01:55 (55 s in) | 5 | 4 | 5 x 0.08 + 4 = 4.42 | allow |
+
+      The estimate is wrong only when the previous window's traffic was very unevenly distributed, and it errs on the strict side for the pattern that matters (a burst at the end of the previous window). Cloudflare published measurements showing well under 1% misclassification at scale. This is the default worth reaching for.
+  - term: token bucket
+    short: A bucket refills at a constant rate up to a capacity; each request spends one token. Capacity sets the burst, refill rate sets the sustained rate.
+    see: [ leaky bucket, burst, GCRA, sliding window counter ]
+    detail: |-
+      The two knobs map directly onto the two things you actually care about, which is why this is the algorithm most public APIs use.
+
+      | Knob | Controls | Typical |
+      | --- | --- | --- |
+      | capacity | largest burst allowed after idling | 1–10x the per-second rate |
+      | refill rate | long-run sustained throughput | the published limit divided by the period |
+      | cost per request | weighting expensive calls | 1 normally; 10 for a report; 0 for a health check |
+
+      You do not run a timer. Store `(tokens, last_refill)` and compute lazily on each request: `tokens = min(capacity, tokens + (now − last_refill) x rate)`. Two fields, one key, O(1).
+
+      Variable cost is the quiet superpower: charge a search 1 token and a bulk export 50, and a single limit then expresses "work per second" rather than "calls per second". Most cloud APIs are token buckets underneath.
+  - term: leaky bucket
+    short: Arrivals queue in a bucket that drains at a fixed rate; overflow is dropped. Output is perfectly smooth, at the price of added latency.
+    see: [ token bucket, backpressure, concurrency limiting ]
+    detail: |-
+      Two variants share the name. The **queue** form (below) actually holds requests and releases them at a constant rate — traffic <em>shaping</em>. The **meter** form holds only a level that drains over time and rejects immediately when full, which is mathematically the mirror image of a token bucket and what most libraries mean.
+
+      | Form | On excess | Equivalent to |
+      | --- | --- | --- |
+      | **Queue** (shaping) | delays the request; drops only when the queue is full | nothing else here — it trades errors for latency |
+      | **Meter** (level that drains) | rejects immediately | the mirror image of a **token bucket**: level up instead of tokens down |
+
+      Animation 5 in "How it works" walks the queueing form through the same nine requests the other algorithms saw — it is the only one that rejected nothing and the only one that added 56 seconds of latency.
+
+      Use the queueing form when the downstream is the thing you are protecting and a little latency is cheaper than a rejection — writing to a legacy ERP, calling a partner with a hard contractual rate. Use the metering form for ordinary API limits, where it is simply a token bucket with the arithmetic inverted.
+  - term: GCRA
+    short: "Generic Cell Rate Algorithm: a leaky bucket stored as a single timestamp, the \"theoretical arrival time\". One field, exact, no boundary burst."
+    see: [ token bucket, leaky bucket, distributed counters ]
+    detail: |-
+      Borrowed from ATM networking. Instead of a level that decays, store the **theoretical arrival time** (TAT) of the next permitted request. With an emission interval `T = period / limit` and a burst tolerance `tau = (burst − 1) x T`:
+
+      ```
+      if now < tat - tau:      reject, retry after (tat - tau) - now
+      else:                    tat = max(now, tat) + T ; allow
+      ```
+
+      #### Why it is nice
+
+      - One value per key instead of a counter plus a timestamp: a single `GET`/`SET`, trivially atomic.
+      - It yields the exact retry-after for free, which a counter cannot give you.
+      - There is no window boundary at all, so there is no boundary burst.
+
+      This is what `redis-cell` (`CL.THROTTLE`) implements, and what several Go and Rust limiters use. The maths is unfamiliar at first glance; the implementation is four lines.
+  - term: burst
+    short: "How far above the sustained rate a caller may go for a short time. Some burst is a feature: it absorbs page loads that fire ten calls at once."
+    see: [ token bucket, fixed window counter, jitter ]
+    detail: |-
+      Real clients are bursty by nature: one page render fans out into a dozen API calls. A limiter with zero burst tolerance rejects correct, well-behaved traffic.
+
+      | Algorithm | Burst you get |
+      | --- | --- |
+      | Fixed window | up to 2x the limit, accidentally, at the boundary |
+      | Sliding window counter | slightly over the limit, bounded |
+      | Sliding window log | none — exactly the limit |
+      | Token bucket | exactly the capacity, deliberately |
+      | Leaky bucket (queue) | none in the output; the queue absorbs it as latency |
+      | GCRA | exactly tau, deliberately |
+
+      Rule of thumb: set burst to the number of calls one user action legitimately produces, usually 5–20. Deliberate burst in a token bucket is safe; accidental burst in a fixed window is not, because it clusters on the clock across <em>all</em> your callers at once.
+  - term: 429 and Retry-After
+    short: "The HTTP contract: status `429`, a `Retry-After` header in seconds, and `RateLimit-*` headers so clients can self-regulate before being rejected."
+    see: [ jitter, limit and window ]
+    detail: |-
+      A rejection that does not say when to come back forces clients to guess, and they guess badly. The IETF `RateLimit` header fields give a standard shape:
+
+      ```yaml
+      HTTP/1.1 429 Too Many Requests
+      Retry-After: 7
+      RateLimit-Limit: 100
+      RateLimit-Remaining: 0
+      RateLimit-Reset: 7
+      ```
+
+      | Status | Means | Client should |
+      | --- | --- | --- |
+      | `429` | you exceeded <em>your</em> limit | back off, retry after the hint |
+      | `503` + `Retry-After` | the service is overloaded | back off harder: the whole fleet is affected |
+      | `403` | never allowed | stop, do not retry |
+
+      Send `RateLimit-Remaining` on <em>successful</em> responses too — that is what lets a well-written client slow down before it hits the wall. And keep the `429` body small and uncached: rejections should be the cheapest response you produce.
+  - term: distributed counters
+    short: With <em>n</em> instances behind a load balancer the counter must be shared and the check must be atomic, usually one Redis round trip running a Lua script.
+    see: [ local vs centralized, quota key, fixed window counter ]
+    figure:
+      svg: rate-limiting/figure-distributed-counters.svg
+      alt: Two instances both read the counter at 99 and both allow, letting the limit be exceeded
+    detail: |-
+      Read-then-write across the network is a race: two instances both read 99, both allow, and a limit of 100 passes 101. The check and the increment must be one operation.
+
+      ```lua
+      -- token bucket, atomic, one round trip
+      local t   = redis.call('HMGET', KEYS[1], 'tokens', 'ts')
+      local now, rate, cap = tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3])
+      local tokens = math.min(cap, (tonumber(t[1]) or cap) + (now - (tonumber(t[2]) or now)) * rate)
+      if tokens < 1 then return {0, math.ceil((1 - tokens) / rate)} end
+      redis.call('HSET', KEYS[1], 'tokens', tokens - 1, 'ts', now)
+      redis.call('EXPIRE', KEYS[1], math.ceil(cap / rate) + 1)
+      return {1, 0}
+      ```
+
+      ::figure::
+
+      #### Budget it
+
+      | Concern | Guidance |
+      | --- | --- |
+      | Added latency | 0.3–1 ms per request on a same-zone Redis |
+      | Clock source | use `redis.call('TIME')` or one server clock — never each app server's own |
+      | Store is down | decide <em>fail-open</em> or <em>fail-closed</em> in advance, with a tight timeout (5–20 ms) |
+      | Hot key | one global limit is one key on one node; shard it or limit per tenant |
+
+      Redis is the usual store because `INCR`, Lua and `EXPIRE` are exactly the primitives needed, and single-threaded execution makes each script atomic for free.
+  - term: local vs centralized
+    short: Count per instance (fast, approximate, drifts with autoscaling) or in a shared store (exact, adds a network hop). Many systems do both.
+    see: [ distributed counters, load shedding ]
+    detail: |-
+      Dividing a global limit by the instance count is tempting and usually wrong: load balancers are not perfectly even, and the divisor changes every time Kubernetes scales the deployment.
+
+      | Approach | Latency | Accuracy | Use when |
+      | --- | --- | --- | --- |
+      | Per-instance, limit / n | 0 ms | poor under uneven balancing | coarse protection, huge limits |
+      | Central store per request | +0.3–1 ms | exact | paid quotas, small limits |
+      | Local bucket + periodic sync | ~0 ms | good, bounded drift | very high RPS, limits in the thousands |
+
+      The hybrid is how large gateways do it: each instance holds a local allowance, spends from it with no network call, and reconciles with the shared store every few hundred milliseconds. You trade a bounded overshoot for zero added latency on the hot path.
+  - term: concurrency limiting
+    short: Capping requests <em>in flight</em> with a semaphore rather than requests per second. Often the limit that actually protects you.
+    see: [ leaky bucket, backpressure, limit and window ]
+    detail: |-
+      Rate and concurrency are different failure modes. 100 requests per second that each take 10 ms is 1 concurrent request; 100 per second that each take 2 s is 200 — and 200 threads, 200 connections, 200 open transactions.
+
+      | Limit type | Protects against | Tool |
+      | --- | --- | --- |
+      | Requests / second | abuse, cost, fairness | token bucket, sliding window |
+      | Concurrent requests | thread and connection exhaustion, slow dependencies | semaphore, bulkhead |
+      | Queue depth + timeout | unbounded latency under overload | bounded queue, shed on full |
+
+      Little's Law ties them together: `concurrency = rate x latency`. If your dependency slows from 50 ms to 500 ms, the same request rate produces ten times the concurrency — which is why a service with only a rate limit still dies when its database gets slow. Set both.
+  - term: load shedding
+    short: Dropping work when the system itself is in trouble, regardless of whose quota it is. A rate limit is a contract; shedding is survival.
+    see: [ backpressure, concurrency limiting, local vs centralized ]
+    detail: |-
+      Quota limits are static and per-caller. Load shedding is dynamic and global: it reacts to <em>your</em> health signals — queue depth, p99 latency, CPU, pool saturation — and rejects whatever keeps the service alive.
+
+      - **Priority-aware:** shed background sync and analytics before interactive traffic. Tag requests with a criticality on the way in.
+      - **Shed early:** rejecting at the front door costs microseconds; rejecting after the database call has already cost you the database call.
+      - **Drop the oldest:** a request that has waited 5 s probably belongs to a client that already timed out. Under overload, LIFO sheds better than FIFO.
+
+      Signal it with `503` and `Retry-After`, not `429`: the caller did nothing wrong, and the distinction tells their on-call engineer where the problem actually is.
+  - term: backpressure
+    short: Pushing the "slow down" signal upstream instead of silently queueing. A bounded queue that blocks the producer is backpressure; an unbounded one is a time bomb.
+    see: [ leaky bucket, load shedding, concurrency limiting ]
+    detail: |-
+      Every unbounded buffer turns an overload into a latency disaster: memory grows, requests sit behind work nobody is waiting for any more, and recovery takes longer than the incident.
+
+      - Bound every queue, and decide what happens when it is full: block the producer, drop the newest, or drop the oldest.
+      - Give every queued item a deadline and discard it when the deadline passes, rather than serving a response nobody will read.
+      - In a pull-based system — a consumer group reading from Apache Kafka, or a job queue — backpressure is automatic: the consumer simply fetches more slowly and the broker holds the backlog.
+
+      A rate limiter is backpressure made explicit at an HTTP boundary, where no protocol-level mechanism exists.
+  - term: jitter
+    short: Randomness added to retry delays and to window or cache expiry so that clients do not all come back at the same instant.
+    see: [ 429 and Retry-After, fixed window counter, burst ]
+    detail: |-
+      Without jitter, a limiter <em>creates</em> the herd it is meant to prevent: every rejected client is told the same reset time, sleeps the same number of seconds, and returns in the same millisecond.
+
+      ```
+      // exponential backoff with full jitter
+      delay = random(0, min(cap, base * 2 ** attempt))
+      ```
+
+      | Strategy | Spread | Verdict |
+      | --- | --- | --- |
+      | Fixed delay | none | synchronises the herd |
+      | Exponential, no jitter | none | still synchronised, just later |
+      | Exponential + full jitter | excellent | the sane default |
+      | Decorrelated jitter | excellent | better throughput during long outages |
+
+      Cap the total attempts and respect `Retry-After` when it is present. Retries that ignore a `429` are the single most effective way to turn a small limit breach into an outage.
+commands:
+  heading: Essential commands & syntax
+  tocLabel: Commands
+  groups:
+    - group: ASP.NET Core (built-in middleware)
+      items:
+        - lang: csharp
+          code: |-
+            builder.Services.AddRateLimiter(o =>
+            {
+                o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+                o.AddFixedWindowLimiter("fixed", opt =>
+                {
+                    opt.PermitLimit = 100;
+                    opt.Window = TimeSpan.FromMinutes(1);
+                    opt.QueueLimit = 0;
+                });
+            });
+            app.UseRateLimiter();
+          what: A fixed-window limiter named `fixed` that rejects instead of queueing.
+        - lang: csharp
+          code: |-
+            o.AddTokenBucketLimiter("burst", opt =>
+            {
+                opt.TokenLimit = 20;                               // burst capacity
+                opt.TokensPerPeriod = 5;                           // sustained rate
+                opt.ReplenishmentPeriod = TimeSpan.FromSeconds(1);
+                opt.AutoReplenishment = true;
+            });
+          what: "Token bucket: 5 requests/second sustained, up to 20 in a burst."
+        - lang: csharp
+          code: |-
+            o.AddPolicy("per-tenant", ctx => RateLimitPartition.GetSlidingWindowLimiter(
+                partitionKey: ctx.User.FindFirst("tenant")?.Value
+                              ?? ctx.Connection.RemoteIpAddress!.ToString(),
+                _ => new SlidingWindowRateLimiterOptions
+                     { PermitLimit = 600, Window = TimeSpan.FromMinutes(1), SegmentsPerWindow = 6 }));
+          what: A sliding window partitioned per tenant, falling back to the caller's IP.
+        - lang: csharp
+          code: app.MapGet("/reports/{id}", Handler).RequireRateLimiting("per-tenant");
+          what: Applies a named policy to one endpoint; `[EnableRateLimiting]` does the same on controllers.
+        - lang: csharp
+          code: |-
+            o.OnRejected = async (ctx, _) =>
+            {
+                if (ctx.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retry))
+                    ctx.HttpContext.Response.Headers.RetryAfter = ((int)retry.TotalSeconds).ToString();
+            };
+          what: Adds the `Retry-After` header, which the framework does not send by default.
+    - group: Redis (shared counters across instances)
+      items:
+        - lang: bash
+          code: |-
+            INCR rl:acme:202611101005
+            EXPIRE rl:acme:202611101005 120 NX
+          what: "Fixed window: one counter per minute, self-cleaning. `NX` keeps the first TTL."
+        - lang: bash
+          code: |-
+            ZREMRANGEBYSCORE rl:acme 0 1762770000000
+            ZCARD rl:acme
+            ZADD rl:acme 1762770060000 1762770060000-7f3a
+          what: "Sliding window log: trim, count, record. Wrap it in a Lua script to make it atomic."
+        - lang: bash
+          code: |-
+            CL.THROTTLE rl:acme 15 30 60 1
+            # -> 0 16 30 -1 2   (allowed, remaining, limit, retry_after, reset_after)
+          what: "GCRA in one command via the `redis-cell` module: burst 15, 30 per 60 s."
+        - lang: bash
+          code: EVALSHA $sha 1 rl:acme $(date +%s) 5 20
+          what: "Runs the token-bucket Lua script atomically: one round trip, no race."
+    - group: Edge and proxy
+      items:
+        - code: |-
+            limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+            server {
+              location /api/ {
+                limit_req zone=api burst=20 nodelay;
+                limit_req_status 429;
+              }
+            }
+          what: "nginx leaky bucket: 10 r/s per IP, 20 burst served immediately with `nodelay`. A 10 MB zone holds roughly 160k addresses."
+        - code: "limit_req zone=api burst=20;      # without nodelay"
+          what: "Same limit, but the burst is <em>queued</em> and released at 10 r/s: the shaping form of a leaky bucket."
+        - code: |-
+            <rate-limit-by-key calls="600" renewal-period="60"
+                counter-key="@(context.Subscription.Id)"
+                remaining-calls-header-name="RateLimit-Remaining" />
+          what: "An Azure API Management policy: a per-subscription limit enforced before your code runs."
+    - group: Python, client side (living with someone else's limit)
+      items:
+        - lang: python
+          code: |-
+            import random, time, httpx
+
+            def call(url, attempt=0):
+                r = httpx.get(url)
+                if r.status_code == 429 and attempt < 5:
+                    wait = float(r.headers.get("Retry-After", 0)) or min(60, 2 ** attempt)
+                    time.sleep(random.uniform(0, wait))      # full jitter
+                    return call(url, attempt + 1)
+                return r
+          what: Honours `Retry-After`, falls back to exponential backoff, jitters so retries never synchronise, and gives up.
+        - code: "r.headers[\"RateLimit-Remaining\"]   # slow down before you are rejected"
+          what: "Read the budget on successful responses: the cheapest way to never see a 429."
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - Turns an unbounded failure (everything times out) into a bounded, explainable one (some calls get a 429).
+      - Rejection is orders of magnitude cheaper than service, so you can say no to far more traffic than you could ever serve.
+      - "Fairness between tenants: one customer's bad deploy stops being everyone's incident."
+      - Caps cost directly when per-request spend is real — LLM tokens, SMS, metered third-party APIs.
+      - A credible defence against credential stuffing, scraping and enumeration, at almost no engineering cost.
+      - The policy is a documented contract, so client authors can build correct backoff instead of guessing.
+  bad:
+    heading: Cons
+    items:
+      - A shared counter puts a network hop and a hard dependency on the hot path of every request.
+      - "Limits are guesses until measured: too tight breaks correct clients, too loose protects nothing."
+      - Rate limits do not protect against slow dependencies — only a concurrency limit does.
+      - "Keys are gameable: IPs rotate, accounts are free, and NAT makes IP limits punish innocents."
+      - Rejections push work onto clients, and badly written clients answer a 429 with more retries.
+      - Many layers of limiter (CDN, gateway, app, connection pool) interact in ways nobody has modelled.
+when:
+  note: If you can't name the key and the number, you don't have a rate limit — you have a vibe.
+  good:
+    heading: Use it when…
+    items:
+      - The endpoint is reachable by anyone on the internet, authenticated or not.
+      - One caller can plausibly consume capacity that other callers paid for.
+      - "A request costs real money: LLM tokens, SMS, a metered partner API."
+      - "The endpoint is a known abuse target: login, signup, password reset, search, export."
+      - You depend on something with a published limit you must not exceed as a fleet.
+      - You need a hard answer to "what happens when traffic is 10x normal?"
+  bad:
+    heading: Avoid it when…
+    items:
+      - The real risk is slow dependencies, not request volume. Use a **concurrency limit / bulkhead** plus timeouts.
+      - The caller is one trusted internal service with predictable traffic. Use **capacity planning and alerts**; a limit there only adds an outage mode.
+      - Work is already pull-based through a queue. The consumer's own pace is the limit, so use **Apache Kafka** or a job queue, not an HTTP limiter.
+      - You only want to bound cost after the fact. Use **budgets and quota alerts**, not per-request rejection.
+      - Traffic is bursty by design and must not be dropped. Use a **bounded queue** and process asynchronously.
+      - You cannot identify callers at all. Fix **authentication** first, or you are only limiting IP addresses.
+useCases:
+  - title: Public API with paid tiers
+    body: A SaaS sells Free (60 req/min), Pro (600) and Enterprise (6,000). A token bucket keyed on the API key, with capacity around a tenth of the minute limit, allows natural page-load bursts while enforcing the sustained rate. `RateLimit-*` headers on every response let customers build their own dashboards, and upgrade when they see themselves hitting the ceiling.
+  - title: Login endpoint under credential stuffing
+    body: An attacker tries one password against a million accounts from a botnet. An IP limit alone fails (thousands of IPs) and an account limit alone fails (one attempt each). Two limiters in series — 10 attempts per 15 min per account <em>and</em> 50 per hour per IP, with a sliding window log for exactness — make the attack uneconomic while a user who mistypes twice notices nothing.
+  - title: Protecting a legacy backend
+    body: "An ERP accepts 20 writes per second before it starts timing out. The integration service puts a queueing leaky bucket in front: bursts from the webshop queue up and drain at 18/s, with a bounded queue that returns 503 when full. The ERP never sees a spike, and the webshop sees a few seconds of extra latency instead of a failed sync."
+  - title: Fan-out to a metered third party
+    body: A fleet of workers on Kubernetes calls a geocoding API billed per request and capped at 500/s for the whole account. Per-pod limits overshoot whenever the deployment scales, so the workers share one Redis token bucket at 450/s, leaving 10% of headroom. The limiter doubles as the cost cap.
+  - title: Shedding load during an incident
+    body: A payments service degrades when its database fails over. A concurrency limiter caps in-flight requests at 200; beyond that, requests tagged `background` (reconciliation, reporting) are shed with 503 while interactive checkout traffic is still served. The service stays up at reduced function instead of queueing itself to death.
+gotchas:
+  items:
+    - mistake: Read, decide, then increment — in two round trips
+      why: Two instances both read 99 against a limit of 100 and both allow. Under load this leaks far more than it looks, because the window of the race is a whole network round trip.
+      fix: make the check-and-update one atomic operation — a Lua script, `CL.THROTTLE`, or a single `INCR` whose return value <em>is</em> the decision.
+    - mistake: Dividing the global limit by the instance count
+      why: "\"6,000/min across 10 pods, so 600 each\" breaks the moment the load balancer is uneven or Kubernetes scales to 12. Some callers get rejected at half the advertised limit."
+      fix: use a shared store for anything customer-facing, or a local bucket that reconciles with a shared allowance. If you must divide, over-provision each share and accept the overshoot.
+    - mistake: Rejecting with no `Retry-After`
+      why: The client cannot tell whether to come back in 1 second or 10 minutes, so it retries immediately — turning one rejection into a retry storm that keeps the limit permanently exhausted.
+      fix: always send `Retry-After` plus `RateLimit-Remaining` and `RateLimit-Reset`, including on successful responses so clients can slow down pre-emptively.
+    - mistake: Counting after the expensive work
+      why: The limiter sits behind authentication, deserialisation and a database lookup, so each rejected request still costs most of a served one. Under attack the limiter itself becomes the bottleneck.
+      fix: limit as early as the key allows — IP at the edge, API key right after a cheap token check — and keep the 429 response body tiny.
+    - mistake: Trusting `X-Forwarded-For` blindly
+      why: Anyone can send that header. If your limiter reads the leftmost value, an attacker rotates a fake IP per request and the per-IP limit never triggers.
+      fix: take the client IP from the rightmost trusted hop, configure your proxy's known-networks list (`ForwardedHeadersOptions.KnownProxies` in ASP.NET Core), and limit IPv6 by /64 rather than by full address.
+    - mistake: No decision about what happens when the store is down
+      why: Redis blips and either every request is rejected (fail-closed, a self-inflicted outage) or every request is allowed (fail-open, undefended) — whichever your library happened to choose.
+      fix: choose per endpoint, write it down, and test it. Fail open for ordinary read APIs with a short timeout; fail closed for login and anything that spends money.
+    - mistake: Health checks sharing the limit
+      why: Probes, synthetic monitors and admin tooling consume quota, so a traffic spike makes your monitoring go red for the wrong reason — or hides a real outage behind 429s.
+      fix: exempt health and readiness endpoints explicitly, and give internal service accounts their own key and their own policy.
+    - mistake: Counting requests when the cost varies 100x
+      why: A limit of 100/min treats a cached key lookup and a 30-second report export identically, so the cheap path is throttled while the expensive one still melts the database.
+      fix: use a weighted token bucket — charge tokens proportional to cost — or add a separate, much tighter limit on the expensive routes.
+alternatives:
+  columns:
+    - Approach
+    - Best for
+    - Complexity
+    - Cost / license
+    - Key difference vs a rate limit
+  rows:
+    - self: true
+      cells:
+        - "**Rate limiting**"
+        - fairness, abuse, cost caps per caller
+        - Low–medium
+        - free in most frameworks
+        - —
+    - cells:
+        - "**Concurrency limit / bulkhead**"
+        - protecting threads, pools and slow dependencies
+        - Low
+        - free (Polly, semaphores)
+        - Caps work <em>in flight</em>, not per second; survives latency spikes a rate limit ignores
+    - cells:
+        - "**Circuit breaker**"
+        - a dependency that is already failing
+        - Low
+        - free (Polly, Resilience4j)
+        - Reacts to errors, not volume; stops calling rather than stops being called
+    - cells:
+        - "**Queue + async processing**"
+        - bursty work that must not be dropped
+        - Medium
+        - infrastructure cost
+        - Defers instead of rejecting; changes the API contract to asynchronous
+    - cells:
+        - "**Autoscaling**"
+        - genuine, paid-for growth in demand
+        - Medium
+        - pay per instance
+        - Buys capacity instead of refusing work; too slow for a sudden burst, unbounded in cost
+    - cells:
+        - "**CAPTCHA / proof of work**"
+        - bots on signup and login flows
+        - Medium
+        - free to paid
+        - Raises the price per attempt instead of capping the count; hurts real users too
+    - cells:
+        - "**WAF / bot management**"
+        - distributed abuse from rotating IPs
+        - Medium–high
+        - paid service
+        - Identifies <em>who</em> to block from behaviour; a rate limit only counts
+  notes:
+    - "**Pick a concurrency limit** if your incidents start with \"the database got slow\" rather than \"traffic spiked\"."
+    - "**Pick a circuit breaker** if you are the <em>caller</em> and the thing you call is unhealthy."
+    - "**Pick a queue** if dropping the request is unacceptable and the client can be told \"accepted, check back later\"."
+    - "**Pick autoscaling** if the extra traffic is revenue and you would rather pay than reject."
+    - "**Pick a WAF** if the abuse already rotates across thousands of IPs and accounts; counting alone cannot see it."
+    - In practice, production systems run a rate limit <em>and</em> a concurrency limit <em>and</em> a circuit breaker. They fail differently, so they cover for each other.
+resources:
+  - url: https://learn.microsoft.com/aspnet/core/performance/rate-limit
+    title: Rate limiting middleware in ASP.NET Core
+    why: the four built-in algorithms, partitioning and queueing, with runnable samples.
+  - url: https://blog.cloudflare.com/counting-things-a-lot-of-different-things/
+    title: Cloudflare — Counting things, a lot of different things
+    why: why the sliding window counter approximation is good enough, with real measurements.
+  - url: https://stripe.com/blog/rate-limiters
+    title: Stripe — Scaling your API with rate limiters
+    why: the limiter types Stripe runs in production and why each one exists.
+  - url: https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/
+    title: AWS Builders' Library — Timeouts, retries and backoff with jitter
+    why: the client half of the problem, with the jitter maths.
+  - url: https://nginx.org/en/docs/http/ngx_http_limit_req_module.html
+    title: nginx `ngx_http_limit_req_module`
+    why: the reference leaky-bucket implementation, including what `burst` and `nodelay` really do.
+  - url: https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/
+    title: IETF RateLimit header fields
+    why: the standard shape for `RateLimit-Limit`, `-Remaining` and `-Reset`.

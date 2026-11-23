@@ -98,7 +98,6 @@
 
     <section id="how-it-works">
       <h2>How it works</h2>
-
       <div class="anim" id="anim-produce">
         <h3>Producing a record with a key</h3>
         <div class="stage">
@@ -166,7 +165,6 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-group">
         <h3>Consumer group: offsets, rebalance, failure</h3>
         <div class="stage">
@@ -217,150 +215,163 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>record</b><span>One event: optional key, value (bytes), timestamp and headers. Kafka does not care about the format; JSON, Avro and Protobuf are common.</span><template class="term-detail" data-see="topic, partition, offset, producer">
-<table><tr><th>Field</th><th>Example</th><th>Notes</th></tr>
-<tr><td>key</td><td><code>user-42</code></td><td>optional; decides the partition and enables compaction</td></tr>
-<tr><td>value</td><td><code>{"status":"paid"}</code></td><td>bytes: JSON, Avro, Protobuf…</td></tr>
-<tr><td>timestamp</td><td><code>1731234567890</code></td><td>creation or append time (ms)</td></tr>
-<tr><td>headers</td><td><code>trace-id: ab12</code></td><td>metadata, e.g. tracing, content type</td></tr></table>
-<p>Default maximum size is about <b>1 MB</b> (<code>message.max.bytes</code>). Typical events are 0.5–10 KB. Records are batched and compressed (lz4, zstd) by the producer, which is why throughput is so high.</p>
-<p>Use a <b>schema registry</b> with Avro or Protobuf so producers and consumers agree on the format as it evolves.</p>
+        <table><tr><th>Field</th><th>Example</th><th>Notes</th></tr>
+        <tr><td>key</td><td><code>user-42</code></td><td>optional; decides the partition and enables compaction</td></tr>
+        <tr><td>value</td><td><code>{"status":"paid"}</code></td><td>bytes: JSON, Avro, Protobuf…</td></tr>
+        <tr><td>timestamp</td><td><code>1731234567890</code></td><td>creation or append time (ms)</td></tr>
+        <tr><td>headers</td><td><code>trace-id: ab12</code></td><td>metadata, e.g. tracing, content type</td></tr></table>
+        <p>Default maximum size is about <b>1 MB</b> (<code>message.max.bytes</code>). Typical events are 0.5–10 KB. Records are batched and compressed (lz4, zstd) by the producer, which is why throughput is so high.</p>
+        <p>Use a <b>schema registry</b> with Avro or Protobuf so producers and consumers agree on the format as it evolves.</p>
         </template></div>
         <div class="term"><b>topic</b><span>A named stream of records, like <code>orders</code> or <code>user-signups</code>. Roughly a table name for events.</span><template class="term-detail" data-see="partition, retention, log compaction, record">
-<p>A topic is a named, partitioned log. Name it after the event, in a consistent style: <code>orders.placed.v1</code>, <code>payments.refunded</code>, <code>user-profiles</code> (compacted).</p>
-<h4>Settings you'll set per topic</h4>
-<ul><li><b>partitions</b>: parallelism and ordering unit (e.g. 6–12 for a busy topic).</li>
-<li><b>replication factor</b>: copies across brokers (3 in production).</li>
-<li><b>retention</b>: <code>retention.ms</code> (7 days default) or <code>retention.bytes</code>.</li>
-<li><b>cleanup.policy</b>: <code>delete</code> (by age/size) or <code>compact</code> (latest per key).</li></ul>
-<p>Avoid auto-created topics in production (<code>auto.create.topics.enable=false</code>): a typo silently creates a new, empty topic with default settings.</p>
+        <p>A topic is a named, partitioned log. Name it after the event, in a consistent style: <code>orders.placed.v1</code>, <code>payments.refunded</code>, <code>user-profiles</code> (compacted).</p>
+        <h4>Settings you'll set per topic</h4>
+        <ul>
+        <li><b>partitions</b>: parallelism and ordering unit (e.g. 6–12 for a busy topic).</li>
+        <li><b>replication factor</b>: copies across brokers (3 in production).</li>
+        <li><b>retention</b>: <code>retention.ms</code> (7 days default) or <code>retention.bytes</code>.</li>
+        <li><b>cleanup.policy</b>: <code>delete</code> (by age/size) or <code>compact</code> (latest per key).</li>
+        </ul>
+        <p>Avoid auto-created topics in production (<code>auto.create.topics.enable=false</code>): a typo silently creates a new, empty topic with default settings.</p>
         </template></div>
         <div class="term"><b>partition</b><span>A topic is split into partitions. Each one is an ordered, append-only log and the unit of parallelism and ordering.</span><template class="term-detail" data-see="topic, offset, consumer group, producer, leader / follower">
-<p>Each partition is an ordered log stored as segment files on a broker's disk, replicated to others. It is the unit of:</p>
-<ul><li><b>Ordering</b>: guaranteed within a partition only.</li>
-<li><b>Parallelism</b>: in a consumer group, at most one consumer per partition.</li>
-<li><b>Placement</b>: each partition has one leader broker.</li></ul>
-<h4>Choosing a count</h4>
-<p>Rule of thumb: <code>max(target throughput / per-consumer throughput, peak consumers)</code>. If one consumer handles 5 MB/s and you need 30 MB/s, you need at least 6. Common values: 3–12 for most topics, 30–100 for very high volume.</p>
-<p>You can add partitions later but never remove them, and adding them changes which partition each key maps to.</p>
+        <p>Each partition is an ordered log stored as segment files on a broker's disk, replicated to others. It is the unit of:</p>
+        <ul>
+        <li><b>Ordering</b>: guaranteed within a partition only.</li>
+        <li><b>Parallelism</b>: in a consumer group, at most one consumer per partition.</li>
+        <li><b>Placement</b>: each partition has one leader broker.</li>
+        </ul>
+        <h4>Choosing a count</h4>
+        <p>Rule of thumb: <code>max(target throughput / per-consumer throughput, peak consumers)</code>. If one consumer handles 5 MB/s and you need 30 MB/s, you need at least 6. Common values: 3–12 for most topics, 30–100 for very high volume.</p>
+        <p>You can add partitions later but never remove them, and adding them changes which partition each key maps to.</p>
         </template></div>
         <div class="term"><b>offset</b><span>The position of a record inside a partition (0, 1, 2…). Never reused. Consumers track progress by offset.</span><template class="term-detail" data-see="partition, committed offset, consumer group">
-<p>An offset is a record's position in its partition: 0, 1, 2… It never changes and is never reused, even after old records are deleted by retention or compaction (gaps are normal).</p>
-<ul><li><b>Log end offset</b>: where the next record will be written.</li>
-<li><b>Committed offset</b>: where a consumer group will resume.</li>
-<li><b>Lag</b> = log end offset − committed offset. The key health metric.</li></ul>
-<p>Reset where a group starts with <code>auto.offset.reset</code> (<code>earliest</code> / <code>latest</code>) for new groups, or explicitly with <code>kafka-consumer-groups.sh --reset-offsets --to-datetime 2026-11-10T08:00:00.000</code>.</p>
+        <p>An offset is a record's position in its partition: 0, 1, 2… It never changes and is never reused, even after old records are deleted by retention or compaction (gaps are normal).</p>
+        <ul>
+        <li><b>Log end offset</b>: where the next record will be written.</li>
+        <li><b>Committed offset</b>: where a consumer group will resume.</li>
+        <li><b>Lag</b> = log end offset − committed offset. The key health metric.</li>
+        </ul>
+        <p>Reset where a group starts with <code>auto.offset.reset</code> (<code>earliest</code> / <code>latest</code>) for new groups, or explicitly with <code>kafka-consumer-groups.sh --reset-offsets --to-datetime 2026-11-10T08:00:00.000</code>.</p>
         </template></div>
         <div class="term"><b>broker</b><span>A Kafka server. It stores partition replicas on disk and serves producers and consumers. A cluster usually has 3 or more.</span><template class="term-detail" data-see="KRaft controller, replication factor, leader / follower, partition">
-<p>A broker is one Kafka server process. It stores partition replicas in log segments on disk, serves producer and consumer requests for partitions it leads, and replicates from leaders for the others.</p>
-<h4>Typical sizing</h4>
-<p>3 brokers is the minimum for production with replication factor 3. Brokers commonly have 8–32 vCPU, 32–64 GB RAM (much of it used as OS page cache) and fast disks. A single broker can handle hundreds of MB/s and thousands of partitions.</p>
-<p>Clients connect to any broker via <code>bootstrap.servers</code>, fetch metadata, then talk directly to each partition's leader.</p>
+        <p>A broker is one Kafka server process. It stores partition replicas in log segments on disk, serves producer and consumer requests for partitions it leads, and replicates from leaders for the others.</p>
+        <h4>Typical sizing</h4>
+        <p>3 brokers is the minimum for production with replication factor 3. Brokers commonly have 8–32 vCPU, 32–64 GB RAM (much of it used as OS page cache) and fast disks. A single broker can handle hundreds of MB/s and thousands of partitions.</p>
+        <p>Clients connect to any broker via <code>bootstrap.servers</code>, fetch metadata, then talk directly to each partition's leader.</p>
         </template></div>
         <div class="term"><b>KRaft controller</b><span>The built-in Raft quorum that manages cluster metadata and elects partition leaders. Replaced ZooKeeper, which was removed in Kafka 4.0.</span><template class="term-detail" data-see="broker, leader / follower, ISR">
-<p>KRaft (Kafka Raft) is Kafka's built-in metadata quorum. A few controller nodes (3 or 5) replicate a metadata log containing topics, partitions, configs, ACLs and who leads what.</p>
-<ul><li>Elects partition leaders when a broker fails.</li>
-<li>Replaced ZooKeeper; ZooKeeper mode was removed in Kafka 4.0. Older clusters must migrate on 3.x first.</li>
-<li>Controllers can run on dedicated nodes (production) or combined with brokers (dev).</li></ul>
-<p>Benefit: one system to operate and secure, faster failover, and support for millions of partitions.</p>
+        <p>KRaft (Kafka Raft) is Kafka's built-in metadata quorum. A few controller nodes (3 or 5) replicate a metadata log containing topics, partitions, configs, ACLs and who leads what.</p>
+        <ul>
+        <li>Elects partition leaders when a broker fails.</li>
+        <li>Replaced ZooKeeper; ZooKeeper mode was removed in Kafka 4.0. Older clusters must migrate on 3.x first.</li>
+        <li>Controllers can run on dedicated nodes (production) or combined with brokers (dev).</li>
+        </ul>
+        <p>Benefit: one system to operate and secure, faster failover, and support for millions of partitions.</p>
         </template></div>
         <div class="term"><b>replication factor</b><span>How many copies of each partition exist on different brokers. 3 is the usual production value.</span><template class="term-detail" data-see="ISR, leader / follower, acks, broker">
-<p>RF = number of copies of each partition, each on a different broker.</p>
-<table><tr><th>RF</th><th>Survives</th><th>Use</th></tr>
-<tr><td>1</td><td>nothing: one disk failure loses data</td><td>local dev only</td></tr>
-<tr><td>2</td><td>1 broker, but no safety margin with <code>acks=all</code></td><td>rarely a good idea</td></tr>
-<tr><td>3</td><td>1 broker down while still accepting writes</td><td>production standard</td></tr></table>
-<p>Pair RF 3 with <code>min.insync.replicas=2</code> and <code>acks=all</code>: every acknowledged write is on at least 2 brokers. Storage cost is RF × data size.</p>
+        <p>RF = number of copies of each partition, each on a different broker.</p>
+        <table><tr><th>RF</th><th>Survives</th><th>Use</th></tr>
+        <tr><td>1</td><td>nothing: one disk failure loses data</td><td>local dev only</td></tr>
+        <tr><td>2</td><td>1 broker, but no safety margin with <code>acks=all</code></td><td>rarely a good idea</td></tr>
+        <tr><td>3</td><td>1 broker down while still accepting writes</td><td>production standard</td></tr></table>
+        <p>Pair RF 3 with <code>min.insync.replicas=2</code> and <code>acks=all</code>: every acknowledged write is on at least 2 brokers. Storage cost is RF × data size.</p>
         </template></div>
         <div class="term"><b>leader / follower</b><span>Each partition has one leader replica that handles reads and writes. Followers copy it and take over if it fails.</span><template class="term-detail" data-see="ISR, replication factor, broker, KRaft controller">
-<p>For each partition one replica is the <b>leader</b>: producers write to it and (by default) consumers read from it. <b>Followers</b> continuously fetch from the leader to stay in sync.</p>
-<p>When a leader's broker dies, the controller promotes an in-sync follower within seconds; clients refresh metadata and continue.</p>
-<p>Leaders are spread across brokers so load is balanced. Consumers can read from a nearby follower (rack-aware fetching) to save cross-zone traffic costs.</p>
+        <p>For each partition one replica is the <b>leader</b>: producers write to it and (by default) consumers read from it. <b>Followers</b> continuously fetch from the leader to stay in sync.</p>
+        <p>When a leader's broker dies, the controller promotes an in-sync follower within seconds; clients refresh metadata and continue.</p>
+        <p>Leaders are spread across brokers so load is balanced. Consumers can read from a nearby follower (rack-aware fetching) to save cross-zone traffic costs.</p>
         </template></div>
         <div class="term"><b>ISR</b><span>In-sync replicas: the followers that are caught up with the leader. Only they can become leader without data loss.</span><template class="term-detail" data-see="leader / follower, acks, replication factor">
-<p>The in-sync replica set is the leader plus the followers that have caught up within <code>replica.lag.time.max.ms</code> (30 s by default).</p>
-<ul><li>With <code>acks=all</code>, a write is acknowledged when every ISR member has it.</li>
-<li>If the ISR shrinks below <code>min.insync.replicas</code>, producers using <code>acks=all</code> get <code>NotEnoughReplicas</code> errors: Kafka chooses consistency over availability.</li>
-<li><code>unclean.leader.election.enable=false</code> (default) prevents an out-of-sync replica from becoming leader and silently losing data.</li></ul>
-<p>Alert on "under-replicated partitions": it means a broker is slow or down.</p>
+        <p>The in-sync replica set is the leader plus the followers that have caught up within <code>replica.lag.time.max.ms</code> (30 s by default).</p>
+        <ul>
+        <li>With <code>acks=all</code>, a write is acknowledged when every ISR member has it.</li>
+        <li>If the ISR shrinks below <code>min.insync.replicas</code>, producers using <code>acks=all</code> get <code>NotEnoughReplicas</code> errors: Kafka chooses consistency over availability.</li>
+        <li><code>unclean.leader.election.enable=false</code> (default) prevents an out-of-sync replica from becoming leader and silently losing data.</li>
+        </ul>
+        <p>Alert on "under-replicated partitions": it means a broker is slow or down.</p>
         </template></div>
         <div class="term"><b>acks</b><span>Producer setting for durability: <code>0</code> (fire and forget), <code>1</code> (leader only), <code>all</code> (every in-sync replica, the default since 3.0).</span><template class="term-detail" data-see="ISR, producer, replication factor">
-<table><tr><th>acks</th><th>Producer waits for</th><th>Risk</th><th>Latency</th></tr>
-<tr><td><code>0</code></td><td>nothing</td><td>lost silently on any error</td><td>lowest</td></tr>
-<tr><td><code>1</code></td><td>the leader</td><td>lost if the leader dies before followers copy it</td><td>low</td></tr>
-<tr><td><code>all</code> / <code>-1</code> (default)</td><td>all in-sync replicas</td><td>none, with min.insync.replicas ≥ 2</td><td>a few ms more</td></tr></table>
-<p>Since Kafka 3.0 producers default to <code>acks=all</code> and <code>enable.idempotence=true</code>, so retries can't create duplicates. Only lower them for metrics or logs you can afford to lose.</p>
+        <table><tr><th>acks</th><th>Producer waits for</th><th>Risk</th><th>Latency</th></tr>
+        <tr><td><code>0</code></td><td>nothing</td><td>lost silently on any error</td><td>lowest</td></tr>
+        <tr><td><code>1</code></td><td>the leader</td><td>lost if the leader dies before followers copy it</td><td>low</td></tr>
+        <tr><td><code>all</code> / <code>-1</code> (default)</td><td>all in-sync replicas</td><td>none, with min.insync.replicas ≥ 2</td><td>a few ms more</td></tr></table>
+        <p>Since Kafka 3.0 producers default to <code>acks=all</code> and <code>enable.idempotence=true</code>, so retries can't create duplicates. Only lower them for metrics or logs you can afford to lose.</p>
         </template></div>
         <div class="term"><b>producer</b><span>Client that writes records. It batches and compresses them, and picks the partition by hashing the key.</span><template class="term-detail" data-see="record, partition, acks">
-<p>The producer client batches records per partition, compresses them and sends them asynchronously.</p>
-<h4>Settings worth knowing</h4>
-<table><tr><th>Setting</th><th>Typical</th><th>Effect</th></tr>
-<tr><td><code>linger.ms</code></td><td>5–20 (default 5)</td><td>wait a bit to fill bigger batches</td></tr>
-<tr><td><code>batch.size</code></td><td>16–256 KB</td><td>max bytes per partition batch</td></tr>
-<tr><td><code>compression.type</code></td><td><code>lz4</code> / <code>zstd</code></td><td>less network and disk</td></tr>
-<tr><td><code>enable.idempotence</code></td><td><code>true</code></td><td>no duplicates on retry</td></tr></table>
-<p>Partitioning: keyed records go to <code>murmur2(key) % partitions</code>; records without a key are spread with a "sticky" partitioner that fills one batch at a time. For atomic writes across partitions, use <b>transactions</b> (<code>transactional.id</code>).</p>
+        <p>The producer client batches records per partition, compresses them and sends them asynchronously.</p>
+        <h4>Settings worth knowing</h4>
+        <table><tr><th>Setting</th><th>Typical</th><th>Effect</th></tr>
+        <tr><td><code>linger.ms</code></td><td>5–20 (default 5)</td><td>wait a bit to fill bigger batches</td></tr>
+        <tr><td><code>batch.size</code></td><td>16–256 KB</td><td>max bytes per partition batch</td></tr>
+        <tr><td><code>compression.type</code></td><td><code>lz4</code> / <code>zstd</code></td><td>less network and disk</td></tr>
+        <tr><td><code>enable.idempotence</code></td><td><code>true</code></td><td>no duplicates on retry</td></tr></table>
+        <p>Partitioning: keyed records go to <code>murmur2(key) % partitions</code>; records without a key are spread with a "sticky" partitioner that fills one batch at a time. For atomic writes across partitions, use <b>transactions</b> (<code>transactional.id</code>).</p>
         </template></div>
         <div class="term"><b>consumer group</b><span>Consumers sharing a <code>group.id</code>. Partitions are divided among them, so each record is processed by one member of the group.</span><template class="term-detail" data-see="committed offset, rebalance, partition">
-<p>All consumers with the same <code>group.id</code> share the work: each partition is assigned to exactly one member. Different groups are completely independent and each sees every record.</p>
-<table><tr><th>Partitions</th><th>Consumers</th><th>Result</th></tr>
-<tr><td>6</td><td>3</td><td>2 partitions each</td></tr>
-<tr><td>6</td><td>6</td><td>1 each: maximum parallelism</td></tr>
-<tr><td>6</td><td>8</td><td>2 consumers idle</td></tr></table>
-<p>Name groups after the application, not the instance: <code>billing-service</code>. Inspect with <code>kafka-consumer-groups.sh --describe --group billing-service</code>.</p>
+        <p>All consumers with the same <code>group.id</code> share the work: each partition is assigned to exactly one member. Different groups are completely independent and each sees every record.</p>
+        <table><tr><th>Partitions</th><th>Consumers</th><th>Result</th></tr>
+        <tr><td>6</td><td>3</td><td>2 partitions each</td></tr>
+        <tr><td>6</td><td>6</td><td>1 each: maximum parallelism</td></tr>
+        <tr><td>6</td><td>8</td><td>2 consumers idle</td></tr></table>
+        <p>Name groups after the application, not the instance: <code>billing-service</code>. Inspect with <code>kafka-consumer-groups.sh --describe --group billing-service</code>.</p>
         </template></div>
         <div class="term"><b>committed offset</b><span>The group's bookmark per partition, stored in the internal topic <code>__consumer_offsets</code>. A restart resumes from it.</span><template class="term-detail" data-see="offset, consumer group, rebalance">
-<p>The bookmark a group stores per partition in the internal topic <code>__consumer_offsets</code>. By convention it's the offset of the <b>next</b> record to read.</p>
-<table><tr><th>Commit…</th><th>Crash in between means</th><th>Delivery</th></tr>
-<tr><td>after processing</td><td>reprocessing some records</td><td>at-least-once (usual)</td></tr>
-<tr><td>before processing</td><td>skipping some records</td><td>at-most-once</td></tr>
-<tr><td>in a transaction with the output</td><td>nothing duplicated</td><td>exactly-once (Kafka-to-Kafka)</td></tr></table>
-<p><code>enable.auto.commit=true</code> commits every 5 s in the background, regardless of whether you finished processing: convenient but imprecise.</p>
+        <p>The bookmark a group stores per partition in the internal topic <code>__consumer_offsets</code>. By convention it's the offset of the <b>next</b> record to read.</p>
+        <table><tr><th>Commit…</th><th>Crash in between means</th><th>Delivery</th></tr>
+        <tr><td>after processing</td><td>reprocessing some records</td><td>at-least-once (usual)</td></tr>
+        <tr><td>before processing</td><td>skipping some records</td><td>at-most-once</td></tr>
+        <tr><td>in a transaction with the output</td><td>nothing duplicated</td><td>exactly-once (Kafka-to-Kafka)</td></tr></table>
+        <p><code>enable.auto.commit=true</code> commits every 5 s in the background, regardless of whether you finished processing: convenient but imprecise.</p>
         </template></div>
         <div class="term"><b>rebalance</b><span>Reassignment of partitions when consumers join, leave or crash. Processing pauses for affected partitions while it runs.</span><template class="term-detail" data-see="consumer group, committed offset, partition">
-<p>Triggered when a consumer joins, leaves, crashes (no heartbeat within <code>session.timeout.ms</code>, 45 s default) or takes too long between polls (<code>max.poll.interval.ms</code>, 5 min default).</p>
-<ul><li><b>Classic eager protocol</b>: everyone stops, all partitions are reassigned. "Stop-the-world".</li>
-<li><b>Cooperative</b> (incremental): only moved partitions pause.</li>
-<li><b>New consumer protocol</b> (KIP-848, Kafka 4.0+, <code>group.protocol=consumer</code>): the broker coordinates assignments; rebalances are faster and less disruptive.</li></ul>
-<p>Use <code>group.instance.id</code> (static membership) so a restarting pod gets its partitions back without a rebalance.</p>
+        <p>Triggered when a consumer joins, leaves, crashes (no heartbeat within <code>session.timeout.ms</code>, 45 s default) or takes too long between polls (<code>max.poll.interval.ms</code>, 5 min default).</p>
+        <ul>
+        <li><b>Classic eager protocol</b>: everyone stops, all partitions are reassigned. "Stop-the-world".</li>
+        <li><b>Cooperative</b> (incremental): only moved partitions pause.</li>
+        <li><b>New consumer protocol</b> (KIP-848, Kafka 4.0+, <code>group.protocol=consumer</code>): the broker coordinates assignments; rebalances are faster and less disruptive.</li>
+        </ul>
+        <p>Use <code>group.instance.id</code> (static membership) so a restarting pod gets its partitions back without a rebalance.</p>
         </template></div>
         <div class="term"><b>retention</b><span>How long records are kept: by time (<code>retention.ms</code>, 7 days by default) or size, whether consumed or not.</span><template class="term-detail" data-see="topic, log compaction, offset">
-<p>Kafka deletes old data per <b>segment</b> file (default 1 GB or 7 days per segment), once the whole segment is older than the retention limit.</p>
-<table><tr><th>Setting</th><th>Default</th><th>Typical</th></tr>
-<tr><td><code>retention.ms</code></td><td>7 days</td><td>1–30 days; <code>-1</code> = forever</td></tr>
-<tr><td><code>retention.bytes</code></td><td>unlimited</td><td>cap per partition</td></tr></table>
-<p>Retention is independent of consumption: unread records are deleted too, so lag must stay well below retention. <b>Tiered storage</b> can move old segments to object storage (S3, Azure Blob) for cheap long retention.</p>
+        <p>Kafka deletes old data per <b>segment</b> file (default 1 GB or 7 days per segment), once the whole segment is older than the retention limit.</p>
+        <table><tr><th>Setting</th><th>Default</th><th>Typical</th></tr>
+        <tr><td><code>retention.ms</code></td><td>7 days</td><td>1–30 days; <code>-1</code> = forever</td></tr>
+        <tr><td><code>retention.bytes</code></td><td>unlimited</td><td>cap per partition</td></tr></table>
+        <p>Retention is independent of consumption: unread records are deleted too, so lag must stay well below retention. <b>Tiered storage</b> can move old segments to object storage (S3, Azure Blob) for cheap long retention.</p>
         </template></div>
         <div class="term"><b>log compaction</b><span>Alternative cleanup policy that keeps only the latest record per key. Turns a topic into a changelog or table snapshot.</span><template class="term-detail" data-see="retention, record, topic">
-<p>With <code>cleanup.policy=compact</code>, Kafka keeps at least the <b>latest record per key</b> instead of deleting by age. The topic becomes a changelog: replaying it rebuilds the current state.</p>
-<div class="anim" id="compact-anim" data-steps="compact">
-  <h4>Compacting a user-address topic</h4>
-  <div class="stage">
-    <svg viewBox="0 0 560 210" role="img" aria-label="Animated log compaction keeping the latest record per key">
-      <text x="20" y="24" font-size="12" font-weight="600" fill="#23362e">partition 0 of topic user-addresses</text>
-      <g font-size="10.5" fill="#5f6f66" text-anchor="middle"><text x="55" y="44">0</text><text x="131" y="44">1</text><text x="207" y="44">2</text><text x="283" y="44">3</text><text x="359" y="44">4</text><text x="435" y="44">5</text><text x="511" y="44">6</text></g>
-      <g font-size="11" text-anchor="middle" font-family="Fira Code, monospace" fill="#23362e">
-        <g id="c-r0"><rect id="c-r0-r" x="20" y="50" width="70" height="50" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text x="55" y="70">user-1</text><text x="55" y="88" fill="#5f6f66">Rome</text></g>
-        <g id="c-r1"><rect id="c-r1-r" x="96" y="50" width="70" height="50" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text x="131" y="70">user-2</text><text x="131" y="88" fill="#5f6f66">Oslo</text></g>
-        <g id="c-r2"><rect id="c-r2-r" x="172" y="50" width="70" height="50" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text x="207" y="70">user-1</text><text x="207" y="88" fill="#5f6f66">Milan</text></g>
-        <g id="c-r3"><rect id="c-r3-r" x="248" y="50" width="70" height="50" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text x="283" y="70">user-3</text><text x="283" y="88" fill="#5f6f66">Lima</text></g>
-        <g id="c-r4"><rect id="c-r4-r" x="324" y="50" width="70" height="50" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text x="359" y="70">user-2</text><text x="359" y="88" fill="#5f6f66">Bern</text></g>
-        <g id="c-r5"><rect id="c-r5-r" x="400" y="50" width="70" height="50" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text x="435" y="70">user-3</text><text x="435" y="88" fill="#c53b3b">null</text></g>
-        <g id="c-r6"><rect id="c-r6-r" x="476" y="50" width="70" height="50" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text x="511" y="70">user-1</text><text x="511" y="88" fill="#5f6f66">Turin</text></g>
-      </g>
-      <text id="c-state" x="20" y="140" font-size="12" fill="#23362e" font-family="Fira Code, monospace">state if replayed: user-1=Turin, user-2=Bern</text>
-      <text id="c-note" class="hand hidden" x="20" y="185" font-size="15" fill="#c53b3b">offsets never shift: gaps after compaction are normal</text>
-    </svg>
-  </div>
-  <div class="controls"></div><div class="narration"></div>
-</div>
-<p>Used for Kafka Streams state stores, CDC tables, configuration and <code>__consumer_offsets</code> itself. Compaction runs in the background and never touches the active segment, so recent duplicates can still be read.</p>
+        <p>With <code>cleanup.policy=compact</code>, Kafka keeps at least the <b>latest record per key</b> instead of deleting by age. The topic becomes a changelog: replaying it rebuilds the current state.</p>
+        <div class="anim" id="compact-anim" data-steps="compact">
+          <h4>Compacting a user-address topic</h4>
+          <div class="stage">
+            <svg viewBox="0 0 560 210" role="img" aria-label="Animated log compaction keeping the latest record per key">
+              <text x="20" y="24" font-size="12" font-weight="600" fill="#23362e">partition 0 of topic user-addresses</text>
+              <g font-size="10.5" fill="#5f6f66" text-anchor="middle"><text x="55" y="44">0</text><text x="131" y="44">1</text><text x="207" y="44">2</text><text x="283" y="44">3</text><text x="359" y="44">4</text><text x="435" y="44">5</text><text x="511" y="44">6</text></g>
+              <g font-size="11" text-anchor="middle" font-family="Fira Code, monospace" fill="#23362e">
+                <g id="c-r0"><rect id="c-r0-r" x="20" y="50" width="70" height="50" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text x="55" y="70">user-1</text><text x="55" y="88" fill="#5f6f66">Rome</text></g>
+                <g id="c-r1"><rect id="c-r1-r" x="96" y="50" width="70" height="50" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text x="131" y="70">user-2</text><text x="131" y="88" fill="#5f6f66">Oslo</text></g>
+                <g id="c-r2"><rect id="c-r2-r" x="172" y="50" width="70" height="50" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text x="207" y="70">user-1</text><text x="207" y="88" fill="#5f6f66">Milan</text></g>
+                <g id="c-r3"><rect id="c-r3-r" x="248" y="50" width="70" height="50" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text x="283" y="70">user-3</text><text x="283" y="88" fill="#5f6f66">Lima</text></g>
+                <g id="c-r4"><rect id="c-r4-r" x="324" y="50" width="70" height="50" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text x="359" y="70">user-2</text><text x="359" y="88" fill="#5f6f66">Bern</text></g>
+                <g id="c-r5"><rect id="c-r5-r" x="400" y="50" width="70" height="50" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text x="435" y="70">user-3</text><text x="435" y="88" fill="#c53b3b">null</text></g>
+                <g id="c-r6"><rect id="c-r6-r" x="476" y="50" width="70" height="50" rx="4" fill="#fbfcf8" stroke="#a9b5a6"/><text x="511" y="70">user-1</text><text x="511" y="88" fill="#5f6f66">Turin</text></g>
+              </g>
+              <text id="c-state" x="20" y="140" font-size="12" fill="#23362e" font-family="Fira Code, monospace">state if replayed: user-1=Turin, user-2=Bern</text>
+              <text id="c-note" class="hand hidden" x="20" y="185" font-size="15" fill="#c53b3b">offsets never shift: gaps after compaction are normal</text>
+            </svg>
+          </div>
+          <div class="controls"></div>
+          <div class="narration"></div>
+        </div>
+        <p>Used for Kafka Streams state stores, CDC tables, configuration and <code>__consumer_offsets</code> itself. Compaction runs in the background and never touches the active segment, so recent duplicates can still be read.</p>
         </template></div>
         <div class="term"><b>Kafka Connect / Streams</b><span>Connect moves data between Kafka and other systems (databases, S3). Streams is a Java library for processing topics into new topics.</span><template class="term-detail" data-see="topic, consumer group, log compaction">
-<h4>Kafka Connect</h4>
-<p>A framework to move data in and out of Kafka with configuration instead of code. <b>Source</b> connectors read from systems (Debezium for PostgreSQL/MySQL CDC, JDBC, MQTT); <b>sink</b> connectors write to them (Elasticsearch, S3, Snowflake). Runs as a scalable cluster of workers.</p>
-<h4>Kafka Streams</h4>
-<p>A Java/Kotlin library (not a cluster) for processing topics into topics: filter, map, join, aggregate over time windows, with local state backed by compacted changelog topics and exactly-once support. Scales like a consumer group.</p>
-<p>Alternatives for processing: Apache Flink (bigger, any language via SQL), ksqlDB, or plain consumers in Python with <code>confluent-kafka</code> or Faust-style libraries.</p>
+        <h4>Kafka Connect</h4>
+        <p>A framework to move data in and out of Kafka with configuration instead of code. <b>Source</b> connectors read from systems (Debezium for PostgreSQL/MySQL CDC, JDBC, MQTT); <b>sink</b> connectors write to them (Elasticsearch, S3, Snowflake). Runs as a scalable cluster of workers.</p>
+        <h4>Kafka Streams</h4>
+        <p>A Java/Kotlin library (not a cluster) for processing topics into topics: filter, map, join, aggregate over time windows, with local state backed by compacted changelog topics and exactly-once support. Scales like a consumer group.</p>
+        <p>Alternatives for processing: Apache Flink (bigger, any language via SQL), ksqlDB, or plain consumers in Python with <code>confluent-kafka</code> or Faust-style libraries.</p>
         </template></div>
       </div>
     </section>
@@ -582,54 +593,37 @@ while True:
 
 <script src="../assets/player.js?v=3658cbc7"></script>
 <script>
-/* ---------- Animation 1: produce ---------- */
 createAnimation('anim-produce', [
-  { say: '<code>order-service</code> sends a record to topic <code>orders</code> with key <code>user-42</code> and value <code>"paid"</code>. The key is optional, but it decides where the record goes.',
-    show: ['p-msg'], hl: ['p-prod'] },
-  { say: 'Before anything leaves the client, the producer\'s <b>partitioner</b> picks the partition. The broker does not decide.',
-    move: { 'p-msg': [205, 0] }, unhl: ['p-prod'], hl: ['p-part'], text: { 'p-part-label': 'key = "user-42"' } },
-  { say: 'For keyed records it hashes the key and takes it modulo the partition count. Same key → same partition, every time. That is how Kafka keeps <b>per-key ordering</b>.',
-    text: { 'p-part-label': 'murmur2("user-42") % 3 = 1' }, hl: ['p-row-1'], show: ['p-arrow'] },
-  { say: 'The record is sent to the <b>leader</b> of partition 1 (broker B2), which appends it to the end of its log. Its position, <b>offset 4</b>, is its permanent ID in that partition. Nothing is updated in place.',
-    hide: ['p-msg'], show: ['p-new'], unhl: ['p-part'] },
-  { say: 'Follower replicas on B1 and B3 fetch the new record from the leader. Replicas that are caught up form the <b>in-sync replica set (ISR)</b>.',
-    show: ['p-rep-arrow'], unhl: ['p-row-1'], text: { 'p-f1-t': 'B1 · offsets 0…4 ✓', 'p-f3-t': 'B3 · offsets 0…4 ✓' }, fill: { 'p-f1': '#e3eedc', 'p-f3': '#e3eedc' } },
-  { say: 'With <code>acks=all</code> (the default), the leader answers only once every in-sync replica has the record, so losing one broker loses nothing.',
-    show: ['p-ack'] },
-  { say: 'The producer receives the partition and offset. Retries plus idempotence (on by default) mean a network hiccup won\'t write the record twice.',
-    move: { 'p-ack': [-210, 0] }, hl: ['p-prod'] },
-  { say: 'The record now stays on disk until retention expires (7 days by default), whether or not anyone reads it. Consumers only move their own offset; any number of groups can read it.',
-    show: ['p-note'], unhl: ['p-prod'] },
+  { say: "<code>order-service</code> sends a record to topic <code>orders</code> with key <code>user-42</code> and value <code>\"paid\"</code>. The key is optional, but it decides where the record goes.", show: ["p-msg"], hl: ["p-prod"] },
+  { say: "Before anything leaves the client, the producer's <b>partitioner</b> picks the partition. The broker does not decide.", hl: ["p-part"], unhl: ["p-prod"], move: {"p-msg":[205,0]}, text: {"p-part-label":"key = \"user-42\""} },
+  { say: "For keyed records it hashes the key and takes it modulo the partition count. Same key → same partition, every time. That is how Kafka keeps <b>per-key ordering</b>.", show: ["p-arrow"], hl: ["p-row-1"], text: {"p-part-label":"murmur2(\"user-42\") % 3 = 1"} },
+  { say: "The record is sent to the <b>leader</b> of partition 1 (broker B2), which appends it to the end of its log. Its position, <b>offset 4</b>, is its permanent ID in that partition. Nothing is updated in place.", show: ["p-new"], hide: ["p-msg"], unhl: ["p-part"] },
+  { say: "Follower replicas on B1 and B3 fetch the new record from the leader. Replicas that are caught up form the <b>in-sync replica set (ISR)</b>.", show: ["p-rep-arrow"], unhl: ["p-row-1"], text: {"p-f1-t":"B1 · offsets 0…4 ✓","p-f3-t":"B3 · offsets 0…4 ✓"}, fill: {"p-f1":"#e3eedc","p-f3":"#e3eedc"} },
+  { say: "With <code>acks=all</code> (the default), the leader answers only once every in-sync replica has the record, so losing one broker loses nothing.", show: ["p-ack"] },
+  { say: "The producer receives the partition and offset. Retries plus idempotence (on by default) mean a network hiccup won't write the record twice.", hl: ["p-prod"], move: {"p-ack":[-210,0]} },
+  { say: "The record now stays on disk until retention expires (7 days by default), whether or not anyone reads it. Consumers only move their own offset; any number of groups can read it.", show: ["p-note"], unhl: ["p-prod"] },
 ]);
 
-/* ---------- Animation 2: consumer group ---------- */
 createAnimation('anim-group', [
-  { say: 'Group <code>billing</code> has two consumers. Kafka assigns each partition to exactly one member: C1 gets P0 and P1, C2 gets P2.',
-    show: ['g-a-p0-c1', 'g-a-p1-c1', 'g-a-p2-c2'] },
-  { say: 'C1 polls P0 starting from the group\'s committed offset (12) and processes records 12, 13 and 14.',
-    hl: ['g-c1', 'g-p0'], text: { 'g-p0-off': 'processing 12…14' } },
-  { say: 'After processing, C1 <b>commits offset 15</b> (the next record to read) to the internal topic <code>__consumer_offsets</code>. That is the group\'s bookmark.',
-    show: ['g-commit'], text: { 'g-p0-off': 'committed: 15' }, fill: { 'g-p0': '#e3eedc' }, unhl: ['g-p0'] },
-  { say: 'A third consumer, C3, starts with the same <code>group.id</code>. The group coordinator triggers a <b>rebalance</b>.',
-    hide: ['g-commit'], show: ['g-c3'], unhl: ['g-c1'], hl: ['g-group'] },
-  { say: 'P1 moves from C1 to C3. Each consumer now owns one partition, which is the maximum parallelism for a 3-partition topic.',
-    hide: ['g-a-p1-c1'], show: ['g-a-p1-c3'], unhl: ['g-group'], text: { 'g-c1-sub': 'reads P0', 'g-c3-sub': 'reads P1' } },
-  { say: 'C2 crashes and stops sending heartbeats. After <code>session.timeout.ms</code> (45 s by default) the coordinator removes it and rebalances again.',
-    hide: ['g-a-p2-c2'], fill: { 'g-c2': '#f9e3df' }, text: { 'g-c2-title': 'C2 (crashed)', 'g-c2-sub': 'no heartbeat' }, hl: ['g-c2'] },
-  { say: 'P2 goes to C1, which resumes from P2\'s <b>last committed offset</b> (30). Records C2 processed but never committed are delivered again. This is <b>at-least-once</b> delivery, so handlers must be idempotent.',
-    show: ['g-a-p2-c1'], unhl: ['g-c2'], text: { 'g-c1-sub': 'reads P0, P2', 'g-p2-off': 'resume at 30' }, hl: ['g-p2'] },
-  { say: 'Adding a 4th consumer would not speed anything up: with 3 partitions it would get no assignment. Plan the partition count for your peak parallelism.',
-    show: ['g-note'], unhl: ['g-p2'] },
+  { say: "Group <code>billing</code> has two consumers. Kafka assigns each partition to exactly one member: C1 gets P0 and P1, C2 gets P2.", show: ["g-a-p0-c1","g-a-p1-c1","g-a-p2-c2"] },
+  { say: "C1 polls P0 starting from the group's committed offset (12) and processes records 12, 13 and 14.", hl: ["g-c1","g-p0"], text: {"g-p0-off":"processing 12…14"} },
+  { say: "After processing, C1 <b>commits offset 15</b> (the next record to read) to the internal topic <code>__consumer_offsets</code>. That is the group's bookmark.", show: ["g-commit"], unhl: ["g-p0"], text: {"g-p0-off":"committed: 15"}, fill: {"g-p0":"#e3eedc"} },
+  { say: "A third consumer, C3, starts with the same <code>group.id</code>. The group coordinator triggers a <b>rebalance</b>.", show: ["g-c3"], hide: ["g-commit"], hl: ["g-group"], unhl: ["g-c1"] },
+  { say: "P1 moves from C1 to C3. Each consumer now owns one partition, which is the maximum parallelism for a 3-partition topic.", show: ["g-a-p1-c3"], hide: ["g-a-p1-c1"], unhl: ["g-group"], text: {"g-c1-sub":"reads P0","g-c3-sub":"reads P1"} },
+  { say: "C2 crashes and stops sending heartbeats. After <code>session.timeout.ms</code> (45 s by default) the coordinator removes it and rebalances again.", hide: ["g-a-p2-c2"], hl: ["g-c2"], text: {"g-c2-title":"C2 (crashed)","g-c2-sub":"no heartbeat"}, fill: {"g-c2":"#f9e3df"} },
+  { say: "P2 goes to C1, which resumes from P2's <b>last committed offset</b> (30). Records C2 processed but never committed are delivered again. This is <b>at-least-once</b> delivery, so handlers must be idempotent.", show: ["g-a-p2-c1"], hl: ["g-p2"], unhl: ["g-c2"], text: {"g-c1-sub":"reads P0, P2","g-p2-off":"resume at 30"} },
+  { say: "Adding a 4th consumer would not speed anything up: with 3 partitions it would get no assignment. Plan the partition count for your peak parallelism.", show: ["g-note"], unhl: ["g-p2"] },
 ]);
-/* ---------- Concept panel animations ---------- */
+
+/* Animations inside key-concept panels */
 window.TERM_ANIMS = {
   compact: [
-    { say: 'A compacted topic of user addresses. The key is the user, the value is their latest address. Replaying it gives <code>user-1=Turin</code>, <code>user-2=Bern</code>, and no user-3.' },
-    { say: '<code>user-1</code> appears three times. Anyone rebuilding state only needs the last value, Turin at offset 6.', hl: ['c-r0-r', 'c-r2-r', 'c-r6-r'] },
-    { say: 'The log cleaner, a background thread on the broker, marks every record that has a newer record with the same key.', unhl: ['c-r0-r', 'c-r2-r', 'c-r6-r'], fill: { 'c-r0-r': '#f9e3df', 'c-r1-r': '#f9e3df', 'c-r2-r': '#f9e3df', 'c-r3-r': '#f9e3df' } },
-    { say: 'Those older versions are deleted. The survivors keep their original offsets 4, 5 and 6.', hide: ['c-r0', 'c-r1', 'c-r2', 'c-r3'], show: ['c-note'] },
-    { say: 'Offset 5 is a <b>tombstone</b>: key <code>user-3</code> with a <code>null</code> value means "delete user-3". It is kept for <code>delete.retention.ms</code> (24 h by default) so consumers see the deletion.', hl: ['c-r5-r'], fill: { 'c-r5-r': '#fbf3c4' } },
-    { say: 'Then the tombstone goes too. One record per live key remains: a table, stored as a log. A new consumer reading from the start gets exactly the current state.', unhl: ['c-r5-r'], hide: ['c-r5'], fill: { 'c-r4-r': '#e3eedc', 'c-r6-r': '#e3eedc' }, text: { 'c-state': 'compacted: user-1=Turin, user-2=Bern' } },
+    { say: "A compacted topic of user addresses. The key is the user, the value is their latest address. Replaying it gives <code>user-1=Turin</code>, <code>user-2=Bern</code>, and no user-3." },
+    { say: "<code>user-1</code> appears three times. Anyone rebuilding state only needs the last value, Turin at offset 6.", hl: ["c-r0-r","c-r2-r","c-r6-r"] },
+    { say: "The log cleaner, a background thread on the broker, marks every record that has a newer record with the same key.", unhl: ["c-r0-r","c-r2-r","c-r6-r"], fill: {"c-r0-r":"#f9e3df","c-r1-r":"#f9e3df","c-r2-r":"#f9e3df","c-r3-r":"#f9e3df"} },
+    { say: "Those older versions are deleted. The survivors keep their original offsets 4, 5 and 6.", show: ["c-note"], hide: ["c-r0","c-r1","c-r2","c-r3"] },
+    { say: "Offset 5 is a <b>tombstone</b>: key <code>user-3</code> with a <code>null</code> value means \"delete user-3\". It is kept for <code>delete.retention.ms</code> (24 h by default) so consumers see the deletion.", hl: ["c-r5-r"], fill: {"c-r5-r":"#fbf3c4"} },
+    { say: "Then the tombstone goes too. One record per live key remains: a table, stored as a log. A new consumer reading from the start gets exactly the current state.", hide: ["c-r5"], unhl: ["c-r5-r"], text: {"c-state":"compacted: user-1=Turin, user-2=Bern"}, fill: {"c-r4-r":"#e3eedc","c-r6-r":"#e3eedc"} },
   ],
 };
 </script>

@@ -39,8 +39,8 @@
       <h1>Rate limiting</h1>
       <p class="tagline">Say no on purpose, before the system says no by falling over.</p>
       <span class="meta">As of Nov 2026 · the algorithms are stable; only the implementations move</span>
-      <p>Every service has a capacity. Rate limiting is the decision, taken on each request, of whether this caller may proceed <em>now</em> &mdash; and the cheap, predictable rejection (<code>429 Too Many Requests</code>) when they may not. Without it, one buggy retry loop, one scraper or one noisy tenant consumes the capacity everybody else is paying for.</p>
-      <p>All the common algorithms answer the same question &mdash; "how many requests has this key made recently?" &mdash; and differ only in how they measure "recently" and how much burst they forgive. <b>Fixed window</b> counts per clock minute; <b>sliding window</b> smooths the boundary; <b>token bucket</b> saves up credit for bursts; <b>leaky bucket</b> flattens bursts into a constant output rate; <b>GCRA</b> gets the same answer from a single timestamp.</p>
+      <p>Every service has a capacity. Rate limiting is the decision, taken on each request, of whether this caller may proceed <em>now</em> — and the cheap, predictable rejection (<code>429 Too Many Requests</code>) when they may not. Without it, one buggy retry loop, one scraper or one noisy tenant consumes the capacity everybody else is paying for.</p>
+      <p>All the common algorithms answer the same question — "how many requests has this key made recently?" — and differ only in how they measure "recently" and how much burst they forgive. <b>Fixed window</b> counts per clock minute; <b>sliding window</b> smooths the boundary; <b>token bucket</b> saves up credit for bursts; <b>leaky bucket</b> flattens bursts into a constant output rate; <b>GCRA</b> gets the same answer from a single timestamp.</p>
       <p>You meet rate limiting in three places at once: at the edge (CDN, API gateway, nginx), in the application (ASP.NET Core's <code>RateLimiter</code> middleware, Envoy, a Redis script), and on the client side as the retry and backoff logic that has to live with somebody else's limits. The algorithms below are the same in all three.</p>
     </header>
 
@@ -93,13 +93,12 @@
       <p class="caption">Limit twice: coarsely at the edge so floods never reach your code, and precisely in the app where you know who the caller is and what they paid for.</p>
     </section>
 
-        <section id="how-it-works">
+    <section id="how-it-works">
       <h2>How it works</h2>
-      <p style="margin:0 0 18px">Every algorithm below is fed <b>exactly the same nine requests</b>, from one API key, against the same limit of <b>5 per minute</b>. Only the bookkeeping differs &mdash; and it produces a different set of rejections each time. Step through them in order and then read the comparison at the end.</p>
-      <span class="note" style="margin:-8px 0 18px">same input, six verdicts &mdash; that difference <i>is</i> the choice you're making</span>
-
+      <p>Every algorithm below is fed <b>exactly the same nine requests</b>, from one API key, against the same limit of <b>5 per minute</b>. Only the bookkeeping differs — and it produces a different set of rejections each time. Step through them in order and then read the comparison at the end.</p>
+      <span class="note" style="margin:-6px 0 14px">same input, six verdicts — that difference <em>is</em> the choice you're making</span>
       <div class="anim" id="anim-fixed">
-        <h3>1 &middot; Fixed window counter</h3>
+        <h3>1 · Fixed window counter</h3>
         <div class="stage">
           <svg viewBox="0 0 800 265" role="img" aria-label="Animated fixed window counter evaluating nine requests across a minute boundary">
             <text x="20" y="18" font-size="11" fill="#5f6f66">limit 5 / minute &middot; key = api-key:acme &middot; the same nine arrivals in every algorithm</text>
@@ -133,9 +132,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-log">
-        <h3>2 &middot; Sliding window log</h3>
+        <h3>2 · Sliding window log</h3>
         <div class="stage">
           <svg viewBox="0 0 800 265" role="img" aria-label="Animated sliding window log storing every request timestamp in a sorted set">
             <text x="20" y="18" font-size="11" fill="#5f6f66">limit 5 / minute &middot; key = api-key:acme &middot; the same nine arrivals in every algorithm</text>
@@ -164,9 +162,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-counter">
-        <h3>3 &middot; Sliding window counter</h3>
+        <h3>3 · Sliding window counter</h3>
         <div class="stage">
           <svg viewBox="0 0 800 265" role="img" aria-label="Animated sliding window counter weighting the previous minute by its overlap">
             <text x="20" y="18" font-size="11" fill="#5f6f66">limit 5 / minute &middot; key = api-key:acme &middot; the same nine arrivals in every algorithm</text>
@@ -197,9 +194,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-token">
-        <h3>4 &middot; Token bucket</h3>
+        <h3>4 · Token bucket</h3>
         <div class="stage">
           <svg viewBox="0 0 800 265" role="img" aria-label="Animated token bucket spending and refilling credit across nine requests">
             <text x="20" y="18" font-size="11" fill="#5f6f66">limit 5 / minute &middot; key = api-key:acme &middot; the same nine arrivals in every algorithm</text>
@@ -235,9 +231,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-leaky">
-        <h3>5 &middot; Leaky bucket (queueing form)</h3>
+        <h3>5 · Leaky bucket (queueing form)</h3>
         <div class="stage">
           <svg viewBox="0 0 800 265" role="img" aria-label="Animated queueing leaky bucket delaying requests instead of rejecting them">
             <text x="20" y="18" font-size="11" fill="#5f6f66">limit 5 / minute &middot; key = api-key:acme &middot; the same nine arrivals in every algorithm</text>
@@ -273,9 +268,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-gcra">
-        <h3>6 &middot; GCRA</h3>
+        <h3>6 · GCRA</h3>
         <div class="stage">
           <svg viewBox="0 0 800 265" role="img" aria-label="Animated GCRA tracking a single theoretical arrival time across nine requests">
             <text x="20" y="18" font-size="11" fill="#5f6f66">limit 5 / minute &middot; key = api-key:acme &middot; the same nine arrivals in every algorithm</text>
@@ -304,241 +298,240 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <h3 id="compare-algorithms">Comparing them: same nine requests, six different answers</h3>
-      <p>Requests 1&ndash;5 are allowed by everything. The interesting column is the last one.</p>
+      <p>Requests 1–5 are allowed by everything. The interesting column is the last one.</p>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Algorithm</th><th>State per key</th><th>Ops / request</th><th>Burst it permits</th><th>Exact <code>Retry-After</code>?</th><th>Rejected, of the nine</th></tr></thead>
           <tbody>
-            <tr><td><b>Fixed window</b></td><td>1 counter</td><td>1&ndash;2</td><td>up to <b>2&times;</b> the limit, by accident, at the boundary</td><td>no &mdash; only "end of minute"</td><td><b>6</b> &mdash; and then it forgives 7, 8, 9</td></tr>
-            <tr><td><b>Sliding window log</b></td><td>one entry <i>per request</i></td><td>3&ndash;4</td><td>none &mdash; exactly the limit, always</td><td>yes</td><td><b>6, 7, 8, 9</b></td></tr>
-            <tr><td><b>Sliding window counter</b></td><td>2 counters</td><td>2&ndash;3</td><td>slight, and bounded</td><td>approximate</td><td><b>6, 7, 9</b></td></tr>
-            <tr><td><b>Token bucket</b></td><td>tokens + timestamp</td><td>1 (one script)</td><td>exactly the capacity, <i>on purpose</i></td><td>yes, exact</td><td><b>9</b></td></tr>
-            <tr><td><b>Leaky bucket</b> (queue)</td><td>a queue</td><td>1</td><td>none in the output; it becomes latency</td><td>n/a &mdash; it waits instead</td><td><b>none</b> &mdash; 9 was delayed 56 s</td></tr>
+            <tr><td><b>Fixed window</b></td><td>1 counter</td><td>1–2</td><td>up to <b>2×</b> the limit, by accident, at the boundary</td><td>no — only "end of minute"</td><td><b>6</b> — and then it forgives 7, 8, 9</td></tr>
+            <tr><td><b>Sliding window log</b></td><td>one entry <em>per request</em></td><td>3–4</td><td>none — exactly the limit, always</td><td>yes</td><td><b>6, 7, 8, 9</b></td></tr>
+            <tr><td><b>Sliding window counter</b></td><td>2 counters</td><td>2–3</td><td>slight, and bounded</td><td>approximate</td><td><b>6, 7, 9</b></td></tr>
+            <tr><td><b>Token bucket</b></td><td>tokens + timestamp</td><td>1 (one script)</td><td>exactly the capacity, <em>on purpose</em></td><td>yes, exact</td><td><b>9</b></td></tr>
+            <tr><td><b>Leaky bucket</b> (queue)</td><td>a queue</td><td>1</td><td>none in the output; it becomes latency</td><td>n/a — it waits instead</td><td><b>none</b> — 9 was delayed 56 s</td></tr>
             <tr class="self"><td><b>GCRA</b></td><td>one timestamp</td><td>1</td><td>exactly tau, on purpose</td><td>yes, exact</td><td><b>9</b></td></tr>
           </tbody>
         </table>
       </div>
-      <p style="margin-top:14px">Three things fall out of that table that are hard to see from the descriptions alone:</p>
+      <p>Three things fall out of that table that are hard to see from the descriptions alone:</p>
       <ul>
-        <li><b>The fixed window and the token bucket both allowed eight requests &mdash; but rejected different ones.</b> The fixed window refused number 6 because a clock ticked, then waved through three more a second later. The token bucket let 6 through because the caller had been quiet for 28 seconds, and refused 9 because the sustained rate really had been exceeded. Only one of those is a limiter measuring what it claims to measure.</li>
-        <li><b>GCRA and the token bucket are the same algorithm.</b> Identical verdicts, identical retry-after, from one timestamp instead of a counter plus a timestamp. If your store makes a single atomic value easier than a hash, prefer GCRA.</li>
-        <li><b>The leaky bucket is not in the same business as the others.</b> It never returned an error; it converted the excess into 56 seconds of latency. That is the right trade only when the thing behind it is more fragile than the caller is impatient.</li>
+      <li><b>The fixed window and the token bucket both allowed eight requests — but rejected different ones.</b> The fixed window refused number 6 because a clock ticked, then waved through three more a second later. The token bucket let 6 through because the caller had been quiet for 28 seconds, and refused 9 because the sustained rate really had been exceeded. Only one of those is a limiter measuring what it claims to measure.</li>
+      <li><b>GCRA and the token bucket are the same algorithm.</b> Identical verdicts, identical retry-after, from one timestamp instead of a counter plus a timestamp. If your store makes a single atomic value easier than a hash, prefer GCRA.</li>
+      <li><b>The leaky bucket is not in the same business as the others.</b> It never returned an error; it converted the excess into 56 seconds of latency. That is the right trade only when the thing behind it is more fragile than the caller is impatient.</li>
       </ul>
       <p><b>Choosing, in one line each:</b></p>
       <ul>
-        <li><b>Sliding window counter</b> for a public API. Near-exact, two integers, no boundary burst. This is the default.</li>
-        <li><b>Token bucket</b> (or <b>GCRA</b>) when bursts are legitimate, or when you want to charge expensive endpoints more than one token.</li>
-        <li><b>Sliding window log</b> for small, high-value limits where every single call matters &mdash; login attempts, one-time codes, payments.</li>
-        <li><b>Fixed window</b> for internal APIs with generous limits, where the cheapest correct-ish thing wins.</li>
-        <li><b>Leaky bucket</b> in front of something fragile, when added latency is cheaper than a rejection.</li>
+      <li><b>Sliding window counter</b> for a public API. Near-exact, two integers, no boundary burst. This is the default.</li>
+      <li><b>Token bucket</b> (or <b>GCRA</b>) when bursts are legitimate, or when you want to charge expensive endpoints more than one token.</li>
+      <li><b>Sliding window log</b> for small, high-value limits where every single call matters — login attempts, one-time codes, payments.</li>
+      <li><b>Fixed window</b> for internal APIs with generous limits, where the cheapest correct-ish thing wins.</li>
+      <li><b>Leaky bucket</b> in front of something fragile, when added latency is cheaper than a rejection.</li>
       </ul>
     </section>
 
     <section id="concepts">
       <h2>Key concepts</h2>
       <div class="terms">
-        <div class="term"><b>limit and window</b><span>The policy itself: <i>N</i> requests per unit of time, e.g. <code>100 / minute</code>. Everything else is how you measure the window.</span><template class="term-detail" data-see="quota key, burst, token bucket">
-<p>A limit is a pair: a count and a period. The period is what makes the algorithms differ &mdash; a minute measured from the clock behaves very differently from a minute measured backwards from now.</p>
-<h4>Common values</h4>
-<table><tr><th>Surface</th><th>Typical limit</th><th>Keyed on</th></tr>
-<tr><td>Public read API</td><td>60&ndash;1,000 / min</td><td>API key</td></tr>
-<tr><td>Login / password reset</td><td>5&ndash;10 / 15 min</td><td>account + IP</td></tr>
-<tr><td>Expensive report endpoint</td><td>5&ndash;20 / hour</td><td>tenant</td></tr>
-<tr><td>Outbound call to a partner</td><td>their published limit minus 10%</td><td>your whole fleet</td></tr>
-<tr><td>SMS / email send</td><td>1 / min, 10 / day</td><td>phone or address</td></tr></table>
-<p>Pick limits from measured capacity, not from a round number: load-test one instance, divide by the number of tenants you must serve concurrently, then leave headroom. Publish the limit in your docs and in response headers &mdash; an undocumented limit is indistinguishable from an outage.</p>
+        <div class="term"><b>limit and window</b><span>The policy itself: <em>N</em> requests per unit of time, e.g. <code>100 / minute</code>. Everything else is how you measure the window.</span><template class="term-detail" data-see="quota key, burst, token bucket">
+        <p>A limit is a pair: a count and a period. The period is what makes the algorithms differ — a minute measured from the clock behaves very differently from a minute measured backwards from now.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Surface</th><th>Typical limit</th><th>Keyed on</th></tr>
+        <tr><td>Public read API</td><td>60–1,000 / min</td><td>API key</td></tr>
+        <tr><td>Login / password reset</td><td>5–10 / 15 min</td><td>account + IP</td></tr>
+        <tr><td>Expensive report endpoint</td><td>5–20 / hour</td><td>tenant</td></tr>
+        <tr><td>Outbound call to a partner</td><td>their published limit minus 10%</td><td>your whole fleet</td></tr>
+        <tr><td>SMS / email send</td><td>1 / min, 10 / day</td><td>phone or address</td></tr></table>
+        <p>Pick limits from measured capacity, not from a round number: load-test one instance, divide by the number of tenants you must serve concurrently, then leave headroom. Publish the limit in your docs and in response headers — an undocumented limit is indistinguishable from an outage.</p>
         </template></div>
-        <div class="term"><b>quota key</b><span>What you count <i>per</i>: API key, user id, tenant, IP, endpoint, or a combination. Choosing it wrong is the most common design mistake.</span><template class="term-detail" data-see="limit and window, distributed counters, concurrency limiting">
-<p>The key decides who suffers when the limit bites. A key that is too broad punishes innocent callers; a key that is too narrow is trivially bypassed.</p>
-<table><tr><th>Key</th><th>Good for</th><th>Weakness</th></tr>
-<tr><td><code>ip</code></td><td>anonymous traffic, scrapers</td><td>NAT and CGNAT share one IP; IPv6 hands an attacker a whole /64</td></tr>
-<tr><td><code>api-key</code> / <code>tenant</code></td><td>paid APIs, fairness between customers</td><td>useless before authentication</td></tr>
-<tr><td><code>user-id</code></td><td>abuse of a feature by one account</td><td>new accounts are cheap</td></tr>
-<tr><td><code>tenant + route</code></td><td>protecting one expensive endpoint</td><td>many counters to manage</td></tr>
-<tr><td><code>account</code> <i>and</i> <code>ip</code> (both)</td><td>credential stuffing</td><td>needs two checks per request</td></tr></table>
-<p>Compose the key as a string you can read in a dump: <code>rl:{tenant:acme}:POST:/reports:10:05</code>. In Redis Cluster, wrap the part that must stay on one node in braces so a multi-key script still works.</p>
-<p>Layer keys rather than choosing one: a coarse IP limit at the edge, a precise tenant limit in the app.</p>
+        <div class="term"><b>quota key</b><span>What you count <em>per</em>: API key, user id, tenant, IP, endpoint, or a combination. Choosing it wrong is the most common design mistake.</span><template class="term-detail" data-see="limit and window, distributed counters, concurrency limiting">
+        <p>The key decides who suffers when the limit bites. A key that is too broad punishes innocent callers; a key that is too narrow is trivially bypassed.</p>
+        <table><tr><th>Key</th><th>Good for</th><th>Weakness</th></tr>
+        <tr><td><code>ip</code></td><td>anonymous traffic, scrapers</td><td>NAT and CGNAT share one IP; IPv6 hands an attacker a whole /64</td></tr>
+        <tr><td><code>api-key</code> / <code>tenant</code></td><td>paid APIs, fairness between customers</td><td>useless before authentication</td></tr>
+        <tr><td><code>user-id</code></td><td>abuse of a feature by one account</td><td>new accounts are cheap</td></tr>
+        <tr><td><code>tenant + route</code></td><td>protecting one expensive endpoint</td><td>many counters to manage</td></tr>
+        <tr><td><code>account</code> <em>and</em> <code>ip</code> (both)</td><td>credential stuffing</td><td>needs two checks per request</td></tr></table>
+        <p>Compose the key as a string you can read in a dump: <code>rl:{tenant:acme}:POST:/reports:10:05</code>. In Redis Cluster, wrap the part that must stay on one node in braces so a multi-key script still works.</p>
+        <p>Layer keys rather than choosing one: a coarse IP limit at the edge, a precise tenant limit in the app.</p>
         </template></div>
         <div class="term"><b>fixed window counter</b><span>One counter per clock period: <code>INCR</code> a key named after the current minute, reject above the limit, let it expire. The cheapest correct-ish option.</span><template class="term-detail" data-see="sliding window counter, sliding window log, limit and window">
-<p>Two operations per request and one key per active caller per period. The key name <i>is</i> the window, so expiry does the cleanup for you.</p>
-<pre class="language-none"><code class="language-none">key = f"rl:{user}:{int(time.time() // 60)}"
+        <p>Two operations per request and one key per active caller per period. The key name <em>is</em> the window, so expiry does the cleanup for you.</p>
+        <pre class="language-none"><code class="language-none">key = f"rl:{user}:{int(time.time() // 60)}"
 n = r.incr(key)
 if n == 1: r.expire(key, 120)
-allowed = n &lt;= limit</code></pre>
-<h4>Cost and accuracy</h4>
-<table><tr><th>Property</th><th>Value</th></tr>
-<tr><td>Memory per caller</td><td>~1 small key (60&ndash;100 B)</td></tr>
-<tr><td>Ops per request</td><td>1&ndash;2 (<code>INCR</code>, sometimes <code>EXPIRE</code>)</td></tr>
-<tr><td>Worst-case burst</td><td><b>2x the limit</b>, across the boundary</td></tr>
-<tr><td>Fairness</td><td>poor: whoever arrives first in the window wins</td></tr></table>
-<p>The boundary burst (see the first animation) is not theoretical: clients that retry on a schedule all align to the start of the minute, so you get a thundering herd at <code>:00</code> every minute. Add jitter on the client, or move to a sliding window.</p>
-<p>Use it when the limit is generous and the cost of 2x is acceptable &mdash; which covers most internal APIs.</p>
+allowed = n &lt;= limit</code></pre><h4>Cost and accuracy</h4>
+        <table><tr><th>Property</th><th>Value</th></tr>
+        <tr><td>Memory per caller</td><td>~1 small key (60–100 B)</td></tr>
+        <tr><td>Ops per request</td><td>1–2 (<code>INCR</code>, sometimes <code>EXPIRE</code>)</td></tr>
+        <tr><td>Worst-case burst</td><td><b>2x the limit</b>, across the boundary</td></tr>
+        <tr><td>Fairness</td><td>poor: whoever arrives first in the window wins</td></tr></table>
+        <p>The boundary burst (see the first animation) is not theoretical: clients that retry on a schedule all align to the start of the minute, so you get a thundering herd at <code>:00</code> every minute. Add jitter on the client, or move to a sliding window.</p>
+        <p>Use it when the limit is generous and the cost of 2x is acceptable — which covers most internal APIs.</p>
         </template></div>
         <div class="term"><b>sliding window log</b><span>Store the timestamp of every request, drop the ones older than the window, count what is left. Exact, and the most expensive.</span><template class="term-detail" data-see="sliding window counter, fixed window counter, distributed counters">
-<p>Keep a sorted set per caller, scored by timestamp. On each request: remove entries older than <code>now &minus; window</code>, count, add the new entry if under the limit.</p>
-<pre class="language-bash"><code class="language-bash">ZREMRANGEBYSCORE rl:acme 0 (now-60000)
+        <p>Keep a sorted set per caller, scored by timestamp. On each request: remove entries older than <code>now − window</code>, count, add the new entry if under the limit.</p>
+        <pre class="language-bash"><code class="language-bash">ZREMRANGEBYSCORE rl:acme 0 (now-60000)
 ZCARD rl:acme                    -- how many in the last 60 s
 ZADD rl:acme now now:req-id      -- only if under the limit
-EXPIRE rl:acme 60</code></pre>
-<h4>Cost</h4>
-<table><tr><th>Property</th><th>Value</th></tr>
-<tr><td>Memory per caller</td><td>limit x 50&ndash;80 B (a 10,000/min limit is ~700 KB <i>per key</i>)</td></tr>
-<tr><td>Ops per request</td><td>3&ndash;4, best run as one Lua script</td></tr>
-<tr><td>Accuracy</td><td>exact &mdash; never more than the limit in any 60 s</td></tr></table>
-<p>Perfect accuracy is rarely worth the memory. Reserve it for small, high-value limits where every single call matters: login attempts, one-time-code sends, payment submissions, free-tier trial calls.</p>
+EXPIRE rl:acme 60</code></pre><h4>Cost</h4>
+        <table><tr><th>Property</th><th>Value</th></tr>
+        <tr><td>Memory per caller</td><td>limit x 50–80 B (a 10,000/min limit is ~700 KB <em>per key</em>)</td></tr>
+        <tr><td>Ops per request</td><td>3–4, best run as one Lua script</td></tr>
+        <tr><td>Accuracy</td><td>exact — never more than the limit in any 60 s</td></tr></table>
+        <p>Perfect accuracy is rarely worth the memory. Reserve it for small, high-value limits where every single call matters: login attempts, one-time-code sends, payment submissions, free-tier trial calls.</p>
         </template></div>
         <div class="term"><b>sliding window counter</b><span>Two fixed windows, weighted: <code>prev x overlap + current</code>. Nearly as accurate as the log, at the cost of a fixed window.</span><template class="term-detail" data-see="fixed window counter, sliding window log">
-<p>Keep the current window's counter and the previous one's. Estimate the count over the trailing window by assuming the previous window's requests were spread evenly through it.</p>
-<pre class="language-none"><code class="language-none">elapsed = now % 60                       # seconds into the current minute
+        <p>Keep the current window's counter and the previous one's. Estimate the count over the trailing window by assuming the previous window's requests were spread evenly through it.</p>
+        <pre class="language-none"><code class="language-none">elapsed = now % 60                       # seconds into the current minute
 overlap = (60 - elapsed) / 60            # how much of prev is still in range
 estimate = prev * overlap + current
-allowed  = estimate &lt; limit</code></pre>
-<h4>Worked example</h4>
-<table><tr><th>Moment</th><th>prev</th><th>curr</th><th>estimate</th><th>Verdict</th></tr>
-<tr><td>10:01:02 (2 s in)</td><td>5</td><td>5</td><td>5 x 0.97 + 5 = 9.85</td><td>reject</td></tr>
-<tr><td>10:01:30 (30 s in)</td><td>5</td><td>2</td><td>5 x 0.50 + 2 = 4.50</td><td>allow</td></tr>
-<tr><td>10:01:55 (55 s in)</td><td>5</td><td>4</td><td>5 x 0.08 + 4 = 4.42</td><td>allow</td></tr></table>
-<p>The estimate is wrong only when the previous window's traffic was very unevenly distributed, and it errs on the strict side for the pattern that matters (a burst at the end of the previous window). Cloudflare published measurements showing well under 1% misclassification at scale. This is the default worth reaching for.</p>
+allowed  = estimate &lt; limit</code></pre><h4>Worked example</h4>
+        <table><tr><th>Moment</th><th>prev</th><th>curr</th><th>estimate</th><th>Verdict</th></tr>
+        <tr><td>10:01:02 (2 s in)</td><td>5</td><td>5</td><td>5 x 0.97 + 5 = 9.85</td><td>reject</td></tr>
+        <tr><td>10:01:30 (30 s in)</td><td>5</td><td>2</td><td>5 x 0.50 + 2 = 4.50</td><td>allow</td></tr>
+        <tr><td>10:01:55 (55 s in)</td><td>5</td><td>4</td><td>5 x 0.08 + 4 = 4.42</td><td>allow</td></tr></table>
+        <p>The estimate is wrong only when the previous window's traffic was very unevenly distributed, and it errs on the strict side for the pattern that matters (a burst at the end of the previous window). Cloudflare published measurements showing well under 1% misclassification at scale. This is the default worth reaching for.</p>
         </template></div>
         <div class="term"><b>token bucket</b><span>A bucket refills at a constant rate up to a capacity; each request spends one token. Capacity sets the burst, refill rate sets the sustained rate.</span><template class="term-detail" data-see="leaky bucket, burst, GCRA, sliding window counter">
-<p>The two knobs map directly onto the two things you actually care about, which is why this is the algorithm most public APIs use.</p>
-<table><tr><th>Knob</th><th>Controls</th><th>Typical</th></tr>
-<tr><td>capacity</td><td>largest burst allowed after idling</td><td>1&ndash;10x the per-second rate</td></tr>
-<tr><td>refill rate</td><td>long-run sustained throughput</td><td>the published limit divided by the period</td></tr>
-<tr><td>cost per request</td><td>weighting expensive calls</td><td>1 normally; 10 for a report; 0 for a health check</td></tr></table>
-<p>You do not run a timer. Store <code>(tokens, last_refill)</code> and compute lazily on each request: <code>tokens = min(capacity, tokens + (now &minus; last_refill) x rate)</code>. Two fields, one key, O(1).</p>
-<p>Variable cost is the quiet superpower: charge a search 1 token and a bulk export 50, and a single limit then expresses "work per second" rather than "calls per second". Most cloud APIs are token buckets underneath.</p>
+        <p>The two knobs map directly onto the two things you actually care about, which is why this is the algorithm most public APIs use.</p>
+        <table><tr><th>Knob</th><th>Controls</th><th>Typical</th></tr>
+        <tr><td>capacity</td><td>largest burst allowed after idling</td><td>1–10x the per-second rate</td></tr>
+        <tr><td>refill rate</td><td>long-run sustained throughput</td><td>the published limit divided by the period</td></tr>
+        <tr><td>cost per request</td><td>weighting expensive calls</td><td>1 normally; 10 for a report; 0 for a health check</td></tr></table>
+        <p>You do not run a timer. Store <code>(tokens, last_refill)</code> and compute lazily on each request: <code>tokens = min(capacity, tokens + (now − last_refill) x rate)</code>. Two fields, one key, O(1).</p>
+        <p>Variable cost is the quiet superpower: charge a search 1 token and a bulk export 50, and a single limit then expresses "work per second" rather than "calls per second". Most cloud APIs are token buckets underneath.</p>
         </template></div>
         <div class="term"><b>leaky bucket</b><span>Arrivals queue in a bucket that drains at a fixed rate; overflow is dropped. Output is perfectly smooth, at the price of added latency.</span><template class="term-detail" data-see="token bucket, backpressure, concurrency limiting">
-<p>Two variants share the name. The <b>queue</b> form (below) actually holds requests and releases them at a constant rate &mdash; traffic <i>shaping</i>. The <b>meter</b> form holds only a level that drains over time and rejects immediately when full, which is mathematically the mirror image of a token bucket and what most libraries mean.</p>
-<table><tr><th>Form</th><th>On excess</th><th>Equivalent to</th></tr>
-<tr><td><b>Queue</b> (shaping)</td><td>delays the request; drops only when the queue is full</td><td>nothing else here &mdash; it trades errors for latency</td></tr>
-<tr><td><b>Meter</b> (level that drains)</td><td>rejects immediately</td><td>the mirror image of a <b>token bucket</b>: level up instead of tokens down</td></tr></table>
-<p>Animation 5 in "How it works" walks the queueing form through the same nine requests the other algorithms saw &mdash; it is the only one that rejected nothing and the only one that added 56 seconds of latency.</p>
-<p>Use the queueing form when the downstream is the thing you are protecting and a little latency is cheaper than a rejection &mdash; writing to a legacy ERP, calling a partner with a hard contractual rate. Use the metering form for ordinary API limits, where it is simply a token bucket with the arithmetic inverted.</p>
+        <p>Two variants share the name. The <b>queue</b> form (below) actually holds requests and releases them at a constant rate — traffic <em>shaping</em>. The <b>meter</b> form holds only a level that drains over time and rejects immediately when full, which is mathematically the mirror image of a token bucket and what most libraries mean.</p>
+        <table><tr><th>Form</th><th>On excess</th><th>Equivalent to</th></tr>
+        <tr><td><b>Queue</b> (shaping)</td><td>delays the request; drops only when the queue is full</td><td>nothing else here — it trades errors for latency</td></tr>
+        <tr><td><b>Meter</b> (level that drains)</td><td>rejects immediately</td><td>the mirror image of a <b>token bucket</b>: level up instead of tokens down</td></tr></table>
+        <p>Animation 5 in "How it works" walks the queueing form through the same nine requests the other algorithms saw — it is the only one that rejected nothing and the only one that added 56 seconds of latency.</p>
+        <p>Use the queueing form when the downstream is the thing you are protecting and a little latency is cheaper than a rejection — writing to a legacy ERP, calling a partner with a hard contractual rate. Use the metering form for ordinary API limits, where it is simply a token bucket with the arithmetic inverted.</p>
         </template></div>
         <div class="term"><b>GCRA</b><span>Generic Cell Rate Algorithm: a leaky bucket stored as a single timestamp, the "theoretical arrival time". One field, exact, no boundary burst.</span><template class="term-detail" data-see="token bucket, leaky bucket, distributed counters">
-<p>Borrowed from ATM networking. Instead of a level that decays, store the <b>theoretical arrival time</b> (TAT) of the next permitted request. With an emission interval <code>T = period / limit</code> and a burst tolerance <code>tau = (burst &minus; 1) x T</code>:</p>
-<pre class="language-none"><code class="language-none">if now &lt; tat - tau:      reject, retry after (tat - tau) - now
-else:                    tat = max(now, tat) + T ; allow</code></pre>
-<h4>Why it is nice</h4>
-<ul><li>One value per key instead of a counter plus a timestamp: a single <code>GET</code>/<code>SET</code>, trivially atomic.</li>
-<li>It yields the exact retry-after for free, which a counter cannot give you.</li>
-<li>There is no window boundary at all, so there is no boundary burst.</li></ul>
-<p>This is what <code>redis-cell</code> (<code>CL.THROTTLE</code>) implements, and what several Go and Rust limiters use. The maths is unfamiliar at first glance; the implementation is four lines.</p>
+        <p>Borrowed from ATM networking. Instead of a level that decays, store the <b>theoretical arrival time</b> (TAT) of the next permitted request. With an emission interval <code>T = period / limit</code> and a burst tolerance <code>tau = (burst − 1) x T</code>:</p>
+        <pre class="language-none"><code class="language-none">if now &lt; tat - tau:      reject, retry after (tat - tau) - now
+else:                    tat = max(now, tat) + T ; allow</code></pre><h4>Why it is nice</h4>
+        <ul>
+        <li>One value per key instead of a counter plus a timestamp: a single <code>GET</code>/<code>SET</code>, trivially atomic.</li>
+        <li>It yields the exact retry-after for free, which a counter cannot give you.</li>
+        <li>There is no window boundary at all, so there is no boundary burst.</li>
+        </ul>
+        <p>This is what <code>redis-cell</code> (<code>CL.THROTTLE</code>) implements, and what several Go and Rust limiters use. The maths is unfamiliar at first glance; the implementation is four lines.</p>
         </template></div>
         <div class="term"><b>burst</b><span>How far above the sustained rate a caller may go for a short time. Some burst is a feature: it absorbs page loads that fire ten calls at once.</span><template class="term-detail" data-see="token bucket, fixed window counter, jitter">
-<p>Real clients are bursty by nature: one page render fans out into a dozen API calls. A limiter with zero burst tolerance rejects correct, well-behaved traffic.</p>
-<table><tr><th>Algorithm</th><th>Burst you get</th></tr>
-<tr><td>Fixed window</td><td>up to 2x the limit, accidentally, at the boundary</td></tr>
-<tr><td>Sliding window counter</td><td>slightly over the limit, bounded</td></tr>
-<tr><td>Sliding window log</td><td>none &mdash; exactly the limit</td></tr>
-<tr><td>Token bucket</td><td>exactly the capacity, deliberately</td></tr>
-<tr><td>Leaky bucket (queue)</td><td>none in the output; the queue absorbs it as latency</td></tr>
-<tr><td>GCRA</td><td>exactly tau, deliberately</td></tr></table>
-<p>Rule of thumb: set burst to the number of calls one user action legitimately produces, usually 5&ndash;20. Deliberate burst in a token bucket is safe; accidental burst in a fixed window is not, because it clusters on the clock across <i>all</i> your callers at once.</p>
+        <p>Real clients are bursty by nature: one page render fans out into a dozen API calls. A limiter with zero burst tolerance rejects correct, well-behaved traffic.</p>
+        <table><tr><th>Algorithm</th><th>Burst you get</th></tr>
+        <tr><td>Fixed window</td><td>up to 2x the limit, accidentally, at the boundary</td></tr>
+        <tr><td>Sliding window counter</td><td>slightly over the limit, bounded</td></tr>
+        <tr><td>Sliding window log</td><td>none — exactly the limit</td></tr>
+        <tr><td>Token bucket</td><td>exactly the capacity, deliberately</td></tr>
+        <tr><td>Leaky bucket (queue)</td><td>none in the output; the queue absorbs it as latency</td></tr>
+        <tr><td>GCRA</td><td>exactly tau, deliberately</td></tr></table>
+        <p>Rule of thumb: set burst to the number of calls one user action legitimately produces, usually 5–20. Deliberate burst in a token bucket is safe; accidental burst in a fixed window is not, because it clusters on the clock across <em>all</em> your callers at once.</p>
         </template></div>
         <div class="term"><b>429 and Retry-After</b><span>The HTTP contract: status <code>429</code>, a <code>Retry-After</code> header in seconds, and <code>RateLimit-*</code> headers so clients can self-regulate before being rejected.</span><template class="term-detail" data-see="jitter, limit and window">
-<p>A rejection that does not say when to come back forces clients to guess, and they guess badly. The IETF <code>RateLimit</code> header fields give a standard shape:</p>
-<pre class="language-yaml line-numbers"><code class="language-yaml">HTTP/1.1 429 Too Many Requests
+        <p>A rejection that does not say when to come back forces clients to guess, and they guess badly. The IETF <code>RateLimit</code> header fields give a standard shape:</p>
+        <pre class="language-yaml line-numbers"><code class="language-yaml">HTTP/1.1 429 Too Many Requests
 Retry-After: 7
 RateLimit-Limit: 100
 RateLimit-Remaining: 0
-RateLimit-Reset: 7</code></pre>
-<table><tr><th>Status</th><th>Means</th><th>Client should</th></tr>
-<tr><td><code>429</code></td><td>you exceeded <i>your</i> limit</td><td>back off, retry after the hint</td></tr>
-<tr><td><code>503</code> + <code>Retry-After</code></td><td>the service is overloaded</td><td>back off harder: the whole fleet is affected</td></tr>
-<tr><td><code>403</code></td><td>never allowed</td><td>stop, do not retry</td></tr></table>
-<p>Send <code>RateLimit-Remaining</code> on <i>successful</i> responses too &mdash; that is what lets a well-written client slow down before it hits the wall. And keep the <code>429</code> body small and uncached: rejections should be the cheapest response you produce.</p>
+RateLimit-Reset: 7</code></pre><table><tr><th>Status</th><th>Means</th><th>Client should</th></tr>
+        <tr><td><code>429</code></td><td>you exceeded <em>your</em> limit</td><td>back off, retry after the hint</td></tr>
+        <tr><td><code>503</code> + <code>Retry-After</code></td><td>the service is overloaded</td><td>back off harder: the whole fleet is affected</td></tr>
+        <tr><td><code>403</code></td><td>never allowed</td><td>stop, do not retry</td></tr></table>
+        <p>Send <code>RateLimit-Remaining</code> on <em>successful</em> responses too — that is what lets a well-written client slow down before it hits the wall. And keep the <code>429</code> body small and uncached: rejections should be the cheapest response you produce.</p>
         </template></div>
-        <div class="term"><b>distributed counters</b><span>With <i>n</i> instances behind a load balancer the counter must be shared and the check must be atomic, usually one Redis round trip running a Lua script.</span><template class="term-detail" data-see="local vs centralized, quota key, fixed window counter">
-<p>Read-then-write across the network is a race: two instances both read 99, both allow, and a limit of 100 passes 101. The check and the increment must be one operation.</p>
-<pre class="language-lua line-numbers"><code class="language-lua">-- token bucket, atomic, one round trip
+        <div class="term"><b>distributed counters</b><span>With <em>n</em> instances behind a load balancer the counter must be shared and the check must be atomic, usually one Redis round trip running a Lua script.</span><template class="term-detail" data-see="local vs centralized, quota key, fixed window counter">
+        <p>Read-then-write across the network is a race: two instances both read 99, both allow, and a limit of 100 passes 101. The check and the increment must be one operation.</p>
+        <pre class="language-lua line-numbers"><code class="language-lua">-- token bucket, atomic, one round trip
 local t   = redis.call('HMGET', KEYS[1], 'tokens', 'ts')
 local now, rate, cap = tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3])
 local tokens = math.min(cap, (tonumber(t[1]) or cap) + (now - (tonumber(t[2]) or now)) * rate)
 if tokens &lt; 1 then return {0, math.ceil((1 - tokens) / rate)} end
 redis.call('HSET', KEYS[1], 'tokens', tokens - 1, 'ts', now)
 redis.call('EXPIRE', KEYS[1], math.ceil(cap / rate) + 1)
-return {1, 0}</code></pre>
-<div class="figure"><svg viewBox="0 0 560 190" role="img" aria-label="Two instances both read the counter at 99 and both allow, letting the limit be exceeded">
-  <text x="12" y="20" font-size="12" font-weight="600" fill="#23362e">Read, decide, write &mdash; in two round trips, against a limit of 100</text>
-  <rect x="12" y="34" width="150" height="44" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
-  <text x="87" y="52" font-size="11.5" text-anchor="middle" fill="#23362e">instance A</text>
-  <text x="87" y="69" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">GET &rarr; 99</text>
-  <rect x="12" y="110" width="150" height="44" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
-  <text x="87" y="128" font-size="11.5" text-anchor="middle" fill="#23362e">instance B</text>
-  <text x="87" y="145" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">GET &rarr; 99</text>
-  <path d="M162 56 L236 84" stroke="#5f6f66" stroke-width="1.5" fill="none"/>
-  <path d="M162 132 L236 104" stroke="#5f6f66" stroke-width="1.5" fill="none"/>
-  <rect x="240" y="72" width="120" height="44" rx="6" fill="#f9e3df" stroke="#c53b3b"/>
-  <text x="300" y="90" font-size="11.5" text-anchor="middle" fill="#23362e">Redis</text>
-  <text x="300" y="107" font-size="11.5" text-anchor="middle" fill="#c53b3b" font-family="Fira Code, monospace">counter = 99</text>
-  <path d="M360 84 L430 56" stroke="#c53b3b" stroke-width="1.5" fill="none"/>
-  <path d="M360 104 L430 132" stroke="#c53b3b" stroke-width="1.5" fill="none"/>
-  <rect x="434" y="34" width="114" height="44" rx="6" fill="#e3eedc" stroke="#2f6b3f"/>
-  <text x="491" y="60" font-size="11.5" text-anchor="middle" fill="#23362e">A: allow (100)</text>
-  <rect x="434" y="110" width="114" height="44" rx="6" fill="#e3eedc" stroke="#2f6b3f"/>
-  <text x="491" y="136" font-size="11.5" text-anchor="middle" fill="#23362e">B: allow (101)</text>
-  <text class="hand" x="12" y="182" font-size="15" fill="#c53b3b">the race is as wide as a network round trip &mdash; so it happens constantly</text>
-</svg></div>
-<h4>Budget it</h4>
-<table><tr><th>Concern</th><th>Guidance</th></tr>
-<tr><td>Added latency</td><td>0.3&ndash;1 ms per request on a same-zone Redis</td></tr>
-<tr><td>Clock source</td><td>use <code>redis.call('TIME')</code> or one server clock &mdash; never each app server's own</td></tr>
-<tr><td>Store is down</td><td>decide <i>fail-open</i> or <i>fail-closed</i> in advance, with a tight timeout (5&ndash;20 ms)</td></tr>
-<tr><td>Hot key</td><td>one global limit is one key on one node; shard it or limit per tenant</td></tr></table>
-<p>Redis is the usual store because <code>INCR</code>, Lua and <code>EXPIRE</code> are exactly the primitives needed, and single-threaded execution makes each script atomic for free.</p>
+return {1, 0}</code></pre><div class="figure">
+          <svg viewBox="0 0 560 190" role="img" aria-label="Two instances both read the counter at 99 and both allow, letting the limit be exceeded">
+            <text x="12" y="20" font-size="12" font-weight="600" fill="#23362e">Read, decide, write &mdash; in two round trips, against a limit of 100</text>
+            <rect x="12" y="34" width="150" height="44" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
+            <text x="87" y="52" font-size="11.5" text-anchor="middle" fill="#23362e">instance A</text>
+            <text x="87" y="69" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">GET &rarr; 99</text>
+            <rect x="12" y="110" width="150" height="44" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
+            <text x="87" y="128" font-size="11.5" text-anchor="middle" fill="#23362e">instance B</text>
+            <text x="87" y="145" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">GET &rarr; 99</text>
+            <path d="M162 56 L236 84" stroke="#5f6f66" stroke-width="1.5" fill="none"/>
+            <path d="M162 132 L236 104" stroke="#5f6f66" stroke-width="1.5" fill="none"/>
+            <rect x="240" y="72" width="120" height="44" rx="6" fill="#f9e3df" stroke="#c53b3b"/>
+            <text x="300" y="90" font-size="11.5" text-anchor="middle" fill="#23362e">Redis</text>
+            <text x="300" y="107" font-size="11.5" text-anchor="middle" fill="#c53b3b" font-family="Fira Code, monospace">counter = 99</text>
+            <path d="M360 84 L430 56" stroke="#c53b3b" stroke-width="1.5" fill="none"/>
+            <path d="M360 104 L430 132" stroke="#c53b3b" stroke-width="1.5" fill="none"/>
+            <rect x="434" y="34" width="114" height="44" rx="6" fill="#e3eedc" stroke="#2f6b3f"/>
+            <text x="491" y="60" font-size="11.5" text-anchor="middle" fill="#23362e">A: allow (100)</text>
+            <rect x="434" y="110" width="114" height="44" rx="6" fill="#e3eedc" stroke="#2f6b3f"/>
+            <text x="491" y="136" font-size="11.5" text-anchor="middle" fill="#23362e">B: allow (101)</text>
+            <text class="hand" x="12" y="182" font-size="15" fill="#c53b3b">the race is as wide as a network round trip &mdash; so it happens constantly</text>
+          </svg>
+        </div>
+        <h4>Budget it</h4>
+        <table><tr><th>Concern</th><th>Guidance</th></tr>
+        <tr><td>Added latency</td><td>0.3–1 ms per request on a same-zone Redis</td></tr>
+        <tr><td>Clock source</td><td>use <code>redis.call('TIME')</code> or one server clock — never each app server's own</td></tr>
+        <tr><td>Store is down</td><td>decide <em>fail-open</em> or <em>fail-closed</em> in advance, with a tight timeout (5–20 ms)</td></tr>
+        <tr><td>Hot key</td><td>one global limit is one key on one node; shard it or limit per tenant</td></tr></table>
+        <p>Redis is the usual store because <code>INCR</code>, Lua and <code>EXPIRE</code> are exactly the primitives needed, and single-threaded execution makes each script atomic for free.</p>
         </template></div>
         <div class="term"><b>local vs centralized</b><span>Count per instance (fast, approximate, drifts with autoscaling) or in a shared store (exact, adds a network hop). Many systems do both.</span><template class="term-detail" data-see="distributed counters, load shedding">
-<p>Dividing a global limit by the instance count is tempting and usually wrong: load balancers are not perfectly even, and the divisor changes every time Kubernetes scales the deployment.</p>
-<table><tr><th>Approach</th><th>Latency</th><th>Accuracy</th><th>Use when</th></tr>
-<tr><td>Per-instance, limit / n</td><td>0 ms</td><td>poor under uneven balancing</td><td>coarse protection, huge limits</td></tr>
-<tr><td>Central store per request</td><td>+0.3&ndash;1 ms</td><td>exact</td><td>paid quotas, small limits</td></tr>
-<tr><td>Local bucket + periodic sync</td><td>~0 ms</td><td>good, bounded drift</td><td>very high RPS, limits in the thousands</td></tr></table>
-<p>The hybrid is how large gateways do it: each instance holds a local allowance, spends from it with no network call, and reconciles with the shared store every few hundred milliseconds. You trade a bounded overshoot for zero added latency on the hot path.</p>
+        <p>Dividing a global limit by the instance count is tempting and usually wrong: load balancers are not perfectly even, and the divisor changes every time Kubernetes scales the deployment.</p>
+        <table><tr><th>Approach</th><th>Latency</th><th>Accuracy</th><th>Use when</th></tr>
+        <tr><td>Per-instance, limit / n</td><td>0 ms</td><td>poor under uneven balancing</td><td>coarse protection, huge limits</td></tr>
+        <tr><td>Central store per request</td><td>+0.3–1 ms</td><td>exact</td><td>paid quotas, small limits</td></tr>
+        <tr><td>Local bucket + periodic sync</td><td>~0 ms</td><td>good, bounded drift</td><td>very high RPS, limits in the thousands</td></tr></table>
+        <p>The hybrid is how large gateways do it: each instance holds a local allowance, spends from it with no network call, and reconciles with the shared store every few hundred milliseconds. You trade a bounded overshoot for zero added latency on the hot path.</p>
         </template></div>
-        <div class="term"><b>concurrency limiting</b><span>Capping requests <i>in flight</i> with a semaphore rather than requests per second. Often the limit that actually protects you.</span><template class="term-detail" data-see="leaky bucket, backpressure, limit and window">
-<p>Rate and concurrency are different failure modes. 100 requests per second that each take 10 ms is 1 concurrent request; 100 per second that each take 2 s is 200 &mdash; and 200 threads, 200 connections, 200 open transactions.</p>
-<table><tr><th>Limit type</th><th>Protects against</th><th>Tool</th></tr>
-<tr><td>Requests / second</td><td>abuse, cost, fairness</td><td>token bucket, sliding window</td></tr>
-<tr><td>Concurrent requests</td><td>thread and connection exhaustion, slow dependencies</td><td>semaphore, bulkhead</td></tr>
-<tr><td>Queue depth + timeout</td><td>unbounded latency under overload</td><td>bounded queue, shed on full</td></tr></table>
-<p>Little's Law ties them together: <code>concurrency = rate x latency</code>. If your dependency slows from 50 ms to 500 ms, the same request rate produces ten times the concurrency &mdash; which is why a service with only a rate limit still dies when its database gets slow. Set both.</p>
+        <div class="term"><b>concurrency limiting</b><span>Capping requests <em>in flight</em> with a semaphore rather than requests per second. Often the limit that actually protects you.</span><template class="term-detail" data-see="leaky bucket, backpressure, limit and window">
+        <p>Rate and concurrency are different failure modes. 100 requests per second that each take 10 ms is 1 concurrent request; 100 per second that each take 2 s is 200 — and 200 threads, 200 connections, 200 open transactions.</p>
+        <table><tr><th>Limit type</th><th>Protects against</th><th>Tool</th></tr>
+        <tr><td>Requests / second</td><td>abuse, cost, fairness</td><td>token bucket, sliding window</td></tr>
+        <tr><td>Concurrent requests</td><td>thread and connection exhaustion, slow dependencies</td><td>semaphore, bulkhead</td></tr>
+        <tr><td>Queue depth + timeout</td><td>unbounded latency under overload</td><td>bounded queue, shed on full</td></tr></table>
+        <p>Little's Law ties them together: <code>concurrency = rate x latency</code>. If your dependency slows from 50 ms to 500 ms, the same request rate produces ten times the concurrency — which is why a service with only a rate limit still dies when its database gets slow. Set both.</p>
         </template></div>
         <div class="term"><b>load shedding</b><span>Dropping work when the system itself is in trouble, regardless of whose quota it is. A rate limit is a contract; shedding is survival.</span><template class="term-detail" data-see="backpressure, concurrency limiting, local vs centralized">
-<p>Quota limits are static and per-caller. Load shedding is dynamic and global: it reacts to <i>your</i> health signals &mdash; queue depth, p99 latency, CPU, pool saturation &mdash; and rejects whatever keeps the service alive.</p>
-<ul><li><b>Priority-aware:</b> shed background sync and analytics before interactive traffic. Tag requests with a criticality on the way in.</li>
-<li><b>Shed early:</b> rejecting at the front door costs microseconds; rejecting after the database call has already cost you the database call.</li>
-<li><b>Drop the oldest:</b> a request that has waited 5 s probably belongs to a client that already timed out. Under overload, LIFO sheds better than FIFO.</li></ul>
-<p>Signal it with <code>503</code> and <code>Retry-After</code>, not <code>429</code>: the caller did nothing wrong, and the distinction tells their on-call engineer where the problem actually is.</p>
+        <p>Quota limits are static and per-caller. Load shedding is dynamic and global: it reacts to <em>your</em> health signals — queue depth, p99 latency, CPU, pool saturation — and rejects whatever keeps the service alive.</p>
+        <ul>
+        <li><b>Priority-aware:</b> shed background sync and analytics before interactive traffic. Tag requests with a criticality on the way in.</li>
+        <li><b>Shed early:</b> rejecting at the front door costs microseconds; rejecting after the database call has already cost you the database call.</li>
+        <li><b>Drop the oldest:</b> a request that has waited 5 s probably belongs to a client that already timed out. Under overload, LIFO sheds better than FIFO.</li>
+        </ul>
+        <p>Signal it with <code>503</code> and <code>Retry-After</code>, not <code>429</code>: the caller did nothing wrong, and the distinction tells their on-call engineer where the problem actually is.</p>
         </template></div>
         <div class="term"><b>backpressure</b><span>Pushing the "slow down" signal upstream instead of silently queueing. A bounded queue that blocks the producer is backpressure; an unbounded one is a time bomb.</span><template class="term-detail" data-see="leaky bucket, load shedding, concurrency limiting">
-<p>Every unbounded buffer turns an overload into a latency disaster: memory grows, requests sit behind work nobody is waiting for any more, and recovery takes longer than the incident.</p>
-<ul><li>Bound every queue, and decide what happens when it is full: block the producer, drop the newest, or drop the oldest.</li>
-<li>Give every queued item a deadline and discard it when the deadline passes, rather than serving a response nobody will read.</li>
-<li>In a pull-based system &mdash; a consumer group reading from Apache Kafka, or a job queue &mdash; backpressure is automatic: the consumer simply fetches more slowly and the broker holds the backlog.</li></ul>
-<p>A rate limiter is backpressure made explicit at an HTTP boundary, where no protocol-level mechanism exists.</p>
+        <p>Every unbounded buffer turns an overload into a latency disaster: memory grows, requests sit behind work nobody is waiting for any more, and recovery takes longer than the incident.</p>
+        <ul>
+        <li>Bound every queue, and decide what happens when it is full: block the producer, drop the newest, or drop the oldest.</li>
+        <li>Give every queued item a deadline and discard it when the deadline passes, rather than serving a response nobody will read.</li>
+        <li>In a pull-based system — a consumer group reading from Apache Kafka, or a job queue — backpressure is automatic: the consumer simply fetches more slowly and the broker holds the backlog.</li>
+        </ul>
+        <p>A rate limiter is backpressure made explicit at an HTTP boundary, where no protocol-level mechanism exists.</p>
         </template></div>
         <div class="term"><b>jitter</b><span>Randomness added to retry delays and to window or cache expiry so that clients do not all come back at the same instant.</span><template class="term-detail" data-see="429 and Retry-After, fixed window counter, burst">
-<p>Without jitter, a limiter <i>creates</i> the herd it is meant to prevent: every rejected client is told the same reset time, sleeps the same number of seconds, and returns in the same millisecond.</p>
-<pre class="language-none"><code class="language-none">// exponential backoff with full jitter
-delay = random(0, min(cap, base * 2 ** attempt))</code></pre>
-<table><tr><th>Strategy</th><th>Spread</th><th>Verdict</th></tr>
-<tr><td>Fixed delay</td><td>none</td><td>synchronises the herd</td></tr>
-<tr><td>Exponential, no jitter</td><td>none</td><td>still synchronised, just later</td></tr>
-<tr><td>Exponential + full jitter</td><td>excellent</td><td>the sane default</td></tr>
-<tr><td>Decorrelated jitter</td><td>excellent</td><td>better throughput during long outages</td></tr></table>
-<p>Cap the total attempts and respect <code>Retry-After</code> when it is present. Retries that ignore a <code>429</code> are the single most effective way to turn a small limit breach into an outage.</p>
+        <p>Without jitter, a limiter <em>creates</em> the herd it is meant to prevent: every rejected client is told the same reset time, sleeps the same number of seconds, and returns in the same millisecond.</p>
+        <pre class="language-none"><code class="language-none">// exponential backoff with full jitter
+delay = random(0, min(cap, base * 2 ** attempt))</code></pre><table><tr><th>Strategy</th><th>Spread</th><th>Verdict</th></tr>
+        <tr><td>Fixed delay</td><td>none</td><td>synchronises the herd</td></tr>
+        <tr><td>Exponential, no jitter</td><td>none</td><td>still synchronised, just later</td></tr>
+        <tr><td>Exponential + full jitter</td><td>excellent</td><td>the sane default</td></tr>
+        <tr><td>Decorrelated jitter</td><td>excellent</td><td>better throughput during long outages</td></tr></table>
+        <p>Cap the total attempts and respect <code>Retry-After</code> when it is present. Retries that ignore a <code>429</code> are the single most effective way to turn a small limit breach into an outage.</p>
         </template></div>
       </div>
     </section>
 
     <section id="commands">
       <h2>Essential commands &amp; syntax</h2>
-
       <div class="cmd-group">
         <h3>ASP.NET Core (built-in middleware)</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">builder.Services.AddRateLimiter(o =&gt;
@@ -571,7 +564,6 @@ app.UseRateLimiter();</code></pre><div class="what">A fixed-window limiter named
         ctx.HttpContext.Response.Headers.RetryAfter = ((int)retry.TotalSeconds).ToString();
 };</code></pre><div class="what">Adds the <code>Retry-After</code> header, which the framework does not send by default.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Redis (shared counters across instances)</h3>
         <div class="cmd"><pre class="language-bash"><code class="language-bash">INCR rl:acme:202611101005
@@ -583,7 +575,6 @@ ZADD rl:acme 1762770060000 1762770060000-7f3a</code></pre><div class="what">Slid
 # -&gt; 0 16 30 -1 2   (allowed, remaining, limit, retry_after, reset_after)</code></pre><div class="what">GCRA in one command via the <code>redis-cell</code> module: burst 15, 30 per 60 s.</div></div>
         <div class="cmd"><pre class="language-bash"><code class="language-bash">EVALSHA $sha 1 rl:acme $(date +%s) 5 20</code></pre><div class="what">Runs the token-bucket Lua script atomically: one round trip, no race.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Edge and proxy</h3>
         <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
@@ -598,7 +589,6 @@ server {
     counter-key="@(context.Subscription.Id)"
     remaining-calls-header-name="RateLimit-Remaining" /&gt;</code></pre><div class="what">An Azure API Management policy: a per-subscription limit enforced before your code runs.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Python, client side (living with someone else's limit)</h3>
         <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">import random, time, httpx
@@ -621,14 +611,14 @@ def call(url, attempt=0):
           <li>Turns an unbounded failure (everything times out) into a bounded, explainable one (some calls get a 429).</li>
           <li>Rejection is orders of magnitude cheaper than service, so you can say no to far more traffic than you could ever serve.</li>
           <li>Fairness between tenants: one customer's bad deploy stops being everyone's incident.</li>
-          <li>Caps cost directly when per-request spend is real &mdash; LLM tokens, SMS, metered third-party APIs.</li>
+          <li>Caps cost directly when per-request spend is real — LLM tokens, SMS, metered third-party APIs.</li>
           <li>A credible defence against credential stuffing, scraping and enumeration, at almost no engineering cost.</li>
           <li>The policy is a documented contract, so client authors can build correct backoff instead of guessing.</li>
         </ul></div>
         <div class="col bad"><h3>Cons</h3><ul>
           <li>A shared counter puts a network hop and a hard dependency on the hot path of every request.</li>
           <li>Limits are guesses until measured: too tight breaks correct clients, too loose protects nothing.</li>
-          <li>Rate limits do not protect against slow dependencies &mdash; only a concurrency limit does.</li>
+          <li>Rate limits do not protect against slow dependencies — only a concurrency limit does.</li>
           <li>Keys are gameable: IPs rotate, accounts are free, and NAT makes IP limits punish innocents.</li>
           <li>Rejections push work onto clients, and badly written clients answer a 429 with more retries.</li>
           <li>Many layers of limiter (CDN, gateway, app, connection pool) interact in ways nobody has modelled.</li>
@@ -640,7 +630,7 @@ def call(url, attempt=0):
       <h2>Concrete use cases</h2>
       <div class="cards">
         <div class="card"><h3>Public API with paid tiers</h3><p>A SaaS sells Free (60 req/min), Pro (600) and Enterprise (6,000). A token bucket keyed on the API key, with capacity around a tenth of the minute limit, allows natural page-load bursts while enforcing the sustained rate. <code>RateLimit-*</code> headers on every response let customers build their own dashboards, and upgrade when they see themselves hitting the ceiling.</p></div>
-        <div class="card"><h3>Login endpoint under credential stuffing</h3><p>An attacker tries one password against a million accounts from a botnet. An IP limit alone fails (thousands of IPs) and an account limit alone fails (one attempt each). Two limiters in series &mdash; 10 attempts per 15 min per account <i>and</i> 50 per hour per IP, with a sliding window log for exactness &mdash; make the attack uneconomic while a user who mistypes twice notices nothing.</p></div>
+        <div class="card"><h3>Login endpoint under credential stuffing</h3><p>An attacker tries one password against a million accounts from a botnet. An IP limit alone fails (thousands of IPs) and an account limit alone fails (one attempt each). Two limiters in series — 10 attempts per 15 min per account <em>and</em> 50 per hour per IP, with a sliding window log for exactness — make the attack uneconomic while a user who mistypes twice notices nothing.</p></div>
         <div class="card"><h3>Protecting a legacy backend</h3><p>An ERP accepts 20 writes per second before it starts timing out. The integration service puts a queueing leaky bucket in front: bursts from the webshop queue up and drain at 18/s, with a bounded queue that returns 503 when full. The ERP never sees a spike, and the webshop sees a few seconds of extra latency instead of a failed sync.</p></div>
         <div class="card"><h3>Fan-out to a metered third party</h3><p>A fleet of workers on Kubernetes calls a geocoding API billed per request and capped at 500/s for the whole account. Per-pod limits overshoot whenever the deployment scales, so the workers share one Redis token bucket at 450/s, leaving 10% of headroom. The limiter doubles as the cost cap.</p></div>
         <div class="card"><h3>Shedding load during an incident</h3><p>A payments service degrades when its database fails over. A concurrency limiter caps in-flight requests at 200; beyond that, requests tagged <code>background</code> (reconciliation, reporting) are shed with 503 while interactive checkout traffic is still served. The service stays up at reduced function instead of queueing itself to death.</p></div>
@@ -649,9 +639,9 @@ def call(url, attempt=0):
 
     <section id="when">
       <h2>When to use / when not to</h2>
-      <span class="note" style="margin:-6px 0 14px">If you can't name the key and the number, you don't have a rate limit &mdash; you have a vibe.</span>
+      <span class="note" style="margin:-6px 0 14px">If you can't name the key and the number, you don't have a rate limit — you have a vibe.</span>
       <div class="cols">
-        <div class="col good"><h3>Use it when&hellip;</h3><ul>
+        <div class="col good"><h3>Use it when…</h3><ul>
           <li>The endpoint is reachable by anyone on the internet, authenticated or not.</li>
           <li>One caller can plausibly consume capacity that other callers paid for.</li>
           <li>A request costs real money: LLM tokens, SMS, a metered partner API.</li>
@@ -659,7 +649,7 @@ def call(url, attempt=0):
           <li>You depend on something with a published limit you must not exceed as a fleet.</li>
           <li>You need a hard answer to "what happens when traffic is 10x normal?"</li>
         </ul></div>
-        <div class="col bad"><h3>Avoid it when&hellip;</h3><ul>
+        <div class="col bad"><h3>Avoid it when…</h3><ul>
           <li>The real risk is slow dependencies, not request volume. Use a <b>concurrency limit / bulkhead</b> plus timeouts.</li>
           <li>The caller is one trusted internal service with predictable traffic. Use <b>capacity planning and alerts</b>; a limit there only adds an outage mode.</li>
           <li>Work is already pull-based through a queue. The consumer's own pace is the limit, so use <b>Apache Kafka</b> or a job queue, not an HTTP limiter.</li>
@@ -672,14 +662,14 @@ def call(url, attempt=0):
 
     <section id="gotchas">
       <h2>Common mistakes &amp; gotchas</h2>
-      <div class="gotcha"><b>Read, decide, then increment &mdash; in two round trips</b><span>Two instances both read 99 against a limit of 100 and both allow. Under load this leaks far more than it looks, because the window of the race is a whole network round trip.</span><div class="fix">Fix: make the check-and-update one atomic operation &mdash; a Lua script, <code>CL.THROTTLE</code>, or a single <code>INCR</code> whose return value <i>is</i> the decision.</div></div>
+      <div class="gotcha"><b>Read, decide, then increment — in two round trips</b><span>Two instances both read 99 against a limit of 100 and both allow. Under load this leaks far more than it looks, because the window of the race is a whole network round trip.</span><div class="fix">Fix: make the check-and-update one atomic operation — a Lua script, <code>CL.THROTTLE</code>, or a single <code>INCR</code> whose return value <em>is</em> the decision.</div></div>
       <div class="gotcha"><b>Dividing the global limit by the instance count</b><span>"6,000/min across 10 pods, so 600 each" breaks the moment the load balancer is uneven or Kubernetes scales to 12. Some callers get rejected at half the advertised limit.</span><div class="fix">Fix: use a shared store for anything customer-facing, or a local bucket that reconciles with a shared allowance. If you must divide, over-provision each share and accept the overshoot.</div></div>
-      <div class="gotcha"><b>Rejecting with no <code>Retry-After</code></b><span>The client cannot tell whether to come back in 1 second or 10 minutes, so it retries immediately &mdash; turning one rejection into a retry storm that keeps the limit permanently exhausted.</span><div class="fix">Fix: always send <code>Retry-After</code> plus <code>RateLimit-Remaining</code> and <code>RateLimit-Reset</code>, including on successful responses so clients can slow down pre-emptively.</div></div>
-      <div class="gotcha"><b>Counting after the expensive work</b><span>The limiter sits behind authentication, deserialisation and a database lookup, so each rejected request still costs most of a served one. Under attack the limiter itself becomes the bottleneck.</span><div class="fix">Fix: limit as early as the key allows &mdash; IP at the edge, API key right after a cheap token check &mdash; and keep the 429 response body tiny.</div></div>
+      <div class="gotcha"><b>Rejecting with no <code>Retry-After</code></b><span>The client cannot tell whether to come back in 1 second or 10 minutes, so it retries immediately — turning one rejection into a retry storm that keeps the limit permanently exhausted.</span><div class="fix">Fix: always send <code>Retry-After</code> plus <code>RateLimit-Remaining</code> and <code>RateLimit-Reset</code>, including on successful responses so clients can slow down pre-emptively.</div></div>
+      <div class="gotcha"><b>Counting after the expensive work</b><span>The limiter sits behind authentication, deserialisation and a database lookup, so each rejected request still costs most of a served one. Under attack the limiter itself becomes the bottleneck.</span><div class="fix">Fix: limit as early as the key allows — IP at the edge, API key right after a cheap token check — and keep the 429 response body tiny.</div></div>
       <div class="gotcha"><b>Trusting <code>X-Forwarded-For</code> blindly</b><span>Anyone can send that header. If your limiter reads the leftmost value, an attacker rotates a fake IP per request and the per-IP limit never triggers.</span><div class="fix">Fix: take the client IP from the rightmost trusted hop, configure your proxy's known-networks list (<code>ForwardedHeadersOptions.KnownProxies</code> in ASP.NET Core), and limit IPv6 by /64 rather than by full address.</div></div>
-      <div class="gotcha"><b>No decision about what happens when the store is down</b><span>Redis blips and either every request is rejected (fail-closed, a self-inflicted outage) or every request is allowed (fail-open, undefended) &mdash; whichever your library happened to choose.</span><div class="fix">Fix: choose per endpoint, write it down, and test it. Fail open for ordinary read APIs with a short timeout; fail closed for login and anything that spends money.</div></div>
-      <div class="gotcha"><b>Health checks sharing the limit</b><span>Probes, synthetic monitors and admin tooling consume quota, so a traffic spike makes your monitoring go red for the wrong reason &mdash; or hides a real outage behind 429s.</span><div class="fix">Fix: exempt health and readiness endpoints explicitly, and give internal service accounts their own key and their own policy.</div></div>
-      <div class="gotcha"><b>Counting requests when the cost varies 100x</b><span>A limit of 100/min treats a cached key lookup and a 30-second report export identically, so the cheap path is throttled while the expensive one still melts the database.</span><div class="fix">Fix: use a weighted token bucket &mdash; charge tokens proportional to cost &mdash; or add a separate, much tighter limit on the expensive routes.</div></div>
+      <div class="gotcha"><b>No decision about what happens when the store is down</b><span>Redis blips and either every request is rejected (fail-closed, a self-inflicted outage) or every request is allowed (fail-open, undefended) — whichever your library happened to choose.</span><div class="fix">Fix: choose per endpoint, write it down, and test it. Fail open for ordinary read APIs with a short timeout; fail closed for login and anything that spends money.</div></div>
+      <div class="gotcha"><b>Health checks sharing the limit</b><span>Probes, synthetic monitors and admin tooling consume quota, so a traffic spike makes your monitoring go red for the wrong reason — or hides a real outage behind 429s.</span><div class="fix">Fix: exempt health and readiness endpoints explicitly, and give internal service accounts their own key and their own policy.</div></div>
+      <div class="gotcha"><b>Counting requests when the cost varies 100x</b><span>A limit of 100/min treats a cached key lookup and a 30-second report export identically, so the cheap path is throttled while the expensive one still melts the database.</span><div class="fix">Fix: use a weighted token bucket — charge tokens proportional to cost — or add a separate, much tighter limit on the expensive routes.</div></div>
     </section>
 
     <section id="alternatives">
@@ -688,23 +678,23 @@ def call(url, attempt=0):
         <table>
           <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs a rate limit</th></tr></thead>
           <tbody>
-            <tr class="self"><td><b>Rate limiting</b></td><td>fairness, abuse, cost caps per caller</td><td>Low&ndash;medium</td><td>free in most frameworks</td><td>&mdash;</td></tr>
-            <tr><td><b>Concurrency limit / bulkhead</b></td><td>protecting threads, pools and slow dependencies</td><td>Low</td><td>free (Polly, semaphores)</td><td>Caps work <i>in flight</i>, not per second; survives latency spikes a rate limit ignores</td></tr>
+            <tr class="self"><td><b>Rate limiting</b></td><td>fairness, abuse, cost caps per caller</td><td>Low–medium</td><td>free in most frameworks</td><td>—</td></tr>
+            <tr><td><b>Concurrency limit / bulkhead</b></td><td>protecting threads, pools and slow dependencies</td><td>Low</td><td>free (Polly, semaphores)</td><td>Caps work <em>in flight</em>, not per second; survives latency spikes a rate limit ignores</td></tr>
             <tr><td><b>Circuit breaker</b></td><td>a dependency that is already failing</td><td>Low</td><td>free (Polly, Resilience4j)</td><td>Reacts to errors, not volume; stops calling rather than stops being called</td></tr>
             <tr><td><b>Queue + async processing</b></td><td>bursty work that must not be dropped</td><td>Medium</td><td>infrastructure cost</td><td>Defers instead of rejecting; changes the API contract to asynchronous</td></tr>
             <tr><td><b>Autoscaling</b></td><td>genuine, paid-for growth in demand</td><td>Medium</td><td>pay per instance</td><td>Buys capacity instead of refusing work; too slow for a sudden burst, unbounded in cost</td></tr>
             <tr><td><b>CAPTCHA / proof of work</b></td><td>bots on signup and login flows</td><td>Medium</td><td>free to paid</td><td>Raises the price per attempt instead of capping the count; hurts real users too</td></tr>
-            <tr><td><b>WAF / bot management</b></td><td>distributed abuse from rotating IPs</td><td>Medium&ndash;high</td><td>paid service</td><td>Identifies <i>who</i> to block from behaviour; a rate limit only counts</td></tr>
+            <tr><td><b>WAF / bot management</b></td><td>distributed abuse from rotating IPs</td><td>Medium–high</td><td>paid service</td><td>Identifies <em>who</em> to block from behaviour; a rate limit only counts</td></tr>
           </tbody>
         </table>
       </div>
       <ul style="margin-top:12px">
         <li><b>Pick a concurrency limit</b> if your incidents start with "the database got slow" rather than "traffic spiked".</li>
-        <li><b>Pick a circuit breaker</b> if you are the <i>caller</i> and the thing you call is unhealthy.</li>
+        <li><b>Pick a circuit breaker</b> if you are the <em>caller</em> and the thing you call is unhealthy.</li>
         <li><b>Pick a queue</b> if dropping the request is unacceptable and the client can be told "accepted, check back later".</li>
         <li><b>Pick autoscaling</b> if the extra traffic is revenue and you would rather pay than reject.</li>
         <li><b>Pick a WAF</b> if the abuse already rotates across thousands of IPs and accounts; counting alone cannot see it.</li>
-        <li>In practice, production systems run a rate limit <i>and</i> a concurrency limit <i>and</i> a circuit breaker. They fail differently, so they cover for each other.</li>
+        <li>In practice, production systems run a rate limit <em>and</em> a concurrency limit <em>and</em> a circuit breaker. They fail differently, so they cover for each other.</li>
       </ul>
     </section>
 
@@ -712,9 +702,9 @@ def call(url, attempt=0):
       <h2>Resources</h2>
       <ul>
         <li><a href="https://learn.microsoft.com/aspnet/core/performance/rate-limit" target="_blank" rel="noopener">Rate limiting middleware in ASP.NET Core</a>: the four built-in algorithms, partitioning and queueing, with runnable samples.</li>
-        <li><a href="https://blog.cloudflare.com/counting-things-a-lot-of-different-things/" target="_blank" rel="noopener">Cloudflare &mdash; Counting things, a lot of different things</a>: why the sliding window counter approximation is good enough, with real measurements.</li>
-        <li><a href="https://stripe.com/blog/rate-limiters" target="_blank" rel="noopener">Stripe &mdash; Scaling your API with rate limiters</a>: the limiter types Stripe runs in production and why each one exists.</li>
-        <li><a href="https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/" target="_blank" rel="noopener">AWS Builders' Library &mdash; Timeouts, retries and backoff with jitter</a>: the client half of the problem, with the jitter maths.</li>
+        <li><a href="https://blog.cloudflare.com/counting-things-a-lot-of-different-things/" target="_blank" rel="noopener">Cloudflare — Counting things, a lot of different things</a>: why the sliding window counter approximation is good enough, with real measurements.</li>
+        <li><a href="https://stripe.com/blog/rate-limiters" target="_blank" rel="noopener">Stripe — Scaling your API with rate limiters</a>: the limiter types Stripe runs in production and why each one exists.</li>
+        <li><a href="https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/" target="_blank" rel="noopener">AWS Builders' Library — Timeouts, retries and backoff with jitter</a>: the client half of the problem, with the jitter maths.</li>
         <li><a href="https://nginx.org/en/docs/http/ngx_http_limit_req_module.html" target="_blank" rel="noopener">nginx <code>ngx_http_limit_req_module</code></a>: the reference leaky-bucket implementation, including what <code>burst</code> and <code>nodelay</code> really do.</li>
         <li><a href="https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/" target="_blank" rel="noopener">IETF RateLimit header fields</a>: the standard shape for <code>RateLimit-Limit</code>, <code>-Remaining</code> and <code>-Reset</code>.</li>
       </ul>
@@ -761,166 +751,65 @@ def call(url, attempt=0):
 
 <script src="../assets/player.js?v=3658cbc7"></script>
 <script>
-/* Six rate-limiting algorithms, all fed the same nine requests:
-   00:10  00:20  00:30  00:58  00:59  00:59.5  01:00  01:01  01:02   against 5 / minute. */
-const OK = '#e3eedc', NO = '#f9e3df', WAIT = '#fbf3c4';
-
-/* ---------- 1. Fixed window counter ---------- */
 createAnimation('anim-fixed', [
-  { say: 'The counter is named after the clock minute: <code>rl:acme:00</code>. Each request is an <code>INCR</code>, and the value it returns <i>is</i> the decision. One key, one integer &mdash; this is the cheapest limiter there is.',
-    hl: ['fw-wa'] },
-  { say: 'Requests <b>1, 2 and 3</b> arrive at :10, :20 and :30. The counter reaches 3.',
-    fill: { 'fw-q1': OK, 'fw-q2': OK, 'fw-q3': OK, 'fw-ca': '#c53b3b' },
-    text: { 'fw-ca': 'counter 3 / 5', 'fw-tally': 'allowed 3 · rejected 0' } },
-  { say: 'Requests <b>4 and 5</b> arrive late in the minute, at :58 and :59. The counter hits exactly 5. Both are allowed, and so far the limit has been respected perfectly.',
-    fill: { 'fw-q4': OK, 'fw-q5': OK },
-    text: { 'fw-ca': 'counter 5 / 5', 'fw-na': 'at the limit', 'fw-tally': 'allowed 5 · rejected 0' } },
-  { say: 'Request <b>6</b>, half a second later, makes <code>INCR</code> return 6. Rejected with <code>429</code>. Note what the caller is told to do: retry after the minute ends &mdash; in half a second.',
-    fill: { 'fw-q6': NO },
-    text: { 'fw-tally': 'allowed 5 · rejected 1' } },
-  { say: 'The clock ticks to 01:00. The key name changed, so this is a <b>different key</b>, and it starts at zero. Nothing in the store remembers the five requests from one second ago.',
-    unhl: ['fw-wa'], hl: ['fw-wb'],
-    text: { 'fw-cb': 'counter 0 / 5', 'fw-nb': 'brand new key — no memory of minute 00', 'fw-na': 'expired, irrelevant' } },
-  { say: 'Requests <b>7, 8 and 9</b> &mdash; the same caller, one, two and three seconds later &mdash; are all allowed.',
-    fill: { 'fw-q7': OK, 'fw-q8': OK, 'fw-q9': OK },
-    text: { 'fw-cb': 'counter 3 / 5', 'fw-tally': 'allowed 8 · rejected 1' } },
-  { say: 'Count what actually reached the service between 00:58 and 01:02: requests 4, 5, 7, 8 and 9 &mdash; <b>five in four seconds</b>, against a limit of five per <i>minute</i>. That is the boundary burst, and because every caller shares the same clock, they all do it at the same instant.',
-    show: ['fw-note'], unhl: ['fw-wb'] },
+  { say: "The counter is named after the clock minute: <code>rl:acme:00</code>. Each request is an <code>INCR</code>, and the value it returns <em>is</em> the decision. One key, one integer — this is the cheapest limiter there is.", hl: ["fw-wa"] },
+  { say: "Requests <b>1, 2 and 3</b> arrive at :10, :20 and :30. The counter reaches 3.", text: {"fw-ca":"counter 3 / 5","fw-tally":"allowed 3 · rejected 0"}, fill: {"fw-q1":"#e3eedc","fw-q2":"#e3eedc","fw-q3":"#e3eedc","fw-ca":"#c53b3b"} },
+  { say: "Requests <b>4 and 5</b> arrive late in the minute, at :58 and :59. The counter hits exactly 5. Both are allowed, and so far the limit has been respected perfectly.", text: {"fw-ca":"counter 5 / 5","fw-na":"at the limit","fw-tally":"allowed 5 · rejected 0"}, fill: {"fw-q4":"#e3eedc","fw-q5":"#e3eedc"} },
+  { say: "Request <b>6</b>, half a second later, makes <code>INCR</code> return 6. Rejected with <code>429</code>. Note what the caller is told to do: retry after the minute ends — in half a second.", text: {"fw-tally":"allowed 5 · rejected 1"}, fill: {"fw-q6":"#f9e3df"} },
+  { say: "The clock ticks to 01:00. The key name changed, so this is a <b>different key</b>, and it starts at zero. Nothing in the store remembers the five requests from one second ago.", hl: ["fw-wb"], unhl: ["fw-wa"], text: {"fw-cb":"counter 0 / 5","fw-nb":"brand new key — no memory of minute 00","fw-na":"expired, irrelevant"} },
+  { say: "Requests <b>7, 8 and 9</b> — the same caller, one, two and three seconds later — are all allowed.", text: {"fw-cb":"counter 3 / 5","fw-tally":"allowed 8 · rejected 1"}, fill: {"fw-q7":"#e3eedc","fw-q8":"#e3eedc","fw-q9":"#e3eedc"} },
+  { say: "Count what actually reached the service between 00:58 and 01:02: requests 4, 5, 7, 8 and 9 — <b>five in four seconds</b>, against a limit of five per <em>minute</em>. That is the boundary burst, and because every caller shares the same clock, they all do it at the same instant.", show: ["fw-note"], unhl: ["fw-wb"] },
 ]);
 
-/* ---------- 2. Sliding window log ---------- */
 createAnimation('anim-log', [
-  { say: 'Store the timestamp of <b>every</b> request in a sorted set. On each new request: trim everything older than <code>now &minus; 60 s</code>, count what is left, and admit only if the count is under 5.',
-    hl: ['wl-cnt'] },
-  { say: 'Requests <b>1, 2 and 3</b> are recorded. Nothing is old enough to trim yet.',
-    fill: { 'wl-q1': OK, 'wl-q2': OK, 'wl-q3': OK },
-    text: { 'wl-set': '{ 00:10, 00:20, 00:30 }', 'wl-win': 'cutoff = now - 60 s · trimmed 0',
-            'wl-cnt': 'count 3 / 5', 'wl-tally': 'allowed 3 · rejected 0' } },
-  { say: 'Requests <b>4 and 5</b>. Before admitting number 5 the count is 4, so it goes through. The set now holds exactly five timestamps.',
-    fill: { 'wl-q4': OK, 'wl-q5': OK },
-    text: { 'wl-set': '{ 00:10, 00:20, 00:30, 00:58, 00:59 }', 'wl-cnt': 'count 5 / 5',
-            'wl-tally': 'allowed 5 · rejected 0' } },
-  { say: 'Request <b>6</b>: the count is already 5, so it is rejected &mdash; and crucially, <b>nothing is written</b>. A rejected request must not consume a slot, or a caller who keeps retrying can keep itself locked out forever.',
-    fill: { 'wl-q6': NO },
-    text: { 'wl-tally': 'allowed 5 · rejected 1' } },
-  { say: 'Request <b>7</b>, at 01:00. Here is where this algorithm parts company with the fixed window: the cutoff is now 00:00, and the oldest entry (00:10) is only 50 seconds old. It stays. The count is still 5 &mdash; <b>rejected</b>.',
-    fill: { 'wl-q7': NO },
-    text: { 'wl-win': 'cutoff = 00:00 · 00:10 is 50 s old, kept', 'wl-tally': 'allowed 5 · rejected 2' } },
-  { say: 'Requests <b>8 and 9</b>: same story. The first slot does not free up until 01:10, exactly sixty seconds after request 1. Four rejections where the fixed window had one.',
-    fill: { 'wl-q8': NO, 'wl-q9': NO },
-    text: { 'wl-win': 'next slot frees at 01:10', 'wl-tally': 'allowed 5 · rejected 4' } },
-  { say: 'This is the only algorithm here that is <b>exactly right</b>: never more than five in any sixty-second window, measured from any instant. The bill is memory &mdash; one sorted-set entry per request, so a 10,000/min limit costs around 700 KB <i>per caller</i> &mdash; plus three or four Redis operations instead of one.',
-    show: ['wl-note'], unhl: ['wl-cnt'] },
+  { say: "Store the timestamp of <b>every</b> request in a sorted set. On each new request: trim everything older than <code>now − 60 s</code>, count what is left, and admit only if the count is under 5.", hl: ["wl-cnt"] },
+  { say: "Requests <b>1, 2 and 3</b> are recorded. Nothing is old enough to trim yet.", text: {"wl-set":"{ 00:10, 00:20, 00:30 }","wl-win":"cutoff = now - 60 s · trimmed 0","wl-cnt":"count 3 / 5","wl-tally":"allowed 3 · rejected 0"}, fill: {"wl-q1":"#e3eedc","wl-q2":"#e3eedc","wl-q3":"#e3eedc"} },
+  { say: "Requests <b>4 and 5</b>. Before admitting number 5 the count is 4, so it goes through. The set now holds exactly five timestamps.", text: {"wl-set":"{ 00:10, 00:20, 00:30, 00:58, 00:59 }","wl-cnt":"count 5 / 5","wl-tally":"allowed 5 · rejected 0"}, fill: {"wl-q4":"#e3eedc","wl-q5":"#e3eedc"} },
+  { say: "Request <b>6</b>: the count is already 5, so it is rejected — and crucially, <b>nothing is written</b>. A rejected request must not consume a slot, or a caller who keeps retrying can keep itself locked out forever.", text: {"wl-tally":"allowed 5 · rejected 1"}, fill: {"wl-q6":"#f9e3df"} },
+  { say: "Request <b>7</b>, at 01:00. Here is where this algorithm parts company with the fixed window: the cutoff is now 00:00, and the oldest entry (00:10) is only 50 seconds old. It stays. The count is still 5 — <b>rejected</b>.", text: {"wl-win":"cutoff = 00:00 · 00:10 is 50 s old, kept","wl-tally":"allowed 5 · rejected 2"}, fill: {"wl-q7":"#f9e3df"} },
+  { say: "Requests <b>8 and 9</b>: same story. The first slot does not free up until 01:10, exactly sixty seconds after request 1. Four rejections where the fixed window had one.", text: {"wl-win":"next slot frees at 01:10","wl-tally":"allowed 5 · rejected 4"}, fill: {"wl-q8":"#f9e3df","wl-q9":"#f9e3df"} },
+  { say: "This is the only algorithm here that is <b>exactly right</b>: never more than five in any sixty-second window, measured from any instant. The bill is memory — one sorted-set entry per request, so a 10,000/min limit costs around 700 KB <em>per caller</em> — plus three or four Redis operations instead of one.", show: ["wl-note"], unhl: ["wl-cnt"] },
 ]);
 
-/* ---------- 3. Sliding window counter ---------- */
 createAnimation('anim-counter', [
-  { say: 'Keep two counters: this minute and the previous one. Estimate the trailing-sixty-second count by assuming the previous minute’s requests were spread evenly through it, and weighting it by how much of it is still in range.',
-    hl: ['wc-est'] },
-  { say: 'Requests <b>1, 2 and 3</b>. There is no previous minute, so <code>prev = 0</code> and the estimate is just the current counter. For this first minute the algorithm behaves exactly like a fixed window.',
-    fill: { 'wc-q1': OK, 'wc-q2': OK, 'wc-q3': OK },
-    text: { 'wc-curr': 'curr minute = 3', 'wc-ovl': 'elapsed 30 s → overlap 0.50',
-            'wc-est': '= 2.00  → allow', 'wc-tally': 'allowed 3 · rejected 0' } },
-  { say: 'Requests <b>4 and 5</b> push the current counter to 5. The estimate before admitting number 5 was 4.00, so it was allowed.',
-    fill: { 'wc-q4': OK, 'wc-q5': OK },
-    text: { 'wc-curr': 'curr minute = 5', 'wc-ovl': 'elapsed 59 s → overlap 0.02',
-            'wc-est': '= 4.00  → allow', 'wc-tally': 'allowed 5 · rejected 0' } },
-  { say: 'Request <b>6</b>: the estimate is 5.00, which is not below 5. Rejected &mdash; same as the fixed window, so far.',
-    fill: { 'wc-q6': NO },
-    text: { 'wc-est': '= 5.00  → reject', 'wc-tally': 'allowed 5 · rejected 1' } },
-  { say: 'Request <b>7</b>, at 01:00. The windows roll: <code>prev</code> becomes 5 and <code>curr</code> resets to 0. But zero seconds have elapsed, so the overlap is <b>1.00</b> &mdash; the whole previous minute is still inside the trailing sixty seconds. Estimate 5 &times; 1.00 + 0 = 5.00. <b>Rejected</b>, where the fixed window waved it through.',
-    fill: { 'wc-q7': NO },
-    text: { 'wc-prev': 'prev minute = 5', 'wc-curr': 'curr minute = 0', 'wc-ovl': 'elapsed 0 s → overlap 1.00',
-            'wc-est': '= 5.00  → reject', 'wc-tally': 'allowed 5 · rejected 2' } },
-  { say: 'Request <b>8</b>, one second later: the overlap has slipped to 0.983, so the estimate is 4.92 &mdash; just under the line. <b>Allowed</b>, and <code>curr</code> becomes 1. Request <b>9</b> then estimates 4.83 + 1 = 5.83 and is rejected.',
-    fill: { 'wc-q8': OK, 'wc-q9': NO },
-    text: { 'wc-curr': 'curr minute = 1', 'wc-ovl': 'elapsed 2 s → overlap 0.97',
-            'wc-est': '= 5.83  → reject', 'wc-tally': 'allowed 6 · rejected 3' } },
-  { say: 'Six allowed against the log’s five &mdash; one request of slack, in exchange for two integers instead of one entry per request. The approximation only misleads when the previous minute’s traffic was very unevenly spread, and it errs on the <i>strict</i> side for the pattern that matters: a burst at the end of the previous window.',
-    show: ['wc-note'], unhl: ['wc-est'] },
+  { say: "Keep two counters: this minute and the previous one. Estimate the trailing-sixty-second count by assuming the previous minute’s requests were spread evenly through it, and weighting it by how much of it is still in range.", hl: ["wc-est"] },
+  { say: "Requests <b>1, 2 and 3</b>. There is no previous minute, so <code>prev = 0</code> and the estimate is just the current counter. For this first minute the algorithm behaves exactly like a fixed window.", text: {"wc-curr":"curr minute = 3","wc-ovl":"elapsed 30 s → overlap 0.50","wc-est":"= 2.00  → allow","wc-tally":"allowed 3 · rejected 0"}, fill: {"wc-q1":"#e3eedc","wc-q2":"#e3eedc","wc-q3":"#e3eedc"} },
+  { say: "Requests <b>4 and 5</b> push the current counter to 5. The estimate before admitting number 5 was 4.00, so it was allowed.", text: {"wc-curr":"curr minute = 5","wc-ovl":"elapsed 59 s → overlap 0.02","wc-est":"= 4.00  → allow","wc-tally":"allowed 5 · rejected 0"}, fill: {"wc-q4":"#e3eedc","wc-q5":"#e3eedc"} },
+  { say: "Request <b>6</b>: the estimate is 5.00, which is not below 5. Rejected — same as the fixed window, so far.", text: {"wc-est":"= 5.00  → reject","wc-tally":"allowed 5 · rejected 1"}, fill: {"wc-q6":"#f9e3df"} },
+  { say: "Request <b>7</b>, at 01:00. The windows roll: <code>prev</code> becomes 5 and <code>curr</code> resets to 0. But zero seconds have elapsed, so the overlap is <b>1.00</b> — the whole previous minute is still inside the trailing sixty seconds. Estimate 5 × 1.00 + 0 = 5.00. <b>Rejected</b>, where the fixed window waved it through.", text: {"wc-prev":"prev minute = 5","wc-curr":"curr minute = 0","wc-ovl":"elapsed 0 s → overlap 1.00","wc-est":"= 5.00  → reject","wc-tally":"allowed 5 · rejected 2"}, fill: {"wc-q7":"#f9e3df"} },
+  { say: "Request <b>8</b>, one second later: the overlap has slipped to 0.983, so the estimate is 4.92 — just under the line. <b>Allowed</b>, and <code>curr</code> becomes 1. Request <b>9</b> then estimates 4.83 + 1 = 5.83 and is rejected.", text: {"wc-curr":"curr minute = 1","wc-ovl":"elapsed 2 s → overlap 0.97","wc-est":"= 5.83  → reject","wc-tally":"allowed 6 · rejected 3"}, fill: {"wc-q8":"#e3eedc","wc-q9":"#f9e3df"} },
+  { say: "Six allowed against the log’s five — one request of slack, in exchange for two integers instead of one entry per request. The approximation only misleads when the previous minute’s traffic was very unevenly spread, and it errs on the <em>strict</em> side for the pattern that matters: a burst at the end of the previous window.", show: ["wc-note"], unhl: ["wc-est"] },
 ]);
 
-/* ---------- 4. Token bucket ---------- */
 createAnimation('anim-token', [
-  { say: 'Five tokens in the bucket, refilling at one every twelve seconds &mdash; five per minute sustained, with a burst of five. No timer runs anywhere: the tokens are recomputed from the elapsed time when a request shows up.',
-    hl: ['tb-cnt'] },
-  { say: 'Requests <b>1, 2 and 3</b> each spend a token, and each gap of ten seconds refills about 0.83 of one back. After three requests there are 3.67 left.',
-    fill: { 'tb-q1': OK, 'tb-q2': OK, 'tb-q3': OK }, hide: ['tb-t5', 'tb-t4'],
-    text: { 'tb-cnt': 'tokens 3.67 / 5', 'tb-last': 'last seen: 00:30', 'tb-tally': 'allowed 3 · rejected 0' } },
-  { say: 'Then the caller goes quiet for twenty-eight seconds. Request <b>4</b> arrives at :58 and the refill is 28 / 12 = 2.33 tokens &mdash; which would be 6.00, so the cap throws the excess away. Idle time is credit, but only up to the capacity.',
-    fill: { 'tb-q4': OK }, show: ['tb-t4'],
-    text: { 'tb-cnt': 'tokens 4.00 / 5', 'tb-calc': 'refill 2.33, capped at 5.00, then spend 1',
-            'tb-last': 'last seen: 00:58', 'tb-tally': 'allowed 4 · rejected 0' } },
-  { say: 'Request <b>5</b> leaves 3.08. And request <b>6</b> &mdash; the one the fixed window rejected &mdash; is <b>allowed</b> here, leaving 2.13. The caller had genuinely been quiet; there is credit to spend.',
-    fill: { 'tb-q5': OK, 'tb-q6': OK }, hide: ['tb-t4', 'tb-t3'],
-    text: { 'tb-cnt': 'tokens 2.13 / 5', 'tb-calc': 'refill = elapsed / 12 s, capped at 5',
-            'tb-last': 'last seen: 00:59.5', 'tb-tally': 'allowed 6 · rejected 0' } },
-  { say: 'Request <b>7</b> crosses the minute boundary, and <i>nothing happens</i>. There is no window here, no key name with a minute in it, nothing to reset. It simply costs a token like any other.',
-    fill: { 'tb-q7': OK }, hide: ['tb-t2'],
-    text: { 'tb-cnt': 'tokens 1.17 / 5', 'tb-last': 'last seen: 01:00', 'tb-tally': 'allowed 7 · rejected 0' } },
-  { say: 'Request <b>8</b> takes it down to 0.25. Request <b>9</b> finds 0.33 tokens &mdash; not enough &mdash; and is rejected. Because we know the refill rate, the wait is exact: <code>(1 &minus; 0.33) &times; 12 = 8 s</code>.',
-    fill: { 'tb-q8': OK, 'tb-q9': NO }, hide: ['tb-t1'],
-    text: { 'tb-cnt': 'tokens 0.33 / 5', 'tb-calc': 'need 1.00, have 0.33 → 429, Retry-After: 8',
-            'tb-last': 'last seen: 01:02', 'tb-tally': 'allowed 8 · rejected 1' } },
-  { say: 'Eight allowed &mdash; the same count as the fixed window &mdash; but it rejected a <b>different request</b>. The fixed window refused number 6 because a clock ticked; the token bucket refused number 9 because the caller really had exceeded five per minute. One of those two is measuring the thing it claims to measure.',
-    show: ['tb-note'], unhl: ['tb-cnt'] },
+  { say: "Five tokens in the bucket, refilling at one every twelve seconds — five per minute sustained, with a burst of five. No timer runs anywhere: the tokens are recomputed from the elapsed time when a request shows up.", hl: ["tb-cnt"] },
+  { say: "Requests <b>1, 2 and 3</b> each spend a token, and each gap of ten seconds refills about 0.83 of one back. After three requests there are 3.67 left.", hide: ["tb-t5","tb-t4"], text: {"tb-cnt":"tokens 3.67 / 5","tb-last":"last seen: 00:30","tb-tally":"allowed 3 · rejected 0"}, fill: {"tb-q1":"#e3eedc","tb-q2":"#e3eedc","tb-q3":"#e3eedc"} },
+  { say: "Then the caller goes quiet for twenty-eight seconds. Request <b>4</b> arrives at :58 and the refill is 28 / 12 = 2.33 tokens — which would be 6.00, so the cap throws the excess away. Idle time is credit, but only up to the capacity.", show: ["tb-t4"], text: {"tb-cnt":"tokens 4.00 / 5","tb-calc":"refill 2.33, capped at 5.00, then spend 1","tb-last":"last seen: 00:58","tb-tally":"allowed 4 · rejected 0"}, fill: {"tb-q4":"#e3eedc"} },
+  { say: "Request <b>5</b> leaves 3.08. And request <b>6</b> — the one the fixed window rejected — is <b>allowed</b> here, leaving 2.13. The caller had genuinely been quiet; there is credit to spend.", hide: ["tb-t4","tb-t3"], text: {"tb-cnt":"tokens 2.13 / 5","tb-calc":"refill = elapsed / 12 s, capped at 5","tb-last":"last seen: 00:59.5","tb-tally":"allowed 6 · rejected 0"}, fill: {"tb-q5":"#e3eedc","tb-q6":"#e3eedc"} },
+  { say: "Request <b>7</b> crosses the minute boundary, and <em>nothing happens</em>. There is no window here, no key name with a minute in it, nothing to reset. It simply costs a token like any other.", hide: ["tb-t2"], text: {"tb-cnt":"tokens 1.17 / 5","tb-last":"last seen: 01:00","tb-tally":"allowed 7 · rejected 0"}, fill: {"tb-q7":"#e3eedc"} },
+  { say: "Request <b>8</b> takes it down to 0.25. Request <b>9</b> finds 0.33 tokens — not enough — and is rejected. Because we know the refill rate, the wait is exact: <code>(1 − 0.33) × 12 = 8 s</code>.", hide: ["tb-t1"], text: {"tb-cnt":"tokens 0.33 / 5","tb-calc":"need 1.00, have 0.33 → 429, Retry-After: 8","tb-last":"last seen: 01:02","tb-tally":"allowed 8 · rejected 1"}, fill: {"tb-q8":"#e3eedc","tb-q9":"#f9e3df"} },
+  { say: "Eight allowed — the same count as the fixed window — but it rejected a <b>different request</b>. The fixed window refused number 6 because a clock ticked; the token bucket refused number 9 because the caller really had exceeded five per minute. One of those two is measuring the thing it claims to measure.", show: ["tb-note"], unhl: ["tb-cnt"] },
 ]);
 
-/* ---------- 5. Leaky bucket (queueing form) ---------- */
 createAnimation('anim-leaky', [
-  { say: 'This one does not reject. Requests join a queue that drains at a constant one every twelve seconds, and the caller waits for its turn. The limit becomes a promise about <i>output rate</i> rather than about admission.',
-    hl: ['lb-depth'] },
-  { say: 'Request <b>1</b> finds an empty queue and leaves immediately. Request <b>2</b> arrives at :20, but the next release slot is :22 &mdash; it waits 2 seconds. Request <b>3</b> waits 4.',
-    fill: { 'lb-q1': OK, 'lb-q2': WAIT, 'lb-q3': WAIT, 'lb-s1': WAIT },
-    text: { 'lb-depth': 'queue depth 1 / 5', 'lb-out': 'output: 1 every 12 s',
-            'lb-delay': 'added delay: 4 s', 'lb-tally': 'served 3 · dropped 0' } },
-  { say: 'The twenty-eight-second gap before request <b>4</b> drains the queue completely, so it goes straight through with no delay at all. A quiet caller is never penalised.',
-    fill: { 'lb-q4': OK, 'lb-s1': '#fbfcf8' },
-    text: { 'lb-depth': 'queue depth 0 / 5', 'lb-delay': 'added delay: 0 s', 'lb-tally': 'served 4 · dropped 0' } },
-  { say: 'Requests <b>5 and 6</b> arrive one second apart. Their release slots are 01:10 and 01:22, so they wait 11 and 22 seconds. Both are accepted &mdash; they are just not served yet.',
-    fill: { 'lb-q5': WAIT, 'lb-q6': WAIT, 'lb-s1': WAIT, 'lb-s2': WAIT },
-    text: { 'lb-depth': 'queue depth 2 / 5', 'lb-delay': 'added delay: 22 s', 'lb-tally': 'served 4 · queued 2' } },
-  { say: 'Request <b>7</b> is slotted for 01:34 &mdash; a 34-second wait. Notice that the minute boundary is as meaningless here as it was for the token bucket.',
-    fill: { 'lb-q7': WAIT, 'lb-s3': WAIT },
-    text: { 'lb-depth': 'queue depth 3 / 5', 'lb-delay': 'added delay: 34 s', 'lb-tally': 'served 4 · queued 3' } },
-  { say: 'Requests <b>8 and 9</b> take the queue to its capacity of five, with waits of 45 and 56 seconds. A tenth request right now would overflow and be <i>dropped</i> &mdash; which is the only way this algorithm ever returns an error.',
-    fill: { 'lb-q8': WAIT, 'lb-q9': WAIT, 'lb-s4': WAIT, 'lb-s5': WAIT },
-    text: { 'lb-depth': 'queue depth 5 / 5 — full', 'lb-delay': 'added delay: 56 s',
-            'lb-out': 'output: perfectly smooth, 1 every 12 s', 'lb-tally': 'served 4 · queued 5 · dropped 0' } },
-  { say: 'Nobody got a <code>429</code>, and the service behind this bucket saw a flawlessly even trickle. The cost went somewhere else entirely: request 9 sat there for <b>56 seconds</b>. Use this when the thing you are protecting is more fragile than your caller is impatient &mdash; a legacy backend, a partner with a contractual rate &mdash; and never in front of a user waiting for a page.',
-    show: ['lb-note'], unhl: ['lb-depth'] },
+  { say: "This one does not reject. Requests join a queue that drains at a constant one every twelve seconds, and the caller waits for its turn. The limit becomes a promise about <em>output rate</em> rather than about admission.", hl: ["lb-depth"] },
+  { say: "Request <b>1</b> finds an empty queue and leaves immediately. Request <b>2</b> arrives at :20, but the next release slot is :22 — it waits 2 seconds. Request <b>3</b> waits 4.", text: {"lb-depth":"queue depth 1 / 5","lb-out":"output: 1 every 12 s","lb-delay":"added delay: 4 s","lb-tally":"served 3 · dropped 0"}, fill: {"lb-q1":"#e3eedc","lb-q2":"#fbf3c4","lb-q3":"#fbf3c4","lb-s1":"#fbf3c4"} },
+  { say: "The twenty-eight-second gap before request <b>4</b> drains the queue completely, so it goes straight through with no delay at all. A quiet caller is never penalised.", text: {"lb-depth":"queue depth 0 / 5","lb-delay":"added delay: 0 s","lb-tally":"served 4 · dropped 0"}, fill: {"lb-q4":"#e3eedc","lb-s1":"#fbfcf8"} },
+  { say: "Requests <b>5 and 6</b> arrive one second apart. Their release slots are 01:10 and 01:22, so they wait 11 and 22 seconds. Both are accepted — they are just not served yet.", text: {"lb-depth":"queue depth 2 / 5","lb-delay":"added delay: 22 s","lb-tally":"served 4 · queued 2"}, fill: {"lb-q5":"#fbf3c4","lb-q6":"#fbf3c4","lb-s1":"#fbf3c4","lb-s2":"#fbf3c4"} },
+  { say: "Request <b>7</b> is slotted for 01:34 — a 34-second wait. Notice that the minute boundary is as meaningless here as it was for the token bucket.", text: {"lb-depth":"queue depth 3 / 5","lb-delay":"added delay: 34 s","lb-tally":"served 4 · queued 3"}, fill: {"lb-q7":"#fbf3c4","lb-s3":"#fbf3c4"} },
+  { say: "Requests <b>8 and 9</b> take the queue to its capacity of five, with waits of 45 and 56 seconds. A tenth request right now would overflow and be <em>dropped</em> — which is the only way this algorithm ever returns an error.", text: {"lb-depth":"queue depth 5 / 5 — full","lb-delay":"added delay: 56 s","lb-out":"output: perfectly smooth, 1 every 12 s","lb-tally":"served 4 · queued 5 · dropped 0"}, fill: {"lb-q8":"#fbf3c4","lb-q9":"#fbf3c4","lb-s4":"#fbf3c4","lb-s5":"#fbf3c4"} },
+  { say: "Nobody got a <code>429</code>, and the service behind this bucket saw a flawlessly even trickle. The cost went somewhere else entirely: request 9 sat there for <b>56 seconds</b>. Use this when the thing you are protecting is more fragile than your caller is impatient — a legacy backend, a partner with a contractual rate — and never in front of a user waiting for a page.", show: ["lb-note"], unhl: ["lb-depth"] },
 ]);
 
-/* ---------- 6. GCRA ---------- */
 createAnimation('anim-gcra', [
-  { say: 'GCRA stores <b>one value</b>: the theoretical arrival time, or TAT &mdash; the moment the next request would be perfectly on schedule. With five per minute the emission interval <code>T</code> is 12 seconds, and a burst of five buys a tolerance <code>tau</code> of 48 seconds.',
-    hl: ['gc-tat'] },
-  { say: 'Request <b>1</b> at 00:10. There is no TAT yet, so it starts at now. The test passes trivially and the TAT is pushed one interval into the future: 00:22. Requests <b>2 and 3</b> push it to 00:34, then 00:46.',
-    fill: { 'gc-q1': OK, 'gc-q2': OK, 'gc-q3': OK },
-    text: { 'gc-tat': 'TAT = 00:46', 'gc-calc': '00:30 >= 00:46 - 48 s → allow',
-            'gc-tally': 'allowed 3 · rejected 0' } },
-  { say: 'Request <b>4</b> at 00:58. The TAT (00:46) is now <i>behind</i> real time, so <code>max(now, TAT)</code> resets it to now: 00:58 + 12 = 01:10. That reset is the bucket draining during the idle gap, expressed as arithmetic.',
-    fill: { 'gc-q4': OK },
-    text: { 'gc-tat': 'TAT = 01:10', 'gc-calc': 'TAT had fallen behind → reset to now + T',
-            'gc-tally': 'allowed 4 · rejected 0' } },
-  { say: 'Requests <b>5 and 6</b> push the TAT to 01:22 and then 01:34. Both are allowed: at 00:59.5 the TAT is 34 seconds ahead of now, and tau permits it to run up to 48 ahead. Same verdict the token bucket gave.',
-    fill: { 'gc-q5': OK, 'gc-q6': OK },
-    text: { 'gc-tat': 'TAT = 01:34', 'gc-calc': '00:59.5 >= 01:34 - 48 s → allow',
-            'gc-tally': 'allowed 6 · rejected 0' } },
-  { say: 'Request <b>7</b> at 01:00 takes the TAT to 01:46. The gap between the TAT and now is the credit you have spent; tau is how much credit you are allowed to be in.',
-    fill: { 'gc-q7': OK },
-    text: { 'gc-tat': 'TAT = 01:46', 'gc-calc': '01:00 >= 01:46 - 48 s → allow',
-            'gc-tally': 'allowed 7 · rejected 0' } },
-  { say: 'Request <b>8</b> pushes it to 01:58. Request <b>9</b> then fails the test: <code>01:58 &minus; 48 s = 01:10</code>, which is later than 01:02. Rejected &mdash; and the retry-after falls straight out of the subtraction: <b>8 seconds</b>.',
-    fill: { 'gc-q8': OK, 'gc-q9': NO },
-    text: { 'gc-tat': 'TAT = 01:58', 'gc-calc': '01:02 < 01:10 → reject, Retry-After: 8',
-            'gc-tally': 'allowed 8 · rejected 1' } },
-  { say: 'Identical verdicts to the token bucket, identical retry-after, from <b>one timestamp</b> instead of a counter plus a timestamp &mdash; which makes it trivially atomic with a single <code>GET</code>/<code>SET</code>. And look at that final TAT of 01:58: it is exactly the moment the leaky bucket would have released request 9. They are the same bucket, written down two different ways.',
-    show: ['gc-note'], unhl: ['gc-tat'] },
+  { say: "GCRA stores <b>one value</b>: the theoretical arrival time, or TAT — the moment the next request would be perfectly on schedule. With five per minute the emission interval <code>T</code> is 12 seconds, and a burst of five buys a tolerance <code>tau</code> of 48 seconds.", hl: ["gc-tat"] },
+  { say: "Request <b>1</b> at 00:10. There is no TAT yet, so it starts at now. The test passes trivially and the TAT is pushed one interval into the future: 00:22. Requests <b>2 and 3</b> push it to 00:34, then 00:46.", text: {"gc-tat":"TAT = 00:46","gc-calc":"00:30 >= 00:46 - 48 s → allow","gc-tally":"allowed 3 · rejected 0"}, fill: {"gc-q1":"#e3eedc","gc-q2":"#e3eedc","gc-q3":"#e3eedc"} },
+  { say: "Request <b>4</b> at 00:58. The TAT (00:46) is now <em>behind</em> real time, so <code>max(now, TAT)</code> resets it to now: 00:58 + 12 = 01:10. That reset is the bucket draining during the idle gap, expressed as arithmetic.", text: {"gc-tat":"TAT = 01:10","gc-calc":"TAT had fallen behind → reset to now + T","gc-tally":"allowed 4 · rejected 0"}, fill: {"gc-q4":"#e3eedc"} },
+  { say: "Requests <b>5 and 6</b> push the TAT to 01:22 and then 01:34. Both are allowed: at 00:59.5 the TAT is 34 seconds ahead of now, and tau permits it to run up to 48 ahead. Same verdict the token bucket gave.", text: {"gc-tat":"TAT = 01:34","gc-calc":"00:59.5 >= 01:34 - 48 s → allow","gc-tally":"allowed 6 · rejected 0"}, fill: {"gc-q5":"#e3eedc","gc-q6":"#e3eedc"} },
+  { say: "Request <b>7</b> at 01:00 takes the TAT to 01:46. The gap between the TAT and now is the credit you have spent; tau is how much credit you are allowed to be in.", text: {"gc-tat":"TAT = 01:46","gc-calc":"01:00 >= 01:46 - 48 s → allow","gc-tally":"allowed 7 · rejected 0"}, fill: {"gc-q7":"#e3eedc"} },
+  { say: "Request <b>8</b> pushes it to 01:58. Request <b>9</b> then fails the test: <code>01:58 − 48 s = 01:10</code>, which is later than 01:02. Rejected — and the retry-after falls straight out of the subtraction: <b>8 seconds</b>.", text: {"gc-tat":"TAT = 01:58","gc-calc":"01:02 < 01:10 → reject, Retry-After: 8","gc-tally":"allowed 8 · rejected 1"}, fill: {"gc-q8":"#e3eedc","gc-q9":"#f9e3df"} },
+  { say: "Identical verdicts to the token bucket, identical retry-after, from <b>one timestamp</b> instead of a counter plus a timestamp — which makes it trivially atomic with a single <code>GET</code>/<code>SET</code>. And look at that final TAT of 01:58: it is exactly the moment the leaky bucket would have released request 9. They are the same bucket, written down two different ways.", show: ["gc-note"], unhl: ["gc-tat"] },
 ]);
-
-/* Animations inside key-concept panels: key = data-steps of the .anim block in the term's <template>. */
-window.TERM_ANIMS = {};
 </script>
 </body>
 </html>

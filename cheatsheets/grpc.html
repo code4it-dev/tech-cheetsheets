@@ -39,8 +39,8 @@
       <h1>gRPC</h1>
       <p class="tagline">A typed method call that happens to cross a network — with HTTP/2 doing the multiplexing and protobuf doing the bytes.</p>
       <span class="meta">As of Nov 2026 · examples use proto3, grpc-dotnet and grpcio</span>
-      <p><b>gRPC</b> starts from a <code>.proto</code> file: a service, its methods, and the message types they exchange. A code generator turns that into a server base class and a client stub in every language you need, so calling a remote service looks like calling an object &mdash; while the contract stays a single file both sides compile against.</p>
-      <p>Underneath, each call is one HTTP/2 stream. The method is the path (<code>/orders.OrderService/GetOrder</code>), metadata are headers, the body is a sequence of length-prefixed protobuf messages, and the outcome arrives in <em>trailers</em> &mdash; headers sent after the body &mdash; which is how a stream that already began can still report a failure. Because a stream can carry many messages in either direction, four call shapes exist: unary, server streaming, client streaming and bidirectional.</p>
+      <p><b>gRPC</b> starts from a <code>.proto</code> file: a service, its methods, and the message types they exchange. A code generator turns that into a server base class and a client stub in every language you need, so calling a remote service looks like calling an object — while the contract stays a single file both sides compile against.</p>
+      <p>Underneath, each call is one HTTP/2 stream. The method is the path (<code>/orders.OrderService/GetOrder</code>), metadata are headers, the body is a sequence of length-prefixed protobuf messages, and the outcome arrives in <em>trailers</em> — headers sent after the body — which is how a stream that already began can still report a failure. Because a stream can carry many messages in either direction, four call shapes exist: unary, server streaming, client streaming and bidirectional.</p>
       <p>What you gain is speed, small payloads, generated clients in a dozen languages, first-class streaming, and deadlines that propagate through a call chain. What you pay is a build step, a binary wire format you cannot read with curl, awkwardness from browsers, and a load-balancing problem that catches almost everyone: long-lived HTTP/2 connections do not spread across backends by themselves.</p>
     </header>
 
@@ -95,11 +95,10 @@
 
     <section id="how-it-works">
       <h2>How it works</h2>
-      <p style="margin:0 0 18px">The first animation follows a unary call down to the frames, including the trailers that carry the outcome. The second is deadline propagation &mdash; the feature that separates a gRPC estate that degrades gracefully from one that collapses.</p>
-      <span class="note" style="margin:-8px 0 18px">the status arrives AFTER the body. that one fact explains most of gRPC's odd corners.</span>
-
+      <p>The first animation follows a unary call down to the frames, including the trailers that carry the outcome. The second is deadline propagation — the feature that separates a gRPC estate that degrades gracefully from one that collapses.</p>
+      <span class="note" style="margin:-6px 0 14px">the status arrives AFTER the body. that one fact explains most of gRPC's odd corners.</span>
       <div class="anim" id="anim-call">
-        <h3>1 &middot; One unary call, down to the frames</h3>
+        <h3>1 · One unary call, down to the frames</h3>
         <div class="stage">
           <svg viewBox="0 0 800 336" role="img" aria-label="A gRPC unary call: the stub serialises a request, a new HTTP/2 stream carries headers, a length-prefixed message and trailers back with the status">
             <defs>
@@ -156,9 +155,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-deadline">
-        <h3>2 &middot; Deadlines propagate; cancellation flows back</h3>
+        <h3>2 · Deadlines propagate; cancellation flows back</h3>
         <div class="stage">
           <svg viewBox="0 0 800 324" role="img" aria-label="A deadline set by the caller shrinking as it propagates through three services, and cancellation flowing back through the chain when it expires">
             <defs>
@@ -212,263 +210,258 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>Protocol Buffers</b><span>The IDL and the binary wire format: a schema both sides compile, and bytes neither side can read by eye.</span><template class="term-detail" data-see="Field numbers, Schema evolution, Message size">
-          <p>A <code>.proto</code> file declares messages and services. <code>protoc</code> turns it into types and stubs in your language. On the wire each field is a varint tag &mdash; field number and wire type &mdash; followed by its value, with no field names and no padding, which is why payloads are typically 3&ndash;10&times; smaller than the equivalent JSON and parse several times faster.</p>
-          <p>The cost is that a packet capture is unreadable without the schema, and so is a message sitting in a log or a queue. That trade is fine between services you own and poor for anything a human has to debug by eye.</p>
-          <h4>Rough comparison</h4>
-          <table>
-            <tr><th></th><th>JSON</th><th>Protobuf</th></tr>
-            <tr><td>A small order message</td><td>~420 B</td><td>~95 B</td></tr>
-            <tr><td>Parse speed</td><td>baseline</td><td>3&ndash;10&times; faster</td></tr>
-            <tr><td>Readable in a log</td><td>yes</td><td>no</td></tr>
-            <tr><td>Schema required to read</td><td>no</td><td>yes</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Protobuf is useful without gRPC &mdash; as a message format on <b>Kafka</b>, for instance &mdash; and gRPC can in principle carry other codecs.</li></ul>
+        <p>A <code>.proto</code> file declares messages and services. <code>protoc</code> turns it into types and stubs in your language. On the wire each field is a varint tag — field number and wire type — followed by its value, with no field names and no padding, which is why payloads are typically 3–10× smaller than the equivalent JSON and parse several times faster.</p>
+        <p>The cost is that a packet capture is unreadable without the schema, and so is a message sitting in a log or a queue. That trade is fine between services you own and poor for anything a human has to debug by eye.</p>
+        <h4>Rough comparison</h4>
+        <table><tr><th></th><th>JSON</th><th>Protobuf</th></tr>
+        <tr><td>A small order message</td><td>~420 B</td><td>~95 B</td></tr>
+        <tr><td>Parse speed</td><td>baseline</td><td>3–10× faster</td></tr>
+        <tr><td>Readable in a log</td><td>yes</td><td>no</td></tr>
+        <tr><td>Schema required to read</td><td>no</td><td>yes</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Protobuf is useful without gRPC — as a message format on <b>Kafka</b>, for instance — and gRPC can in principle carry other codecs.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Field numbers</b><span>The small integers that are the real identity of every field — names are only for humans.</span><template class="term-detail" data-see="Protocol Buffers, Schema evolution">
-          <p>Each field carries its number on the wire, not its name. Renaming a field is therefore a non-event for compatibility; changing its <em>number</em>, or reusing one that used to mean something else, silently reinterprets old data as the new type.</p>
-          <p>Numbers 1&ndash;15 encode their tag in a single byte, so spend them on the fields present in every message. Always <code>reserved</code> the numbers and names of deleted fields, so nobody can accidentally resurrect them.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Range</th><th>Tag size</th><th>Use for</th></tr>
-            <tr><td>1&ndash;15</td><td>1 byte</td><td>hot, always-present fields</td></tr>
-            <tr><td>16&ndash;2047</td><td>2 bytes</td><td>everything else</td></tr>
-            <tr><td>19000&ndash;19999</td><td>&mdash;</td><td>reserved by protobuf itself</td></tr>
-          </table>
-          <pre class="language-none line-numbers"><code class="language-none">message Order {
+        <p>Each field carries its number on the wire, not its name. Renaming a field is therefore a non-event for compatibility; changing its <em>number</em>, or reusing one that used to mean something else, silently reinterprets old data as the new type.</p>
+        <p>Numbers 1–15 encode their tag in a single byte, so spend them on the fields present in every message. Always <code>reserved</code> the numbers and names of deleted fields, so nobody can accidentally resurrect them.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Range</th><th>Tag size</th><th>Use for</th></tr>
+        <tr><td>1–15</td><td>1 byte</td><td>hot, always-present fields</td></tr>
+        <tr><td>16–2047</td><td>2 bytes</td><td>everything else</td></tr>
+        <tr><td>19000–19999</td><td>—</td><td>reserved by protobuf itself</td></tr></table>
+        <pre class="language-none line-numbers"><code class="language-none">message Order {
   reserved 4, 7 to 9;              // never reuse these
   reserved "legacy_total";
   string id = 1;
   int64  amount_cents = 2;
-}</code></pre>
-          <h4>How it relates</h4>
-          <ul><li>In proto3 every field is optional on the wire, so adding one is always backward compatible &mdash; which is what makes rolling deploys safe.</li></ul>
+}</code></pre><h4>How it relates</h4>
+        <ul>
+        <li>In proto3 every field is optional on the wire, so adding one is always backward compatible — which is what makes rolling deploys safe.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>The four call types</b><span>Unary, server streaming, client streaming and bidirectional — all on one HTTP/2 stream.</span><template class="term-detail" data-see="HTTP/2 streams, Flow control, Deadlines">
-          <p>Because a stream can carry a sequence of messages in each direction, the method signature chooses the shape. Streaming is not an add-on here &mdash; it is the same mechanism with different cardinalities, which is why it is so much less painful than bolting streaming onto REST.</p>
-          <div class="figure">
-            <svg viewBox="0 0 560 190" role="img" aria-label="The four gRPC call types shown as arrows between client and server">
-              <text x="12" y="20" font-size="10" fill="#23362e" font-weight="700">unary</text>
-              <line x1="120" y1="16" x2="300" y2="16" stroke="#5f6f66" stroke-width="1.5"/><circle cx="300" cy="16" r="3" fill="#5f6f66"/>
-              <line x1="300" y1="28" x2="120" y2="28" stroke="#2f6b3f" stroke-width="1.5"/><circle cx="120" cy="28" r="3" fill="#2f6b3f"/>
-              <text x="330" y="26" font-size="9" fill="#5f6f66">1 → 1 · an ordinary call</text>
+        <p>Because a stream can carry a sequence of messages in each direction, the method signature chooses the shape. Streaming is not an add-on here — it is the same mechanism with different cardinalities, which is why it is so much less painful than bolting streaming onto REST.</p>
+        <div class="figure">
+          <svg viewBox="0 0 560 190" role="img" aria-label="The four gRPC call types shown as arrows between client and server">
+            <text x="12" y="20" font-size="10" fill="#23362e" font-weight="700">unary</text>
+            <line x1="120" y1="16" x2="300" y2="16" stroke="#5f6f66" stroke-width="1.5"/><circle cx="300" cy="16" r="3" fill="#5f6f66"/>
+            <line x1="300" y1="28" x2="120" y2="28" stroke="#2f6b3f" stroke-width="1.5"/><circle cx="120" cy="28" r="3" fill="#2f6b3f"/>
+            <text x="330" y="26" font-size="9" fill="#5f6f66">1 → 1 · an ordinary call</text>
 
-              <text x="12" y="65" font-size="10" fill="#23362e" font-weight="700">server stream</text>
-              <line x1="120" y1="61" x2="300" y2="61" stroke="#5f6f66" stroke-width="1.5"/><circle cx="300" cy="61" r="3" fill="#5f6f66"/>
-              <line x1="300" y1="73" x2="120" y2="73" stroke="#2f6b3f" stroke-width="1.5"/><circle cx="120" cy="73" r="3" fill="#2f6b3f"/>
-              <line x1="300" y1="83" x2="120" y2="83" stroke="#2f6b3f" stroke-width="1.5"/><circle cx="120" cy="83" r="3" fill="#2f6b3f"/>
-              <text x="330" y="76" font-size="9" fill="#5f6f66">1 → N · feeds, large result sets</text>
+            <text x="12" y="65" font-size="10" fill="#23362e" font-weight="700">server stream</text>
+            <line x1="120" y1="61" x2="300" y2="61" stroke="#5f6f66" stroke-width="1.5"/><circle cx="300" cy="61" r="3" fill="#5f6f66"/>
+            <line x1="300" y1="73" x2="120" y2="73" stroke="#2f6b3f" stroke-width="1.5"/><circle cx="120" cy="73" r="3" fill="#2f6b3f"/>
+            <line x1="300" y1="83" x2="120" y2="83" stroke="#2f6b3f" stroke-width="1.5"/><circle cx="120" cy="83" r="3" fill="#2f6b3f"/>
+            <text x="330" y="76" font-size="9" fill="#5f6f66">1 → N · feeds, large result sets</text>
 
-              <text x="12" y="120" font-size="10" fill="#23362e" font-weight="700">client stream</text>
-              <line x1="120" y1="112" x2="300" y2="112" stroke="#5f6f66" stroke-width="1.5"/><circle cx="300" cy="112" r="3" fill="#5f6f66"/>
-              <line x1="120" y1="122" x2="300" y2="122" stroke="#5f6f66" stroke-width="1.5"/><circle cx="300" cy="122" r="3" fill="#5f6f66"/>
-              <line x1="300" y1="134" x2="120" y2="134" stroke="#2f6b3f" stroke-width="1.5"/><circle cx="120" cy="134" r="3" fill="#2f6b3f"/>
-              <text x="330" y="126" font-size="9" fill="#5f6f66">N → 1 · uploads, telemetry</text>
+            <text x="12" y="120" font-size="10" fill="#23362e" font-weight="700">client stream</text>
+            <line x1="120" y1="112" x2="300" y2="112" stroke="#5f6f66" stroke-width="1.5"/><circle cx="300" cy="112" r="3" fill="#5f6f66"/>
+            <line x1="120" y1="122" x2="300" y2="122" stroke="#5f6f66" stroke-width="1.5"/><circle cx="300" cy="122" r="3" fill="#5f6f66"/>
+            <line x1="300" y1="134" x2="120" y2="134" stroke="#2f6b3f" stroke-width="1.5"/><circle cx="120" cy="134" r="3" fill="#2f6b3f"/>
+            <text x="330" y="126" font-size="9" fill="#5f6f66">N → 1 · uploads, telemetry</text>
 
-              <text x="12" y="172" font-size="10" fill="#23362e" font-weight="700">bidirectional</text>
-              <line x1="120" y1="162" x2="300" y2="162" stroke="#5f6f66" stroke-width="1.5"/><circle cx="300" cy="162" r="3" fill="#5f6f66"/>
-              <line x1="300" y1="172" x2="120" y2="172" stroke="#2f6b3f" stroke-width="1.5"/><circle cx="120" cy="172" r="3" fill="#2f6b3f"/>
-              <line x1="120" y1="182" x2="300" y2="182" stroke="#5f6f66" stroke-width="1.5"/><circle cx="300" cy="182" r="3" fill="#5f6f66"/>
-              <text x="330" y="176" font-size="9" fill="#5f6f66">N ↔ N · chat, control planes</text>
-              <text class="hand" x="280" y="150" fill="#c53b3b" font-size="14" text-anchor="middle">same stream, different cardinality</text>
-            </svg>
-          </div>
-          <h4>How it relates</h4>
-          <ul><li>Streaming calls hold server state and a stream slot for their lifetime, so they need their own limits &mdash; they are not free.</li></ul>
+            <text x="12" y="172" font-size="10" fill="#23362e" font-weight="700">bidirectional</text>
+            <line x1="120" y1="162" x2="300" y2="162" stroke="#5f6f66" stroke-width="1.5"/><circle cx="300" cy="162" r="3" fill="#5f6f66"/>
+            <line x1="300" y1="172" x2="120" y2="172" stroke="#2f6b3f" stroke-width="1.5"/><circle cx="120" cy="172" r="3" fill="#2f6b3f"/>
+            <line x1="120" y1="182" x2="300" y2="182" stroke="#5f6f66" stroke-width="1.5"/><circle cx="300" cy="182" r="3" fill="#5f6f66"/>
+            <text x="330" y="176" font-size="9" fill="#5f6f66">N ↔ N · chat, control planes</text>
+            <text class="hand" x="280" y="150" fill="#c53b3b" font-size="14" text-anchor="middle">same stream, different cardinality</text>
+          </svg>
+        </div>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Streaming calls hold server state and a stream slot for their lifetime, so they need their own limits — they are not free.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>HTTP/2 streams</b><span>Each call is an independent stream on a shared connection — which is both the performance story and the load-balancing problem.</span><template class="term-detail" data-see="Channel, The four call types, Load balancing">
-          <p>One TCP connection, one TLS handshake, and then thousands of concurrent calls as multiplexed streams with no head-of-line blocking at the HTTP layer. Headers are HPACK-compressed, so repeated metadata is nearly free. This is why gRPC is fast in a chatty service mesh.</p>
-          <p>It is also why an L4 load balancer fails here: it balances <em>connections</em>, and there is one long-lived connection per client. Three clients can spread perfectly across three backends while 90% of the requests land on one.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Setting</th><th>Typical</th></tr>
-            <tr><td>Max concurrent streams</td><td>100 (often raised)</td></tr>
-            <tr><td>Max connection age</td><td>30&ndash;60 min, to force re-dial</td></tr>
-            <tr><td>Keepalive ping</td><td>&ge; 30 s; too aggressive and the server resets you</td></tr>
-            <tr><td>Initial window</td><td>64 KB, raised for streaming</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The full failure mode and its fixes are on the <b>L4 vs L7 load balancing</b> page &mdash; it is the canonical example.</li></ul>
+        <p>One TCP connection, one TLS handshake, and then thousands of concurrent calls as multiplexed streams with no head-of-line blocking at the HTTP layer. Headers are HPACK-compressed, so repeated metadata is nearly free. This is why gRPC is fast in a chatty service mesh.</p>
+        <p>It is also why an L4 load balancer fails here: it balances <em>connections</em>, and there is one long-lived connection per client. Three clients can spread perfectly across three backends while 90% of the requests land on one.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Setting</th><th>Typical</th></tr>
+        <tr><td>Max concurrent streams</td><td>100 (often raised)</td></tr>
+        <tr><td>Max connection age</td><td>30–60 min, to force re-dial</td></tr>
+        <tr><td>Keepalive ping</td><td>≥ 30 s; too aggressive and the server resets you</td></tr>
+        <tr><td>Initial window</td><td>64 KB, raised for streaming</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The full failure mode and its fixes are on the <b>L4 vs L7 load balancing</b> page — it is the canonical example.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Status and trailers</b><span>The outcome arrives after the body, in trailers — a design choice with wide consequences.</span><template class="term-detail" data-see="HTTP/2 streams, Metadata, gRPC-Web">
-          <p>A call ends with a <code>grpc-status</code> and optional <code>grpc-message</code> in HTTP/2 trailers. The HTTP status is almost always 200, even for failures, because the HTTP exchange itself succeeded. This is what lets a server start streaming results and only later discover an error &mdash; it has not committed to an outcome by sending headers.</p>
-          <p>The consequences show up everywhere: proxies must support trailers, browsers cannot read them (hence <b>gRPC-Web</b>), and monitoring based on HTTP status reports a perfectly healthy service while every call fails with <code>INTERNAL</code>.</p>
-          <h4>Codes worth knowing</h4>
-          <table>
-            <tr><th>Code</th><th>Meaning</th><th>Retry?</th></tr>
-            <tr><td><code>OK</code> (0)</td><td>success</td><td>&mdash;</td></tr>
-            <tr><td><code>INVALID_ARGUMENT</code> (3)</td><td>caller's fault</td><td>no</td></tr>
-            <tr><td><code>DEADLINE_EXCEEDED</code> (4)</td><td>budget gone</td><td>rarely</td></tr>
-            <tr><td><code>NOT_FOUND</code> (5)</td><td>no such entity</td><td>no</td></tr>
-            <tr><td><code>RESOURCE_EXHAUSTED</code> (8)</td><td>quota or rate limit</td><td>with backoff</td></tr>
-            <tr><td><code>FAILED_PRECONDITION</code> (9)</td><td>wrong state &mdash; do not retry</td><td>no</td></tr>
-            <tr><td><code>ABORTED</code> (10)</td><td>conflict &mdash; retry higher up</td><td>yes</td></tr>
-            <tr><td><code>UNAVAILABLE</code> (14)</td><td>transient</td><td>yes</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Alert on <code>grpc-status</code>, never on HTTP status &mdash; the same trap GraphQL has with its errors array.</li></ul>
+        <p>A call ends with a <code>grpc-status</code> and optional <code>grpc-message</code> in HTTP/2 trailers. The HTTP status is almost always 200, even for failures, because the HTTP exchange itself succeeded. This is what lets a server start streaming results and only later discover an error — it has not committed to an outcome by sending headers.</p>
+        <p>The consequences show up everywhere: proxies must support trailers, browsers cannot read them (hence <b>gRPC-Web</b>), and monitoring based on HTTP status reports a perfectly healthy service while every call fails with <code>INTERNAL</code>.</p>
+        <h4>Codes worth knowing</h4>
+        <table><tr><th>Code</th><th>Meaning</th><th>Retry?</th></tr>
+        <tr><td><code>OK</code> (0)</td><td>success</td><td>—</td></tr>
+        <tr><td><code>INVALID_ARGUMENT</code> (3)</td><td>caller's fault</td><td>no</td></tr>
+        <tr><td><code>DEADLINE_EXCEEDED</code> (4)</td><td>budget gone</td><td>rarely</td></tr>
+        <tr><td><code>NOT_FOUND</code> (5)</td><td>no such entity</td><td>no</td></tr>
+        <tr><td><code>RESOURCE_EXHAUSTED</code> (8)</td><td>quota or rate limit</td><td>with backoff</td></tr>
+        <tr><td><code>FAILED_PRECONDITION</code> (9)</td><td>wrong state — do not retry</td><td>no</td></tr>
+        <tr><td><code>ABORTED</code> (10)</td><td>conflict — retry higher up</td><td>yes</td></tr>
+        <tr><td><code>UNAVAILABLE</code> (14)</td><td>transient</td><td>yes</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Alert on <code>grpc-status</code>, never on HTTP status — the same trap GraphQL has with its errors array.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Metadata</b><span>Key-value pairs sent as HTTP/2 headers: auth tokens, trace context, tenant ids.</span><template class="term-detail" data-see="Status and trailers, Interceptors, Deadlines">
-          <p>Metadata is the out-of-band channel. Keys ending in <code>-bin</code> carry base64-encoded binary values; everything else is ASCII, and keys are lower-cased. Initial metadata goes with the request headers, and trailing metadata can accompany the final status.</p>
-          <p>Because HPACK compresses repeated headers on a long-lived connection, metadata that is the same on every call is close to free &mdash; which makes it the natural place for tokens, <code>traceparent</code> and tenant identifiers.</p>
-          <h4>Common keys</h4>
-          <table>
-            <tr><th>Key</th><th>Carries</th></tr>
-            <tr><td><code>authorization</code></td><td><code>Bearer …</code></td></tr>
-            <tr><td><code>traceparent</code></td><td>W3C trace context</td></tr>
-            <tr><td><code>grpc-timeout</code></td><td>the deadline, set by the library</td></tr>
-            <tr><td><code>x-tenant-id</code></td><td>your own routing keys</td></tr>
-            <tr><td><code>grpc-status-details-bin</code></td><td>rich typed error details</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Attach it in an <b>interceptor</b>, not at every call site; that is the difference between a convention and a guarantee.</li></ul>
+        <p>Metadata is the out-of-band channel. Keys ending in <code>-bin</code> carry base64-encoded binary values; everything else is ASCII, and keys are lower-cased. Initial metadata goes with the request headers, and trailing metadata can accompany the final status.</p>
+        <p>Because HPACK compresses repeated headers on a long-lived connection, metadata that is the same on every call is close to free — which makes it the natural place for tokens, <code>traceparent</code> and tenant identifiers.</p>
+        <h4>Common keys</h4>
+        <table><tr><th>Key</th><th>Carries</th></tr>
+        <tr><td><code>authorization</code></td><td><code>Bearer …</code></td></tr>
+        <tr><td><code>traceparent</code></td><td>W3C trace context</td></tr>
+        <tr><td><code>grpc-timeout</code></td><td>the deadline, set by the library</td></tr>
+        <tr><td><code>x-tenant-id</code></td><td>your own routing keys</td></tr>
+        <tr><td><code>grpc-status-details-bin</code></td><td>rich typed error details</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Attach it in an <b>interceptor</b>, not at every call site; that is the difference between a convention and a guarantee.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Deadlines</b><span>An absolute point in time, sent with the call and propagated down the chain — not a per-hop timeout.</span><template class="term-detail" data-see="Cancellation, Status and trailers, Retries">
-          <p>The caller sets a deadline; the library converts it to a <code>grpc-timeout</code> header. A server receiving one knows how long it has, and when it calls another service it passes along <em>what is left</em>. The budget shrinks down the tree instead of each hop inventing its own.</p>
-          <p>Two rules follow. Always set one &mdash; the default in most languages is infinity, which turns a slow dependency into exhausted threads. And always propagate the incoming deadline rather than starting a fresh timeout, or the chain's total can exceed what the caller is still waiting for.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Call</th><th>Deadline</th></tr>
-            <tr><td>Interactive read</td><td>200&ndash;500 ms</td></tr>
-            <tr><td>Write with side effects</td><td>1&ndash;3 s</td></tr>
-            <tr><td>Batch or report</td><td>30&ndash;120 s</td></tr>
-            <tr><td>Streaming</td><td>per message, not per stream</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Deadline propagation is one of the few genuinely distributed features built into the protocol rather than into your code.</li></ul>
+        <p>The caller sets a deadline; the library converts it to a <code>grpc-timeout</code> header. A server receiving one knows how long it has, and when it calls another service it passes along <em>what is left</em>. The budget shrinks down the tree instead of each hop inventing its own.</p>
+        <p>Two rules follow. Always set one — the default in most languages is infinity, which turns a slow dependency into exhausted threads. And always propagate the incoming deadline rather than starting a fresh timeout, or the chain's total can exceed what the caller is still waiting for.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Call</th><th>Deadline</th></tr>
+        <tr><td>Interactive read</td><td>200–500 ms</td></tr>
+        <tr><td>Write with side effects</td><td>1–3 s</td></tr>
+        <tr><td>Batch or report</td><td>30–120 s</td></tr>
+        <tr><td>Streaming</td><td>per message, not per stream</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Deadline propagation is one of the few genuinely distributed features built into the protocol rather than into your code.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Cancellation</b><span>When a caller gives up, the whole subtree finds out and stops working.</span><template class="term-detail" data-see="Deadlines, HTTP/2 streams, Flow control">
-          <p>A cancelled or expired call resets its HTTP/2 stream, and the server's handler receives a cancelled context or token. If that handler is itself waiting on downstream calls, their streams reset too, and the signal flows all the way to the leaves.</p>
-          <p>That only works if your code honours it: pass the cancellation token into every database call, HTTP request and loop. A handler that ignores it keeps burning a connection and a thread for a result nobody will ever read &mdash; which under load is how a slow dependency becomes an outage.</p>
-          <h4>How it relates</h4>
-          <ul><li>This is the cheapest load-shedding you have: work for abandoned requests stops by itself, for free.</li></ul>
+        <p>A cancelled or expired call resets its HTTP/2 stream, and the server's handler receives a cancelled context or token. If that handler is itself waiting on downstream calls, their streams reset too, and the signal flows all the way to the leaves.</p>
+        <p>That only works if your code honours it: pass the cancellation token into every database call, HTTP request and loop. A handler that ignores it keeps burning a connection and a thread for a result nobody will ever read — which under load is how a slow dependency becomes an outage.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>This is the cheapest load-shedding you have: work for abandoned requests stops by itself, for free.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Channel</b><span>The client-side object holding the connection, name resolution and load-balancing policy — expensive, and meant to be shared.</span><template class="term-detail" data-see="HTTP/2 streams, Load balancing, Retries">
-          <p>A channel resolves a target name to addresses, maintains a subchannel per address, and applies a load-balancing policy across them. Creating one is costly &mdash; DNS, TCP, TLS &mdash; so create it once per target and keep it for the process lifetime. Creating a channel per call is the classic performance bug, and it also defeats HTTP/2 multiplexing entirely.</p>
-          <p>Channels have state: <code>IDLE</code>, <code>CONNECTING</code>, <code>READY</code>, <code>TRANSIENT_FAILURE</code>, <code>SHUTDOWN</code>. Watching it is useful &mdash; a channel stuck in <code>TRANSIENT_FAILURE</code> is a resolution or TLS problem, not a server problem.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Setting</th><th>Typical</th></tr>
-            <tr><td>Lifetime</td><td>process-wide singleton</td></tr>
-            <tr><td>Name resolution</td><td><code>dns:///</code>, <code>xds:///</code>, or a custom resolver</td></tr>
-            <tr><td>DNS re-resolve</td><td>30 s &mdash; not once at startup</td></tr>
-            <tr><td>LB policy</td><td><code>pick_first</code> (default) or <code>round_robin</code></td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>In .NET, register it with <code>AddGrpcClient</code> so the factory manages lifetime, handler reuse and DNS refresh for you.</li></ul>
+        <p>A channel resolves a target name to addresses, maintains a subchannel per address, and applies a load-balancing policy across them. Creating one is costly — DNS, TCP, TLS — so create it once per target and keep it for the process lifetime. Creating a channel per call is the classic performance bug, and it also defeats HTTP/2 multiplexing entirely.</p>
+        <p>Channels have state: <code>IDLE</code>, <code>CONNECTING</code>, <code>READY</code>, <code>TRANSIENT_FAILURE</code>, <code>SHUTDOWN</code>. Watching it is useful — a channel stuck in <code>TRANSIENT_FAILURE</code> is a resolution or TLS problem, not a server problem.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Setting</th><th>Typical</th></tr>
+        <tr><td>Lifetime</td><td>process-wide singleton</td></tr>
+        <tr><td>Name resolution</td><td><code>dns:///</code>, <code>xds:///</code>, or a custom resolver</td></tr>
+        <tr><td>DNS re-resolve</td><td>30 s — not once at startup</td></tr>
+        <tr><td>LB policy</td><td><code>pick_first</code> (default) or <code>round_robin</code></td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>In .NET, register it with <code>AddGrpcClient</code> so the factory manages lifetime, handler reuse and DNS refresh for you.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Load balancing</b><span>Spreading calls across backends when one connection carries all of them.</span><template class="term-detail" data-see="Channel, HTTP/2 streams, Retries">
-          <p>The default <code>pick_first</code> policy connects to one address and sends everything there. <code>round_robin</code> opens a subchannel to every resolved address and alternates &mdash; which is what most internal services actually want, and it requires a resolver that returns all the addresses (headless DNS in Kubernetes, not the <code>Service</code> VIP).</p>
-          <p>The three workable shapes are: client-side balancing with round robin, an L7 proxy or sidecar balancing per request, or a proxyless mesh using xDS. An L4 balancer in front of gRPC is the one that does not work, and it fails invisibly &mdash; connection graphs look perfect while one backend takes everything.</p>
-          <h4>Options</h4>
-          <table>
-            <tr><th>Approach</th><th>Fits</th></tr>
-            <tr><td><code>round_robin</code> + headless DNS</td><td>internal services, no extra hop</td></tr>
-            <tr><td>Sidecar / L7 proxy</td><td>per-request balancing, central policy</td></tr>
-            <tr><td>xDS (proxyless mesh)</td><td>large estates, dynamic config</td></tr>
-            <tr><td>L4 balancer</td><td>does not spread load &mdash; avoid</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>If you must stay on L4, set a maximum connection age so clients re-dial and redistribute periodically.</li></ul>
+        <p>The default <code>pick_first</code> policy connects to one address and sends everything there. <code>round_robin</code> opens a subchannel to every resolved address and alternates — which is what most internal services actually want, and it requires a resolver that returns all the addresses (headless DNS in Kubernetes, not the <code>Service</code> VIP).</p>
+        <p>The three workable shapes are: client-side balancing with round robin, an L7 proxy or sidecar balancing per request, or a proxyless mesh using xDS. An L4 balancer in front of gRPC is the one that does not work, and it fails invisibly — connection graphs look perfect while one backend takes everything.</p>
+        <h4>Options</h4>
+        <table><tr><th>Approach</th><th>Fits</th></tr>
+        <tr><td><code>round_robin</code> + headless DNS</td><td>internal services, no extra hop</td></tr>
+        <tr><td>Sidecar / L7 proxy</td><td>per-request balancing, central policy</td></tr>
+        <tr><td>xDS (proxyless mesh)</td><td>large estates, dynamic config</td></tr>
+        <tr><td>L4 balancer</td><td>does not spread load — avoid</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>If you must stay on L4, set a maximum connection age so clients re-dial and redistribute periodically.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Retries</b><span>Configured declaratively in the service config, with a budget — not hand-written at every call site.</span><template class="term-detail" data-see="Status and trailers, Deadlines, Channel">
-          <p>gRPC has built-in retry support driven by a service config: which methods, which status codes, how many attempts, the backoff curve, and a <em>retry throttling</em> budget that disables retries when the ratio of failures gets high. That budget is the part hand-rolled retry logic always lacks, and it is what prevents a retry storm from finishing off a struggling service.</p>
-          <p>Only retry on codes that are genuinely safe &mdash; <code>UNAVAILABLE</code>, sometimes <code>RESOURCE_EXHAUSTED</code>. Retrying <code>ABORTED</code> or <code>INTERNAL</code> on a mutation duplicates work unless the method is idempotent.</p>
-          <pre class="language-none line-numbers"><code class="language-none">"retryPolicy": {
+        <p>gRPC has built-in retry support driven by a service config: which methods, which status codes, how many attempts, the backoff curve, and a <em>retry throttling</em> budget that disables retries when the ratio of failures gets high. That budget is the part hand-rolled retry logic always lacks, and it is what prevents a retry storm from finishing off a struggling service.</p>
+        <p>Only retry on codes that are genuinely safe — <code>UNAVAILABLE</code>, sometimes <code>RESOURCE_EXHAUSTED</code>. Retrying <code>ABORTED</code> or <code>INTERNAL</code> on a mutation duplicates work unless the method is idempotent.</p>
+        <pre class="language-none line-numbers"><code class="language-none">"retryPolicy": {
   "maxAttempts": 3,
   "initialBackoff": "0.1s",
   "maxBackoff": "1s",
   "backoffMultiplier": 2,
   "retryableStatusCodes": ["UNAVAILABLE"]
-}</code></pre>
-          <h4>How it relates</h4>
-          <ul><li>Retries consume the same deadline, so a 200 ms budget with three attempts means each attempt gets less &mdash; see <b>Retry, backoff &amp; jitter</b>.</li></ul>
+}</code></pre><h4>How it relates</h4>
+        <ul>
+        <li>Retries consume the same deadline, so a 200 ms budget with three attempts means each attempt gets less — see <b>Retry, backoff &amp; jitter</b>.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Flow control</b><span>HTTP/2 windows stopping a fast producer from overwhelming a slow consumer, per stream and per connection.</span><template class="term-detail" data-see="The four call types, HTTP/2 streams, Message size">
-          <p>Each stream has a receive window; the sender may only have that many unacknowledged bytes in flight, and the receiver sends <code>WINDOW_UPDATE</code> as it consumes. Backpressure is therefore built in: a server streaming faster than a client reads simply blocks, rather than buffering without limit.</p>
-          <p>The default 64 KB window is small for high-throughput streaming over a high-latency link, which is the usual cause of "gRPC streaming is slower than I expected". Raising it, or enabling dynamic window sizing, often multiplies throughput.</p>
-          <h4>How it relates</h4>
-          <ul><li>This is <b>backpressure</b> provided by the transport &mdash; but only if your handler actually awaits writes instead of queueing them itself.</li></ul>
+        <p>Each stream has a receive window; the sender may only have that many unacknowledged bytes in flight, and the receiver sends <code>WINDOW_UPDATE</code> as it consumes. Backpressure is therefore built in: a server streaming faster than a client reads simply blocks, rather than buffering without limit.</p>
+        <p>The default 64 KB window is small for high-throughput streaming over a high-latency link, which is the usual cause of "gRPC streaming is slower than I expected". Raising it, or enabling dynamic window sizing, often multiplies throughput.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>This is <b>backpressure</b> provided by the transport — but only if your handler actually awaits writes instead of queueing them itself.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Interceptors</b><span>Middleware for calls: auth, logging, tracing, retries and error mapping in one place.</span><template class="term-detail" data-see="Metadata, Status and trailers, Deadlines">
-          <p>Interceptors wrap unary and streaming calls on both client and server, so cross-cutting concerns live in one place instead of in every method. The standard set: attach credentials, inject and extract trace context, record metrics per method and status, enforce deadlines, and map domain exceptions to proper status codes.</p>
-          <p>The error mapping one matters most. Without it every unhandled exception becomes <code>UNKNOWN</code>, and callers cannot tell "you sent nonsense" from "try again later" &mdash; which makes correct retry behaviour impossible for them.</p>
-          <h4>How it relates</h4>
-          <ul><li>Streaming interceptors run once per stream, not per message; per-message concerns go inside the handler.</li></ul>
+        <p>Interceptors wrap unary and streaming calls on both client and server, so cross-cutting concerns live in one place instead of in every method. The standard set: attach credentials, inject and extract trace context, record metrics per method and status, enforce deadlines, and map domain exceptions to proper status codes.</p>
+        <p>The error mapping one matters most. Without it every unhandled exception becomes <code>UNKNOWN</code>, and callers cannot tell "you sent nonsense" from "try again later" — which makes correct retry behaviour impossible for them.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Streaming interceptors run once per stream, not per message; per-message concerns go inside the handler.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>gRPC-Web</b><span>How browsers call gRPC at all, and why it cannot be the same protocol.</span><template class="term-detail" data-see="Status and trailers, HTTP/2 streams, JSON transcoding">
-          <p>Browsers cannot control HTTP/2 frames or read trailers, so native gRPC is impossible from a page. gRPC-Web is a compatible protocol that encodes trailers into the response body and works over HTTP/1.1 or HTTP/2, usually with a proxy translating &mdash; Envoy, or middleware in the server itself.</p>
-          <p>The limitation to plan around: client streaming and bidirectional streaming are not supported. Server streaming works. If a browser is a first-class client, consider plain HTTP with <b>JSON transcoding</b> instead of adding a translation layer.</p>
-          <h4>How it relates</h4>
-          <ul><li>CORS, preflight and exposing <code>grpc-status</code> headers are all part of this; budget for the configuration, not just the library.</li></ul>
+        <p>Browsers cannot control HTTP/2 frames or read trailers, so native gRPC is impossible from a page. gRPC-Web is a compatible protocol that encodes trailers into the response body and works over HTTP/1.1 or HTTP/2, usually with a proxy translating — Envoy, or middleware in the server itself.</p>
+        <p>The limitation to plan around: client streaming and bidirectional streaming are not supported. Server streaming works. If a browser is a first-class client, consider plain HTTP with <b>JSON transcoding</b> instead of adding a translation layer.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>CORS, preflight and exposing <code>grpc-status</code> headers are all part of this; budget for the configuration, not just the library.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>JSON transcoding</b><span>Serving the same service as a REST/JSON API from annotations in the proto file.</span><template class="term-detail" data-see="gRPC-Web, Protocol Buffers, Reflection">
-          <p>With <code>google.api.http</code> annotations, a method can be exposed at a REST path &mdash; <code>GET /v1/orders/{id}</code> &mdash; with JSON in and out, while internal callers keep using native gRPC. The server, or a gateway, handles the translation.</p>
-          <p>This is often the right compromise: protobuf efficiency and generated clients between services, an ordinary JSON API for browsers, partners and curl. One contract, two surfaces, no duplicate implementation.</p>
-          <pre class="language-none"><code class="language-none">rpc GetOrder(GetOrderRequest) returns (Order) {
+        <p>With <code>google.api.http</code> annotations, a method can be exposed at a REST path — <code>GET /v1/orders/{id}</code> — with JSON in and out, while internal callers keep using native gRPC. The server, or a gateway, handles the translation.</p>
+        <p>This is often the right compromise: protobuf efficiency and generated clients between services, an ordinary JSON API for browsers, partners and curl. One contract, two surfaces, no duplicate implementation.</p>
+        <pre class="language-none"><code class="language-none">rpc GetOrder(GetOrderRequest) returns (Order) {
   option (google.api.http) = { get: "/v1/orders/{id}" };
-}</code></pre>
-          <h4>How it relates</h4>
-          <ul><li>It also gives you OpenAPI generation, which is usually what a partner integration actually needs.</li></ul>
+}</code></pre><h4>How it relates</h4>
+        <ul>
+        <li>It also gives you OpenAPI generation, which is usually what a partner integration actually needs.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Reflection</b><span>The server describing its own services at runtime, which is what makes grpcurl possible.</span><template class="term-detail" data-see="JSON transcoding, Protocol Buffers">
-          <p>Without the <code>.proto</code> file, a binary request is unconstructable by hand. The reflection service lets a client ask the server for its service descriptors, so tools like <code>grpcurl</code> and Postman can list methods and build messages from plain JSON.</p>
-          <p>It is enormously useful in development and a free inventory of your internal API in production. The usual posture is on in development and staging, off in production, with descriptors distributed as a file to the tools that need them.</p>
-          <h4>How it relates</h4>
-          <ul><li>Pair it with health checking (<code>grpc.health.v1.Health</code>), which gives probes and balancers a standard way to ask if you are ready.</li></ul>
+        <p>Without the <code>.proto</code> file, a binary request is unconstructable by hand. The reflection service lets a client ask the server for its service descriptors, so tools like <code>grpcurl</code> and Postman can list methods and build messages from plain JSON.</p>
+        <p>It is enormously useful in development and a free inventory of your internal API in production. The usual posture is on in development and staging, off in production, with descriptors distributed as a file to the tools that need them.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Pair it with health checking (<code>grpc.health.v1.Health</code>), which gives probes and balancers a standard way to ask if you are ready.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Message size</b><span>The 4 MB default receive limit, and why hitting it means you wanted streaming.</span><template class="term-detail" data-see="Flow control, The four call types, Protocol Buffers">
-          <p>gRPC defaults to a 4 MB maximum received message size. The first instinct is to raise it; the better reaction is usually to switch to server streaming, so the data arrives as many small messages with flow control instead of one buffer that must be fully materialised in memory on both sides.</p>
-          <p>A single huge message also cannot be cancelled usefully, cannot report partial progress and allocates a large contiguous buffer. Streaming fixes all three.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Setting</th><th>Default</th><th>Advice</th></tr>
-            <tr><td>Max receive size</td><td>4 MB</td><td>raise deliberately, not reflexively</td></tr>
-            <tr><td>Max send size</td><td>unlimited (client)</td><td>bound it</td></tr>
-            <tr><td>Streaming chunk</td><td>&mdash;</td><td>32&ndash;256 KB per message</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>For genuinely large binaries, a signed URL to object storage beats both options.</li></ul>
+        <p>gRPC defaults to a 4 MB maximum received message size. The first instinct is to raise it; the better reaction is usually to switch to server streaming, so the data arrives as many small messages with flow control instead of one buffer that must be fully materialised in memory on both sides.</p>
+        <p>A single huge message also cannot be cancelled usefully, cannot report partial progress and allocates a large contiguous buffer. Streaming fixes all three.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Setting</th><th>Default</th><th>Advice</th></tr>
+        <tr><td>Max receive size</td><td>4 MB</td><td>raise deliberately, not reflexively</td></tr>
+        <tr><td>Max send size</td><td>unlimited (client)</td><td>bound it</td></tr>
+        <tr><td>Streaming chunk</td><td>—</td><td>32–256 KB per message</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>For genuinely large binaries, a signed URL to object storage beats both options.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Schema evolution</b><span>Adding fields is safe, changing numbers and types is not, and both sides must be able to deploy independently.</span><template class="term-detail" data-see="Field numbers, Protocol Buffers">
-          <p>In proto3, unknown fields are preserved rather than rejected, and every field has a default when absent. So adding a field, adding a method or adding an enum value is backward compatible; removing a field, reusing a number, changing a type or renaming an enum value is not.</p>
-          <p>The practical discipline is a schema registry or a linter in CI that diffs the proto against the deployed version and fails on breaking changes. <code>buf breaking</code> does this well, and it is the gRPC equivalent of a schema diff check in GraphQL.</p>
-          <h4>Breaking or not</h4>
-          <table>
-            <tr><th>Change</th><th>Safe?</th></tr>
-            <tr><td>Add a field with a new number</td><td>yes</td></tr>
-            <tr><td>Rename a field</td><td>yes on the wire, breaks source</td></tr>
-            <tr><td>Change a field's type</td><td>no</td></tr>
-            <tr><td>Reuse a deleted field number</td><td>no &mdash; and silently wrong</td></tr>
-            <tr><td>Add an RPC</td><td>yes</td></tr>
-            <tr><td>Remove or rename an RPC</td><td>no</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Reserve deleted numbers and names in the message; it turns a silent data corruption into a compile error.</li></ul>
+        <p>In proto3, unknown fields are preserved rather than rejected, and every field has a default when absent. So adding a field, adding a method or adding an enum value is backward compatible; removing a field, reusing a number, changing a type or renaming an enum value is not.</p>
+        <p>The practical discipline is a schema registry or a linter in CI that diffs the proto against the deployed version and fails on breaking changes. <code>buf breaking</code> does this well, and it is the gRPC equivalent of a schema diff check in GraphQL.</p>
+        <h4>Breaking or not</h4>
+        <table><tr><th>Change</th><th>Safe?</th></tr>
+        <tr><td>Add a field with a new number</td><td>yes</td></tr>
+        <tr><td>Rename a field</td><td>yes on the wire, breaks source</td></tr>
+        <tr><td>Change a field's type</td><td>no</td></tr>
+        <tr><td>Reuse a deleted field number</td><td>no — and silently wrong</td></tr>
+        <tr><td>Add an RPC</td><td>yes</td></tr>
+        <tr><td>Remove or rename an RPC</td><td>no</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Reserve deleted numbers and names in the message; it turns a silent data corruption into a compile error.</li>
+        </ul>
         </template></div>
       </div>
     </section>
 
     <section id="commands">
       <h2>Proto &amp; code</h2>
-
       <div class="cmd-group">
         <h3>The contract</h3>
         <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">syntax = "proto3";
@@ -505,7 +498,6 @@ enum OrderStatus {
 message GetOrderRequest  { string id = 1; }
 message ListOrdersRequest { string customer_id = 1; int32 page_size = 2; string page_token = 3; }</code></pre><div class="what">Four conventions that save years: version in the package, reserved numbers, an <code>UNSPECIFIED</code> zero enum value, and money as integers.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Server and client</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// C# — the server: override the generated base, map errors to real status codes
@@ -580,7 +572,7 @@ from grpc import aio
 import orders_pb2, orders_pb2_grpc
 
 class OrderService(orders_pb2_grpc.OrderServiceServicer):
-    async def GetOrder(self, request, context: aio.ServicerContext) -> orders_pb2.Order:
+    async def GetOrder(self, request, context: aio.ServicerContext) -&gt; orders_pb2.Order:
         if not request.id:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "id is required")
 
@@ -605,9 +597,8 @@ channel = aio.insecure_channel(
 )
 client = orders_pb2_grpc.OrderServiceStub(channel)
 
-order = await client.GetOrder(orders_pb2.GetOrderRequest(id="ORD-9802"), timeout=0.5)</code></pre><div class="what"><code>context.time_remaining()</code> is the propagated budget &mdash; pass it to whatever you call next instead of inventing a new timeout.</div></div>
+order = await client.GetOrder(orders_pb2.GetOrderRequest(id="ORD-9802"), timeout=0.5)</code></pre><div class="what"><code>context.time_remaining()</code> is the propagated budget — pass it to whatever you call next instead of inventing a new timeout.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Building and debugging</h3>
         <div class="cmd"><pre class="language-bash line-numbers"><code class="language-bash"># buf: lint, generate, and fail the build on breaking changes
@@ -618,7 +609,7 @@ buf breaking --against '.git#branch=main'     # the CI gate that saves you from 
 # protoc directly, if you prefer
 protoc --proto_path=proto --csharp_out=src/Generated --grpc_out=src/Generated \
        --plugin=protoc-gen-grpc=grpc_csharp_plugin proto/orders/v1/orders.proto
-python -m grpc_tools.protoc -Iproto --python_out=. --grpc_python_out=. proto/orders/v1/orders.proto</code></pre><div class="what"><code>buf breaking</code> is the one to wire into CI &mdash; reusing a field number is otherwise a silent data corruption, not an error.</div></div>
+python -m grpc_tools.protoc -Iproto --python_out=. --grpc_python_out=. proto/orders/v1/orders.proto</code></pre><div class="what"><code>buf breaking</code> is the one to wire into CI — reusing a field number is otherwise a silent data corruption, not an error.</div></div>
         <div class="cmd"><pre class="language-bash line-numbers"><code class="language-bash"># grpcurl: curl for gRPC. needs reflection, or a descriptor set.
 grpcurl -plaintext localhost:5001 list
 grpcurl -plaintext localhost:5001 list orders.v1.OrderService
@@ -643,7 +634,7 @@ kubectl exec deploy/client -- grpcurl -plaintext localhost:5001 grpc.health.v1.H
 kubectl top pods -l app=orders        # 90% CPU on ONE pod and idle on the others = L4 balancing
 
 # headless Service: returns every pod IP, so round_robin has something to round-robin over
-kubectl get endpoints orders-headless -o wide</code></pre><div class="what">If one pod is hot and the rest idle while connection counts look even, it is connection-level balancing &mdash; not a capacity problem.</div></div>
+kubectl get endpoints orders-headless -o wide</code></pre><div class="what">If one pod is hot and the rest idle while connection counts look even, it is connection-level balancing — not a capacity problem.</div></div>
       </div>
     </section>
 
@@ -651,7 +642,7 @@ kubectl get endpoints orders-headless -o wide</code></pre><div class="what">If o
       <h2>Pros &amp; cons</h2>
       <div class="cols">
         <div class="col good"><h3>Pros</h3><ul>
-          <li>Small, fast payloads: typically 3&ndash;10&times; smaller than JSON and much quicker to parse.</li>
+          <li>Small, fast payloads: typically 3–10× smaller than JSON and much quicker to parse.</li>
           <li>One contract generates typed clients and servers in a dozen languages.</li>
           <li>HTTP/2 multiplexing: thousands of concurrent calls over one connection, no head-of-line blocking.</li>
           <li>Streaming in all four directions is first-class, with transport-level flow control.</li>
@@ -674,7 +665,7 @@ kubectl get endpoints orders-headless -o wide</code></pre><div class="what">If o
     <section id="use-cases">
       <h2>Concrete use cases</h2>
       <div class="cards">
-        <div class="card"><h3>Internal service-to-service calls</h3><p>Twenty services in four languages. One proto repository is the contract, clients are generated, deadlines propagate across the whole call tree, and payloads are a fraction of the JSON equivalent &mdash; which at a million calls a minute is real money.</p></div>
+        <div class="card"><h3>Internal service-to-service calls</h3><p>Twenty services in four languages. One proto repository is the contract, clients are generated, deadlines propagate across the whole call tree, and payloads are a fraction of the JSON equivalent — which at a million calls a minute is real money.</p></div>
         <div class="card"><h3>Streaming a large result set</h3><p>An export that would be a 300 MB JSON response becomes a server-streaming call: the client processes records as they arrive, neither side buffers the whole thing, and flow control stops a fast producer from drowning a slow consumer.</p></div>
         <div class="card"><h3>Telemetry ingestion</h3><p>Thousands of agents each hold one connection and client-stream metrics continuously. One connection per agent, no per-request handshake, and backpressure handled by the transport rather than by an application queue.</p></div>
         <div class="card"><h3>Control planes</h3><p>A bidirectional stream between a central controller and every node: config pushed down, state reported up, on one long-lived connection. It is the model xDS uses, and the reason service meshes are built this way.</p></div>
@@ -695,7 +686,7 @@ kubectl get endpoints orders-headless -o wide</code></pre><div class="what">If o
         </ul></div>
         <div class="col bad"><h3>Avoid it when…</h3><ul>
           <li>Browsers are a primary client. Use <b>REST</b>, or <b>JSON transcoding</b> in front of the same service.</li>
-          <li>You are publishing a public API for third parties. Use <b>REST</b> &mdash; curl and a browser tab are the real onboarding path.</li>
+          <li>You are publishing a public API for third parties. Use <b>REST</b> — curl and a browser tab are the real onboarding path.</li>
           <li>Clients need to choose their own response shape. Use <b>GraphQL</b>.</li>
           <li>Traffic is naturally asynchronous and should survive a restart. Use a <b>message broker</b>.</li>
           <li>Your infrastructure cannot do HTTP/2 end to end, including trailers. Fix that first.</li>
@@ -709,12 +700,12 @@ kubectl get endpoints orders-headless -o wide</code></pre><div class="what">If o
       <div class="gotcha"><b>No deadline</b><span>The default is infinity. A slow dependency means calls that never return, threads and connections held for ever, and an outage that spreads upstream one service at a time.</span><div class="fix">Fix: set a deadline on every call, propagate the remaining budget downstream instead of starting a fresh timeout, and alert on <code>DEADLINE_EXCEEDED</code> rates per method.</div></div>
       <div class="gotcha"><b>A channel per call</b><span>Each call does DNS, TCP and TLS, so latency is dominated by setup, ports run out under load, and HTTP/2 multiplexing never happens at all.</span><div class="fix">Fix: one channel per target for the process lifetime. In .NET use <code>AddGrpcClient</code>; in Python create the channel at startup and share it.</div></div>
       <div class="gotcha"><b>Behind an L4 load balancer</b><span>Connections distribute perfectly and requests do not distribute at all. One backend sits at 90% CPU, newly scaled pods receive nothing, and every connection-based dashboard looks healthy.</span><div class="fix">Fix: client-side <code>round_robin</code> over a headless DNS name, or an L7 proxy or sidecar balancing per request. If neither is possible, set a maximum connection age so clients re-dial.</div></div>
-      <div class="gotcha"><b>Reusing a field number</b><span>Field 4 was <code>legacy_total</code> and is now <code>discount_code</code>. An old client's integer is parsed as a string. No error, no log line &mdash; just wrong data in production.</span><div class="fix">Fix: <code>reserved</code> every deleted number and name, and run <code>buf breaking</code> in CI against the deployed schema.</div></div>
-      <div class="gotcha"><b>Everything is UNKNOWN</b><span>Unhandled exceptions all surface as status 2. Callers cannot distinguish a bad request from a transient failure, so they either retry everything or nothing.</span><div class="fix">Fix: a server interceptor that maps domain exceptions to proper codes &mdash; <code>INVALID_ARGUMENT</code>, <code>NOT_FOUND</code>, <code>FAILED_PRECONDITION</code>, <code>UNAVAILABLE</code> &mdash; and never leak stack traces in the message.</div></div>
+      <div class="gotcha"><b>Reusing a field number</b><span>Field 4 was <code>legacy_total</code> and is now <code>discount_code</code>. An old client's integer is parsed as a string. No error, no log line — just wrong data in production.</span><div class="fix">Fix: <code>reserved</code> every deleted number and name, and run <code>buf breaking</code> in CI against the deployed schema.</div></div>
+      <div class="gotcha"><b>Everything is UNKNOWN</b><span>Unhandled exceptions all surface as status 2. Callers cannot distinguish a bad request from a transient failure, so they either retry everything or nothing.</span><div class="fix">Fix: a server interceptor that maps domain exceptions to proper codes — <code>INVALID_ARGUMENT</code>, <code>NOT_FOUND</code>, <code>FAILED_PRECONDITION</code>, <code>UNAVAILABLE</code> — and never leak stack traces in the message.</div></div>
       <div class="gotcha"><b>Retrying unsafe codes</b><span><code>INTERNAL</code> and <code>ABORTED</code> are added to the retry policy because they look transient. A mutation that already ran is replayed, and an order is placed twice.</span><div class="fix">Fix: retry <code>UNAVAILABLE</code>, and <code>RESOURCE_EXHAUSTED</code> with backoff. Make mutations idempotent with a key, and keep the retry throttling budget enabled.</div></div>
       <div class="gotcha"><b>Ignoring the cancellation token</b><span>The caller gave up two seconds ago; the handler is still querying the database and will serialise a response nobody will read. Under load, all the capacity is spent on abandoned work.</span><div class="fix">Fix: thread <code>ServerCallContext.CancellationToken</code> (or check <code>context.cancelled()</code>) into every downstream call and loop. It is free load shedding.</div></div>
-      <div class="gotcha"><b>Monitoring HTTP status</b><span>Every gRPC response is HTTP 200, including failures &mdash; the real outcome is in the <code>grpc-status</code> trailer. Dashboards show 100% availability during a complete outage.</span><div class="fix">Fix: instrument on <code>grpc-status</code> per method, and make sure your proxy and APM actually read trailers rather than the response line.</div></div>
-      <div class="gotcha"><b>Raising the message size limit</b><span>A response exceeds 4 MB, so the limit is raised to 100 MB. Now both sides allocate 100 MB buffers, the call cannot report progress, and cancelling it frees nothing.</span><div class="fix">Fix: switch to server streaming with 32&ndash;256 KB messages. Raise the limit only when a single logical message genuinely is that large &mdash; and consider object storage with a signed URL instead.</div></div>
+      <div class="gotcha"><b>Monitoring HTTP status</b><span>Every gRPC response is HTTP 200, including failures — the real outcome is in the <code>grpc-status</code> trailer. Dashboards show 100% availability during a complete outage.</span><div class="fix">Fix: instrument on <code>grpc-status</code> per method, and make sure your proxy and APM actually read trailers rather than the response line.</div></div>
+      <div class="gotcha"><b>Raising the message size limit</b><span>A response exceeds 4 MB, so the limit is raised to 100 MB. Now both sides allocate 100 MB buffers, the call cannot report progress, and cancelling it frees nothing.</span><div class="fix">Fix: switch to server streaming with 32–256 KB messages. Raise the limit only when a single logical message genuinely is that large — and consider object storage with a signed URL instead.</div></div>
       <div class="gotcha"><b>Keepalive that gets you banned</b><span>A client pings every five seconds to detect dead connections. The server's keepalive enforcement considers that abusive and sends <code>GOAWAY</code> with <code>ENHANCE_YOUR_CALM</code>, so connections drop constantly.</span><div class="fix">Fix: keep client ping intervals at 30 seconds or more, and configure the server's minimum permitted interval to match. Both sides must agree.</div></div>
     </section>
 
@@ -724,9 +715,9 @@ kubectl get endpoints orders-headless -o wide</code></pre><div class="what">If o
         <table>
           <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs gRPC</th></tr></thead>
           <tbody>
-            <tr class="self"><td><b>gRPC</b></td><td>internal service-to-service, streaming</td><td>Medium</td><td>free, Apache 2.0</td><td>&mdash;</td></tr>
-            <tr><td><b>REST + JSON</b></td><td>public APIs, browsers, anything debuggable</td><td>Low</td><td>free</td><td>Human-readable, cacheable, universal &mdash; larger, slower, untyped</td></tr>
-            <tr><td><b>GraphQL</b></td><td>many clients wanting different shapes</td><td>Medium&ndash;High</td><td>free</td><td>Client chooses the response; server-chosen here, and far more predictable</td></tr>
+            <tr class="self"><td><b>gRPC</b></td><td>internal service-to-service, streaming</td><td>Medium</td><td>free, Apache 2.0</td><td>—</td></tr>
+            <tr><td><b>REST + JSON</b></td><td>public APIs, browsers, anything debuggable</td><td>Low</td><td>free</td><td>Human-readable, cacheable, universal — larger, slower, untyped</td></tr>
+            <tr><td><b>GraphQL</b></td><td>many clients wanting different shapes</td><td>Medium–High</td><td>free</td><td>Client chooses the response; server-chosen here, and far more predictable</td></tr>
             <tr><td><b>Message broker</b></td><td>asynchronous, durable work</td><td>Medium</td><td>infrastructure</td><td>Decoupled and replayable; not a request/response call at all</td></tr>
             <tr><td><b>WebSocket + custom protocol</b></td><td>browser-facing real time</td><td>Medium</td><td>free</td><td>Works everywhere in a browser; you invent framing, typing and error handling</td></tr>
             <tr><td><b>Thrift</b></td><td>existing Thrift estates</td><td>Medium</td><td>free</td><td>Similar idea, smaller ecosystem, no HTTP/2 streaming story</td></tr>
@@ -735,7 +726,7 @@ kubectl get endpoints orders-headless -o wide</code></pre><div class="what">If o
         </table>
       </div>
       <ul style="margin-top:12px">
-        <li><b>Pick REST</b> for anything public or browser-facing &mdash; or expose both from one proto with JSON transcoding.</li>
+        <li><b>Pick REST</b> for anything public or browser-facing — or expose both from one proto with JSON transcoding.</li>
         <li><b>Pick GraphQL</b> when the problem is clients needing different slices of related data, not raw call efficiency.</li>
         <li><b>Pick a broker</b> such as <b>Kafka</b> when the work should survive the caller going away.</li>
         <li><b>Pick WebSockets</b> when the real-time client is a browser and gRPC-Web's limits bite.</li>
@@ -747,9 +738,9 @@ kubectl get endpoints orders-headless -o wide</code></pre><div class="what">If o
       <h2>Resources</h2>
       <ul>
         <li><a href="https://grpc.io/docs/what-is-grpc/core-concepts/" target="_blank" rel="noopener">gRPC core concepts</a>: call types, deadlines, cancellation and metadata, stated precisely.</li>
-        <li><a href="https://protobuf.dev/programming-guides/proto3/" target="_blank" rel="noopener">Protocol Buffers &mdash; proto3 guide</a>: field numbers, defaults and the rules for compatible changes.</li>
+        <li><a href="https://protobuf.dev/programming-guides/proto3/" target="_blank" rel="noopener">Protocol Buffers — proto3 guide</a>: field numbers, defaults and the rules for compatible changes.</li>
         <li><a href="https://grpc.github.io/grpc/core/md_doc_statuscodes.html" target="_blank" rel="noopener">Status codes and their use</a>: the canonical table of what each code means and who should retry.</li>
-        <li><a href="https://buf.build/docs/" target="_blank" rel="noopener">Buf</a>: linting, generation and breaking-change detection &mdash; the CI gate this ecosystem needs.</li>
+        <li><a href="https://buf.build/docs/" target="_blank" rel="noopener">Buf</a>: linting, generation and breaking-change detection — the CI gate this ecosystem needs.</li>
         <li><a href="https://github.com/fullstorydev/grpcurl" target="_blank" rel="noopener">grpcurl</a>: the hands-on tool for calling services by hand, with or without reflection.</li>
         <li><a href="https://learn.microsoft.com/en-us/aspnet/core/grpc/" target="_blank" rel="noopener">gRPC for .NET</a>: servers, clients, channel configuration, transcoding and gRPC-Web.</li>
       </ul>
@@ -797,31 +788,31 @@ kubectl get endpoints orders-headless -o wide</code></pre><div class="what">If o
 <script src="../assets/player.js?v=3658cbc7"></script>
 <script>
 createAnimation('anim-call', [
-  { say: 'Application code calls a method on a generated stub. It looks and types like a local call &mdash; which is the entire point, and also why the costs below are easy to forget.', show: ['gr-msg'], hl: ['gr-client'], text: { 'gr-msgt': 'GetOrderRequest { id }', 'gr-s1': 'a typed method, checked at compile time' } },
-  { say: 'The stub serialises the request to protobuf: field numbers and values, no field names, no whitespace. 24 bytes where the JSON equivalent would be about 110.', text: { 'gr-msgt': '0a 08 4f 52 44 2d 39 38 30 32', 'gr-s1': 'protobuf: 24 bytes   (JSON: ~110 bytes)', 'gr-s2': 'no field names on the wire — numbers only' } },
-  { say: 'The channel is already open. One TCP connection, one TLS handshake, both done at startup &mdash; so this call pays neither.', move: { 'gr-msg': [214, 0] }, unhl: ['gr-client'], hl: ['gr-chan'], text: { 'gr-chant': 'open since startup · READY', 'gr-s3': 'connection setup: 0 ms (already paid)' }, fill: { 'gr-s3': '#2f6b3f' } },
-  { say: 'A new HTTP/2 stream is opened for this call &mdash; number 7. Streams are cheap, independent and concurrent; thousands can be in flight on this one connection.', move: { 'gr-msg': [414, 0] }, unhl: ['gr-chan'], hl: ['gr-stream'], text: { 'gr-streamt': 'opened · 1,840 others in flight', 'gr-w1': 'HEADERS  :method POST', 'gr-w2': '         :path /orders.v1.OrderService/GetOrder', 'gr-w3': '         content-type: application/grpc' } },
-  { say: 'The method is the path and the metadata are headers &mdash; including <code>grpc-timeout</code>, which is how the deadline crosses the wire. HPACK compresses the repeated ones to almost nothing.', text: { 'gr-w4': '         grpc-timeout: 500m        ← the deadline', 'gr-w5': '         authorization: Bearer …   ← HPACK: ~4 bytes after the first call', 'gr-s4': 'headers: ~12 bytes on the wire' }, fill: { 'gr-s4': '#2f6b3f' } },
-  { say: 'Then the body: a DATA frame carrying one compressed-flag byte, a four-byte length, and the message. That five-byte prefix is what lets a stream carry many messages one after another.', text: { 'gr-w6': 'DATA     00 00 00 00 18 | 0a 08 4f 52 44 …   (flag, length, message)', 'gr-s5': 'the length prefix is why streaming is the same mechanism' } },
-  { say: 'The server &mdash; written in Go, which the C# caller neither knows nor cares about &mdash; deserialises using the same <code>.proto</code>, and its context already carries 500 ms minus the network time.', move: { 'gr-msg': [606, 0] }, unhl: ['gr-stream'], hl: ['gr-server'], text: { 'gr-msgt': 'GetOrder(req, ctx)', 'gr-servert': 'budget: 496 ms remaining', 'gr-wt': 'HTTP/2 frames on stream 7 — the response', 'gr-w1': '← HEADERS  :status 200', 'gr-w2': '           content-type: application/grpc', 'gr-w3': '&nbsp;', 'gr-w4': '&nbsp;', 'gr-w5': '&nbsp;', 'gr-w6': '&nbsp;' } },
-  { say: 'The response headers say 200 and nothing about success. The real outcome has not been decided yet &mdash; which is exactly what makes streaming possible.', text: { 'gr-w3': '← DATA     [flag][len][Order protobuf]', 'gr-s1': 'HTTP 200 means "the HTTP exchange worked"', 'gr-s2': 'it says nothing at all about whether the call succeeded', 'gr-s3': '&nbsp;', 'gr-s4': '&nbsp;', 'gr-s5': '&nbsp;' }, fill: { 'gr-s2': '#c53b3b' } },
-  { say: 'The outcome arrives last, in <b>trailers</b> &mdash; headers sent after the body. <code>grpc-status: 0</code> is success; a failure here would be a code and a message, after bytes had already been sent.', move: { 'gr-msg': [414, 0] }, unhl: ['gr-server'], hl: ['gr-stream'], text: { 'gr-msgt': '← Order + trailers', 'gr-w4': '← TRAILERS grpc-status: 0', 'gr-w5': '           grpc-message:', 'gr-s1': 'trailers are why a server can fail halfway through a stream', 'gr-s2': 'and why browsers need gRPC-Web', 'gr-s3': 'and why proxies must support HTTP/2 trailers' }, fill: { 'gr-s2': '#5f6f66' } },
-  { say: 'The stub deserialises and returns a typed <code>Order</code>. End to end: about 1.2 ms, 36 bytes on the wire, no connection setup, and a typed object at both ends.', move: { 'gr-msg': [0, 0] }, unhl: ['gr-stream'], hl: ['gr-client'], text: { 'gr-msgt': 'Order', 'gr-streamt': 'closed · slot reused', 'gr-s1': 'round trip: 1.2 ms', 'gr-s2': 'bytes on the wire: 36', 'gr-s3': 'allocations: one message, no string parsing', 'gr-s4': '&nbsp;', 'gr-s5': '&nbsp;' }, fill: { 'gr-s1': '#2f6b3f', 'gr-s2': '#2f6b3f' } },
-  { say: 'And the sting in the tail: all of that travelled on <em>one</em> connection. An L4 load balancer sees one connection and sends every call to one backend, while its dashboards show perfect balance.', unhl: ['gr-client'], hl: ['gr-chan'], text: { 'gr-phase': 'one connection, thousands of calls — and a load balancer that cannot see them', 'gr-v': 'balance per request (round_robin, or an L7 proxy), never per connection' }, fill: { 'gr-verd': '#f9e3df', 'gr-v': '#c53b3b' } },
+  { say: "Application code calls a method on a generated stub. It looks and types like a local call — which is the entire point, and also why the costs below are easy to forget.", show: ["gr-msg"], hl: ["gr-client"], text: {"gr-msgt":"GetOrderRequest { id }","gr-s1":"a typed method, checked at compile time"} },
+  { say: "The stub serialises the request to protobuf: field numbers and values, no field names, no whitespace. 24 bytes where the JSON equivalent would be about 110.", text: {"gr-msgt":"0a 08 4f 52 44 2d 39 38 30 32","gr-s1":"protobuf: 24 bytes   (JSON: ~110 bytes)","gr-s2":"no field names on the wire — numbers only"} },
+  { say: "The channel is already open. One TCP connection, one TLS handshake, both done at startup — so this call pays neither.", hl: ["gr-chan"], unhl: ["gr-client"], move: {"gr-msg":[214,0]}, text: {"gr-chant":"open since startup · READY","gr-s3":"connection setup: 0 ms (already paid)"}, fill: {"gr-s3":"#2f6b3f"} },
+  { say: "A new HTTP/2 stream is opened for this call — number 7. Streams are cheap, independent and concurrent; thousands can be in flight on this one connection.", hl: ["gr-stream"], unhl: ["gr-chan"], move: {"gr-msg":[414,0]}, text: {"gr-streamt":"opened · 1,840 others in flight","gr-w1":"HEADERS  :method POST","gr-w2":"         :path /orders.v1.OrderService/GetOrder","gr-w3":"         content-type: application/grpc"} },
+  { say: "The method is the path and the metadata are headers — including <code>grpc-timeout</code>, which is how the deadline crosses the wire. HPACK compresses the repeated ones to almost nothing.", text: {"gr-w4":"         grpc-timeout: 500m        ← the deadline","gr-w5":"         authorization: Bearer …   ← HPACK: ~4 bytes after the first call","gr-s4":"headers: ~12 bytes on the wire"}, fill: {"gr-s4":"#2f6b3f"} },
+  { say: "Then the body: a DATA frame carrying one compressed-flag byte, a four-byte length, and the message. That five-byte prefix is what lets a stream carry many messages one after another.", text: {"gr-w6":"DATA     00 00 00 00 18 | 0a 08 4f 52 44 …   (flag, length, message)","gr-s5":"the length prefix is why streaming is the same mechanism"} },
+  { say: "The server — written in Go, which the C# caller neither knows nor cares about — deserialises using the same <code>.proto</code>, and its context already carries 500 ms minus the network time.", hl: ["gr-server"], unhl: ["gr-stream"], move: {"gr-msg":[606,0]}, text: {"gr-msgt":"GetOrder(req, ctx)","gr-servert":"budget: 496 ms remaining","gr-wt":"HTTP/2 frames on stream 7 — the response","gr-w1":"← HEADERS  :status 200","gr-w2":"           content-type: application/grpc","gr-w3":"&nbsp;","gr-w4":"&nbsp;","gr-w5":"&nbsp;","gr-w6":"&nbsp;"} },
+  { say: "The response headers say 200 and nothing about success. The real outcome has not been decided yet — which is exactly what makes streaming possible.", text: {"gr-w3":"← DATA     [flag][len][Order protobuf]","gr-s1":"HTTP 200 means \"the HTTP exchange worked\"","gr-s2":"it says nothing at all about whether the call succeeded","gr-s3":"&nbsp;","gr-s4":"&nbsp;","gr-s5":"&nbsp;"}, fill: {"gr-s2":"#c53b3b"} },
+  { say: "The outcome arrives last, in <b>trailers</b> — headers sent after the body. <code>grpc-status: 0</code> is success; a failure here would be a code and a message, after bytes had already been sent.", hl: ["gr-stream"], unhl: ["gr-server"], move: {"gr-msg":[414,0]}, text: {"gr-msgt":"← Order + trailers","gr-w4":"← TRAILERS grpc-status: 0","gr-w5":"           grpc-message:","gr-s1":"trailers are why a server can fail halfway through a stream","gr-s2":"and why browsers need gRPC-Web","gr-s3":"and why proxies must support HTTP/2 trailers"}, fill: {"gr-s2":"#5f6f66"} },
+  { say: "The stub deserialises and returns a typed <code>Order</code>. End to end: about 1.2 ms, 36 bytes on the wire, no connection setup, and a typed object at both ends.", hl: ["gr-client"], unhl: ["gr-stream"], move: {"gr-msg":[0,0]}, text: {"gr-msgt":"Order","gr-streamt":"closed · slot reused","gr-s1":"round trip: 1.2 ms","gr-s2":"bytes on the wire: 36","gr-s3":"allocations: one message, no string parsing","gr-s4":"&nbsp;","gr-s5":"&nbsp;"}, fill: {"gr-s1":"#2f6b3f","gr-s2":"#2f6b3f"} },
+  { say: "And the sting in the tail: all of that travelled on <em>one</em> connection. An L4 load balancer sees one connection and sends every call to one backend, while its dashboards show perfect balance.", hl: ["gr-chan"], unhl: ["gr-client"], text: {"gr-phase":"one connection, thousands of calls — and a load balancer that cannot see them","gr-v":"balance per request (round_robin, or an L7 proxy), never per connection"}, fill: {"gr-verd":"#f9e3df","gr-v":"#c53b3b"} },
 ]);
 
 createAnimation('anim-deadline', [
-  { say: 'A checkout request arrives. The gateway decides the whole thing gets 2 seconds &mdash; not per hop, but in total, because that is what the user is actually waiting for.', hl: ['gw-c'], text: { 'gw-b1': 'budget 2000ms', 'gw-p1': 'gateway sets deadline = now + 2000ms' } },
-  { say: 'It calls checkout. The library turns the deadline into a <code>grpc-timeout</code> header, so the budget travels with the call rather than living only in the caller.', unhl: ['gw-c'], hl: ['gw-a'], text: { 'gw-at': 'grpc-timeout: 1980m', 'gw-b2': 'budget 1980ms', 'gw-p2': 'checkout receives 1980ms — 20ms already spent on the network' } },
-  { say: 'Checkout needs pricing. It does <em>not</em> start a fresh timeout &mdash; it passes on what is left of the budget it was given.', unhl: ['gw-a'], hl: ['gw-b'], text: { 'gw-bt': 'grpc-timeout: 1890m', 'gw-b3': 'budget 1890ms', 'gw-p3': 'pricing receives 1890ms — the budget shrinks, it never resets' } },
-  { say: 'Pricing calls tax, which is having a bad day. Tax gets what remains: 1,820 milliseconds, and it knows it.', unhl: ['gw-b'], hl: ['gw-d'], text: { 'gw-dt': 'grpc-timeout: 1820m · working', 'gw-b4': 'budget 1820ms', 'gw-p4': 'tax receives 1820ms and starts a query that will take 4 seconds' }, fill: { 'gw-d': '#fbf3c4' } },
-  { say: 'At 1,820 ms the deadline expires. Tax&rsquo;s own context is cancelled, its stream is reset, and it returns <code>DEADLINE_EXCEEDED</code> rather than finishing work nobody is waiting for.', text: { 'gw-dt': 'DEADLINE_EXCEEDED', 'gw-b4': 'expired', 'gw-p4': 'tax: context cancelled at 1820ms → DEADLINE_EXCEEDED, query abandoned' }, fill: { 'gw-d': '#f9e3df', 'gw-dt': '#c53b3b' } },
-  { say: 'And cancellation flows back up. Pricing&rsquo;s call fails, checkout&rsquo;s fails, the gateway returns an error &mdash; and every one of those handlers stops working at the same moment.', unhl: ['gw-d'], hl: ['gw-b', 'gw-a', 'gw-c'], text: { 'gw-bt': 'cancelled', 'gw-at': 'cancelled', 'gw-ct': 'returns 504 at ~1.85s', 'gw-p5': 'one expiry, four handlers stopped — no orphaned work anywhere in the tree' }, fill: { 'gw-p5': '#2f6b3f' } },
-  { say: 'Now the version without propagation, which is what you get by default in most codebases. Each service sets its own 2-second timeout, because that seemed reasonable in isolation.', unhl: ['gw-b', 'gw-a', 'gw-c'], text: { 'gw-phase': 'the same chain, with each hop inventing its own timeout', 'gw-b1': 'timeout 2000ms', 'gw-b2': 'timeout 2000ms', 'gw-b3': 'timeout 2000ms', 'gw-b4': 'timeout 2000ms', 'gw-ct': 'waits 2000ms', 'gw-at': 'waits 2000ms', 'gw-bt': 'waits 2000ms', 'gw-dt': 'waits 2000ms', 'gw-p1': 'each hop: "2 seconds sounds fine"', 'gw-p2': '&nbsp;', 'gw-p3': '&nbsp;', 'gw-p4': '&nbsp;', 'gw-p5': '&nbsp;' } },
-  { say: 'The gateway gives up after 2 seconds and the user sees an error. But nothing downstream was told, so tax is still running, pricing is still waiting for tax, and checkout is still waiting for pricing.', hl: ['gw-b', 'gw-d'], text: { 'gw-ct': 'gave up at 2000ms', 'gw-p2': 'gateway: returns 504 to the user at 2000ms', 'gw-p3': 'tax, pricing and checkout: still working, still holding connections' }, fill: { 'gw-p3': '#c53b3b', 'gw-d': '#f9e3df', 'gw-b': '#f9e3df' } },
-  { say: 'Under load that is the whole failure. Every abandoned request still occupies a thread and a connection at three services, so capacity is spent entirely on results nobody will read.', text: { 'gw-p4': 'at 500 req/s, 2s of orphaned work = 1,000 wasted in-flight calls per service', 'gw-p5': 'the slow dependency did not cause the outage. the missing propagation did.' }, fill: { 'gw-p4': '#c53b3b', 'gw-p5': '#c53b3b' } },
-  { say: 'The fix is two habits. Set a deadline on every outbound call &mdash; the default is infinity. And derive each one from the budget you were handed, not from a constant.', unhl: ['gw-b', 'gw-d'], text: { 'gw-phase': 'two habits, and the whole class of failure disappears', 'gw-p1': '1. always set a deadline — the default in every language is infinity', 'gw-p2': '2. derive it from context.time_remaining() / ServerCallContext.Deadline', 'gw-p3': '3. pass the cancellation token into every database and HTTP call you make', 'gw-p4': '&nbsp;', 'gw-p5': '&nbsp;' }, fill: { 'gw-p1': '#2f6b3f', 'gw-p2': '#2f6b3f', 'gw-p3': '#2f6b3f', 'gw-b': '#e8ece2', 'gw-d': '#e8ece2' } },
-  { say: 'And remember retries share the budget. Three attempts inside 500 ms is not three 500 ms attempts &mdash; it is 500 ms in total, which is usually the right answer and rarely the configured one.', text: { 'gw-b1': 'budget 2000ms', 'gw-b2': 'budget 1980ms', 'gw-b3': 'budget 1890ms', 'gw-b4': 'budget 1820ms', 'gw-p1': 'a deadline is a budget for the whole subtree, retries included', 'gw-v': 'set one on every call · derive it from the one you were given · honour cancellation' }, fill: { 'gw-verd': '#e3eedc' } },
+  { say: "A checkout request arrives. The gateway decides the whole thing gets 2 seconds — not per hop, but in total, because that is what the user is actually waiting for.", hl: ["gw-c"], text: {"gw-b1":"budget 2000ms","gw-p1":"gateway sets deadline = now + 2000ms"} },
+  { say: "It calls checkout. The library turns the deadline into a <code>grpc-timeout</code> header, so the budget travels with the call rather than living only in the caller.", hl: ["gw-a"], unhl: ["gw-c"], text: {"gw-at":"grpc-timeout: 1980m","gw-b2":"budget 1980ms","gw-p2":"checkout receives 1980ms — 20ms already spent on the network"} },
+  { say: "Checkout needs pricing. It does <em>not</em> start a fresh timeout — it passes on what is left of the budget it was given.", hl: ["gw-b"], unhl: ["gw-a"], text: {"gw-bt":"grpc-timeout: 1890m","gw-b3":"budget 1890ms","gw-p3":"pricing receives 1890ms — the budget shrinks, it never resets"} },
+  { say: "Pricing calls tax, which is having a bad day. Tax gets what remains: 1,820 milliseconds, and it knows it.", hl: ["gw-d"], unhl: ["gw-b"], text: {"gw-dt":"grpc-timeout: 1820m · working","gw-b4":"budget 1820ms","gw-p4":"tax receives 1820ms and starts a query that will take 4 seconds"}, fill: {"gw-d":"#fbf3c4"} },
+  { say: "At 1,820 ms the deadline expires. Tax’s own context is cancelled, its stream is reset, and it returns <code>DEADLINE_EXCEEDED</code> rather than finishing work nobody is waiting for.", text: {"gw-dt":"DEADLINE_EXCEEDED","gw-b4":"expired","gw-p4":"tax: context cancelled at 1820ms → DEADLINE_EXCEEDED, query abandoned"}, fill: {"gw-d":"#f9e3df","gw-dt":"#c53b3b"} },
+  { say: "And cancellation flows back up. Pricing’s call fails, checkout’s fails, the gateway returns an error — and every one of those handlers stops working at the same moment.", hl: ["gw-b","gw-a","gw-c"], unhl: ["gw-d"], text: {"gw-bt":"cancelled","gw-at":"cancelled","gw-ct":"returns 504 at ~1.85s","gw-p5":"one expiry, four handlers stopped — no orphaned work anywhere in the tree"}, fill: {"gw-p5":"#2f6b3f"} },
+  { say: "Now the version without propagation, which is what you get by default in most codebases. Each service sets its own 2-second timeout, because that seemed reasonable in isolation.", unhl: ["gw-b","gw-a","gw-c"], text: {"gw-phase":"the same chain, with each hop inventing its own timeout","gw-b1":"timeout 2000ms","gw-b2":"timeout 2000ms","gw-b3":"timeout 2000ms","gw-b4":"timeout 2000ms","gw-ct":"waits 2000ms","gw-at":"waits 2000ms","gw-bt":"waits 2000ms","gw-dt":"waits 2000ms","gw-p1":"each hop: \"2 seconds sounds fine\"","gw-p2":"&nbsp;","gw-p3":"&nbsp;","gw-p4":"&nbsp;","gw-p5":"&nbsp;"} },
+  { say: "The gateway gives up after 2 seconds and the user sees an error. But nothing downstream was told, so tax is still running, pricing is still waiting for tax, and checkout is still waiting for pricing.", hl: ["gw-b","gw-d"], text: {"gw-ct":"gave up at 2000ms","gw-p2":"gateway: returns 504 to the user at 2000ms","gw-p3":"tax, pricing and checkout: still working, still holding connections"}, fill: {"gw-p3":"#c53b3b","gw-d":"#f9e3df","gw-b":"#f9e3df"} },
+  { say: "Under load that is the whole failure. Every abandoned request still occupies a thread and a connection at three services, so capacity is spent entirely on results nobody will read.", text: {"gw-p4":"at 500 req/s, 2s of orphaned work = 1,000 wasted in-flight calls per service","gw-p5":"the slow dependency did not cause the outage. the missing propagation did."}, fill: {"gw-p4":"#c53b3b","gw-p5":"#c53b3b"} },
+  { say: "The fix is two habits. Set a deadline on every outbound call — the default is infinity. And derive each one from the budget you were handed, not from a constant.", unhl: ["gw-b","gw-d"], text: {"gw-phase":"two habits, and the whole class of failure disappears","gw-p1":"1. always set a deadline — the default in every language is infinity","gw-p2":"2. derive it from context.time_remaining() / ServerCallContext.Deadline","gw-p3":"3. pass the cancellation token into every database and HTTP call you make","gw-p4":"&nbsp;","gw-p5":"&nbsp;"}, fill: {"gw-p1":"#2f6b3f","gw-p2":"#2f6b3f","gw-p3":"#2f6b3f","gw-b":"#e8ece2","gw-d":"#e8ece2"} },
+  { say: "And remember retries share the budget. Three attempts inside 500 ms is not three 500 ms attempts — it is 500 ms in total, which is usually the right answer and rarely the configured one.", text: {"gw-b1":"budget 2000ms","gw-b2":"budget 1980ms","gw-b3":"budget 1890ms","gw-b4":"budget 1820ms","gw-p1":"a deadline is a budget for the whole subtree, retries included","gw-v":"set one on every call · derive it from the one you were given · honour cancellation"}, fill: {"gw-verd":"#e3eedc"} },
 ]);
 </script>
 </body>

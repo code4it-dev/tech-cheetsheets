@@ -1,0 +1,727 @@
+title: CQS
+slug: cqs
+tagline: Asking a question should not change the answer.
+asof: Nov 2026 · Bertrand Meyer, <em>Object-Oriented Software Construction</em>, 1988; examples in C#, Python and HTTP
+description: "Command-Query Separation cheatsheet: every method either changes state or returns an answer, never both — why it makes retries, caching and logging safe, and when to break it on purpose."
+aliases:
+  - CQS
+  - Command-Query Separation
+  - command query separation
+  - command/query separation
+  - Meyer's principle
+keywords:
+  - cqs
+  - command query separation
+  - side effects
+  - pure functions
+  - idempotency
+  - api design
+  - clean code
+  - meyer
+  - principles
+  - refactoring
+related: [ cqrs, domain-driven-design, caching-strategies, rate-limiting ]
+overview:
+  - "Command-Query Separation is a one-sentence design rule: **every method should either change state or return a result, but never both**. Methods that change something are <em>commands</em> and return nothing. Methods that answer a question are <em>queries</em>, return a value and leave the world exactly as they found it. Call a query twice and you get the same answer; call it zero times and nothing is different."
+  - The payoff is that you can read a call site and know whether it is dangerous. `var n = basket.ItemCount;` is obviously safe to move, cache, retry, log, run inside a debugger watch window or delete. `var job = queue.Pop();` is none of those things, and the only reason you know is that you happen to remember what `Pop` does. Multiply that uncertainty by a codebase and it becomes the reason refactoring feels risky.
+  - CQS is a method-level discipline that costs nothing to adopt and applies in any language and any paradigm. Its architectural big brother is **CQRS**, which takes the same idea and applies it to entire models and data stores — a far larger decision. CQS is the one you should default to; CQRS is the one you should justify.
+architecture:
+  svg: cqs/architecture.svg
+  alt: A class whose methods split into commands that return nothing and queries that return values, with a forbidden middle column of mixed methods
+  caption: Two columns, one dashed box in the middle. The discipline is simply refusing to let methods live in the middle by accident.
+howItWorks:
+  - md: The first animation is the bug CQS exists to prevent. The second is why the same rule decides whether a network call can be retried.
+  - note: if you cannot safely put the call inside a log statement, it is not a query
+  - anim:
+      id: anim-pop
+      title: 1 · The log line that ate a job
+      svg: cqs/anim-pop.svg
+      alt: A queue whose Pop method both returns and removes, causing a log statement to silently consume a job
+      steps:
+        - say: "A work queue holds three invoicing jobs. Its `Pop()` method does two things in one call: it returns the next job <em>and</em> removes it from the queue."
+          hl: [ pq-box ]
+        - say: The worker calls `Pop()`, gets job-1 and processes it. Two jobs left. Nothing wrong yet — this is exactly what the author intended.
+          hide: [ pq-j1 ]
+          unhl: [ pq-box ]
+          text:
+            pq-depth: 2 jobs waiting
+            pq-r1: "processed: job-1"
+        - say: Weeks later someone is debugging and adds a log line to see what is coming next. It reads like an innocent inspection of the queue.
+          hl: [ pq-code ]
+          text:
+            pq-c3: "log.Debug($\"next: {queue.Pop()}\");"
+        - say: But `Pop()` mutates. The log line just consumed job-2 and threw it into a string. Invoice 1042 will never be processed, and nothing anywhere reports an error.
+          show: [ pq-hand ]
+          hide: [ pq-j2 ]
+          hl: [ pq-box ]
+          unhl: [ pq-code ]
+          text:
+            pq-depth: 1 job waiting
+            pq-r2: "lost silently: job-2"
+          fill:
+            pq-r2: "#c53b3b"
+        - say: "It gets worse. The bug now depends on the log level: turn debug logging off in production and the behaviour changes. A diagnostic has become part of the program's semantics."
+          unhl: [ pq-box ]
+          text:
+            pq-msg: behaviour now depends on the log level
+        - say: CQS splits the method in two. `Peek()` returns the next job and changes nothing. `Dequeue()` removes it and returns nothing. Neither can be mistaken for the other.
+          hl: [ pq-code ]
+          text:
+            pq-c1: var job = queue.Peek();
+            pq-c2: Process(job);
+            pq-c3: queue.Dequeue();
+            pq-msg: Peek() = query · Dequeue() = command
+        - say: "Now the same log line is harmless: `Peek()` can be called a hundred times and the queue is untouched. Removal happens on exactly one line, which says so in its name."
+          show: [ pq-j2 ]
+          unhl: [ pq-code ]
+          text:
+            pq-depth: 2 jobs waiting
+            pq-r2: job-2 still queued
+          fill:
+            pq-r2: "#2f6b3f"
+        - say: "A bonus falls out of the split: removal now happens <em>after</em> processing succeeds, so a crash mid-job leaves the work in the queue instead of losing it. The mixed version could never do that."
+          text:
+            pq-msg: and a crash no longer loses the job
+        - say: "The honest exception: a concurrent queue cannot be split this way — two threads would peek the same job. There `TryDequeue(out job)` stays mixed on purpose, and its name says it mutates."
+          hl: [ pq-box ]
+          text:
+            pq-msg: concurrency is the one place to keep them fused — deliberately
+  - anim:
+      id: anim-retry
+      title: 2 · Why a retry is safe for one call and catastrophic for the other
+      svg: cqs/anim-retry.svg
+      alt: A query retried safely over a flaky network, then a mixed command-query retried and applying its effect twice
+      steps:
+        - say: A client with a three-attempt retry policy calls `GetBalance()`. The account holds 100.
+          hl: [ rt-cli ]
+        - say: The call reaches the service, which reads the balance and changes nothing at all.
+          hl: [ rt-srv ]
+          unhl: [ rt-cli ]
+          move:
+            rt-call: [ 460, 86 ]
+          text:
+            rt-att: attempt 1
+            rt-log1: read balance → 100
+        - say: The response is lost on the way back — a timeout, a dropped connection, a load balancer restart. The client has no idea whether the server ever saw the request.
+          hl: [ rt-net ]
+          unhl: [ rt-srv ]
+          text:
+            rt-nett: response lost
+            rt-v: "client cannot tell: did it arrive or not?"
+          fill:
+            rt-nett: "#c53b3b"
+            rt-v: "#5f6f66"
+        - say: "It does not matter. The client retries, the server reads again, and the answer is still 100. A query is <em>safe</em>: calling it zero, one or five times leaves the same world behind."
+          hl: [ rt-srv ]
+          unhl: [ rt-net ]
+          move:
+            rt-call: [ 460, 86 ]
+          text:
+            rt-att: attempt 2
+            rt-nett: fine
+            rt-log2: read balance → 100
+            rt-v: retry is free — the answer and the state are unchanged
+          fill:
+            rt-nett: "#5f6f66"
+            rt-v: "#2f6b3f"
+        - say: "Now the mixed version: `WithdrawAndGetBalance(20)`. One call that both changes money and answers a question — convenient, and about to be expensive."
+          hl: [ rt-cli ]
+          unhl: [ rt-srv ]
+          move:
+            rt-call: [ 0, 0 ]
+          text:
+            rt-callt: WithdrawAndGetBalance(20)
+            rt-v: returns a value AND mutates — the forbidden middle
+          fill:
+            rt-call: "#f9e3df"
+            rt-v: "#c53b3b"
+            rt-verd: "#f9e3df"
+        - say: The server withdraws 20 and the balance becomes 80. The work is done and committed.
+          hl: [ rt-srv ]
+          unhl: [ rt-cli ]
+          move:
+            rt-call: [ 460, 86 ]
+          text:
+            rt-att: attempt 1
+            rt-bal: balance = 80
+            rt-log1: withdraw 20 → 80
+            rt-log2: " "
+        - say: "The response is lost again. From the client's side this looks identical to the first failure — and that is the whole problem: it cannot distinguish \"never arrived\" from \"arrived and the reply was lost\"."
+          hl: [ rt-net ]
+          unhl: [ rt-srv ]
+          text:
+            rt-nett: response lost
+          fill:
+            rt-nett: "#c53b3b"
+        - say: The same retry policy fires. The server withdraws another 20. The balance is now 60 and the customer has lost money to a network hiccup.
+          hl: [ rt-srv ]
+          unhl: [ rt-net ]
+          move:
+            rt-call: [ 460, 86 ]
+          text:
+            rt-att: attempt 2
+            rt-bal: balance = 60
+            rt-nett: fine
+            rt-log2: withdraw 20 → 60
+            rt-log3: double withdrawal!
+          fill:
+            rt-bal: "#c53b3b"
+            rt-nett: "#5f6f66"
+        - say: "CQS tells you which calls carry this risk from the signature alone: anything that returns a value and mutates cannot be retried blindly. Split it, and you get a safe query plus an explicit command."
+          unhl: [ rt-srv ]
+          move:
+            rt-call: [ 0, 0 ]
+          text:
+            rt-callt: Withdraw(20) · then GetBalance()
+            rt-v: "split: a command you protect, and a query you retry freely"
+        - say: "The command still cannot be <em>safe</em>, so make it <em>idempotent</em> instead: a client-generated key the server remembers, so a replay is recognised and ignored. Safe implies idempotent; the reverse is not true."
+          text:
+            rt-callt: "Withdraw(20) · Idempotency-Key: 9f1c…"
+            rt-v: queries are safe · commands must be made idempotent
+            rt-vs: that distinction is CQS doing useful work at the network boundary
+          fill:
+            rt-verd: "#e3eedc"
+            rt-v: "#2f6b3f"
+            rt-call: "#e3eedc"
+            rt-bal: "#23362e"
+concepts:
+  - term: Command (CQS)
+    short: A method that changes observable state and returns nothing.
+    see: [ Query (CQS), Side effect, Mixed method ]
+    detail: |-
+      In CQS terms a command is any method whose purpose is the change: `Save()`, `Cancel(reason)`, `Dequeue()`. Returning `void` is not bureaucracy — it is the signal at the call site that something happened, which is exactly the information a reader needs.
+
+      Failure is still reported, by throwing. An exception is not a return value in the CQS sense: it says the command did not happen, rather than answering a question.
+
+      #### Allowed returns from a command
+
+      | Return | Verdict |
+      | --- | --- |
+      | `void` / `Task` | ideal |
+      | Throw on failure | fine |
+      | The new identity of a created thing | pragmatic, widely accepted |
+      | The full new state | no — that is a query glued on |
+
+      #### How it relates
+
+      - CQRS applies this distinction to whole models rather than single methods.
+  - term: Query (CQS)
+    short: A method that returns a value and leaves observable state untouched.
+    see: [ Command (CQS), Referential transparency, Benign side effect ]
+    detail: |-
+      A query can be called any number of times, in any order, from anywhere — including from a log statement, an assertion, a debugger watch window or a retry loop — without changing program behaviour. That property is the entire value of the rule.
+
+      "Observable" is the operative word. A query may write to a cache, open a connection or update a hit counter, as long as no caller can tell the difference in the answers they get.
+
+      #### The CQS test
+
+      | Question | If no… |
+      | --- | --- |
+      | Can I call it twice safely? | it is not a query |
+      | Can I delete the call if I ignore the result? | it is not a query |
+      | Can I put it in a log line? | it is not a query |
+      | Can a debugger evaluate it? | it is not a query |
+
+      #### How it relates
+
+      - Queries are the methods that can be safely **memoized**.
+  - term: Side effect
+    short: Any change a method makes beyond returning its value — the thing CQS is organising.
+    see: [ Benign side effect, Query (CQS), Referential transparency ]
+    detail: |-
+      Mutating a field, writing to a database, sending a message, advancing an iterator, consuming from a queue, writing a file. CQS does not forbid side effects — software without them does nothing — it insists they be segregated into methods whose signature announces them.
+
+      The cost of mixing them is that a reader cannot tell a safe line from a dangerous one, so every refactor becomes an archaeology exercise.
+
+      #### How it relates
+
+      - Functional "pure function" is the stricter version of a CQS query.
+  - term: Benign side effect
+    short: An internal change that no caller can observe — caching, lazy initialisation, metrics — which keeps a method a query.
+    see: [ Query (CQS), Memoization, Side effect ]
+    anim:
+      key: bn
+      title: Memoization keeps it a query
+      svg: cqs/bn.svg
+      alt: A total method computing once, caching the result, and returning the same answer on the second call
+      steps:
+        - say: First call to `Total()`. The cache is empty, so the method sums all forty lines.
+          hl: [ bn-call ]
+          text:
+            bn-calct: summing 40 lines…
+        - say: It returns 1,240 and quietly stores the result. Internal state has changed — a field was written.
+          hl: [ bn-cache ]
+          unhl: [ bn-call ]
+          text:
+            bn-calct: done
+            bn-cachet: "1240"
+            bn-ans: "answer: 1240"
+        - say: Second call. No summing happens this time; the stored value is returned directly.
+          hl: [ bn-call ]
+          unhl: [ bn-cache ]
+          text:
+            bn-calct: skipped
+            bn-callt: Total() again
+        - say: "Same answer, no work. Because no caller can observe the difference, this is still a query: safe to repeat, safe to log, safe to delete. That is why memoization is legitimate here — and why it would be a bug on a method that also mutates."
+          unhl: [ bn-call ]
+          text:
+            bn-ans: "answer: 1240 — identical"
+            bn-note: unobservable change = still a query
+    detail: |-
+      Meyer's rule is about <em>observable</em> state. A `Total()` that computes once and caches is still a query: every call returns the same answer and nothing a caller can reach has changed. The same goes for lazily opening a connection, populating an internal index, or incrementing a hit counter used only for monitoring.
+
+      The line is crossed as soon as the hidden change affects anyone's answers — a cache that goes stale and is never invalidated, or a lazy load that throws on the second call under concurrency.
+
+      ::anim bn::
+
+      #### How it relates
+
+      - This is the loophole that keeps CQS practical in real systems.
+  - term: Mixed method
+    short: A method that both returns a value and mutates state — the thing CQS asks you to split.
+    see: [ Command (CQS), Query (CQS), Pragmatic exceptions ]
+    detail: |-
+      The classic examples read like queries and behave like commands: `Pop()`, `NextId()`, `GetOrCreate(key)`, `Read(buffer)` on a stream, `iterator.next()`. Each one is a trap for anyone who assumes an expression is free of consequences.
+
+      The split is usually mechanical: a query for the value, a command for the change, and the caller writes two lines instead of one. Where atomicity forbids that, keep the mixed method but name it so loudly that nobody mistakes it for a read.
+
+      #### Split it
+
+      | Mixed | Split into |
+      | --- | --- |
+      | `Job Pop()` | `Job? Peek()` + `void Dequeue()` |
+      | `int NextId()` | `int CurrentId` + `void Advance()` |
+      | `bool TryAcquire()` | keep — atomicity requires it |
+      | `T GetOrCreate(k)` | keep, but name it as a mutation |
+
+      #### How it relates
+
+      - The first animation is a mixed method causing a silent data-loss bug.
+  - term: Pragmatic exceptions
+    short: The cases where mixing is correct — atomic operations, iterators, builders — and CQS yields deliberately.
+    see: [ Mixed method, Idempotency, Command (CQS) ]
+    detail: |-
+      Meyer himself called it a principle rather than an absolute. Concurrency is the honest exception: `TryDequeue(out item)`, `CompareAndSwap`, `Interlocked.Increment` must read and write as one indivisible step, and splitting them introduces the exact race the method exists to prevent.
+
+      Two softer exceptions are widely accepted: a command returning the identity of a thing it created, and fluent builders returning `this`. Both keep the rule's spirit because the return value is not an answer about state.
+
+      #### Break it when…
+
+      | Case | Why |
+      | --- | --- |
+      | Atomic test-and-set | splitting creates a race |
+      | Iterators, streams | language idiom, deeply expected |
+      | Fluent builder returning `this` | no state is being reported |
+      | Create returning the new id | the id is not knowable otherwise |
+
+      #### How it relates
+
+      - Breaking it deliberately and naming it clearly is in the spirit of the rule; breaking it by accident is not.
+  - term: Referential transparency
+    short: The property that an expression can be replaced by its value without changing the program — what CQS buys you for queries.
+    see: [ Query (CQS), Memoization, Pure function ]
+    detail: |-
+      If `basket.Total()` is a genuine query, then every occurrence of it can be replaced by `42` without altering behaviour. That is what makes it safe to hoist out of a loop, compute lazily, run in parallel, cache at the edge or drop entirely when the result is unused.
+
+      Compilers, ORMs, HTTP caches and retry libraries all depend on this property. CQS is how you make a hand-written object-oriented API honest about having it.
+
+      #### What it unlocks
+
+      | Optimisation | Needs |
+      | --- | --- |
+      | Caching / CDN | referential transparency |
+      | Hoisting out of loops | referential transparency |
+      | Parallel evaluation | no observable writes |
+      | Automatic retry | safety, or idempotency |
+
+      #### How it relates
+
+      - Caching strategies all assume the read they cache is a query.
+  - term: Pure function
+    short: A function with no side effects whose result depends only on its arguments — a stricter cousin of the CQS query.
+    see: [ Query (CQS), Referential transparency, Benign side effect ]
+    detail: |-
+      A CQS query may read mutable state (a field, a database) and therefore return different answers at different times; a pure function may not. So every pure function is a query, but not every query is pure. `order.Total()` is a query; `Math.Max(a, b)` is pure.
+
+      Pushing towards purity — functional core, imperative shell — is the stronger version of the same instinct, and it composes well with CQS rather than replacing it.
+
+      #### Spectrum
+
+      | Kind | Reads state | Writes state |
+      | --- | --- | --- |
+      | Pure function | no | no |
+      | CQS query | yes | not observably |
+      | CQS command | yes | yes |
+      | Mixed method | yes | yes, while returning a value |
+
+      #### How it relates
+
+      - Both give you the same superpower: the ability to reason about a call site locally.
+  - term: Idempotency
+    short: Doing something twice has the same effect as doing it once — what a command needs if it is ever retried.
+    see: [ Command (CQS), Query (CQS), HTTP semantics ]
+    detail: |-
+      Queries are <em>safe</em>: repeating them changes nothing at all. Commands are not safe, so over an unreliable channel they need idempotency instead — usually a client-supplied key that the server records, so a replayed request is recognised and ignored.
+
+      The two properties are easy to confuse. Safe implies idempotent; idempotent does not imply safe. `DELETE` is idempotent and definitely not safe.
+
+      #### Safe, idempotent, neither
+
+      | Operation | Safe | Idempotent |
+      | --- | --- | --- |
+      | Read balance | yes | yes |
+      | Set status to shipped | no | yes |
+      | Delete order 42 | no | yes |
+      | Withdraw 20 | no | no — needs a key |
+
+      #### How it relates
+
+      - The second animation is exactly this distinction over a flaky network.
+  - term: HTTP semantics
+    short: GET as query, POST/PUT/PATCH/DELETE as command — CQS baked into the protocol since 1997.
+    see: [ Idempotency, Query (CQS), Command (CQS) ]
+    detail: |-
+      HTTP already encodes the rule: `GET` and `HEAD` are <em>safe</em>, meaning they must not have side effects, which is precisely why proxies, browsers, CDNs and crawlers feel free to repeat them. The famous cautionary tale is the intranet whose "delete" links were GETs, emptied by a well-behaved prefetching crawler.
+
+      Honouring this is not pedantry: it decides what your infrastructure may cache and what your clients may retry automatically.
+
+      #### Method properties
+
+      | Method | Safe | Idempotent | Cacheable |
+      | --- | --- | --- | --- |
+      | GET / HEAD | yes | yes | yes |
+      | PUT | no | yes | no |
+      | DELETE | no | yes | no |
+      | POST | no | no | rarely |
+      | PATCH | no | not necessarily | no |
+
+      #### How it relates
+
+      - A GET that mutates breaks caching and rate limiting at the same time.
+  - term: Memoization
+    short: Caching a query's result so repeated calls are cheap — only safe because the method is a query.
+    see: [ Benign side effect, Referential transparency, Query (CQS) ]
+    detail: |-
+      Memoization substitutes a stored value for a computation, which is legitimate exactly when the computation is referentially transparent. Apply it to a mixed method and you silently skip the side effect on every call after the first — a bug that typically appears weeks later under load.
+
+      The same reasoning extends outwards: an HTTP cache, a CDN, a materialised view and a React `useMemo` are all making the identical bet.
+
+      #### Memoize when
+
+      | Condition | Required |
+      | --- | --- |
+      | No observable side effect | yes |
+      | Answer stable for the cache lifetime | yes |
+      | Invalidation story exists | yes |
+
+      #### How it relates
+
+      - The animation inside **benign side effect** shows memoization preserving query semantics.
+  - term: CQRS
+    short: "The architectural scaling of CQS: separate models, and possibly separate stores, for writing and reading."
+    see: [ Command (CQS), Query (CQS), Mixed method ]
+    detail: |-
+      CQS separates <em>methods</em>; CQRS separates <em>models</em>. The vocabulary is shared and the intuition is the same, but the cost profile could not be more different: CQS is free and local, while CQRS adds projections, eventual consistency and operational surface.
+
+      Adopt CQS everywhere by default. Adopt CQRS in the one or two bounded contexts where the read and write shapes genuinely diverge, and never because the names sound similar.
+
+      #### Side by side
+
+      |  | CQS | CQRS |
+      | --- | --- | --- |
+      | Scope | a method | a bounded context |
+      | Cost | none | real, operational |
+      | Consistency | unchanged | often eventual |
+      | Default answer | yes | only when measured |
+
+      #### How it relates
+
+      - A codebase that already respects CQS is much easier to move to CQRS later.
+  - term: Design by Contract
+    short: "Meyer's broader method, which CQS exists to serve: preconditions and postconditions you can state because queries are honest."
+    see: [ Query (CQS), Command (CQS), Referential transparency ]
+    detail: |-
+      CQS was not invented as a style preference. It is a prerequisite for Design by Contract: if assertions could change state, then enabling assertions in debug and disabling them in release would produce two different programs. Queries being side-effect-free is what makes `require`, `ensure` and `invariant` clauses — and modern equivalents like `Debug.Assert` or property-based tests — trustworthy.
+
+      The modern restatement: any expression your test suite, logger or debugger evaluates must be free to evaluate.
+
+      #### Contract clauses need queries
+
+      | Clause | Uses |
+      | --- | --- |
+      | Precondition | queries on arguments and state |
+      | Postcondition | queries before and after |
+      | Invariant | queries only, always |
+
+      #### How it relates
+
+      - This is why assertions must never call a mixed method.
+  - term: Testability
+    short: "The practical dividend: commands are verified by checking state, queries by checking return values — never both at once."
+    see: [ Command (CQS), Query (CQS), Pure function ]
+    detail: |-
+      With CQS, a test has an obvious shape. For a query: call it, assert on the result, and assert that nothing changed. For a command: arrange, call, and assert on the resulting state. Mixed methods force every test to do both, and make it ambiguous which behaviour a failure is reporting.
+
+      It also removes a whole category of mock: you rarely need to verify that a query was called, because calling it is free.
+
+      #### Test shape
+
+      | Method | Assert on | Mocking |
+      | --- | --- | --- |
+      | Query | return value | stub the inputs |
+      | Command | resulting state | verify the interaction |
+      | Mixed | both, ambiguously | both |
+
+      #### How it relates
+
+      - "Don't mock what you don't own" gets much easier when queries are free to call.
+commands:
+  heading: Essential code patterns
+  tocLabel: Code patterns
+  groups:
+    - group: Splitting a mixed method (C#)
+      items:
+        - lang: csharp
+          code: |-
+            // before — reads like a query, behaves like a command
+            public Job Pop()
+            {
+                var job = _items[0];
+                _items.RemoveAt(0);
+                return job;                 // returns AND mutates
+            }
+          what: "The shape to look for: a return statement in a method that also changes a field."
+        - lang: csharp
+          code: |-
+            // after — two methods, two obligations
+            public Job? Peek() => _items.Count > 0 ? _items[0] : null;   // query
+            public void Dequeue() => _items.RemoveAt(0);                  // command
+
+            var job = queue.Peek();
+            if (job is not null) { Process(job); queue.Dequeue(); }
+          what: "The call site is now longer and honest: the removal happens on a line that says so — and after processing succeeded."
+        - lang: csharp
+          code: |-
+            // the deliberate exception: atomicity forbids splitting
+            public bool TryDequeue(out Job job)   // documented as a mutation
+            {
+                lock (_gate) { /* read and remove as one indivisible step */ }
+            }
+          what: Keep the mixed method where a race would otherwise appear, and make the name say that it mutates.
+    - group: Commands, queries and benign effects
+      items:
+        - lang: csharp
+          code: |-
+            public sealed class Basket
+            {
+                private Money? _cachedTotal;
+
+                public int ItemCount => _lines.Count;                 // query
+                public Money Total() => _cachedTotal ??= Sum(_lines); // query, benign cache
+
+                public void AddItem(Sku sku, int qty)                 // command
+                {
+                    _lines.Add(new Line(sku, qty));
+                    _cachedTotal = null;                              // invalidate
+                }
+            }
+          what: "A memoised query stays a query: the cache is invisible to callers, and the command that invalidates it returns nothing."
+        - lang: csharp
+          code: |-
+            // the pragmatic exception almost everyone accepts
+            public Guid Create(NewOrder data)   // command that returns the new identity
+            {
+                var order = Order.From(data);
+                _repo.Add(order);
+                return order.Id;                // an identity, not a view of state
+            }
+          what: Returning the id of something you just created is not a query — the caller could not have known it beforehand.
+    - group: Python
+      items:
+        - lang: python
+          code: |-
+            class Counter:
+                def __init__(self) -> None:
+                    self._n = 0
+
+                @property
+                def value(self) -> int:      # query: repeatable, safe in a log line
+                    return self._n
+
+                def increment(self) -> None:  # command: returns nothing
+                    self._n += 1
+
+            # bad: next_id() looks free and is not
+            # good: counter.increment(); id = counter.value
+          what: Properties for queries, plain methods returning None for commands — the convention makes the split visible at the call site.
+        - lang: python
+          code: |-
+            from functools import cached_property
+
+            class Order:
+                @cached_property
+                def total(self) -> int:      # memoised query
+                    return sum(l.price * l.qty for l in self.lines)
+
+                def add_line(self, line) -> None:
+                    self.lines.append(line)
+                    self.__dict__.pop("total", None)   # invalidate the cache
+          what: "`cached_property` is a benign side effect — as long as the command that changes the data clears it."
+    - group: Over HTTP
+      items:
+        - lang: sql
+          code: |-
+            GET    /orders/42            # query  — safe, idempotent, cacheable
+            GET    /orders?status=open   # query  — safe
+            POST   /orders               # command — not safe, not idempotent
+            PUT    /orders/42/status     # command — not safe, idempotent
+            DELETE /orders/42            # command — not safe, idempotent
+
+            # never: GET /orders/42/delete
+          what: The protocol already encodes CQS. A GET with side effects breaks caches, prefetchers and automatic retries all at once.
+        - code: |-
+            POST /orders
+            Idempotency-Key: 9f1c7a2e-...      # client-generated, stored server-side
+
+            # a retried POST with the same key returns the original result
+            # instead of creating a second order
+          what: Commands cannot be safe, so make them idempotent instead — the standard way to survive a retry on an unreliable network.
+    - group: Enforcing it
+      items:
+        - code: |-
+            # code review heuristics that catch most violations
+            #  1. a method with a return type that also assigns to a field
+            #  2. a getter or property that is not safe to call twice
+            #  3. a name starting with Get/Is/Has/Find that mutates
+            #  4. an assertion or log line that would break if removed
+          what: No tool enforces CQS; these four questions in review catch nearly every accidental violation.
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - You can read a call site and know whether it is dangerous, without opening the method.
+      - Queries become safe to cache, memoize, retry, parallelise, log and evaluate in a debugger.
+      - "Tests get an obvious shape: assert on a return value, or assert on state — never both."
+      - "Refactoring is lower risk: a line you can delete is visible from its type."
+      - Costs nothing — no infrastructure, no runtime, no consistency trade-off.
+      - Makes assertions and contracts trustworthy, which is why Meyer introduced it.
+  bad:
+    heading: Cons
+    items:
+      - Some call sites become two lines where one would do.
+      - Concurrency genuinely requires mixed methods, so the rule has real exceptions you must recognise.
+      - Standard library and framework APIs violate it constantly, so your codebase will never be uniform.
+      - The split can introduce a race if the two calls are not protected together.
+      - Nothing enforces it — no compiler, no linter — so it survives only on review discipline.
+      - Applied dogmatically it produces awkward APIs that fight the language's idioms.
+when:
+  note: default to yes — it is free. The skill is recognising the handful of places to break it.
+  good:
+    heading: Use it when…
+    items:
+      - Always, as the default for new code in any language or paradigm.
+      - Designing a public API, where callers cannot see your implementation.
+      - Anything will be retried, cached or evaluated by a debugger, a logger or an assertion.
+      - You are writing contracts, invariants or property-based tests.
+      - You expect to adopt CQRS later and want the seams to already exist.
+  bad:
+    heading: Avoid it when…
+    items:
+      - The operation must be atomic. Use **a documented mixed method** such as `TryDequeue` or compare-and-swap.
+      - The language idiom demands it — iterators, streams, `next()`. Use **the idiom**; fighting it costs more than it saves.
+      - You are wrapping a third-party API that mixes freely. Use **an adapter** that presents a clean split rather than rewriting their semantics.
+      - The split would require exposing internal state to make the query possible. Use **one method and a very explicit name**.
+      - You are tempted to jump straight to separate read and write databases. Use **CQRS** — deliberately, and only where measured.
+useCases:
+  - title: A logging line that consumed work
+    body: "A developer adds `log.Debug($\"next: {queue.Pop()}\")` while debugging. Jobs start disappearing in production, and only under the log level that enables that line. Splitting into `Peek()` and `Dequeue()` makes the mistake impossible to write."
+  - title: Retry policy on an HTTP client
+    body: A client library retries idempotent calls automatically. Because reads are genuine `GET`s and writes carry an idempotency key, retries are correct by construction — no per-endpoint allowlist, no duplicate withdrawals.
+  - title: Caching a page at the CDN
+    body: An endpoint is marked cacheable, and the CDN starts serving a stored copy. It only works because the handler is a pure query; the same change applied to an endpoint that quietly recorded a view count would have broken the counter invisibly.
+  - title: Debugging a live incident
+    body: An engineer evaluates `order.Total()` in a debugger watch window while paused in production. With CQS that is free; with a mixed method, inspecting the state would have changed it — the worst possible moment to find out.
+  - title: Preparing for CQRS
+    body: A team wants to split read and write models in one context. Because the codebase already separates commands from queries at method level, the migration is mostly moving existing query methods behind a read model instead of untangling them first.
+gotchas:
+  items:
+    - mistake: Confusing CQS with CQRS
+      why: A team reads "separate commands and queries", stands up a projection pipeline and an eventual-consistency window, and inherits a large operational cost for a rule that was free.
+      fix: CQS separates methods and costs nothing; CQRS separates models and stores and costs a lot. Adopt the first by default, the second with evidence.
+    - mistake: Getters that mutate
+      why: A property that lazily loads, resets a flag, or advances a cursor turns every `if (x.Thing != null)` into a side effect, and debuggers evaluating it change program behaviour.
+      fix: lazy initialisation is fine only while it is unobservable. Anything a caller can detect belongs in a method named as a command.
+    - mistake: Splitting something that must be atomic
+      why: Turning `TryDequeue` into `Peek` plus `Dequeue` creates a window where two threads peek the same item and both process it.
+      fix: keep the atomic operation, or protect the two calls with one lock. CQS yields to correctness, and that is not a failure of the rule.
+    - mistake: GET endpoints with side effects
+      why: A "delete" or "approve" link implemented as a GET gets fired by a crawler, a browser prefetch, a link preview or a retry — the classic self-inflicted data loss.
+      fix: GET and HEAD must be safe. Use POST/PUT/DELETE for anything that changes state, and add an idempotency key so retries are harmless.
+    - mistake: Commands that return the full new state
+      why: "`Order Update(...)` returning the updated order looks convenient, then quietly becomes the only way callers read state, and the two concerns fuse again."
+      fix: return nothing, or at most the new identity. If the caller needs the state, let them query for it — which also keeps the read path cacheable.
+    - mistake: Treating it as an absolute law
+      why: Rewriting iterators, builders and interop wrappers to obey the rule produces APIs that fight the language and that nobody wants to call.
+      fix: treat it as a strong default. Break it consciously, name the method so the mutation is obvious, and write down why.
+    - mistake: Memoizing a mixed method
+      why: Adding a cache in front of something that also mutates means the side effect happens once and is skipped forever after — usually discovered weeks later.
+      fix: before caching anything, confirm it is a query. If it is not, the cache is a behaviour change, not an optimisation.
+    - mistake: Hiding effects behind innocent names
+      why: "`GetOrCreateUser`, `FindOrInsert`, `EnsureLoaded` all mutate while starting with a reading verb, which is exactly the confusion CQS is trying to remove."
+      fix: if it can create, say so — `CreateIfMissing`. Reserve `Get`, `Is`, `Has` and `Find` for methods that genuinely change nothing.
+alternatives:
+  columns: [ Approach, Best for, Complexity, Cost / license, Key difference vs CQS ]
+  rows:
+    - self: true
+      cells: [ "**CQS**", "any codebase, as a default", Very low, free, — ]
+    - cells:
+        - "**CQRS**"
+        - diverging read and write shapes
+        - Medium–High
+        - free; operational cost real
+        - Separates models and stores, not methods; introduces eventual consistency
+    - cells:
+        - "**Pure functions / functional core**"
+        - logic-heavy domains
+        - Medium
+        - free
+        - "Stricter: no state reads either, effects pushed to the edges"
+    - cells:
+        - "**Immutability**"
+        - value-heavy models
+        - Low
+        - free
+        - Removes mutation instead of segregating it; "changes" return new objects
+    - cells:
+        - "**Effect systems / IO types**"
+        - Haskell, Scala, F#
+        - High
+        - free
+        - The compiler enforces the split that CQS leaves to review
+    - cells:
+        - "**No rule**"
+        - scripts, throwaway code
+        - None
+        - free
+        - Fine briefly; every call site becomes unreadable at scale
+  notes:
+    - "**Pick CQRS** when the read shape and the write shape genuinely diverge — not because the acronym is similar."
+    - "**Pick a functional core** if the domain is computation-heavy and you want the stronger guarantee."
+    - "**Pick immutability** for value objects; it makes most of the CQS question disappear, since there is nothing to mutate."
+    - "**Pick an effect system** if your language has one — it turns the convention into a compile error."
+resources:
+  - url: https://martinfowler.com/bliki/CommandQuerySeparation.html
+    title: Martin Fowler — Command Query Separation
+    why: the canonical short write-up, including the pragmatic exceptions.
+  - url: https://www.eiffel.org/doc/solutions/Design_by_Contract_and_Assertions
+    title: Eiffel — Design by Contract
+    why: the method CQS was invented to support, from Meyer's own project.
+  - url: https://developer.mozilla.org/en-US/docs/Glossary/Safe/HTTP
+    title: MDN — Safe HTTP methods
+    why: the protocol-level version of "a query changes nothing".
+  - url: https://www.rfc-editor.org/rfc/rfc9110#name-common-method-properties
+    title: RFC 9110 — method properties
+    why: safe, idempotent and cacheable, defined precisely.
+  - url: https://martinfowler.com/bliki/CQRS.html
+    title: Martin Fowler — CQRS
+    why: where the idea goes when applied to models instead of methods, and why that is a much bigger decision.

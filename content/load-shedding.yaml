@@ -1,0 +1,789 @@
+title: Load shedding
+slug: load-shedding
+tagline: Past capacity you will fail some requests whatever you do. Shedding is choosing which ones, instead of letting the overload choose for you.
+asof: Nov 2026 · examples in C#, Go, Envoy and Python; the arithmetic is from queueing theory
+description: "Load shedding cheatsheet: why goodput collapses past capacity, how to choose what to drop by priority and cost, and which signal to shed on — animated."
+aliases:
+  - Load shedding
+  - load shed
+  - shedding
+  - admission control
+  - overload protection
+  - brownout
+  - goodput
+keywords:
+  - load shedding
+  - admission control
+  - overload
+  - goodput
+  - congestion collapse
+  - priority
+  - resilience
+  - sre
+  - capacity
+  - codel
+related:
+  - backpressure
+  - rate-limiting
+  - circuit-breaker
+  - graceful-degradation
+  - sli-slo-sla
+overview:
+  - "When demand exceeds capacity, a naive system does not serve its capacity and reject the rest. It serves <em>far less</em> than its capacity: queues grow past client timeouts so work is thrown away after being paid for, clients retry and double the arrival rate, and memory pressure makes every remaining request more expensive. Offered load goes up and useful output goes <em>down</em>. That is congestion collapse, and it is the normal behaviour of a system with no admission control."
+  - "**Load shedding** is the deliberate alternative: detect that you are past capacity, and refuse a fraction of the work immediately and cheaply so the rest can be served properly. A rejection costs perhaps 0.1 ms; a request that times out after two seconds has consumed two seconds of capacity first. That ratio — roughly four orders of magnitude — is the whole reason the technique works."
+  - It is easy to confuse with its neighbours. **Rate limiting** enforces a per-client quota agreed in advance, whether or not you are busy. **Backpressure** carries the "I am full" signal upstream but does not decide what to sacrifice. **Circuit breakers** protect a caller from a failing dependency. Load shedding is specifically about <em>your own</em> health and <em>which</em> work you abandon — and the good version prioritises by business value, not by who happened to arrive first.
+architecture:
+  svg: load-shedding/architecture.svg
+  alt: Incoming traffic classified by priority, admitted up to capacity and shed beyond it, with the cost of a rejection compared to a timeout
+  caption: Two thirds of this traffic fails either way. Shedding decides which two thirds, and makes the surviving third fast.
+howItWorks:
+  - md: "The first animation is the curve everyone should know by heart: what happens to useful output when offered load passes capacity. The second is the interesting part — choosing what to sacrifice."
+  - note: shedding does not reduce failures. it decides which ones, and keeps the rest fast.
+  - anim:
+      id: anim-goodput
+      title: 1 · Goodput collapses, unless you shed
+      svg: load-shedding/anim-goodput.svg
+      alt: A chart of goodput against offered load showing collapse past capacity without shedding and a plateau with shedding
+      steps:
+        - say: Capacity is 1,000 requests a second. Below that line, goodput simply tracks offered load — every request that arrives is served.
+          show: [ gp-rise ]
+          text:
+            gp-read: offered 800 · goodput 800 · shed 0
+            gp-note: "below capacity: nothing to decide"
+        - say: At exactly capacity, goodput is 1,000. This is the last comfortable moment, and the one most load tests stop at.
+          text:
+            gp-read: offered 1,000 · goodput 1,000 · shed 0
+            gp-note: the knee of the curve
+        - say: Now push past it. The intuition is that goodput flattens at 1,000 and the excess simply fails. That is not what happens.
+          text:
+            gp-note: "expectation: a flat plateau at capacity"
+        - say: Without admission control, goodput <em>declines</em>. More offered load produces less useful work.
+          show: [ gp-bad, gp-badl ]
+          text:
+            gp-read: offered 1,500 · goodput 820 · shed 0
+            gp-note: "reality: it goes down"
+          fill:
+            gp-note: "#c53b3b"
+        - say: Three loops cause it. Queues grow past client timeouts, so finished work is discarded unread. Clients retry, so arrivals multiply. And memory pressure and context switching make every request cost more than it used to.
+          text:
+            gp-read: offered 2,000 · goodput 520 · shed 0
+            gp-note: dead work + retries + resource pressure
+        - say: At three times capacity, goodput is around 150 a second. You are not serving 1,000 and failing the rest — you are serving 150 and failing almost everybody, including the people you most wanted to keep.
+          text:
+            gp-read: offered 3,000 · goodput 150 · shed 0
+            gp-note: congestion collapse — and it will not self-correct
+        - say: And it does not recover when the spike passes, because the system is still working through a backlog nobody is waiting for. Usually it takes a restart.
+          text:
+            gp-note: a collapsed system stays collapsed
+        - say: "Now add load shedding. Admit 1,000, refuse the rest immediately: a 503 with `Retry-After` that costs about 0.1 ms."
+          show: [ gp-good, gp-goodl ]
+          text:
+            gp-read: offered 2,000 · goodput 1,000 · shed 1,000
+            gp-note: goodput pinned at capacity
+          fill:
+            gp-note: "#2f6b3f"
+        - say: The curve flattens and stays flat however far offered load rises, because refusing is thousands of times cheaper than failing slowly. One server can reject 20,000 a second while still serving its full real capacity.
+          text:
+            gp-read: offered 3,000 · goodput 1,000 · shed 2,000
+            gp-note: rejection ~0.1 ms vs timeout ~2,000 ms
+        - say: Be honest about what this bought. At 3,000 offered against 1,000 of capacity, two thirds of requests fail either way. Shedding did not reduce failures — it chose which ones, told them quickly, and kept the survivors inside the SLO.
+          text:
+            gp-phase: same failure count, completely different outcome
+            gp-read: offered 3,000 · goodput 1,000 · shed 2,000 (chosen)
+            gp-note: which two thirds? that is the next animation
+  - anim:
+      id: anim-prio
+      title: 2 · Deciding what to sacrifice
+      svg: load-shedding/anim-prio.svg
+      alt: Four classes of traffic admitted or shed by priority until capacity is full
+      steps:
+        - say: "Four kinds of traffic arrive: 3,000 requests a second in total, against 1,000 a second of capacity. Two thirds has to go somewhere."
+          hl: [ pr-cap ]
+        - say: The naive answer is to shed whatever arrives when you are full. That is effectively random — and random means losing two thirds of checkout to protect two thirds of recommendations.
+          unhl: [ pr-cap ]
+          text:
+            pr-v1: "random: 33% served"
+            pr-v2: "random: 33% served"
+            pr-v3: "random: 33% served"
+            pr-v4: "random: 33% served"
+            pr-o: random shedding destroys revenue to protect a carousel
+          fill:
+            pr-v1: "#c53b3b"
+            pr-o: "#c53b3b"
+            pr-out: "#f9e3df"
+        - say: Instead, classify by business value at the edge — where the meaning of a request is still visible — and admit from the top down.
+          text:
+            pr-v1: critical
+            pr-v2: standard
+            pr-v3: background
+            pr-v4: batch
+            pr-o: classify at the edge, propagate the class downstream
+          fill:
+            pr-v1: "#5f6f66"
+            pr-o: "#2f6b3f"
+            pr-out: "#e3eedc"
+        - say: "Checkout and payments first: 400 a second, all admitted. This class is never shed while any capacity remains."
+          show: [ pr-fill1 ]
+          hl: [ pr-r1 ]
+          text:
+            pr-v1: 400 / s admitted ✓
+            pr-capt: 400 / 1,000 used
+          fill:
+            pr-v1: "#2f6b3f"
+        - say: "Browse and search next: 600 a second, also admitted. Capacity is now exactly full."
+          show: [ pr-fill2 ]
+          hl: [ pr-r2 ]
+          unhl: [ pr-r1 ]
+          text:
+            pr-v2: 600 / s admitted ✓
+            pr-capt: 1,000 / 1,000 — full
+          fill:
+            pr-v2: "#2f6b3f"
+        - say: "Recommendations: 1,200 a second, all shed. The page still renders — without a carousel. Most users will not notice, and none of them will fail to buy anything."
+          hl: [ pr-r3 ]
+          unhl: [ pr-r2 ]
+          text:
+            pr-v3: 1,200 / s shed — page renders without it
+            pr-o: shedding a background class usually looks like graceful degradation
+          fill:
+            pr-v3: "#c53b3b"
+        - say: "Bulk export: 800 a second, shed with `Retry-After: 60`. It is a batch job with no human waiting, so a minute from now is a perfectly good answer."
+          hl: [ pr-r4 ]
+          unhl: [ pr-r3 ]
+          text:
+            pr-v4: "800 / s shed — Retry-After: 60"
+          fill:
+            pr-v4: "#c53b3b"
+        - say: "The outcome: 100% of revenue-critical traffic served at normal latency, and the two thirds that had to fail were chosen rather than drawn at random."
+          unhl: [ pr-r4 ]
+          text:
+            pr-o: 100% of checkout served · 2,000 / s refused on purpose
+        - say: Two refinements matter in practice. Shed <em>before</em> the expensive work — a 503 after a database query costs as much as a success. And shed on queue latency rather than CPU, so the trigger stays correct when capacity changes.
+          text:
+            pr-phase: two refinements that decide whether this actually works
+            pr-o: reject in the first microseconds · trigger on sojourn time, not CPU
+        - say: And write the ladder down before the incident. At 03:00, "is search more important than recommendations?" is not a question anyone should be answering for the first time.
+          hl: [ pr-r1, pr-r2, pr-r3, pr-r4 ]
+          text:
+            pr-phase: the priority order is a business decision, not an engineering one
+            pr-o: agree it in daylight; the code only enforces what was already decided
+concepts:
+  - term: Load shedding
+    short: Deliberately refusing a portion of incoming work, quickly and cheaply, so the remainder can be served within its SLO.
+    see: [ Admission control, Goodput, Congestion collapse ]
+    detail: |-
+      The premise is unsentimental: past capacity, some requests will fail no matter what you do. Shedding does not change how many fail — it changes <em>which</em> ones, how fast they find out, and whether the survivors get a good experience.
+
+      It is the response to your own overload, which separates it cleanly from its neighbours: rate limiting enforces a contract regardless of your health, and a circuit breaker reacts to somebody else's failure.
+
+      #### Four mechanisms, four questions
+
+      | Mechanism | Question |
+      | --- | --- |
+      | Load shedding | which work do I refuse right now? |
+      | Backpressure | how do I tell upstream I am full? |
+      | Rate limiting | how much is this client entitled to? |
+      | Circuit breaker | should I stop calling a broken dependency? |
+
+      #### How it relates
+
+      - Backpressure carries the signal to the edge; shedding is the decision the edge then makes.
+  - term: Goodput
+    short: Requests completed successfully and within their deadline — the only throughput number that means anything under overload.
+    see: [ Congestion collapse, Dead work, Load shedding ]
+    detail: |-
+      A server at 100% CPU processing 1,000 requests a second, all of which time out before they are returned, has a throughput of 1,000 and a goodput of zero. Measuring the first and ignoring the second is how teams conclude that an overloaded service is "working hard".
+
+      Goodput is also the right objective: you are not trying to maximise requests touched, you are trying to maximise requests that helped somebody.
+
+      #### Under 3× overload
+
+      | Metric | No shedding | With shedding |
+      | --- | --- | --- |
+      | Throughput | high | moderate |
+      | Goodput | ~150 / s | 1,000 / s |
+      | p99 latency | timeout | normal |
+      | Failures | ~95% | ~67%, chosen |
+
+      #### How it relates
+
+      - The first animation is this table drawn as a curve.
+  - term: Congestion collapse
+    short: The regime where offered load rises and useful output falls — the failure shedding exists to prevent.
+    see: [ Goodput, Dead work, Retry amplification ]
+    detail: |-
+      Three reinforcing effects produce it. Queues grow past client timeouts, so completed work is discarded unread. Clients retry, multiplying arrivals exactly when capacity is scarcest. And the machine itself gets slower under memory pressure, context switching and cache thrashing, so each request costs more than it did.
+
+      The important property is that it does not self-correct. A collapsed system stays collapsed after the original spike has passed, because it is still busy with the backlog; recovery usually requires shedding, or a restart.
+
+      #### The three loops
+
+      | Loop | Effect |
+      | --- | --- |
+      | Queue > timeout | work completed for nobody |
+      | Clients retry | arrivals multiply |
+      | Resource pressure | per-request cost rises |
+
+      #### How it relates
+
+      - The term comes from 1980s internet congestion; the dynamics are identical at the application layer.
+  - term: Admission control
+    short: The component that decides, before any real work begins, whether a request gets a slot.
+    see: [ Load shedding, Cost-aware shedding, Shedding signal ]
+    detail: |-
+      Its defining property is that it is cheap and early. Parse enough to classify, check the signal, then admit or refuse. Anything expensive — a database lookup, a downstream call, deserialising a large body — must happen after the decision, or the rejection costs as much as the work.
+
+      It lives wherever it can act: an API gateway, a sidecar proxy, or the first middleware in the application.
+
+      #### Order of operations
+
+      | Step | Cost |
+      | --- | --- |
+      | Read headers, classify priority | microseconds |
+      | Check shedding signal | one atomic read |
+      | Reject with 503 + Retry-After | ~0.1 ms |
+      | — everything expensive below this line — |  |
+      | Authenticate, query, call downstream | milliseconds |
+
+      #### How it relates
+
+      - A sidecar proxy is a natural home for this, since it sees every request before the application does.
+  - term: Priority classes
+    short: Labelling traffic by business value so that shedding sacrifices the least important work first.
+    see: [ Admission control, Criticality, Graceful degradation ]
+    detail: |-
+      Without classes, shedding is random, and random shedding destroys a third of your checkout traffic to save a third of your recommendation traffic. With classes, you keep 100% of revenue and lose 100% of something nobody will notice.
+
+      Keep the ladder short — three or four levels — and assign classes at the edge, where the business meaning of a request is still visible. Google's internal criticality levels work exactly this way, and the levels propagate through every downstream call.
+
+      #### A workable ladder
+
+      | Class | Example | Shed |
+      | --- | --- | --- |
+      | Critical | pay, place order | never |
+      | Standard | browse, search | last |
+      | Background | recommendations, analytics beacons | first |
+      | Batch | exports, reindexing | first, with Retry-After |
+
+      #### How it relates
+
+      - Shedding a background class is usually implemented as graceful degradation in the UI.
+  - term: Criticality propagation
+    short: Carrying the priority of the originating request through every downstream call, so the whole chain sheds consistently.
+    see: [ Priority classes, Admission control, Deadline ]
+    detail: |-
+      If the edge knows a request is critical but the inventory service does not, the inventory service may shed it while serving a background recommendation query — and the checkout fails anyway. The class has to travel, as a header or in the RPC metadata, exactly like a deadline.
+
+      A useful rule: a service may never <em>raise</em> the criticality of work it issues. A background request cannot spawn critical calls, which stops low-value traffic laundering itself into protected capacity.
+
+      #### What should travel with a request
+
+      | Field | Purpose |
+      | --- | --- |
+      | Criticality | what to shed first |
+      | Deadline | when to stop bothering |
+      | Tenant / account | fairness |
+      | Trace id | debugging the decision afterwards |
+
+      #### How it relates
+
+      - Same plumbing as deadline propagation, and best added at the same time.
+  - term: Shedding signal
+    short: The measurement that decides when to start refusing — and the choice that determines whether shedding helps or flaps.
+    see: [ Queue sojourn, Concurrency limit, Hysteresis ]
+    anim:
+      key: sig
+      title: Why depth is the wrong trigger
+      svg: load-shedding/sig.svg
+      alt: A queue whose depth stays constant while its sojourn time doubles after capacity halves
+      steps:
+        - say: "A queue holding 40 items, drained at 800 a second. Two shedding rules are configured: one on depth, one on waiting time."
+          hl: [ sg-q ]
+        - say: Right now they agree. Depth 40 is well under 100, and the sojourn time is `40 / 800` = 50 ms, just at its limit. Neither rule fires.
+          unhl: [ sg-q ]
+          text:
+            sg-msg: "both rules agree: nothing to do"
+        - say: Now capacity halves — a slow dependency, a garbage-collection pause, a noisy neighbour. The drain rate drops to 400 a second.
+          hl: [ sg-q ]
+          text:
+            sg-qt: depth 40 · drain 400/s
+            sg-w: sojourn = 100 ms
+          fill:
+            sg-w: "#c53b3b"
+        - say: The depth is unchanged at 40, so rule A sees absolutely nothing — while every request now waits twice as long and the SLO is quietly breached.
+          hl: [ sg-rule1 ]
+          unhl: [ sg-q ]
+          text:
+            sg-r1: "rule A: 40 < 100 — silent"
+            sg-msg: the depth rule is blind to the thing that changed
+          fill:
+            sg-r1: "#c53b3b"
+            sg-msg: "#c53b3b"
+        - say: Rule B fires immediately, because sojourn time is measured in the same unit as the SLO. It needs no retuning when capacity changes — that is why CoDel and every good shedder trigger on waiting time, not on length.
+          hl: [ sg-rule2 ]
+          unhl: [ sg-rule1 ]
+          text:
+            sg-r2: "rule B: 100 ms > 50 ms — shedding"
+            sg-msg: measure what users feel, and the trigger tunes itself
+          fill:
+            sg-r2: "#2f6b3f"
+            sg-msg: "#2f6b3f"
+    detail: |-
+      CPU is the tempting signal and the worst one: it saturates late, it is noisy, and it says nothing about latency when you are blocked on I/O. Queue sojourn time is the best general-purpose signal, because it is expressed in the same unit as your SLO and adapts automatically when capacity changes.
+
+      Concurrency in flight is a good second choice — by Little's Law it is proportional to latency — and it is trivial to implement with a semaphore.
+
+      #### Signals, ranked
+
+      | Signal | Verdict |
+      | --- | --- |
+      | Queue sojourn time | best — matches the SLO, self-adapting |
+      | Concurrency in flight | good — simple, proportional to latency |
+      | Observed latency vs target | good — direct, slightly laggy |
+      | Queue depth | poor — meaningless without a drain rate |
+      | CPU utilisation | poor — late, noisy, blind to I/O waits |
+
+      ::anim sig::
+
+      #### How it relates
+
+      - CoDel applies the sojourn-time idea to network queues; the same logic works for request queues.
+  - term: Queue sojourn
+    short: How long a request has already waited — the signal that stays correct when capacity changes underneath you.
+    see: [ Shedding signal, Dead work, Goodput ]
+    detail: |-
+      Timestamp on enqueue, measure on dequeue. If the oldest waiting item has been there longer than your latency budget allows, you are behind and should shed. A halved capacity shows up immediately as doubled sojourn time, while the depth-based rule sees nothing until it is far too late.
+
+      It composes with deadlines: a request whose remaining budget is already exhausted should be dropped on dequeue without being processed at all.
+
+      #### CoDel-style parameters
+
+      | Parameter | Typical |
+      | --- | --- |
+      | Target sojourn | 5–20 ms |
+      | Interval before acting | 100 ms |
+      | Action | drop / reject, increasing in rate |
+
+      #### How it relates
+
+      - Envoy and several gRPC middlewares ship CoDel-style overload filters out of the box.
+  - term: Cost-aware shedding
+    short: Rejecting before the expensive part, and accounting for the fact that not all requests cost the same.
+    see: [ Admission control, Priority classes, Goodput ]
+    detail: |-
+      A rejection issued after authentication, a database lookup and a downstream call is not a rejection — it is a full-price request with a 503 on the end. Admission has to happen in the first few microseconds.
+
+      The second half is that a "request" is not a unit of capacity. One report query can cost as much as a thousand key lookups, so shedding by request count protects you badly. Weighting by expected cost, or giving expensive endpoints their own smaller limit, fixes it.
+
+      #### Weighting ideas
+
+      | Approach | Use when |
+      | --- | --- |
+      | Per-endpoint concurrency limits | costs differ by route |
+      | Weighted admission (cost units) | cost is predictable per request |
+      | Separate pool for heavy work | reports, exports, search |
+      | Shed by measured p50 cost | cost varies with parameters |
+
+      #### How it relates
+
+      - Separate pools per class of work are the bulkhead pattern applied to admission.
+  - term: Fail fast
+    short: Refusing in a fraction of a millisecond, which is what makes shedding cheap enough to work.
+    see: [ Admission control, Retry-After, Congestion collapse ]
+    detail: |-
+      The arithmetic is the argument. A rejection costing 0.1 ms lets a single server refuse tens of thousands of requests a second while still serving its full real capacity. A rejection that arrives as a two-second timeout costs 20,000 times more, and consumes the very capacity you were trying to protect.
+
+      Say no with a real status code and a real hint — `503` with `Retry-After`, or `429` when the cause is a quota — so clients can behave sensibly instead of hammering.
+
+      #### Status codes
+
+      | Code | Means |
+      | --- | --- |
+      | 503 + Retry-After | I am overloaded; come back |
+      | 429 + Retry-After | you exceeded your quota |
+      | 504 | a dependency timed out — not shedding |
+      | Silence / timeout | the expensive mistake |
+
+      #### How it relates
+
+      - Fast rejections only help if clients back off; pair with jitter and a retry budget.
+  - term: Retry-After
+    short: Telling the client when to come back, so your fast rejection does not become their fast retry loop.
+    see: [ Fail fast, Retry budget, Load shedding ]
+    detail: |-
+      A rejection that costs 0.1 ms is a gift to a client that retries immediately: you have built an efficient way to be hammered. `Retry-After`, jittered exponential backoff and a client-side retry budget are what convert cheap rejections into actual relief.
+
+      Jitter is not optional. Without it, every rejected client returns at the same instant and you get a synchronised thundering herd on a system that has not yet recovered.
+
+      #### Client-side contract
+
+      | Control | Typical |
+      | --- | --- |
+      | Backoff | exponential, full jitter |
+      | Retry budget | ≤ 10% of request volume |
+      | Retry on | 503, 429, connection errors |
+      | Never retry | 4xx other than 429 |
+
+      #### How it relates
+
+      - Retry amplification is the failure this prevents; see the backpressure page for the full loop.
+  - term: Brownout
+    short: Shedding part of a response rather than the whole request — degrade the answer instead of refusing it.
+    see: [ Graceful degradation, Priority classes, Load shedding ]
+    detail: |-
+      Instead of a 503, return the page without recommendations, without personalisation, with a cached price, or with ten results instead of a hundred. The user gets something useful and you spend a fraction of the capacity.
+
+      This is usually the better first move for user-facing traffic: a page that renders with less on it beats an error page, and most pages contain far more optional content than critical content.
+
+      #### What to drop first
+
+      | Drop | Keep |
+      | --- | --- |
+      | Personalisation | the product and its price |
+      | Recommendations | the add-to-cart button |
+      | Live stock count | a cached estimate |
+      | Full search ranking | a cheap ranking |
+
+      #### How it relates
+
+      - The graceful degradation page is this idea developed into a product strategy.
+  - term: Fairness
+    short: Making sure shedding does not fall entirely on one tenant, region or unlucky client.
+    see: [ Priority classes, Rate limiting, Load shedding ]
+    detail: |-
+      Naive shedding is biased in ways you did not intend: the client with the most retries wins, the nearest region wins, and one heavy tenant can consume all the admitted capacity. Shedding per tenant, or weighting admission by recent usage, keeps a single noisy customer from eating everybody's share.
+
+      This is where load shedding and rate limiting genuinely overlap — per-tenant quotas provide the fairness, shedding provides the overload response, and most real systems need both.
+
+      #### Approaches
+
+      | Approach | Effect |
+      | --- | --- |
+      | Per-tenant concurrency limit | hard isolation |
+      | Weighted fair queueing | proportional shares |
+      | Shed heaviest user first | protects the long tail of small users |
+      | Global FIFO | simplest, and least fair |
+
+      #### How it relates
+
+      - In a multi-tenant system this is the difference between one customer's incident and everybody's incident.
+  - term: Hysteresis
+    short: Different thresholds for starting and stopping, so the system does not oscillate between shedding and not shedding.
+    see: [ Shedding signal, Load shedding, Queue sojourn ]
+    detail: |-
+      A single threshold produces flapping: you shed, load drops below the line, you stop shedding, load returns, you shed again — many times a second, with wildly variable behaviour for clients. Shedding in at a higher mark and out at a lower one, with a ramp rather than a cliff, keeps it stable.
+
+      A proportional response is better still: shed 10% of background traffic, then 40%, then all of it, rather than switching the whole class off at once.
+
+      #### Stability measures
+
+      | Measure | Why |
+      | --- | --- |
+      | Separate in/out thresholds | prevents oscillation |
+      | Ramp the shed fraction | no cliff edge |
+      | Smooth the signal (EWMA) | ignores single-sample noise |
+      | Minimum dwell time | bounds the switching rate |
+
+      #### How it relates
+
+      - Same reasoning as a circuit breaker's half-open state: never flip instantly on one observation.
+  - term: Where to shed
+    short: At the edge, in the service, or in a sidecar — each sees different information and can take different action.
+    see: [ Admission control, Criticality propagation, Sidecar ]
+    detail: |-
+      The edge is the only place that can talk to the client, so final rejections belong there. But the edge does not know which internal dependency is struggling, so services need their own admission control too — and a sidecar proxy can apply uniform limits without each service implementing them.
+
+      In practice you want both: cheap global protection at the edge, and local protection per service so that one slow dependency does not take everything with it.
+
+      #### Division of labour
+
+      | Layer | Knows | Can do |
+      | --- | --- | --- |
+      | Edge | client, criticality, global load | 503 with Retry-After |
+      | Sidecar | per-service latency | uniform concurrency limits |
+      | Service | which dependency is slow | shed by feature, brownout |
+
+      #### How it relates
+
+      - Envoy's overload manager and adaptive concurrency filter do this at the sidecar layer.
+  - term: Measuring it
+    short: Shed rate, goodput and the SLO — because shedding that nobody measures looks exactly like an outage.
+    see: [ Goodput, Load shedding, Fail fast ]
+    detail: |-
+      Count rejections separately from errors, labelled by class and reason, or your error rate graph will show a catastrophe when the system is in fact working as designed. Then watch goodput and p99 latency for admitted traffic — those are the numbers shedding is supposed to protect.
+
+      It is worth deciding in advance whether shed requests count against your SLI. Usually they should: the user did not get served, and pretending otherwise makes the error budget meaningless.
+
+      #### Dashboard
+
+      | Metric | Expectation |
+      | --- | --- |
+      | `shed_total` by class | zero normally; bursts under load |
+      | Goodput | flat at capacity during overload |
+      | p99 for admitted traffic | unchanged under load |
+      | Critical class shed | always zero — page if not |
+
+      #### How it relates
+
+      - "Critical traffic shed > 0" is one of the few alerts worth paging on immediately.
+commands:
+  heading: Essential code patterns
+  tocLabel: Code patterns
+  groups:
+    - group: The smallest useful shedder
+      items:
+        - lang: csharp
+          code: |-
+            // a concurrency limit is load shedding in six lines
+            private readonly SemaphoreSlim _slots = new(60);   // L = λ × W, by Little's Law
+
+            app.Use(async (ctx, next) =>
+            {
+                if (!_slots.Wait(0))                            // no waiting: admit or refuse now
+                {
+                    Metrics.Shed.WithLabels(Class(ctx)).Inc();
+                    ctx.Response.StatusCode = 503;
+                    ctx.Response.Headers.RetryAfter = "1";
+                    return;                                     // ~0.1 ms, before anything expensive
+                }
+                try { await next(ctx); } finally { _slots.Release(); }
+            });
+          what: Registered first in the pipeline so a rejection happens before auth, model binding or any database work.
+    - group: Shed by priority
+      items:
+        - lang: csharp
+          code: |-
+            static int Threshold(Criticality c) => c switch
+            {
+                Criticality.Critical   => 100,   // admit until the limit is genuinely gone
+                Criticality.Standard   =>  85,
+                Criticality.Background =>  60,   // gives up its slot early
+                Criticality.Batch      =>  40,
+            };
+
+            var usedPct = 100 * _inFlight / _limit;
+            if (usedPct > Threshold(criticality)) return Shed(ctx);
+          what: "One limit, four watermarks: background traffic disappears long before checkout is ever touched."
+        - lang: yaml
+          code: |-
+            # criticality travels with the request, exactly like a deadline
+            x-criticality: critical
+            grpc-timeout: 800m
+
+            # and a service may never RAISE it — background work cannot
+            # launder itself into protected capacity downstream
+          what: Without propagation the edge protects checkout while an inner service sheds it anyway.
+    - group: Shed on queue latency, not depth
+      items:
+        - lang: bash
+          code: |-
+            // CoDel-style: how long has the oldest item been waiting?
+            type Item struct{ Req *http.Request; Enqueued time.Time }
+
+            func (q *Queue) admit(it Item) bool {
+                if time.Since(q.oldest()) > 20*time.Millisecond {   // target sojourn
+                    return false                                     // we are behind: shed
+                }
+                return q.push(it)
+            }
+
+            // on dequeue, discard work whose caller has already gone
+            if time.Now().After(it.Deadline) { metrics.DeadWork.Inc(); continue }
+          what: Sojourn time adapts automatically when capacity changes; a depth threshold has to be retuned every time.
+    - group: At the proxy
+      items:
+        - lang: yaml
+          code: |-
+            # Envoy — shed before the request reaches the application at all
+            overload_manager:
+              resource_monitors:
+                - name: envoy.resource_monitors.fixed_heap
+                  typed_config: { max_heap_size_bytes: 2147483648 }
+              actions:
+                - name: envoy.overload_actions.stop_accepting_requests
+                  triggers:
+                    - name: envoy.resource_monitors.fixed_heap
+                      threshold: { value: 0.95 }
+          what: Uniform protection for every service behind the proxy, with no application changes.
+        - code: |-
+            # nginx — crude but effective, and already installed
+            limit_conn_zone $binary_remote_addr zone=perip:10m;
+            limit_conn      perip 20;
+            limit_req_zone  $binary_remote_addr zone=rl:10m rate=100r/s;
+            limit_req       zone=rl burst=50 nodelay;
+            limit_req_status 503;
+          what: Per-client connection and request limits. Blunt — no priority awareness — but it beats having nothing.
+    - group: Hysteresis and ramping
+      items:
+        - lang: python
+          code: |-
+            # shed a growing fraction instead of flipping a switch
+            def shed_fraction(sojourn_ms, target=20, ceiling=200):
+                if sojourn_ms <= target:
+                    return 0.0
+                return min(1.0, (sojourn_ms - target) / (ceiling - target))
+
+            if random.random() < shed_fraction(current_sojourn_ms):
+                raise Shed(503, retry_after=1)
+          what: "A ramp rather than a cliff: at 110 ms of sojourn you shed half, not everything, and the system settles instead of oscillating."
+    - group: What to export
+      items:
+        - code: |-
+            shed_total{class="background",reason="concurrency"}   # NOT counted as an error
+            goodput_total                                          # completed within deadline
+            request_duration_seconds{admitted="true",quantile="0.99"}
+            inflight / inflight_limit
+            dead_work_total                                        # dequeued past its deadline
+
+            # alert: shed_total{class="critical"} > 0   → page immediately
+          what: Separate shed counters from error counters, or a working shedder looks exactly like an outage on your dashboard.
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - Keeps goodput flat at capacity instead of collapsing toward zero under overload.
+      - "Lets you protect what matters: 100% of checkout rather than two thirds of everything."
+      - Rejections are roughly 20,000× cheaper than timeouts, so protection costs almost nothing.
+      - Fast failures give clients a chance to back off before a retry storm forms.
+      - Keeps latency inside the SLO for admitted traffic, which preserves the error budget.
+      - Buys the minutes autoscaling needs to add real capacity.
+  bad:
+    heading: Cons
+    items:
+      - Users are refused on purpose, which needs an explicit product decision rather than an engineering one.
+      - Priority classes require business agreement and must be propagated across every service.
+      - Bad signals shed too early (wasting capacity) or too late (after collapse has begun).
+      - Without hysteresis it flaps, producing wildly inconsistent behaviour for clients.
+      - Rejections can look like an outage on dashboards unless counted separately.
+      - "Can mask under-provisioning: a system that sheds every day needs capacity, not more shedding."
+when:
+  note: decide the priority order before the incident — at 03:00 it is not a design discussion
+  good:
+    heading: Use it when…
+    items:
+      - Demand can exceed capacity, even briefly — spikes, sales, retries, a slow dependency.
+      - Some traffic is genuinely more valuable than other traffic.
+      - You would rather serve 1,000 users well than 3,000 users badly.
+      - Clients retry, so a slow failure is much more expensive than a fast one.
+      - Autoscaling exists but takes minutes, and you need to survive the first two.
+  bad:
+    heading: Avoid it when…
+    items:
+      - The producer can simply be slowed down. Use **backpressure** — nobody needs to be refused.
+      - The issue is one client's quota, not your health. Use **rate limiting**.
+      - A dependency is failing rather than slow. Use **a circuit breaker**.
+      - You are shedding every day. Use **more capacity** — shedding is masking under-provisioning.
+      - Every request is equally critical and must complete. Use **a queue with a real SLA, and accept the latency**.
+useCases:
+  - title: Flash sale at 10× normal traffic
+    body: Capacity is 1,000 a second and 10,000 arrive. Without shedding, goodput falls to a few hundred and nobody can check out. With priority shedding, every checkout succeeds at normal latency while browse and recommendations are refused with a one-second `Retry-After`.
+  - title: A dependency slows and takes everything with it
+    body: The pricing service goes from 20 ms to 800 ms. A concurrency limit per dependency means pricing calls queue and shed on their own, while the rest of the site — which does not need pricing — keeps serving at full speed.
+  - title: One tenant's batch job
+    body: A customer starts a bulk export at 09:00 and consumes all the shared capacity. Per-tenant concurrency limits cap their share; their export is shed down to a trickle with `Retry-After`, and the other 400 tenants never notice.
+  - title: Recovering from a cold cache
+    body: After a deploy, the cache is empty and every request hits the database, so effective capacity is a tenth of normal. Shedding on queue sojourn time detects this immediately, admits 10%, and lets the cache refill — instead of all traffic timing out while the database is hammered.
+  - title: Protecting a write path from a read storm
+    body: A crawler hits expensive search endpoints. Cost-aware limits give search its own small pool, so the crawler exhausts search capacity only and order placement is untouched.
+gotchas:
+  items:
+    - mistake: Shedding after the expensive work
+      why: A 503 returned after authentication, a database read and a downstream call costs exactly as much as a successful request. You have added a status code, not protection.
+      fix: admission control goes first in the pipeline. Classify from headers, check one counter, reject. Everything expensive lives below that line.
+    - mistake: Shedding on CPU
+      why: CPU saturates late, moves in jumps, and tells you nothing when you are blocked on I/O — so you shed long after latency has already breached the SLO.
+      fix: shed on queue sojourn time, or on concurrency in flight. Both are proportional to the thing users actually feel.
+    - mistake: No priority classes
+      why: Random shedding destroys a third of your checkout traffic in order to protect a third of your recommendation traffic.
+      fix: classify at the edge, propagate the class downstream, and give each class its own watermark so background work disappears first.
+    - mistake: Flapping
+      why: One threshold means you shed, recover, shed, recover — several times a second — and clients see wildly inconsistent behaviour from one request to the next.
+      fix: separate thresholds for entering and leaving, a smoothed signal, and a ramped shed fraction rather than an on/off switch.
+    - mistake: Counting shed requests as errors
+      why: Your error-rate panel shows 70% failure and someone declares a sev-1, when the system is doing precisely what it was designed to do.
+      fix: a distinct `shed_total` metric with class and reason labels, shown beside goodput. Keep them out of the error panel, but do count them against the SLI.
+    - mistake: Forgetting Retry-After
+      why: A rejection that costs 0.1 ms is wonderful until the client retries immediately, at which point you have built an extremely efficient way to be attacked by your own users.
+      fix: always send `Retry-After`, require jittered exponential backoff in clients, and cap retries with a budget of around 10% of normal traffic.
+    - mistake: Treating all requests as equal cost
+      why: Shedding by request count protects you poorly when one report query costs as much as a thousand key lookups.
+      fix: per-endpoint limits, weighted admission, or a separate smaller pool for expensive routes.
+    - mistake: Shedding as a substitute for capacity
+      why: A service that sheds a little every afternoon is not resilient; it is under-provisioned, and the shedding is hiding it.
+      fix: alert when shedding happens outside genuine incidents. Shedding is for the minutes before autoscaling catches up, not for every Tuesday.
+alternatives:
+  columns:
+    - Mechanism
+    - Best for
+    - Complexity
+    - Cost / license
+    - Key difference vs load shedding
+  rows:
+    - self: true
+      cells:
+        - "**Load shedding**"
+        - surviving overload with goodput intact
+        - Medium
+        - free
+        - —
+    - cells:
+        - "**Backpressure**"
+        - a producer that can be slowed
+        - Low
+        - free
+        - Propagates "full" upstream; nobody has to be refused if the producer can wait
+    - cells:
+        - "**Rate limiting**"
+        - quotas, fairness, abuse
+        - Low
+        - free
+        - A contract fixed in advance, applied regardless of your current health
+    - cells:
+        - "**Circuit breaker**"
+        - a dependency that is failing
+        - Low
+        - free
+        - Protects the caller from somebody else's failure, not yourself from your own load
+    - cells:
+        - "**Graceful degradation**"
+        - keeping users served with less
+        - Medium
+        - free
+        - Drops parts of a response instead of whole requests; pairs with shedding rather than replacing it
+    - cells:
+        - "**Autoscaling**"
+        - load that persists for minutes
+        - Medium
+        - more instances
+        - Adds real capacity; far too slow for a spike, and bounded by downstream limits
+    - cells:
+        - "**Queue everything**"
+        - async work with no user waiting
+        - Low
+        - free
+        - Defers instead of refusing; only valid when nobody is watching a progress bar
+  notes:
+    - "**Pick backpressure** first when the producer is yours and can simply go slower."
+    - "**Pick rate limiting** for per-client fairness; most systems need both, for different reasons."
+    - "**Pick graceful degradation** for user-facing traffic — a lighter page beats an error page."
+    - "**Pick autoscaling** as the medium-term answer, with shedding covering the first minutes."
+    - "**Pick queueing** only when the work is genuinely asynchronous; for a waiting user a queue is just a slow rejection."
+resources:
+  - url: https://sre.google/sre-book/handling-overload/
+    title: Google SRE — Handling Overload
+    why: criticality levels, retry budgets and the cost of serving requests nobody is waiting for.
+  - url: https://sre.google/sre-book/addressing-cascading-failures/
+    title: Google SRE — Addressing Cascading Failures
+    why: how overload propagates, and why a restarted system re-collapses without shedding.
+  - url: https://aws.amazon.com/builders-library/using-load-shedding-to-avoid-overload/
+    title: Amazon Builders' Library — Using load shedding to avoid overload
+    why: the clearest practical write-up, with the goodput curve.
+  - url: https://queue.acm.org/detail.cfm?id=2209336
+    title: Controlling Queue Delay (CoDel)
+    why: shedding on sojourn time rather than queue length.
+  - url: https://www.envoyproxy.io/docs/envoy/latest/configuration/operations/overload_manager/overload_manager
+    title: Envoy — Overload Manager
+    why: resource monitors and overload actions at the proxy layer.
+  - url: https://www.rfc-editor.org/rfc/rfc9110#field.retry-after
+    title: RFC 9110 — Retry-After
+    why: the header that turns a rejection into a cooperative client.

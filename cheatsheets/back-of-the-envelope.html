@@ -39,8 +39,8 @@
       <h1>Back-of-the-envelope estimates</h1>
       <p class="tagline">Be roughly right in five minutes instead of precisely wrong in two weeks.</p>
       <span class="meta">As of Nov 2026 · latency and cost anchors refreshed for NVMe, modern networks and current cloud list prices</span>
-      <p>Most architectural decisions do not need a benchmark. They need to know whether the answer is 10, 10,000 or 10 million &mdash; because those three answers lead to three completely different systems. A back-of-the-envelope estimate is a deliberately crude calculation, done in a few minutes with rounded numbers, whose purpose is to eliminate options rather than to predict a value.</p>
-      <p>The method is always the same: write down what you are estimating, break it into quantities you can guess within a factor of two, round everything to one significant figure, multiply, and then sanity-check the result against something you already know. Errors in opposite directions cancel, so an estimate built from five rough guesses is usually accurate to within a factor of two or three &mdash; far better than the precision of its inputs suggests.</p>
+      <p>Most architectural decisions do not need a benchmark. They need to know whether the answer is 10, 10,000 or 10 million — because those three answers lead to three completely different systems. A back-of-the-envelope estimate is a deliberately crude calculation, done in a few minutes with rounded numbers, whose purpose is to eliminate options rather than to predict a value.</p>
+      <p>The method is always the same: write down what you are estimating, break it into quantities you can guess within a factor of two, round everything to one significant figure, multiply, and then sanity-check the result against something you already know. Errors in opposite directions cancel, so an estimate built from five rough guesses is usually accurate to within a factor of two or three — far better than the precision of its inputs suggests.</p>
       <p>It is the core skill in a system design interview, but it earns its keep in real work: deciding whether a table needs sharding, whether a feature's storage cost sinks its business case, whether a batch job can finish overnight, or whether the thing you were about to build is off by three orders of magnitude from what the hardware can do.</p>
     </header>
 
@@ -112,7 +112,6 @@
 
     <section id="how-it-works">
       <h2>How it works</h2>
-
       <div class="anim" id="anim-size">
         <h3>Sizing a photo-sharing service in nine lines</h3>
         <div class="stage">
@@ -170,7 +169,6 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-latency">
         <h3>The latency ladder, scaled so a human can feel it</h3>
         <div class="stage">
@@ -225,240 +223,237 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>order of magnitude</b><span>The power of ten an answer sits at. Getting that right is the whole job; the leading digit is a bonus.</span><template class="term-detail" data-see="rounding rules, sanity check, sensitivity">
-<p>The question an estimate answers is never "what exactly is it" but "which regime are we in", because each regime has a different right answer.</p>
-<table><tr><th>Scale</th><th>What it implies</th></tr>
-<tr><td>&lt; 100 QPS</td><td>one machine, one database, no cache. Stop designing.</td></tr>
-<tr><td>100&ndash;1,000 QPS</td><td>a few instances behind a load balancer, one database with an index review</td></tr>
-<tr><td>1,000&ndash;10,000 QPS</td><td>caching matters, read replicas, connection pooling becomes the bottleneck</td></tr>
-<tr><td>10,000&ndash;100,000 QPS</td><td>sharding, CDN, async everything, a dedicated capacity story</td></tr>
-<tr><td>&gt; 100,000 QPS</td><td>a different architecture and a different team size</td></tr>
-<tr><td>&lt; 1 TB total</td><td>fits on one machine; "big data" tooling is a liability here</td></tr>
-<tr><td>&gt; 100 TB</td><td>storage cost is now a product decision, not an infrastructure one</td></tr></table>
-<p>Being off by 2x rarely changes the regime. Being off by 100x always does &mdash; and that is the error an estimate is designed to catch, usually in the first two minutes.</p>
+        <p>The question an estimate answers is never "what exactly is it" but "which regime are we in", because each regime has a different right answer.</p>
+        <table><tr><th>Scale</th><th>What it implies</th></tr>
+        <tr><td>&lt; 100 QPS</td><td>one machine, one database, no cache. Stop designing.</td></tr>
+        <tr><td>100–1,000 QPS</td><td>a few instances behind a load balancer, one database with an index review</td></tr>
+        <tr><td>1,000–10,000 QPS</td><td>caching matters, read replicas, connection pooling becomes the bottleneck</td></tr>
+        <tr><td>10,000–100,000 QPS</td><td>sharding, CDN, async everything, a dedicated capacity story</td></tr>
+        <tr><td>&gt; 100,000 QPS</td><td>a different architecture and a different team size</td></tr>
+        <tr><td>&lt; 1 TB total</td><td>fits on one machine; "big data" tooling is a liability here</td></tr>
+        <tr><td>&gt; 100 TB</td><td>storage cost is now a product decision, not an infrastructure one</td></tr></table>
+        <p>Being off by 2x rarely changes the regime. Being off by 100x always does — and that is the error an estimate is designed to catch, usually in the first two minutes.</p>
         </template></div>
-        <div class="term"><b>rounding rules</b><span>Round every input to one significant figure, preferably to a power of ten, <i>before</i> multiplying. Precision you did not have is precision you cannot keep.</span><template class="term-detail" data-see="order of magnitude, sanity check">
-<p>Rounding is not sloppiness; it is what makes the arithmetic doable in your head, and errors in opposite directions cancel as you multiply.</p>
-<table><tr><th>Awkward</th><th>Use</th><th>Error</th></tr>
-<tr><td>86,400 s/day</td><td>100,000</td><td>+16%, and it rounds <i>toward</i> safety on QPS</td></tr>
-<tr><td>365 days</td><td>400, or 300 for a lower bound</td><td>&plusmn;10%</td></tr>
-<tr><td>1,024</td><td>1,000</td><td>2.4%</td></tr>
-<tr><td>31,536,000 s/year</td><td>3 x 10^7 (or &pi; x 10^7)</td><td>&lt; 5%</td></tr>
-<tr><td>7,300 QPS</td><td>10,000</td><td>+37%, and far easier to carry</td></tr></table>
-<p>Two habits worth building. Work in powers of ten and keep the exponent separate: <code>2 x 10^7 x 5 x 10^3 = 10 x 10^10 = 10^11</code>. And when an input is genuinely uncertain, do the calculation twice with your optimistic and pessimistic guesses &mdash; if both land in the same regime, you are done.</p>
-<p>Finally, round in the direction that would hurt. If overestimating load is safer than underestimating it, round up.</p>
+        <div class="term"><b>rounding rules</b><span>Round every input to one significant figure, preferably to a power of ten, <em>before</em> multiplying. Precision you did not have is precision you cannot keep.</span><template class="term-detail" data-see="order of magnitude, sanity check">
+        <p>Rounding is not sloppiness; it is what makes the arithmetic doable in your head, and errors in opposite directions cancel as you multiply.</p>
+        <table><tr><th>Awkward</th><th>Use</th><th>Error</th></tr>
+        <tr><td>86,400 s/day</td><td>100,000</td><td>+16%, and it rounds <em>toward</em> safety on QPS</td></tr>
+        <tr><td>365 days</td><td>400, or 300 for a lower bound</td><td>±10%</td></tr>
+        <tr><td>1,024</td><td>1,000</td><td>2.4%</td></tr>
+        <tr><td>31,536,000 s/year</td><td>3 x 10^7 (or π x 10^7)</td><td>&lt; 5%</td></tr>
+        <tr><td>7,300 QPS</td><td>10,000</td><td>+37%, and far easier to carry</td></tr></table>
+        <p>Two habits worth building. Work in powers of ten and keep the exponent separate: <code>2 x 10^7 x 5 x 10^3 = 10 x 10^10 = 10^11</code>. And when an input is genuinely uncertain, do the calculation twice with your optimistic and pessimistic guesses — if both land in the same regime, you are done.</p>
+        <p>Finally, round in the direction that would hurt. If overestimating load is safer than underestimating it, round up.</p>
         </template></div>
         <div class="term"><b>QPS</b><span>Queries per second: daily volume divided by 86,400. The number almost every other number is derived from.</span><template class="term-detail" data-see="peak factor, rounding rules, machines needed">
-<p>The conversion is one division, and the trick is to use 100,000 seconds per day so you can do it by shifting a decimal point.</p>
-<pre class="language-none"><code class="language-none">1,000,000 requests/day   ->     10 QPS
-100,000,000 /day         ->  1,000 QPS
-1,000,000,000 /day       -> 10,000 QPS</code></pre>
-<table><tr><th>Rough anchors</th><th>QPS</th></tr>
-<tr><td>A busy internal line-of-business app</td><td>10&ndash;100</td></tr>
-<tr><td>A popular SaaS product</td><td>1,000&ndash;10,000</td></tr>
-<tr><td>A large consumer app</td><td>100,000+</td></tr>
-<tr><td>One modest API instance can serve</td><td>500&ndash;2,000 (simple JSON, cached)</td></tr>
-<tr><td>One Postgres instance, simple indexed reads</td><td>5,000&ndash;20,000</td></tr>
-<tr><td>One Redis instance</td><td>100,000+</td></tr></table>
-<p>Always split reads from writes. The ratio between them decides more of the architecture than the absolute number does &mdash; 250:1 means caching and replicas, while 1:1 means the write path is your problem.</p>
+        <p>The conversion is one division, and the trick is to use 100,000 seconds per day so you can do it by shifting a decimal point.</p>
+        <pre class="language-none"><code class="language-none">1,000,000 requests/day   -&gt;     10 QPS
+100,000,000 /day         -&gt;  1,000 QPS
+1,000,000,000 /day       -&gt; 10,000 QPS</code></pre><table><tr><th>Rough anchors</th><th>QPS</th></tr>
+        <tr><td>A busy internal line-of-business app</td><td>10–100</td></tr>
+        <tr><td>A popular SaaS product</td><td>1,000–10,000</td></tr>
+        <tr><td>A large consumer app</td><td>100,000+</td></tr>
+        <tr><td>One modest API instance can serve</td><td>500–2,000 (simple JSON, cached)</td></tr>
+        <tr><td>One Postgres instance, simple indexed reads</td><td>5,000–20,000</td></tr>
+        <tr><td>One Redis instance</td><td>100,000+</td></tr></table>
+        <p>Always split reads from writes. The ratio between them decides more of the architecture than the absolute number does — 250:1 means caching and replicas, while 1:1 means the write path is your problem.</p>
         </template></div>
-        <div class="term"><b>peak factor</b><span>Traffic is never flat. Multiply the average by 2&ndash;4 for a normal daily peak, and far more for an event.</span><template class="term-detail" data-see="QPS, headroom, machines needed">
-<p>Average QPS is a billing number. Peak QPS is a capacity number, and they are not interchangeable.</p>
-<div class="anim" id="pk-anim" data-steps="pk">
-  <h4>Why the average line is not the number you provision</h4>
-  <div class="stage">
-    <svg viewBox="0 0 560 240" role="img" aria-label="Animated daily traffic curve compared with its flat average">
-      <line x1="30" y1="200" x2="535" y2="200" stroke="#5f6f66" stroke-width="1.5"/>
-      <line x1="30" y1="30" x2="30" y2="200" stroke="#5f6f66" stroke-width="1.5"/>
-      <text x="30" y="216" font-size="10" fill="#5f6f66">00:00</text>
-      <text x="265" y="216" font-size="10" fill="#5f6f66">12:00</text>
-      <text x="505" y="216" font-size="10" fill="#5f6f66">24:00</text>
-      <text x="14" y="26" font-size="10.5" fill="#5f6f66">req/s</text>
-      <line id="pk-avg" class="hidden" x1="30" y1="136" x2="535" y2="136" stroke="#5f6f66" stroke-width="2" stroke-dasharray="6 4"/>
-      <text id="pk-avg-t" class="hidden" x="40" y="130" font-size="11" fill="#5f6f66" font-family="Fira Code, monospace">average = 50,000 /s</text>
-      <polyline id="pk-curve" class="hidden" fill="none" stroke="#2f6b3f" stroke-width="2.5"
-        points="30,182 72,190 113,194 155,182 197,140 238,116 280,104 322,116 363,104 405,80 447,44 488,140 530,176"/>
-      <g id="pk-peak" class="hidden">
-        <circle cx="447" cy="44" r="6" fill="#c53b3b"/>
-        <text x="447" y="34" font-size="11" text-anchor="middle" fill="#c53b3b" font-weight="700" font-family="Fira Code, monospace">125,000 /s</text>
-      </g>
-      <g id="pk-gap" class="hidden">
-        <line x1="447" y1="50" x2="447" y2="130" stroke="#c53b3b" stroke-width="1.5" stroke-dasharray="4 3"/>
-        <text x="460" y="96" font-size="12" fill="#c53b3b" font-weight="700">2.5x</text>
-      </g>
-      <text id="pk-note" class="hand hidden" x="34" y="236" font-size="15" fill="#c53b3b">provision for the peak, budget for the average</text>
-    </svg>
-  </div>
-  <div class="controls"></div><div class="narration"></div>
-</div>
-<table><tr><th>Workload</th><th>Peak / average</th></tr>
-<tr><td>Consumer app, global audience</td><td>2&ndash;3x</td></tr>
-<tr><td>Consumer app, single country</td><td>3&ndash;5x</td></tr>
-<tr><td>B2B, office hours in one timezone</td><td>4&ndash;6x</td></tr>
-<tr><td>Batch or cron-driven</td><td>10&ndash;100x &mdash; it is all peak</td></tr>
-<tr><td>Flash sale, ticket drop, TV moment</td><td>20&ndash;100x</td></tr></table>
-<p>Above roughly 10x, stop provisioning for the peak: it is cheaper to queue, shed or rate-limit. That is a design decision the estimate just made for you.</p>
+        <div class="term"><b>peak factor</b><span>Traffic is never flat. Multiply the average by 2–4 for a normal daily peak, and far more for an event.</span><template class="term-detail" data-see="QPS, headroom, machines needed">
+        <p>Average QPS is a billing number. Peak QPS is a capacity number, and they are not interchangeable.</p>
+        <div class="anim" id="pk-anim" data-steps="pk">
+          <h4>Why the average line is not the number you provision</h4>
+          <div class="stage">
+            <svg viewBox="0 0 560 240" role="img" aria-label="Animated daily traffic curve compared with its flat average">
+              <line x1="30" y1="200" x2="535" y2="200" stroke="#5f6f66" stroke-width="1.5"/>
+              <line x1="30" y1="30" x2="30" y2="200" stroke="#5f6f66" stroke-width="1.5"/>
+              <text x="30" y="216" font-size="10" fill="#5f6f66">00:00</text>
+              <text x="265" y="216" font-size="10" fill="#5f6f66">12:00</text>
+              <text x="505" y="216" font-size="10" fill="#5f6f66">24:00</text>
+              <text x="14" y="26" font-size="10.5" fill="#5f6f66">req/s</text>
+              <line id="pk-avg" class="hidden" x1="30" y1="136" x2="535" y2="136" stroke="#5f6f66" stroke-width="2" stroke-dasharray="6 4"/>
+              <text id="pk-avg-t" class="hidden" x="40" y="130" font-size="11" fill="#5f6f66" font-family="Fira Code, monospace">average = 50,000 /s</text>
+              <polyline id="pk-curve" class="hidden" fill="none" stroke="#2f6b3f" stroke-width="2.5"
+                points="30,182 72,190 113,194 155,182 197,140 238,116 280,104 322,116 363,104 405,80 447,44 488,140 530,176"/>
+              <g id="pk-peak" class="hidden">
+                <circle cx="447" cy="44" r="6" fill="#c53b3b"/>
+                <text x="447" y="34" font-size="11" text-anchor="middle" fill="#c53b3b" font-weight="700" font-family="Fira Code, monospace">125,000 /s</text>
+              </g>
+              <g id="pk-gap" class="hidden">
+                <line x1="447" y1="50" x2="447" y2="130" stroke="#c53b3b" stroke-width="1.5" stroke-dasharray="4 3"/>
+                <text x="460" y="96" font-size="12" fill="#c53b3b" font-weight="700">2.5x</text>
+              </g>
+              <text id="pk-note" class="hand hidden" x="34" y="236" font-size="15" fill="#c53b3b">provision for the peak, budget for the average</text>
+            </svg>
+          </div>
+          <div class="controls"></div>
+          <div class="narration"></div>
+        </div>
+        <table><tr><th>Workload</th><th>Peak / average</th></tr>
+        <tr><td>Consumer app, global audience</td><td>2–3x</td></tr>
+        <tr><td>Consumer app, single country</td><td>3–5x</td></tr>
+        <tr><td>B2B, office hours in one timezone</td><td>4–6x</td></tr>
+        <tr><td>Batch or cron-driven</td><td>10–100x — it is all peak</td></tr>
+        <tr><td>Flash sale, ticket drop, TV moment</td><td>20–100x</td></tr></table>
+        <p>Above roughly 10x, stop provisioning for the peak: it is cheaper to queue, shed or rate-limit. That is a design decision the estimate just made for you.</p>
         </template></div>
         <div class="term"><b>latency numbers</b><span>The ladder from L1 cache to an intercontinental round trip. Knowing the rungs stops you designing something physics forbids.</span><template class="term-detail" data-see="bandwidth, order of magnitude">
-<p>Approximate, current-hardware values. The exact figures matter far less than the <b>ratios</b>, which have been stable for years.</p>
-<table><tr><th>Operation</th><th>Time</th><th>vs L1</th></tr>
-<tr><td>L1 cache reference</td><td>~1 ns</td><td>1x</td></tr>
-<tr><td>Branch mispredict</td><td>~3 ns</td><td>3x</td></tr>
-<tr><td>L2 cache reference</td><td>~4 ns</td><td>4x</td></tr>
-<tr><td>Mutex lock / unlock, uncontended</td><td>~20 ns</td><td>20x</td></tr>
-<tr><td>Main memory reference</td><td>~100 ns</td><td>100x</td></tr>
-<tr><td>Compress 1 KB (fast codec)</td><td>~2 &micro;s</td><td>2,000x</td></tr>
-<tr><td>Read 1 MB sequentially from RAM</td><td>~50 &micro;s</td><td>50,000x</td></tr>
-<tr><td>NVMe SSD random read (4 KB)</td><td>~20 &micro;s</td><td>20,000x</td></tr>
-<tr><td>Round trip within a datacenter</td><td>~0.5 ms</td><td>500,000x</td></tr>
-<tr><td>Read 1 MB sequentially from NVMe</td><td>~0.3 ms</td><td>300,000x</td></tr>
-<tr><td>Spinning-disk seek</td><td>~5 ms</td><td>5,000,000x</td></tr>
-<tr><td>Round trip, same continent</td><td>~20 ms</td><td>&mdash;</td></tr>
-<tr><td>Round trip, Europe to California</td><td>~150 ms</td><td>&mdash;</td></tr></table>
-<p>Three rules fall out of this table and cover most design arguments: <b>memory is ~100x faster than an SSD</b>, <b>a network hop costs more than a local disk read</b>, and <b>the speed of light sets a floor nobody can buy their way past</b> &mdash; only a copy nearer the user can.</p>
-<p>The light-speed floor is worth computing once: light does about 200 km/ms in fibre, so London to New York (5,600 km) is 28 ms one way and 56 ms round trip <i>at best</i>. Real paths are not straight; 70&ndash;90 ms is typical.</p>
+        <p>Approximate, current-hardware values. The exact figures matter far less than the <b>ratios</b>, which have been stable for years.</p>
+        <table><tr><th>Operation</th><th>Time</th><th>vs L1</th></tr>
+        <tr><td>L1 cache reference</td><td>~1 ns</td><td>1x</td></tr>
+        <tr><td>Branch mispredict</td><td>~3 ns</td><td>3x</td></tr>
+        <tr><td>L2 cache reference</td><td>~4 ns</td><td>4x</td></tr>
+        <tr><td>Mutex lock / unlock, uncontended</td><td>~20 ns</td><td>20x</td></tr>
+        <tr><td>Main memory reference</td><td>~100 ns</td><td>100x</td></tr>
+        <tr><td>Compress 1 KB (fast codec)</td><td>~2 µs</td><td>2,000x</td></tr>
+        <tr><td>Read 1 MB sequentially from RAM</td><td>~50 µs</td><td>50,000x</td></tr>
+        <tr><td>NVMe SSD random read (4 KB)</td><td>~20 µs</td><td>20,000x</td></tr>
+        <tr><td>Round trip within a datacenter</td><td>~0.5 ms</td><td>500,000x</td></tr>
+        <tr><td>Read 1 MB sequentially from NVMe</td><td>~0.3 ms</td><td>300,000x</td></tr>
+        <tr><td>Spinning-disk seek</td><td>~5 ms</td><td>5,000,000x</td></tr>
+        <tr><td>Round trip, same continent</td><td>~20 ms</td><td>—</td></tr>
+        <tr><td>Round trip, Europe to California</td><td>~150 ms</td><td>—</td></tr></table>
+        <p>Three rules fall out of this table and cover most design arguments: <b>memory is ~100x faster than an SSD</b>, <b>a network hop costs more than a local disk read</b>, and <b>the speed of light sets a floor nobody can buy their way past</b> — only a copy nearer the user can.</p>
+        <p>The light-speed floor is worth computing once: light does about 200 km/ms in fibre, so London to New York (5,600 km) is 28 ms one way and 56 ms round trip <em>at best</em>. Real paths are not straight; 70–90 ms is typical.</p>
         </template></div>
         <div class="term"><b>data sizes</b><span>Bytes per field, per row, per object. Estimate by adding up what is actually stored, then double it for overhead.</span><template class="term-detail" data-see="storage growth, rounding rules">
-<p>Most storage estimates fail on this line, usually by forgetting indexes.</p>
-<table><tr><th>Thing</th><th>Size</th></tr>
-<tr><td><code>int</code> / <code>bigint</code></td><td>4 / 8 B</td></tr>
-<tr><td>UUID (binary / text)</td><td>16 / 36 B</td></tr>
-<tr><td>Timestamp</td><td>8 B</td></tr>
-<tr><td>Short text field (name, email)</td><td>20&ndash;60 B</td></tr>
-<tr><td>Typical relational row</td><td>100&ndash;1,000 B</td></tr>
-<tr><td>JSON document</td><td>1&ndash;10 KB</td></tr>
-<tr><td>Log line</td><td>200 B&ndash;2 KB</td></tr>
-<tr><td>Web page (HTML only)</td><td>50&ndash;200 KB</td></tr>
-<tr><td>Phone photo</td><td>2&ndash;5 MB</td></tr>
-<tr><td>Minute of 1080p video</td><td>~50 MB</td></tr>
-<tr><td>Embedding vector (1,536 x float32)</td><td>6 KB</td></tr></table>
-<h4>Multipliers you will forget</h4>
-<ul><li><b>Indexes:</b> add 20&ndash;100% of the table size. A table with five indexes can be larger than its data.</li>
-<li><b>Replication:</b> x2 or x3, before backups.</li>
-<li><b>Backups and snapshots:</b> often another x1&ndash;2 over the retention period.</li>
-<li><b>Compression:</b> divide by 3&ndash;10 for text and logs, by 1 for already-compressed media.</li></ul>
-<p>Rule of thumb: whatever you computed, multiply by three. You will be closer than if you did not.</p>
+        <p>Most storage estimates fail on this line, usually by forgetting indexes.</p>
+        <table><tr><th>Thing</th><th>Size</th></tr>
+        <tr><td><code>int</code> / <code>bigint</code></td><td>4 / 8 B</td></tr>
+        <tr><td>UUID (binary / text)</td><td>16 / 36 B</td></tr>
+        <tr><td>Timestamp</td><td>8 B</td></tr>
+        <tr><td>Short text field (name, email)</td><td>20–60 B</td></tr>
+        <tr><td>Typical relational row</td><td>100–1,000 B</td></tr>
+        <tr><td>JSON document</td><td>1–10 KB</td></tr>
+        <tr><td>Log line</td><td>200 B–2 KB</td></tr>
+        <tr><td>Web page (HTML only)</td><td>50–200 KB</td></tr>
+        <tr><td>Phone photo</td><td>2–5 MB</td></tr>
+        <tr><td>Minute of 1080p video</td><td>~50 MB</td></tr>
+        <tr><td>Embedding vector (1,536 x float32)</td><td>6 KB</td></tr></table>
+        <h4>Multipliers you will forget</h4>
+        <ul>
+        <li><b>Indexes:</b> add 20–100% of the table size. A table with five indexes can be larger than its data.</li>
+        <li><b>Replication:</b> x2 or x3, before backups.</li>
+        <li><b>Backups and snapshots:</b> often another x1–2 over the retention period.</li>
+        <li><b>Compression:</b> divide by 3–10 for text and logs, by 1 for already-compressed media.</li>
+        </ul>
+        <p>Rule of thumb: whatever you computed, multiply by three. You will be closer than if you did not.</p>
         </template></div>
         <div class="term"><b>storage growth</b><span>Daily volume times retention times replication. The number that most often kills a design, and the one most often left out of it.</span><template class="term-detail" data-see="data sizes, cost anchors, hot vs cold">
-<p>Storage is the only resource that accumulates. CPU and bandwidth reset every second; bytes written in January are still being paid for in December.</p>
-<pre class="language-none"><code class="language-none">total = items/day x bytes/item x retention_days x replicas x (1 + index_overhead)</code></pre>
-<table><tr><th>Example</th><th>Per day</th><th>Per year</th></tr>
-<tr><td>Audit log: 10M events x 500 B</td><td>5 GB</td><td>1.8 TB</td></tr>
-<tr><td>App logs: 100M lines x 1 KB</td><td>100 GB</td><td>36 TB</td></tr>
-<tr><td>Photos: 20M x 2 MB</td><td>40 TB</td><td>15 PB</td></tr>
-<tr><td>Metrics: 10k series x 1 point/10 s x 16 B</td><td>1.4 GB</td><td>500 GB</td></tr></table>
-<p>Two questions turn an unaffordable number into an affordable one: <b>how long must we really keep it</b>, and <b>does it have to stay hot</b>. Dropping log retention from 365 to 30 days is a 12x saving, and archival storage is 5&ndash;10x cheaper than hot.</p>
-<p>Always project three to five years, not one. A design that is fine at year one and impossible at year three is a design you will rewrite under pressure.</p>
+        <p>Storage is the only resource that accumulates. CPU and bandwidth reset every second; bytes written in January are still being paid for in December.</p>
+        <pre class="language-none"><code class="language-none">total = items/day x bytes/item x retention_days x replicas x (1 + index_overhead)</code></pre><table><tr><th>Example</th><th>Per day</th><th>Per year</th></tr>
+        <tr><td>Audit log: 10M events x 500 B</td><td>5 GB</td><td>1.8 TB</td></tr>
+        <tr><td>App logs: 100M lines x 1 KB</td><td>100 GB</td><td>36 TB</td></tr>
+        <tr><td>Photos: 20M x 2 MB</td><td>40 TB</td><td>15 PB</td></tr>
+        <tr><td>Metrics: 10k series x 1 point/10 s x 16 B</td><td>1.4 GB</td><td>500 GB</td></tr></table>
+        <p>Two questions turn an unaffordable number into an affordable one: <b>how long must we really keep it</b>, and <b>does it have to stay hot</b>. Dropping log retention from 365 to 30 days is a 12x saving, and archival storage is 5–10x cheaper than hot.</p>
+        <p>Always project three to five years, not one. A design that is fine at year one and impossible at year three is a design you will rewrite under pressure.</p>
         </template></div>
         <div class="term"><b>bandwidth</b><span>QPS multiplied by payload size. Convert to bits per second before comparing with any network specification.</span><template class="term-detail" data-see="QPS, latency numbers, cost anchors">
-<p>The conversion that trips everyone: network links are specified in <b>bits</b>, storage and payloads in <b>bytes</b>. One factor of eight, applied in the wrong direction, is an 64x error.</p>
-<table><tr><th>Link</th><th>Bytes per second</th></tr>
-<tr><td>1 Gbps</td><td>125 MB/s</td></tr>
-<tr><td>10 Gbps</td><td>1.25 GB/s</td></tr>
-<tr><td>25 Gbps</td><td>3.1 GB/s</td></tr>
-<tr><td>100 Gbps</td><td>12.5 GB/s</td></tr></table>
-<pre class="language-none"><code class="language-none">50,000 reads/s x 200 KB = 10 GB/s = 80 Gbps   # needs a CDN, not a server
-  1,000 reads/s x  20 KB = 20 MB/s = 160 Mbps  # one ordinary instance</code></pre>
-<p>Useful anchors: a single modern server does 10&ndash;25 Gbps comfortably; anything that needs more than roughly 10 Gbps of user-facing egress belongs behind a CDN, and the egress bill will become one of your top three cloud line items long before the bandwidth becomes a technical problem.</p>
-<p>Also check the <i>time</i> dimension: moving 100 TB over a 10 Gbps link takes about a day of saturated transfer. For a migration, that is the number that decides whether you ship disks instead.</p>
+        <p>The conversion that trips everyone: network links are specified in <b>bits</b>, storage and payloads in <b>bytes</b>. One factor of eight, applied in the wrong direction, is an 64x error.</p>
+        <table><tr><th>Link</th><th>Bytes per second</th></tr>
+        <tr><td>1 Gbps</td><td>125 MB/s</td></tr>
+        <tr><td>10 Gbps</td><td>1.25 GB/s</td></tr>
+        <tr><td>25 Gbps</td><td>3.1 GB/s</td></tr>
+        <tr><td>100 Gbps</td><td>12.5 GB/s</td></tr></table>
+        <pre class="language-none"><code class="language-none">50,000 reads/s x 200 KB = 10 GB/s = 80 Gbps   # needs a CDN, not a server
+  1,000 reads/s x  20 KB = 20 MB/s = 160 Mbps  # one ordinary instance</code></pre><p>Useful anchors: a single modern server does 10–25 Gbps comfortably; anything that needs more than roughly 10 Gbps of user-facing egress belongs behind a CDN, and the egress bill will become one of your top three cloud line items long before the bandwidth becomes a technical problem.</p>
+        <p>Also check the <em>time</em> dimension: moving 100 TB over a 10 Gbps link takes about a day of saturated transfer. For a migration, that is the number that decides whether you ship disks instead.</p>
         </template></div>
         <div class="term"><b>Little's Law</b><span><code>concurrency = arrival rate x latency</code>. Three quantities; know two and the third is determined. It sizes pools and queues.</span><template class="term-detail" data-see="QPS, machines needed, headroom">
-<p>The most useful formula in capacity planning, and the one that explains why a service with plenty of CPU still falls over.</p>
-<pre class="language-none"><code class="language-none">L = &lambda; x W
-concurrent_requests = requests_per_second x seconds_per_request</code></pre>
-<table><tr><th>Rate</th><th>Latency</th><th>Concurrency needed</th></tr>
-<tr><td>1,000 /s</td><td>10 ms</td><td>10</td></tr>
-<tr><td>1,000 /s</td><td>100 ms</td><td>100</td></tr>
-<tr><td>1,000 /s</td><td>1 s</td><td>1,000 threads or connections</td></tr>
-<tr><td>100 /s</td><td>2 s</td><td>200</td></tr></table>
-<p>Read that third row carefully: nothing about the request rate changed, but a tenfold latency increase demands a thousand concurrent slots. This is exactly what happens when a dependency slows down, and why a pool sized for the happy path exhausts itself during an incident.</p>
-<p>Run it backwards too. A connection pool of 100 against a database with 20 ms queries can sustain <code>100 / 0.02 = 5,000</code> queries per second &mdash; and not one more, whatever the CPU graph says.</p>
+        <p>The most useful formula in capacity planning, and the one that explains why a service with plenty of CPU still falls over.</p>
+        <pre class="language-none"><code class="language-none">L = λ x W
+concurrent_requests = requests_per_second x seconds_per_request</code></pre><table><tr><th>Rate</th><th>Latency</th><th>Concurrency needed</th></tr>
+        <tr><td>1,000 /s</td><td>10 ms</td><td>10</td></tr>
+        <tr><td>1,000 /s</td><td>100 ms</td><td>100</td></tr>
+        <tr><td>1,000 /s</td><td>1 s</td><td>1,000 threads or connections</td></tr>
+        <tr><td>100 /s</td><td>2 s</td><td>200</td></tr></table>
+        <p>Read that third row carefully: nothing about the request rate changed, but a tenfold latency increase demands a thousand concurrent slots. This is exactly what happens when a dependency slows down, and why a pool sized for the happy path exhausts itself during an incident.</p>
+        <p>Run it backwards too. A connection pool of 100 against a database with 20 ms queries can sustain <code>100 / 0.02 = 5,000</code> queries per second — and not one more, whatever the CPU graph says.</p>
         </template></div>
         <div class="term"><b>read:write ratio</b><span>How many reads per write. The single number that decides most of the architecture before any other consideration.</span><template class="term-detail" data-see="QPS, hot vs cold, storage growth">
-<p>Ratios cluster, and each cluster has a standard answer.</p>
-<table><tr><th>Ratio</th><th>Example</th><th>Implication</th></tr>
-<tr><td>1000:1</td><td>news site, product catalogue</td><td>cache almost everything; the write path is irrelevant</td></tr>
-<tr><td>100:1</td><td>social feed, e-commerce</td><td>heavy caching, read replicas, precompute on write</td></tr>
-<tr><td>10:1</td><td>typical business app</td><td>ordinary caching, one primary is usually fine</td></tr>
-<tr><td>1:1</td><td>chat, collaborative editing</td><td>the write path is the design; caching helps little</td></tr>
-<tr><td>1:100</td><td>telemetry, IoT ingestion</td><td>append-only storage, batching, a log, time-series database</td></tr></table>
-<p>Estimate it from behaviour, not from the database. "Each user posts twice and scrolls past 200 posts" gives you 100:1 directly, and that is enough to know whether the conversation should be about caching or about ingest.</p>
-<p>It also tells you where to spend effort: at 1000:1, halving read cost is worth a thousand times more than halving write cost.</p>
+        <p>Ratios cluster, and each cluster has a standard answer.</p>
+        <table><tr><th>Ratio</th><th>Example</th><th>Implication</th></tr>
+        <tr><td>1000:1</td><td>news site, product catalogue</td><td>cache almost everything; the write path is irrelevant</td></tr>
+        <tr><td>100:1</td><td>social feed, e-commerce</td><td>heavy caching, read replicas, precompute on write</td></tr>
+        <tr><td>10:1</td><td>typical business app</td><td>ordinary caching, one primary is usually fine</td></tr>
+        <tr><td>1:1</td><td>chat, collaborative editing</td><td>the write path is the design; caching helps little</td></tr>
+        <tr><td>1:100</td><td>telemetry, IoT ingestion</td><td>append-only storage, batching, a log, time-series database</td></tr></table>
+        <p>Estimate it from behaviour, not from the database. "Each user posts twice and scrolls past 200 posts" gives you 100:1 directly, and that is enough to know whether the conversation should be about caching or about ingest.</p>
+        <p>It also tells you where to spend effort: at 1000:1, halving read cost is worth a thousand times more than halving write cost.</p>
         </template></div>
         <div class="term"><b>hot vs cold</b><span>Not all data is accessed equally. Usually around 20% of it serves 80% of requests, and recent data dominates.</span><template class="term-detail" data-see="read:write ratio, storage growth, cost anchors">
-<p>This is what makes caching work at all, and what makes storage affordable: you only need the hot slice to be fast.</p>
-<table><tr><th>Pattern</th><th>Typical shape</th></tr>
-<tr><td>Social feed</td><td>90% of reads touch data from the last 24 hours</td></tr>
-<tr><td>E-commerce catalogue</td><td>top 5% of products get 60&ndash;80% of views</td></tr>
-<tr><td>Logs and metrics</td><td>99% of queries are over the last 7 days</td></tr>
-<tr><td>Document archive</td><td>almost all reads in the first week, then near zero</td></tr></table>
-<p>Sizing a cache follows directly: cache the hot slice, not the dataset. For 200 PB of photos where 1% is hot, roughly 2 TB of cache plus a CDN buys an excellent hit ratio &mdash; and the caching strategies page covers how to choose the TTLs and eviction policy that keep it that way.</p>
-<p>The same split drives tiering: hot on SSD, warm on object storage, cold on archival. A 5&ndash;10x price difference between tiers applied to 95% of your bytes is usually the largest single cost saving available.</p>
+        <p>This is what makes caching work at all, and what makes storage affordable: you only need the hot slice to be fast.</p>
+        <table><tr><th>Pattern</th><th>Typical shape</th></tr>
+        <tr><td>Social feed</td><td>90% of reads touch data from the last 24 hours</td></tr>
+        <tr><td>E-commerce catalogue</td><td>top 5% of products get 60–80% of views</td></tr>
+        <tr><td>Logs and metrics</td><td>99% of queries are over the last 7 days</td></tr>
+        <tr><td>Document archive</td><td>almost all reads in the first week, then near zero</td></tr></table>
+        <p>Sizing a cache follows directly: cache the hot slice, not the dataset. For 200 PB of photos where 1% is hot, roughly 2 TB of cache plus a CDN buys an excellent hit ratio — and the caching strategies page covers how to choose the TTLs and eviction policy that keep it that way.</p>
+        <p>The same split drives tiering: hot on SSD, warm on object storage, cold on archival. A 5–10x price difference between tiers applied to 95% of your bytes is usually the largest single cost saving available.</p>
         </template></div>
         <div class="term"><b>machines needed</b><span>Peak load divided by what one machine does, plus headroom. The last step before the number becomes money.</span><template class="term-detail" data-see="peak factor, headroom, Little's Law, cost anchors">
-<p>Per-machine capacity is the input people most often guess badly, so anchor it rather than imagining it.</p>
-<table><tr><th>Workload</th><th>One modern instance handles</th></tr>
-<tr><td>Static files / reverse proxy</td><td>50,000&ndash;100,000 req/s</td></tr>
-<tr><td>Simple JSON API, cached</td><td>2,000&ndash;10,000 req/s</td></tr>
-<tr><td>API with a database round trip</td><td>500&ndash;2,000 req/s</td></tr>
-<tr><td>Heavy computation / rendering</td><td>10&ndash;100 req/s</td></tr>
-<tr><td>Postgres, simple indexed reads</td><td>5,000&ndash;20,000 QPS</td></tr>
-<tr><td>Redis, single instance</td><td>100,000+ ops/s</td></tr>
-<tr><td>Kafka broker</td><td>100 MB/s+ sustained</td></tr></table>
-<pre class="language-none"><code class="language-none">machines = peak_qps / per_machine_qps / target_utilisation
+        <p>Per-machine capacity is the input people most often guess badly, so anchor it rather than imagining it.</p>
+        <table><tr><th>Workload</th><th>One modern instance handles</th></tr>
+        <tr><td>Static files / reverse proxy</td><td>50,000–100,000 req/s</td></tr>
+        <tr><td>Simple JSON API, cached</td><td>2,000–10,000 req/s</td></tr>
+        <tr><td>API with a database round trip</td><td>500–2,000 req/s</td></tr>
+        <tr><td>Heavy computation / rendering</td><td>10–100 req/s</td></tr>
+        <tr><td>Postgres, simple indexed reads</td><td>5,000–20,000 QPS</td></tr>
+        <tr><td>Redis, single instance</td><td>100,000+ ops/s</td></tr>
+        <tr><td>Kafka broker</td><td>100 MB/s+ sustained</td></tr></table>
+        <pre class="language-none"><code class="language-none">machines = peak_qps / per_machine_qps / target_utilisation
          = 150,000 / 1,000 / 0.5
-         = 300</code></pre>
-<p>If the answer is under 5, do not design a distributed system: build one service, run three for availability, and revisit when the number changes. If the answer is over 1,000, the interesting question is no longer "how many" but "what else is wrong" &mdash; at that scale, cost per request usually dominates the architecture.</p>
+         = 300</code></pre><p>If the answer is under 5, do not design a distributed system: build one service, run three for availability, and revisit when the number changes. If the answer is over 1,000, the interesting question is no longer "how many" but "what else is wrong" — at that scale, cost per request usually dominates the architecture.</p>
         </template></div>
         <div class="term"><b>headroom</b><span>The gap between what you provision and what you use. Running a system at 90% utilisation is a decision to have no response to anything.</span><template class="term-detail" data-see="machines needed, peak factor">
-<p>Headroom pays for the things an estimate cannot model: a deploy, an instance failure, an unexpectedly popular feature, a retry storm.</p>
-<table><tr><th>Target utilisation</th><th>Suitable for</th></tr>
-<tr><td>30&ndash;40%</td><td>stateful systems, slow-scaling tiers, anything where failover doubles a neighbour's load</td></tr>
-<tr><td>50&ndash;60%</td><td>typical stateless services &mdash; the usual default</td></tr>
-<tr><td>70&ndash;80%</td><td>fast-autoscaling, well-understood workloads</td></tr>
-<tr><td>&gt; 85%</td><td>batch jobs that can wait, and nothing else</td></tr></table>
-<p>The subtle one is <b>N+1 across a pool</b>: with three instances at 60%, losing one puts the other two at 90%, and they fall over too. With five at 60%, losing one puts the rest at 75%. The smaller the pool, the more headroom each member needs.</p>
-<p>Queues need headroom in time, not capacity: a queue that drains exactly as fast as it fills has infinite latency the moment anything hiccups. Aim for a consumer that can drain at 2&ndash;3x the arrival rate.</p>
+        <p>Headroom pays for the things an estimate cannot model: a deploy, an instance failure, an unexpectedly popular feature, a retry storm.</p>
+        <table><tr><th>Target utilisation</th><th>Suitable for</th></tr>
+        <tr><td>30–40%</td><td>stateful systems, slow-scaling tiers, anything where failover doubles a neighbour's load</td></tr>
+        <tr><td>50–60%</td><td>typical stateless services — the usual default</td></tr>
+        <tr><td>70–80%</td><td>fast-autoscaling, well-understood workloads</td></tr>
+        <tr><td>&gt; 85%</td><td>batch jobs that can wait, and nothing else</td></tr></table>
+        <p>The subtle one is <b>N+1 across a pool</b>: with three instances at 60%, losing one puts the other two at 90%, and they fall over too. With five at 60%, losing one puts the rest at 75%. The smaller the pool, the more headroom each member needs.</p>
+        <p>Queues need headroom in time, not capacity: a queue that drains exactly as fast as it fills has infinite latency the moment anything hiccups. Aim for a consumer that can drain at 2–3x the arrival rate.</p>
         </template></div>
         <div class="term"><b>cost anchors</b><span>Rough unit prices, good to a factor of two. Enough to tell whether an idea is cheap, expensive or impossible.</span><template class="term-detail" data-see="storage growth, bandwidth, hot vs cold">
-<p>Approximate cloud list prices. Vary by provider, region and commitment &mdash; but for a decision, "about $0.02 per GB-month" is all you need.</p>
-<table><tr><th>Resource</th><th>Rough price</th></tr>
-<tr><td>Object storage, hot</td><td>$0.02 / GB / month</td></tr>
-<tr><td>Object storage, archive</td><td>$0.002 / GB / month</td></tr>
-<tr><td>Block storage (SSD)</td><td>$0.08&ndash;0.12 / GB / month</td></tr>
-<tr><td>Managed database storage</td><td>$0.10&ndash;0.25 / GB / month</td></tr>
-<tr><td>Egress to the internet</td><td>$0.05&ndash;0.09 / GB</td></tr>
-<tr><td>CDN egress</td><td>$0.01&ndash;0.04 / GB</td></tr>
-<tr><td>General-purpose VM (4 vCPU, 16 GB)</td><td>$100&ndash;150 / month on demand</td></tr>
-<tr><td>Same, 1&ndash;3 year commitment</td><td>30&ndash;60% less</td></tr></table>
-<p>Two anchors worth memorising because they decide so many arguments: <b>1 PB of hot object storage is roughly $20,000 per month</b>, and <b>1 PB of internet egress is roughly $50,000</b>. Once you know those, "we'll just store all of it and serve it from origin" stops being a design and becomes a budget request.</p>
-<p>Compare against the business, not against other infrastructure. $4M a month is cheap for a product with $100M of revenue and fatal for one with $2M.</p>
+        <p>Approximate cloud list prices. Vary by provider, region and commitment — but for a decision, "about $0.02 per GB-month" is all you need.</p>
+        <table><tr><th>Resource</th><th>Rough price</th></tr>
+        <tr><td>Object storage, hot</td><td>$0.02 / GB / month</td></tr>
+        <tr><td>Object storage, archive</td><td>$0.002 / GB / month</td></tr>
+        <tr><td>Block storage (SSD)</td><td>$0.08–0.12 / GB / month</td></tr>
+        <tr><td>Managed database storage</td><td>$0.10–0.25 / GB / month</td></tr>
+        <tr><td>Egress to the internet</td><td>$0.05–0.09 / GB</td></tr>
+        <tr><td>CDN egress</td><td>$0.01–0.04 / GB</td></tr>
+        <tr><td>General-purpose VM (4 vCPU, 16 GB)</td><td>$100–150 / month on demand</td></tr>
+        <tr><td>Same, 1–3 year commitment</td><td>30–60% less</td></tr></table>
+        <p>Two anchors worth memorising because they decide so many arguments: <b>1 PB of hot object storage is roughly $20,000 per month</b>, and <b>1 PB of internet egress is roughly $50,000</b>. Once you know those, "we'll just store all of it and serve it from origin" stops being a design and becomes a budget request.</p>
+        <p>Compare against the business, not against other infrastructure. $4M a month is cheap for a product with $100M of revenue and fatal for one with $2M.</p>
         </template></div>
         <div class="term"><b>sanity check</b><span>The last step, and the one people skip: compare the answer with something you already know to be true.</span><template class="term-detail" data-see="order of magnitude, rounding rules, sensitivity">
-<p>An estimate without a sanity check is a number with no error bars and no defence.</p>
-<table><tr><th>Check</th><th>Question</th></tr>
-<tr><td>Dimensional</td><td>do the units actually produce the thing I asked for?</td></tr>
-<tr><td>Human</td><td>does this imply every person on Earth does it four times a day?</td></tr>
-<tr><td>Hardware</td><td>does this imply a disk faster than any disk?</td></tr>
-<tr><td>Known system</td><td>is this larger than a company I know to be much larger than us?</td></tr>
-<tr><td>Money</td><td>is this more than the revenue of the product?</td></tr></table>
-<p>Dimensional analysis alone catches most arithmetic slips. If you are computing servers and the units come out as "requests per second per byte", you inverted something &mdash; and you would never have noticed from the digits.</p>
-<p>The strongest check is a known reference point. If your estimate of a national bank's daily transactions exceeds the number of card transactions in the world, something is wrong by about a thousand, and knowing <i>that</i> is more useful than any refinement of the inputs.</p>
+        <p>An estimate without a sanity check is a number with no error bars and no defence.</p>
+        <table><tr><th>Check</th><th>Question</th></tr>
+        <tr><td>Dimensional</td><td>do the units actually produce the thing I asked for?</td></tr>
+        <tr><td>Human</td><td>does this imply every person on Earth does it four times a day?</td></tr>
+        <tr><td>Hardware</td><td>does this imply a disk faster than any disk?</td></tr>
+        <tr><td>Known system</td><td>is this larger than a company I know to be much larger than us?</td></tr>
+        <tr><td>Money</td><td>is this more than the revenue of the product?</td></tr></table>
+        <p>Dimensional analysis alone catches most arithmetic slips. If you are computing servers and the units come out as "requests per second per byte", you inverted something — and you would never have noticed from the digits.</p>
+        <p>The strongest check is a known reference point. If your estimate of a national bank's daily transactions exceeds the number of card transactions in the world, something is wrong by about a thousand, and knowing <em>that</em> is more useful than any refinement of the inputs.</p>
         </template></div>
         <div class="term"><b>sensitivity</b><span>Which assumption dominates the answer. Find it, and spend your remaining time on that one input only.</span><template class="term-detail" data-see="sanity check, rounding rules, order of magnitude">
-<p>In a chain of multiplications, the input with the widest uncertainty controls the output. Everything else is noise you do not need to refine.</p>
-<p>In the photo-service estimate, the inputs are 100M users (known within 20%), 0.2 uploads per user (a guess, possibly 5x off), 2 MB per photo (known within 2x), 5-year retention (a policy choice) and 3 replicas (a design choice). The <b>uploads per user</b> dominates: get it wrong by 5x and the 200 PB becomes 40 PB or 1 EB, and the conclusion flips.</p>
-<table><tr><th>Technique</th><th>How</th></tr>
-<tr><td>High / low pass</td><td>run the estimate with optimistic and pessimistic inputs; if both land in the same regime, stop</td></tr>
-<tr><td>Vary one input</td><td>double each input in turn and see which moves the answer most</td></tr>
-<tr><td>Name the dominant term</td><td>state it out loud: "this whole thing hinges on uploads per user"</td></tr></table>
-<p>This is also the honest way to present an estimate. "Somewhere between 40 and 400 PB, driven almost entirely by how often people actually upload &mdash; and we can measure that in a week" is a far more useful sentence than a single confident number.</p>
+        <p>In a chain of multiplications, the input with the widest uncertainty controls the output. Everything else is noise you do not need to refine.</p>
+        <p>In the photo-service estimate, the inputs are 100M users (known within 20%), 0.2 uploads per user (a guess, possibly 5x off), 2 MB per photo (known within 2x), 5-year retention (a policy choice) and 3 replicas (a design choice). The <b>uploads per user</b> dominates: get it wrong by 5x and the 200 PB becomes 40 PB or 1 EB, and the conclusion flips.</p>
+        <table><tr><th>Technique</th><th>How</th></tr>
+        <tr><td>High / low pass</td><td>run the estimate with optimistic and pessimistic inputs; if both land in the same regime, stop</td></tr>
+        <tr><td>Vary one input</td><td>double each input in turn and see which moves the answer most</td></tr>
+        <tr><td>Name the dominant term</td><td>state it out loud: "this whole thing hinges on uploads per user"</td></tr></table>
+        <p>This is also the honest way to present an estimate. "Somewhere between 40 and 400 PB, driven almost entirely by how often people actually upload — and we can measure that in a week" is a far more useful sentence than a single confident number.</p>
         </template></div>
       </div>
     </section>
 
     <section id="commands">
       <h2>Essential formulas &amp; numbers</h2>
-
       <div class="cmd-group">
         <h3>The numbers to memorise</h3>
         <div class="cmd"><pre class="language-none"><code class="language-none">86,400 s/day      ~ 1 x 10^5      # the single most useful constant
@@ -470,18 +465,16 @@ concurrent_requests = requests_per_second x seconds_per_request</code></pre>
 10 Gbps = 1.25 GB/s      # one busy server's worth
 100 Gbps = 12.5 GB/s     # CDN territory</code></pre><div class="what">The bits-versus-bytes conversion, which is the most common factor-of-eight error in sizing work.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>The formulas</h3>
         <div class="cmd"><pre class="language-none"><code class="language-none">qps       = daily_volume / 86,400
 peak_qps  = qps x peak_factor           # 2-4 normally, 20-100 for an event</code></pre><div class="what">Two lines that produce the number everything else is derived from.</div></div>
         <div class="cmd"><pre class="language-none"><code class="language-none">storage = items_per_day x bytes_per_item x retention_days x replicas x 1.5</code></pre><div class="what">The 1.5 is index and metadata overhead. Leaving it out is the usual reason an estimate is low.</div></div>
-        <div class="cmd"><pre class="language-none"><code class="language-none">bandwidth_bps = qps x payload_bytes x 8</code></pre><div class="what">Compute it for peak, not average, and separately for ingress and egress &mdash; they are rarely symmetric.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">bandwidth_bps = qps x payload_bytes x 8</code></pre><div class="what">Compute it for peak, not average, and separately for ingress and egress — they are rarely symmetric.</div></div>
         <div class="cmd"><pre class="language-none"><code class="language-none">concurrency = qps x latency_seconds          # Little's Law
 machines    = peak_qps / per_machine_qps / target_utilisation</code></pre><div class="what">Little's Law sizes pools and threads; the second line sizes the fleet. Use 0.5 for utilisation unless you know better.</div></div>
         <div class="cmd"><pre class="language-none"><code class="language-none">cache_size = hot_fraction x daily_items x bytes_per_item    # hot_fraction ~ 0.1-0.2</code></pre><div class="what">Cache the hot slice, not the dataset. This is usually two orders of magnitude smaller than total storage.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Worked example, in Python</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">const long   Dau            = 100_000_000;
@@ -510,22 +503,21 @@ reads_day  = DAU * views_user            # 5,000,000,000
 
 write_qps = writes_day / SEC_PER_DAY     # 200
 read_qps  = reads_day  / SEC_PER_DAY     # 50,000
-print(f"peak: {write_qps*3:.0f} w/s, {read_qps*3:.0f} r/s, ratio {read_qps/write_qps:.0f}:1")</code></pre><div class="what">Average and peak QPS plus the read:write ratio &mdash; enough to decide the shape of the system.</div></div>
+print(f"peak: {write_qps*3:.0f} w/s, {read_qps*3:.0f} r/s, ratio {read_qps/write_qps:.0f}:1")</code></pre><div class="what">Average and peak QPS plus the read:write ratio — enough to decide the shape of the system.</div></div>
         <div class="cmd"><pre class="language-python"><code class="language-python">per_day   = writes_day * photo_bytes           # 40 TB
-five_year = per_day * 365 * 5 * 3              # x3 replicas -> ~220 PB
-monthly   = five_year / 1e9 * 0.02             # $/GB/month -> ~$4.4M
+five_year = per_day * 365 * 5 * 3              # x3 replicas -&gt; ~220 PB
+monthly   = five_year / 1e9 * 0.02             # $/GB/month -&gt; ~$4.4M
 print(f"{five_year/1e15:.0f} PB, ${monthly/1e6:.1f}M per month")</code></pre><div class="what">The number that decides whether the product is viable, reached in four lines.</div></div>
         <div class="cmd"><pre class="language-python"><code class="language-python">for uploads in (0.05, 0.2, 1.0):               # sensitivity on the weakest input
     pb = DAU * uploads * photo_bytes * 365 * 5 * 3 / 1e15
-    print(f"{uploads:>5} uploads/user/day -> {pb:7.0f} PB")</code></pre><div class="what">Varying the dominant assumption. If every case lands in the same regime, the estimate is done.</div></div>
+    print(f"{uploads:&gt;5} uploads/user/day -&gt; {pb:7.0f} PB")</code></pre><div class="what">Varying the dominant assumption. If every case lands in the same regime, the estimate is done.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Quick reference anchors</h3>
         <div class="cmd"><pre class="language-none"><code class="language-none">1 PB hot object storage   ~ $20,000 / month
 1 PB internet egress      ~ $50,000
 1 TB on one SSD           ~ fits; "big data" tooling is a liability below this</code></pre><div class="what">Three facts that settle a surprising number of architecture debates on their own.</div></div>
-        <div class="cmd"><pre class="language-none"><code class="language-none">fibre: ~200 km per ms  ->  London-New York (5,600 km) = 28 ms one way, 56 ms RTT minimum</code></pre><div class="what">The speed-of-light floor. No budget removes it; only a replica nearer the user does.</div></div>
+        <div class="cmd"><pre class="language-none"><code class="language-none">fibre: ~200 km per ms  -&gt;  London-New York (5,600 km) = 28 ms one way, 56 ms RTT minimum</code></pre><div class="what">The speed-of-light floor. No budget removes it; only a replica nearer the user does.</div></div>
       </div>
     </section>
 
@@ -536,17 +528,17 @@ print(f"{five_year/1e15:.0f} PB, ${monthly/1e6:.1f}M per month")</code></pre><di
           <li>Costs five minutes and can eliminate weeks of building the wrong thing.</li>
           <li>Makes assumptions explicit and arguable, instead of buried in someone's intuition.</li>
           <li>Catches order-of-magnitude errors, which are the ones that actually sink designs.</li>
-          <li>Needs no data, no tooling and no access &mdash; it works in a meeting, on a whiteboard.</li>
+          <li>Needs no data, no tooling and no access — it works in a meeting, on a whiteboard.</li>
           <li>Produces the vocabulary for the next conversation: QPS, PB, peak factor, cost per month.</li>
           <li>Identifies which single measurement is worth taking, which is often the real output.</li>
         </ul></div>
         <div class="col bad"><h3>Cons</h3><ul>
           <li>Wrong inputs produce confident wrong answers, and the confidence survives longer than the inputs.</li>
-          <li>Says nothing about tail behaviour, contention, or how a system fails &mdash; only about averages.</li>
+          <li>Says nothing about tail behaviour, contention, or how a system fails — only about averages.</li>
           <li>Easy to anchor on: once a number is on the whiteboard, people stop questioning it.</li>
           <li>Ignores everything it did not model: operational load, migrations, compliance, people.</li>
           <li>Tempting to over-refine, which adds precision but no accuracy.</li>
-          <li>Rounds away real effects &mdash; a 20% overhead disappears, but you still pay it.</li>
+          <li>Rounds away real effects — a 20% overhead disappears, but you still pay it.</li>
         </ul></div>
       </div>
     </section>
@@ -555,9 +547,9 @@ print(f"{five_year/1e15:.0f} PB, ${monthly/1e6:.1f}M per month")</code></pre><di
       <h2>Concrete use cases</h2>
       <div class="cards">
         <div class="card"><h3>Deciding whether to shard</h3><p>A team is planning a sharding project. The estimate: 50M rows a year at 500 B is 25 GB a year, 125 GB over five years, with indexes maybe 250 GB. That comfortably fits one Postgres instance with room to spare. The sharding project is cancelled in ten minutes, and the effort goes into the index that was actually slow.</p></div>
-        <div class="card"><h3>Killing a feature before it is built</h3><p>Product wants to keep full request and response bodies for every API call, for a year. 200M calls a day at 4 KB is 800 GB a day, 290 TB a year, roughly $6,000 a month before replication. The conversation changes from "can we" to "we can keep 30 days of sampled bodies for $500" &mdash; which turns out to meet the actual requirement.</p></div>
-        <div class="card"><h3>Sizing a connection pool</h3><p>A service handles 2,000 req/s with a 40 ms database round trip. Little's Law gives 80 concurrent queries, so a pool of 100 is right and the configured 500 is actively harmful &mdash; it lets the service overwhelm the database instead of queueing politely in front of it.</p></div>
-        <div class="card"><h3>Checking that a batch job fits in its window</h3><p>A nightly reconciliation processes 80M records. At 5,000 records/s per worker it needs 16,000 worker-seconds &mdash; four and a half hours on one worker, 30 minutes on ten. The six-hour window holds, but with only one worker there is no margin, and the estimate justifies the parallelism before the first missed morning.</p></div>
+        <div class="card"><h3>Killing a feature before it is built</h3><p>Product wants to keep full request and response bodies for every API call, for a year. 200M calls a day at 4 KB is 800 GB a day, 290 TB a year, roughly $6,000 a month before replication. The conversation changes from "can we" to "we can keep 30 days of sampled bodies for $500" — which turns out to meet the actual requirement.</p></div>
+        <div class="card"><h3>Sizing a connection pool</h3><p>A service handles 2,000 req/s with a 40 ms database round trip. Little's Law gives 80 concurrent queries, so a pool of 100 is right and the configured 500 is actively harmful — it lets the service overwhelm the database instead of queueing politely in front of it.</p></div>
+        <div class="card"><h3>Checking that a batch job fits in its window</h3><p>A nightly reconciliation processes 80M records. At 5,000 records/s per worker it needs 16,000 worker-seconds — four and a half hours on one worker, 30 minutes on ten. The six-hour window holds, but with only one worker there is no margin, and the estimate justifies the parallelism before the first missed morning.</p></div>
         <div class="card"><h3>Answering "can we serve this from one region?"</h3><p>Users in Sydney, servers in Dublin: 16,000 km, so at least 160 ms round trip and realistically 250 ms. A page needing four sequential round trips is a one-second page before any work happens. The estimate makes the case for a read replica or an edge cache without needing to deploy anything to prove it.</p></div>
       </div>
     </section>
@@ -566,19 +558,19 @@ print(f"{five_year/1e15:.0f} PB, ${monthly/1e6:.1f}M per month")</code></pre><di
       <h2>When to use / when not to</h2>
       <span class="note" style="margin:-6px 0 14px">If the estimate and the real thing disagree by 20%, the estimate did its job. By 100x, it saved the project.</span>
       <div class="cols">
-        <div class="col good"><h3>Estimate when&hellip;</h3><ul>
+        <div class="col good"><h3>Estimate when…</h3><ul>
           <li>You are choosing between architectures and want to eliminate the impossible ones.</li>
           <li>Someone says "that won't scale" or "that's too expensive" without a number attached.</li>
           <li>You need to decide whether to measure at all, and what to measure first.</li>
           <li>A design depends on a quantity nobody has written down.</li>
-          <li>You are in a system design interview, where the estimate <i>is</i> the answer.</li>
+          <li>You are in a system design interview, where the estimate <em>is</em> the answer.</li>
           <li>A cost or capacity number must go in a document that other people will act on.</li>
         </ul></div>
-        <div class="col bad"><h3>Don't rely on it when&hellip;</h3><ul>
-          <li>You can simply measure. Real traffic beats any estimate &mdash; use a <b>load test</b> or production metrics.</li>
+        <div class="col bad"><h3>Don't rely on it when…</h3><ul>
+          <li>You can simply measure. Real traffic beats any estimate — use a <b>load test</b> or production metrics.</li>
           <li>The question is about tails, contention or failure modes. Use <b>percentiles</b> and real traces.</li>
           <li>The decision is irreversible and expensive. Estimate to shortlist, then <b>prototype</b>.</li>
-          <li>The answer sits within 2x of a threshold. That is inside the error bars &mdash; <b>benchmark</b> it.</li>
+          <li>The answer sits within 2x of a threshold. That is inside the error bars — <b>benchmark</b> it.</li>
           <li>You are negotiating a contract or an SLA. Commitments need <b>measurements</b>, not napkins.</li>
           <li>The dominant cost is human: migration, on-call, training. Arithmetic does not model those.</li>
         </ul></div>
@@ -587,14 +579,14 @@ print(f"{five_year/1e15:.0f} PB, ${monthly/1e6:.1f}M per month")</code></pre><di
 
     <section id="gotchas">
       <h2>Common mistakes &amp; gotchas</h2>
-      <div class="gotcha"><b>Sizing for the average instead of the peak</b><span>50,000 reads/s average sounds like a capacity plan. The evening peak is 150,000, so the system is at triple its provisioned load every night and nobody knows why the 20:00 graphs look like that.</span><div class="fix">Fix: multiply by 2&ndash;4 for a normal daily peak, and much more for events. Size for peak, budget for average, and state both.</div></div>
+      <div class="gotcha"><b>Sizing for the average instead of the peak</b><span>50,000 reads/s average sounds like a capacity plan. The evening peak is 150,000, so the system is at triple its provisioned load every night and nobody knows why the 20:00 graphs look like that.</span><div class="fix">Fix: multiply by 2–4 for a normal daily peak, and much more for events. Size for peak, budget for average, and state both.</div></div>
       <div class="gotcha"><b>Bits and bytes</b><span>"10 Gbps is 10 GB/s" is an eight-fold error, and because bandwidth is often multiplied by time or price, the mistake compounds into a plan that is off by an order of magnitude.</span><div class="fix">Fix: convert once, early, and carry the units on every line. 1 Gbps = 125 MB/s. Write it at the top of the page.</div></div>
-      <div class="gotcha"><b>Forgetting replication, indexes and backups</b><span>"40 TB a day for five years is 73 PB." With three replicas, index overhead and backups it is closer to 250 PB &mdash; and the cost conclusion flips from uncomfortable to impossible.</span><div class="fix">Fix: multiply raw storage by about 3 as a default, and say which multipliers you applied. Replication and backups are not optional extras.</div></div>
+      <div class="gotcha"><b>Forgetting replication, indexes and backups</b><span>"40 TB a day for five years is 73 PB." With three replicas, index overhead and backups it is closer to 250 PB — and the cost conclusion flips from uncomfortable to impossible.</span><div class="fix">Fix: multiply raw storage by about 3 as a default, and say which multipliers you applied. Replication and backups are not optional extras.</div></div>
       <div class="gotcha"><b>Refining inputs you already know well</b><span>Ten minutes spent deciding whether a row is 180 or 220 bytes, in an estimate whose uploads-per-user guess could be off by 5x. The precision is real and completely wasted.</span><div class="fix">Fix: find the input with the widest uncertainty and work on that one. Run the estimate with a high and a low value for it; if the regime does not change, you are finished.</div></div>
-      <div class="gotcha"><b>Treating the estimate as a measurement</b><span>The number lands in a design document, loses its assumptions on the way, and six months later is being quoted in a contract as though somebody measured it.</span><div class="fix">Fix: write the assumptions next to the number, always, and give it a range rather than a point. "40&ndash;400 PB, driven by uploads per user" ages far better than "220 PB".</div></div>
-      <div class="gotcha"><b>Assuming linear scaling</b><span>"One box does 1,000 QPS, so a hundred boxes do 100,000." Coordination, shared databases, locks and chatty services mean real scaling flattens, and sometimes reverses.</span><div class="fix">Fix: add 20&ndash;50% headroom for coordination beyond a handful of machines, and find the shared resource &mdash; usually the database or a lock &mdash; before trusting the multiplication.</div></div>
-      <div class="gotcha"><b>Estimating storage but not egress</b><span>The storage bill is calculated and approved. Nobody computes serving cost, and the egress line arrives at several times the storage line because the data is not just stored, it is read constantly.</span><div class="fix">Fix: always estimate storage <i>and</i> transfer. Egress at $0.05&ndash;0.09 per GB is often the largest number on the page, and a CDN is the usual answer.</div></div>
-      <div class="gotcha"><b>Skipping the sanity check</b><span>An arithmetic slip gives a number implying every human on Earth uses the product hourly. The digits look plausible, so it goes into the deck unchallenged.</span><div class="fix">Fix: finish every estimate by comparing with something known &mdash; world population, a competitor's published scale, the product's revenue, the fastest disk that exists.</div></div>
+      <div class="gotcha"><b>Treating the estimate as a measurement</b><span>The number lands in a design document, loses its assumptions on the way, and six months later is being quoted in a contract as though somebody measured it.</span><div class="fix">Fix: write the assumptions next to the number, always, and give it a range rather than a point. "40–400 PB, driven by uploads per user" ages far better than "220 PB".</div></div>
+      <div class="gotcha"><b>Assuming linear scaling</b><span>"One box does 1,000 QPS, so a hundred boxes do 100,000." Coordination, shared databases, locks and chatty services mean real scaling flattens, and sometimes reverses.</span><div class="fix">Fix: add 20–50% headroom for coordination beyond a handful of machines, and find the shared resource — usually the database or a lock — before trusting the multiplication.</div></div>
+      <div class="gotcha"><b>Estimating storage but not egress</b><span>The storage bill is calculated and approved. Nobody computes serving cost, and the egress line arrives at several times the storage line because the data is not just stored, it is read constantly.</span><div class="fix">Fix: always estimate storage <em>and</em> transfer. Egress at $0.05–0.09 per GB is often the largest number on the page, and a CDN is the usual answer.</div></div>
+      <div class="gotcha"><b>Skipping the sanity check</b><span>An arithmetic slip gives a number implying every human on Earth uses the product hourly. The digits look plausible, so it goes into the deck unchallenged.</span><div class="fix">Fix: finish every estimate by comparing with something known — world population, a competitor's published scale, the product's revenue, the fastest disk that exists.</div></div>
     </section>
 
     <section id="alternatives">
@@ -603,11 +595,11 @@ print(f"{five_year/1e15:.0f} PB, ${monthly/1e6:.1f}M per month")</code></pre><di
         <table>
           <thead><tr><th>Approach</th><th>Best for</th><th>Effort</th><th>Confidence</th><th>Key difference vs an estimate</th></tr></thead>
           <tbody>
-            <tr class="self"><td><b>Back-of-the-envelope</b></td><td>eliminating options, framing a decision</td><td>Minutes</td><td>Factor of 2&ndash;3</td><td>&mdash;</td></tr>
+            <tr class="self"><td><b>Back-of-the-envelope</b></td><td>eliminating options, framing a decision</td><td>Minutes</td><td>Factor of 2–3</td><td>—</td></tr>
             <tr><td><b>Production metrics</b></td><td>anything that already exists</td><td>Minutes, if instrumented</td><td>Exact</td><td>Measures reality rather than assumptions; only works for what is already running</td></tr>
             <tr><td><b>Load test</b></td><td>finding the real breaking point</td><td>Days</td><td>High, if realistic</td><td>Reveals contention and tails an estimate cannot model; easy to make unrealistic</td></tr>
             <tr><td><b>Prototype / spike</b></td><td>unknown technology or an unusual workload</td><td>Days to weeks</td><td>High for what it covers</td><td>Answers "does this work", not "how much will it cost at 100x"</td></tr>
-            <tr><td><b>Queueing theory</b></td><td>utilisation, queue depth, latency under load</td><td>Hours</td><td>High, given good inputs</td><td>Models how latency explodes near saturation &mdash; the thing linear arithmetic misses entirely</td></tr>
+            <tr><td><b>Queueing theory</b></td><td>utilisation, queue depth, latency under load</td><td>Hours</td><td>High, given good inputs</td><td>Models how latency explodes near saturation — the thing linear arithmetic misses entirely</td></tr>
             <tr><td><b>Simulation</b></td><td>complex, interacting systems</td><td>Weeks</td><td>As good as the model</td><td>Captures interactions, at the cost of becoming a project of its own</td></tr>
             <tr><td><b>Vendor calculator</b></td><td>cloud cost once the design is fixed</td><td>Hour</td><td>Precise, not accurate</td><td>Exact prices for assumptions that are still guesses</td></tr>
           </tbody>
@@ -615,7 +607,7 @@ print(f"{five_year/1e15:.0f} PB, ${monthly/1e6:.1f}M per month")</code></pre><di
       </div>
       <ul style="margin-top:12px">
         <li><b>Measure instead</b> whenever the system exists. An estimate of something you could query is wasted effort.</li>
-        <li><b>Load test</b> once the estimate says you are within 2x of a limit &mdash; that is inside the error bars.</li>
+        <li><b>Load test</b> once the estimate says you are within 2x of a limit — that is inside the error bars.</li>
         <li><b>Reach for queueing theory</b> when the question is "what happens at 80% utilisation", because the answer is not linear and the envelope cannot see it.</li>
         <li><b>Prototype</b> when the uncertainty is about whether something works at all, not about how much of it you need.</li>
         <li>The healthy sequence is: estimate to shortlist, measure or prototype to confirm, load test before committing.</li>
@@ -625,10 +617,10 @@ print(f"{five_year/1e15:.0f} PB, ${monthly/1e6:.1f}M per month")</code></pre><di
     <section id="resources">
       <h2>Resources</h2>
       <ul>
-        <li><a href="https://static.googleusercontent.com/media/sre.google/en//static/pdf/rule-of-thumb.pdf" target="_blank" rel="noopener">Jeff Dean &mdash; Numbers Everyone Should Know</a>: the original latency ladder that every version of this table descends from.</li>
+        <li><a href="https://static.googleusercontent.com/media/sre.google/en//static/pdf/rule-of-thumb.pdf" target="_blank" rel="noopener">Jeff Dean — Numbers Everyone Should Know</a>: the original latency ladder that every version of this table descends from.</li>
         <li><a href="https://colin-scott.github.io/personal_website/research/interactive_latency.html" target="_blank" rel="noopener">Interactive latency numbers by year</a>: the same numbers with a slider, showing which ones improved and which did not.</li>
         <li><a href="https://sre.google/sre-book/software-engineering-in-sre/" target="_blank" rel="noopener">Google SRE Book</a>: capacity planning and demand forecasting in the chapters on practical production work.</li>
-        <li><a href="https://www.infoq.com/presentations/latency-pitfalls/" target="_blank" rel="noopener">Gil Tene &mdash; latency and utilisation</a>: why systems fall off a cliff near saturation, and why linear estimates miss it.</li>
+        <li><a href="https://www.infoq.com/presentations/latency-pitfalls/" target="_blank" rel="noopener">Gil Tene — latency and utilisation</a>: why systems fall off a cliff near saturation, and why linear estimates miss it.</li>
         <li><a href="https://github.com/donnemartin/system-design-primer" target="_blank" rel="noopener">System Design Primer</a>: a large, free collection of worked estimates and the architectures they lead to.</li>
         <li><a href="https://aws.amazon.com/blogs/architecture/the-burning-monk-serverless-cost-estimation/" target="_blank" rel="noopener">Estimating cloud cost from a design</a>: how the unit prices turn into a monthly bill, with the overheads people forget.</li>
       </ul>
@@ -675,65 +667,39 @@ print(f"{five_year/1e15:.0f} PB, ${monthly/1e6:.1f}M per month")</code></pre><di
 
 <script src="../assets/player.js?v=3658cbc7"></script>
 <script>
-/* ---------- Animation 1: sizing a service ---------- */
 createAnimation('anim-size', [
-  { say: 'Start with people, not machines. <b>100 million daily active users</b>; assume each uploads 0.2 photos and views 50 a day. Those two numbers are guesses &mdash; that is fine, we will come back to which one matters.',
-    show: ['be-r1'] },
-  { say: 'The one constant worth memorising: a day has 86,400 seconds, which we round to <b>100,000</b>. That rounding makes every division a decimal shift, and it errs on the safe side by overstating the denominator slightly.',
-    show: ['be-r2'] },
-  { say: 'Divide: 20M uploads give <b>200 writes/s</b>, and 5 billion views give <b>50,000 reads/s</b>. Two numbers, and we have not thought about technology yet.',
-    show: ['be-r3'] },
-  { say: 'Traffic is never flat. Multiply by 3 for a normal daily peak: <b>600 writes/s and 150,000 reads/s</b>. Provision for this, budget for the average.',
-    show: ['be-r4'] },
-  { say: 'The read:write ratio is <b>250:1</b>. That single number has already decided the architecture: aggressive caching, a CDN, read replicas, and essentially no concern about write throughput.',
-    show: ['be-r5'] },
-  { say: 'Now storage. Two megabytes per upload including thumbnails gives <b>40 TB a day</b>. Note how quickly this got large &mdash; 200 writes per second does not sound like much.',
-    show: ['be-r6'] },
-  { say: 'Five years of that, times three replicas, is about <b>200 PB</b>. This is the number that actually constrains the design, and it did not come from the QPS at all.',
-    show: ['be-r7'] },
-  { say: 'By contrast, the metadata &mdash; 200 bytes per photo &mdash; is <b>4 GB a day, 1.5 TB a year</b>. It fits on one machine. So "the database" is not the hard part; the blob store is. That reframing is worth the whole exercise.',
-    show: ['be-r8'] },
-  { say: 'Bandwidth at peak: 150,000 reads/s at 200 KB each is <b>30 GB/s, or 240 Gbps</b>. No origin fleet serves that sensibly, so a CDN is not an optimisation here &mdash; it is a requirement.',
-    show: ['be-r9'] },
-  { say: 'Finally, money. 200 PB of hot object storage at $0.02 per GB-month is roughly <b>$4 million a month</b>, before egress. If the product cannot carry that, the design must change now &mdash; tiering, compression, lower resolution, shorter retention &mdash; not after launch. Nine lines, five minutes, and the entire shape of the system is decided.',
-    show: ['be-verdict'] },
+  { say: "Start with people, not machines. <b>100 million daily active users</b>; assume each uploads 0.2 photos and views 50 a day. Those two numbers are guesses — that is fine, we will come back to which one matters.", show: ["be-r1"] },
+  { say: "The one constant worth memorising: a day has 86,400 seconds, which we round to <b>100,000</b>. That rounding makes every division a decimal shift, and it errs on the safe side by overstating the denominator slightly.", show: ["be-r2"] },
+  { say: "Divide: 20M uploads give <b>200 writes/s</b>, and 5 billion views give <b>50,000 reads/s</b>. Two numbers, and we have not thought about technology yet.", show: ["be-r3"] },
+  { say: "Traffic is never flat. Multiply by 3 for a normal daily peak: <b>600 writes/s and 150,000 reads/s</b>. Provision for this, budget for the average.", show: ["be-r4"] },
+  { say: "The read:write ratio is <b>250:1</b>. That single number has already decided the architecture: aggressive caching, a CDN, read replicas, and essentially no concern about write throughput.", show: ["be-r5"] },
+  { say: "Now storage. Two megabytes per upload including thumbnails gives <b>40 TB a day</b>. Note how quickly this got large — 200 writes per second does not sound like much.", show: ["be-r6"] },
+  { say: "Five years of that, times three replicas, is about <b>200 PB</b>. This is the number that actually constrains the design, and it did not come from the QPS at all.", show: ["be-r7"] },
+  { say: "By contrast, the metadata — 200 bytes per photo — is <b>4 GB a day, 1.5 TB a year</b>. It fits on one machine. So \"the database\" is not the hard part; the blob store is. That reframing is worth the whole exercise.", show: ["be-r8"] },
+  { say: "Bandwidth at peak: 150,000 reads/s at 200 KB each is <b>30 GB/s, or 240 Gbps</b>. No origin fleet serves that sensibly, so a CDN is not an optimisation here — it is a requirement.", show: ["be-r9"] },
+  { say: "Finally, money. 200 PB of hot object storage at $0.02 per GB-month is roughly <b>$4 million a month</b>, before egress. If the product cannot carry that, the design must change now — tiering, compression, lower resolution, shorter retention — not after launch. Nine lines, five minutes, and the entire shape of the system is decided.", show: ["be-verdict"] },
 ]);
 
-/* ---------- Animation 2: the latency ladder ---------- */
 createAnimation('anim-latency', [
-  { say: 'Set the scale. An <b>L1 cache reference</b> takes about 1 nanosecond; stretched by a billion, call it <b>one second</b>. Everything below is measured against that.',
-    show: ['bl-r1'] },
-  { say: '<b>Main memory</b> is around 100 ns &mdash; <b>two minutes</b> on our scale. A cache miss is not a rounding error; it is a hundred times the work. This is why data layout and cache locality still matter.',
-    show: ['bl-r2'] },
-  { say: '<b>Compressing a kilobyte</b> takes roughly 2 &micro;s: <b>33 minutes</b>. CPU work is cheap compared with what comes next, which is why compressing before sending is almost always worth it.',
-    show: ['bl-r3'] },
-  { say: 'A <b>random read from an NVMe SSD</b> is about 20 &micro;s &mdash; <b>six hours</b>. Fast by storage standards, and still twenty thousand times slower than L1. Modern SSDs changed the magnitude of this rung, not its position.',
-    show: ['bl-r4'] },
-  { say: 'A <b>round trip inside one datacenter</b> is about half a millisecond: <b>six days</b>. Crossing the network to a neighbouring rack already costs more than reading from local flash &mdash; which is the entire argument for caching in-process.',
-    show: ['bl-r5'] },
-  { say: 'A <b>spinning-disk seek</b> is about 5 ms: <b>two months</b>. Decades of database design &mdash; B-trees, sequential logs, sorted files &mdash; exist to avoid this one number.',
-    show: ['bl-r6'] },
-  { say: 'And a <b>round trip from Europe to California</b> is around 150 ms: <b>five years</b>. This one is physics. No hardware, no budget and no clever protocol removes it; only putting a copy of the data nearer the user does.',
-    show: ['bl-r7'] },
-  { say: 'Three rules come out of this ladder and settle most design arguments. <b>Memory is ~100x faster than flash</b>, <b>a network hop costs more than a local read</b>, and <b>the speed of light is a floor</b>. When a design implies breaking one of those, the design is wrong &mdash; and you knew it in thirty seconds.',
-    show: ['bl-note'] },
+  { say: "Set the scale. An <b>L1 cache reference</b> takes about 1 nanosecond; stretched by a billion, call it <b>one second</b>. Everything below is measured against that.", show: ["bl-r1"] },
+  { say: "<b>Main memory</b> is around 100 ns — <b>two minutes</b> on our scale. A cache miss is not a rounding error; it is a hundred times the work. This is why data layout and cache locality still matter.", show: ["bl-r2"] },
+  { say: "<b>Compressing a kilobyte</b> takes roughly 2 µs: <b>33 minutes</b>. CPU work is cheap compared with what comes next, which is why compressing before sending is almost always worth it.", show: ["bl-r3"] },
+  { say: "A <b>random read from an NVMe SSD</b> is about 20 µs — <b>six hours</b>. Fast by storage standards, and still twenty thousand times slower than L1. Modern SSDs changed the magnitude of this rung, not its position.", show: ["bl-r4"] },
+  { say: "A <b>round trip inside one datacenter</b> is about half a millisecond: <b>six days</b>. Crossing the network to a neighbouring rack already costs more than reading from local flash — which is the entire argument for caching in-process.", show: ["bl-r5"] },
+  { say: "A <b>spinning-disk seek</b> is about 5 ms: <b>two months</b>. Decades of database design — B-trees, sequential logs, sorted files — exist to avoid this one number.", show: ["bl-r6"] },
+  { say: "And a <b>round trip from Europe to California</b> is around 150 ms: <b>five years</b>. This one is physics. No hardware, no budget and no clever protocol removes it; only putting a copy of the data nearer the user does.", show: ["bl-r7"] },
+  { say: "Three rules come out of this ladder and settle most design arguments. <b>Memory is ~100x faster than flash</b>, <b>a network hop costs more than a local read</b>, and <b>the speed of light is a floor</b>. When a design implies breaking one of those, the design is wrong — and you knew it in thirty seconds.", show: ["bl-note"] },
 ]);
 
-/* ---------- Key-concept animations ---------- */
+/* Animations inside key-concept panels */
 window.TERM_ANIMS = {
   pk: [
-    { say: 'You divided a day’s traffic by 86,400 and got 50,000 reads per second. Here it is as a flat line, which is exactly how an average looks.',
-      show: ['pk-avg', 'pk-avg-t'] },
-    { say: 'Real traffic looks like this: a trough around 04:00 and a long evening climb. Same total volume, completely different shape.',
-      show: ['pk-curve'] },
-    { say: 'The evening peak is about <b>125,000 req/s</b> &mdash; two and a half times the average.',
-      show: ['pk-peak'] },
-    { say: 'Provision for 50,000 and you are over capacity every single evening, with a graph that looks like a daily incident. Provision for 125,000 and most of the fleet is idle at 04:00 &mdash; which is what autoscaling is for.',
-      show: ['pk-gap'] },
-    { say: 'Typical factors: 2&ndash;3x for a global consumer app, 4&ndash;6x for B2B concentrated in office hours, and 20&ndash;100x for a flash sale or a ticket drop. Use <b>3</b> when you have no data.',
-      text: { 'pk-avg-t': 'average = 50,000 /s  (billing number)' } },
-    { say: 'And the design rule that falls out: above roughly 10x, stop provisioning for the peak. Queue it, shed it or rate-limit it instead &mdash; that is far cheaper than owning capacity you use for ten minutes a week.',
-      show: ['pk-note'] },
+    { say: "You divided a day’s traffic by 86,400 and got 50,000 reads per second. Here it is as a flat line, which is exactly how an average looks.", show: ["pk-avg","pk-avg-t"] },
+    { say: "Real traffic looks like this: a trough around 04:00 and a long evening climb. Same total volume, completely different shape.", show: ["pk-curve"] },
+    { say: "The evening peak is about <b>125,000 req/s</b> — two and a half times the average.", show: ["pk-peak"] },
+    { say: "Provision for 50,000 and you are over capacity every single evening, with a graph that looks like a daily incident. Provision for 125,000 and most of the fleet is idle at 04:00 — which is what autoscaling is for.", show: ["pk-gap"] },
+    { say: "Typical factors: 2–3x for a global consumer app, 4–6x for B2B concentrated in office hours, and 20–100x for a flash sale or a ticket drop. Use <b>3</b> when you have no data.", text: {"pk-avg-t":"average = 50,000 /s  (billing number)"} },
+    { say: "And the design rule that falls out: above roughly 10x, stop provisioning for the peak. Queue it, shed it or rate-limit it instead — that is far cheaper than owning capacity you use for ten minutes a week.", show: ["pk-note"] },
   ],
 };
 </script>

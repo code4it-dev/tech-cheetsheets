@@ -37,10 +37,10 @@
   <main>
     <header class="hero" id="overview">
       <h1>Database performance</h1>
-      <p class="tagline">Index, then query, then schema, then cache, then replicate, then partition &mdash; and only then shard.</p>
+      <p class="tagline">Index, then query, then schema, then cache, then replicate, then partition — and only then shard.</p>
       <span class="meta">As of Nov 2026 · examples are PostgreSQL 18 flavoured; the principles carry to MySQL, SQL Server and most engines</span>
-      <p>Almost every "the database is slow" incident has the same small set of causes: a query reading far more rows than it returns, an N+1 loop in the application, a connection pool that is the wrong size for the work, or a working set that stopped fitting in RAM. The fixes are cheap and local. The expensive fixes &mdash; partitioning, sharding, a second datastore &mdash; are the ones teams reach for first, and they rarely address the actual cause.</p>
-      <p>So the useful mental model is a ladder, climbed in order of cost. Add the missing index. Fix the query that cannot use one. Change the schema so the hot path is one row. Cache what is read far more than written. Move reads to a replica. Partition when a single table is too large to maintain. Shard only when one machine genuinely cannot hold the write load &mdash; because sharding gives up joins, transactions and most of your operational simplicity.</p>
+      <p>Almost every "the database is slow" incident has the same small set of causes: a query reading far more rows than it returns, an N+1 loop in the application, a connection pool that is the wrong size for the work, or a working set that stopped fitting in RAM. The fixes are cheap and local. The expensive fixes — partitioning, sharding, a second datastore — are the ones teams reach for first, and they rarely address the actual cause.</p>
+      <p>So the useful mental model is a ladder, climbed in order of cost. Add the missing index. Fix the query that cannot use one. Change the schema so the hot path is one row. Cache what is read far more than written. Move reads to a replica. Partition when a single table is too large to maintain. Shard only when one machine genuinely cannot hold the write load — because sharding gives up joins, transactions and most of your operational simplicity.</p>
       <p>Underneath all of it is one invariant worth memorising: a query is fast when it touches few pages, and a system is stable when concurrency is bounded. Indexes are about the first. Connection pools are about the second, and are governed by Little's Law rather than by optimism.</p>
     </header>
 
@@ -106,11 +106,10 @@
 
     <section id="how-it-works">
       <h2>How it works</h2>
-      <p style="margin:0 0 18px">The first animation is step 1 of the ladder: what an index actually does to the number of pages a query touches. The second is step 3, and the reason "pool exhausted" is almost never a pool problem.</p>
-      <span class="note" style="margin:-8px 0 18px">rows examined &divide; rows returned is the single most useful ratio in query tuning</span>
-
+      <p>The first animation is step 1 of the ladder: what an index actually does to the number of pages a query touches. The second is step 3, and the reason "pool exhausted" is almost never a pool problem.</p>
+      <span class="note" style="margin:-6px 0 14px">rows examined ÷ rows returned is the single most useful ratio in query tuning</span>
       <div class="anim" id="anim-idx">
-        <h3>1 &middot; 20 million rows, four page reads</h3>
+        <h3>1 · 20 million rows, four page reads</h3>
         <div class="stage">
           <svg viewBox="0 0 800 320" role="img" aria-label="A query scanning a whole table, then traversing a B-tree index, then using a composite and covering index">
             <defs>
@@ -150,9 +149,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-pool">
-        <h3>2 &middot; "Pool exhausted" is almost never the pool's fault</h3>
+        <h3>2 · "Pool exhausted" is almost never the pool's fault</h3>
         <div class="stage">
           <svg viewBox="0 0 800 320" role="img" aria-label="A connection pool of ten saturating when query time rises, with waiters queueing and timing out">
             <defs>
@@ -206,271 +204,255 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>B-tree index</b><span>A balanced tree that turns "find rows matching this value" into a handful of page reads instead of a full table scan.</span><template class="term-detail" data-see="Selectivity, Composite index, Sequential scan">
-          <p>A B-tree keeps keys sorted, with each node holding hundreds of entries, so the tree stays shallow: even a billion-row table is three to five levels deep. A lookup reads one page per level plus one heap page per matching row &mdash; typically four to six page reads in total, against millions for a scan.</p>
-          <p>Because the keys are ordered, the same structure also serves range predicates, <code>ORDER BY</code> and <code>MIN</code>/<code>MAX</code> without extra work. The cost is on the write side: every insert, update of an indexed column and delete must maintain every index on the table.</p>
-          <h4>Depth and cost</h4>
-          <table>
-            <tr><th>Table rows</th><th>B-tree depth</th><th>Page reads for one key</th></tr>
-            <tr><td>10,000</td><td>2</td><td>3</td></tr>
-            <tr><td>1,000,000</td><td>3</td><td>4</td></tr>
-            <tr><td>1,000,000,000</td><td>4&ndash;5</td><td>5&ndash;6</td></tr>
-          </table>
-          <h4>Index types worth knowing</h4>
-          <table>
-            <tr><th>Type</th><th>Use for</th></tr>
-            <tr><td>B-tree</td><td>equality, ranges, sorting &mdash; the default</td></tr>
-            <tr><td>Hash</td><td>equality only; rarely worth it</td></tr>
-            <tr><td>GIN / inverted</td><td>arrays, JSONB, full text</td></tr>
-            <tr><td>BRIN</td><td>huge, naturally ordered tables (time series)</td></tr>
-            <tr><td>Partial (<code>WHERE</code>)</td><td>hot subsets, e.g. <code>status = 'open'</code></td></tr>
-          </table>
+        <p>A B-tree keeps keys sorted, with each node holding hundreds of entries, so the tree stays shallow: even a billion-row table is three to five levels deep. A lookup reads one page per level plus one heap page per matching row — typically four to six page reads in total, against millions for a scan.</p>
+        <p>Because the keys are ordered, the same structure also serves range predicates, <code>ORDER BY</code> and <code>MIN</code>/<code>MAX</code> without extra work. The cost is on the write side: every insert, update of an indexed column and delete must maintain every index on the table.</p>
+        <h4>Depth and cost</h4>
+        <table><tr><th>Table rows</th><th>B-tree depth</th><th>Page reads for one key</th></tr>
+        <tr><td>10,000</td><td>2</td><td>3</td></tr>
+        <tr><td>1,000,000</td><td>3</td><td>4</td></tr>
+        <tr><td>1,000,000,000</td><td>4–5</td><td>5–6</td></tr></table>
+        <h4>Index types worth knowing</h4>
+        <table><tr><th>Type</th><th>Use for</th></tr>
+        <tr><td>B-tree</td><td>equality, ranges, sorting — the default</td></tr>
+        <tr><td>Hash</td><td>equality only; rarely worth it</td></tr>
+        <tr><td>GIN / inverted</td><td>arrays, JSONB, full text</td></tr>
+        <tr><td>BRIN</td><td>huge, naturally ordered tables (time series)</td></tr>
+        <tr><td>Partial (<code>WHERE</code>)</td><td>hot subsets, e.g. <code>status = 'open'</code></td></tr></table>
         </template></div>
-
         <div class="term"><b>Selectivity</b><span>The fraction of rows a predicate keeps. Low fraction means an index helps; high fraction means it does not.</span><template class="term-detail" data-see="B-tree index, Query plan, Sequential scan">
-          <p>An index lookup costs a tree descent plus one random heap read per matching row. A sequential scan reads pages in order, which disks and prefetchers love. So beyond roughly 5&ndash;10% of the table, scanning sequentially is genuinely faster, and the planner will &mdash; correctly &mdash; ignore your index.</p>
-          <p>This is why indexing a <code>status</code> column with three values rarely helps, while indexing <code>email</code> always does. For skewed columns a partial index on the rare value gives you the best of both.</p>
-          <h4>Rough guidance</h4>
-          <table>
-            <tr><th>Rows matched</th><th>Likely plan</th></tr>
-            <tr><td>Under 1%</td><td>index scan &mdash; big win</td></tr>
-            <tr><td>1&ndash;10%</td><td>bitmap scan, depends on correlation</td></tr>
-            <tr><td>Over 10%</td><td>sequential scan, and that is correct</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Bad <b>statistics</b> make the planner mis-estimate selectivity, which is the usual cause of a sudden plan flip.</li></ul>
+        <p>An index lookup costs a tree descent plus one random heap read per matching row. A sequential scan reads pages in order, which disks and prefetchers love. So beyond roughly 5–10% of the table, scanning sequentially is genuinely faster, and the planner will — correctly — ignore your index.</p>
+        <p>This is why indexing a <code>status</code> column with three values rarely helps, while indexing <code>email</code> always does. For skewed columns a partial index on the rare value gives you the best of both.</p>
+        <h4>Rough guidance</h4>
+        <table><tr><th>Rows matched</th><th>Likely plan</th></tr>
+        <tr><td>Under 1%</td><td>index scan — big win</td></tr>
+        <tr><td>1–10%</td><td>bitmap scan, depends on correlation</td></tr>
+        <tr><td>Over 10%</td><td>sequential scan, and that is correct</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Bad <b>statistics</b> make the planner mis-estimate selectivity, which is the usual cause of a sudden plan flip.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Composite index</b><span>An index on several columns, usable only from the leftmost column onwards — the "leftmost prefix" rule.</span><template class="term-detail" data-see="B-tree index, Covering index, Query plan">
-          <p>An index on <code>(customer_id, placed_at, status)</code> is sorted by <code>customer_id</code> first, so it serves queries filtering on <code>customer_id</code>, on <code>customer_id + placed_at</code>, and on all three. It does <em>not</em> serve a query filtering only on <code>placed_at</code>, any more than a phone book sorted by surname helps you find everyone called Ada.</p>
-          <p>Column order rules: equality predicates first, then the range or sort column, then anything you only want to carry along. One well-ordered composite index usually replaces three single-column ones and costs less on writes.</p>
-          <h4>What <code>(a, b, c)</code> serves</h4>
-          <table>
-            <tr><th>Predicate</th><th>Uses the index?</th></tr>
-            <tr><td><code>a = ?</code></td><td>yes</td></tr>
-            <tr><td><code>a = ? AND b = ?</code></td><td>yes</td></tr>
-            <tr><td><code>a = ? AND c = ?</code></td><td>partly &mdash; only <code>a</code> narrows</td></tr>
-            <tr><td><code>b = ?</code></td><td>no</td></tr>
-            <tr><td><code>a = ? ORDER BY b</code></td><td>yes, sort is free</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Steps 5&ndash;6 of the first animation add the second column and show the extra filtering it removes.</li></ul>
+        <p>An index on <code>(customer_id, placed_at, status)</code> is sorted by <code>customer_id</code> first, so it serves queries filtering on <code>customer_id</code>, on <code>customer_id + placed_at</code>, and on all three. It does <em>not</em> serve a query filtering only on <code>placed_at</code>, any more than a phone book sorted by surname helps you find everyone called Ada.</p>
+        <p>Column order rules: equality predicates first, then the range or sort column, then anything you only want to carry along. One well-ordered composite index usually replaces three single-column ones and costs less on writes.</p>
+        <h4>What <code>(a, b, c)</code> serves</h4>
+        <table><tr><th>Predicate</th><th>Uses the index?</th></tr>
+        <tr><td><code>a = ?</code></td><td>yes</td></tr>
+        <tr><td><code>a = ? AND b = ?</code></td><td>yes</td></tr>
+        <tr><td><code>a = ? AND c = ?</code></td><td>partly — only <code>a</code> narrows</td></tr>
+        <tr><td><code>b = ?</code></td><td>no</td></tr>
+        <tr><td><code>a = ? ORDER BY b</code></td><td>yes, sort is free</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Steps 5–6 of the first animation add the second column and show the extra filtering it removes.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Covering index</b><span>An index that contains every column the query needs, so the table itself is never read.</span><template class="term-detail" data-see="Composite index, B-tree index, Working set">
-          <p>Normally an index tells you <em>where</em> the rows are and the engine then fetches them from the heap &mdash; one random read each. If the index also carries the selected columns, the engine can answer entirely from the index: an index-only scan. On a query returning many rows that often removes 90% of the I/O.</p>
-          <p>PostgreSQL spells it <code>INCLUDE (...)</code>, SQL Server the same, MySQL/InnoDB gets it for free because secondary indexes already carry the primary key. The cost is a fatter index: more space, more write amplification, and less of it fitting in cache.</p>
-          <h4>Trade-off</h4>
-          <table>
-            <tr><th>Add columns to the index</th><th>Effect</th></tr>
-            <tr><td>Reads</td><td>heap never touched &mdash; much faster</td></tr>
-            <tr><td>Writes</td><td>more pages to maintain</td></tr>
-            <tr><td>Memory</td><td>index competes for the buffer cache</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Postgres also needs the visibility map to be current, so an index-only scan on a table that is never vacuumed quietly stops being index-only.</li></ul>
+        <p>Normally an index tells you <em>where</em> the rows are and the engine then fetches them from the heap — one random read each. If the index also carries the selected columns, the engine can answer entirely from the index: an index-only scan. On a query returning many rows that often removes 90% of the I/O.</p>
+        <p>PostgreSQL spells it <code>INCLUDE (...)</code>, SQL Server the same, MySQL/InnoDB gets it for free because secondary indexes already carry the primary key. The cost is a fatter index: more space, more write amplification, and less of it fitting in cache.</p>
+        <h4>Trade-off</h4>
+        <table><tr><th>Add columns to the index</th><th>Effect</th></tr>
+        <tr><td>Reads</td><td>heap never touched — much faster</td></tr>
+        <tr><td>Writes</td><td>more pages to maintain</td></tr>
+        <tr><td>Memory</td><td>index competes for the buffer cache</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Postgres also needs the visibility map to be current, so an index-only scan on a table that is never vacuumed quietly stops being index-only.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Query plan</b><span>The strategy the planner chose, and the only reliable way to know why a query is slow.</span><template class="term-detail" data-see="Selectivity, Sequential scan, N+1 queries">
-          <p><code>EXPLAIN (ANALYZE, BUFFERS)</code> shows the plan plus what actually happened. Read it bottom-up and look for two things: a node where <code>rows</code> estimated and <code>rows</code> actual differ by an order of magnitude (bad statistics), and a node that examines far more rows than it returns (missing or unusable index).</p>
-          <p>Plans change on their own as data grows and statistics are resampled. A query that was fast for a year can flip to a scan overnight, which is why plan regressions belong on your dashboards.</p>
-          <h4>What to look for</h4>
-          <table>
-            <tr><th>Symptom in the plan</th><th>Usually means</th></tr>
-            <tr><td>Seq Scan on a big table</td><td>missing or unusable index</td></tr>
-            <tr><td>Estimated 10, actual 100,000</td><td>stale or insufficient statistics</td></tr>
-            <tr><td>Nested Loop with a huge outer</td><td>bad join order from bad estimates</td></tr>
-            <tr><td>Sort spilling to disk</td><td><code>work_mem</code> too small</td></tr>
-            <tr><td>High <code>shared read</code> in BUFFERS</td><td>working set does not fit in RAM</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Fix statistics before adding an index &mdash; half of "missing index" cases are mis-estimates.</li></ul>
+        <p><code>EXPLAIN (ANALYZE, BUFFERS)</code> shows the plan plus what actually happened. Read it bottom-up and look for two things: a node where <code>rows</code> estimated and <code>rows</code> actual differ by an order of magnitude (bad statistics), and a node that examines far more rows than it returns (missing or unusable index).</p>
+        <p>Plans change on their own as data grows and statistics are resampled. A query that was fast for a year can flip to a scan overnight, which is why plan regressions belong on your dashboards.</p>
+        <h4>What to look for</h4>
+        <table><tr><th>Symptom in the plan</th><th>Usually means</th></tr>
+        <tr><td>Seq Scan on a big table</td><td>missing or unusable index</td></tr>
+        <tr><td>Estimated 10, actual 100,000</td><td>stale or insufficient statistics</td></tr>
+        <tr><td>Nested Loop with a huge outer</td><td>bad join order from bad estimates</td></tr>
+        <tr><td>Sort spilling to disk</td><td><code>work_mem</code> too small</td></tr>
+        <tr><td>High <code>shared read</code> in BUFFERS</td><td>working set does not fit in RAM</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Fix statistics before adding an index — half of "missing index" cases are mis-estimates.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Sequential scan</b><span>Reading every page of a table in order — slow for a needle, and the right choice for a haystack.</span><template class="term-detail" data-see="Selectivity, Query plan, B-tree index">
-          <p>A sequential scan is not a bug. Reading pages in physical order is far faster per page than random access, so for anything above roughly 10% selectivity, or for a small table, it wins outright. Forcing an index scan there makes the query slower.</p>
-          <p>It becomes a problem only when it is used for a highly selective predicate &mdash; the 555,555:1 ratio in the first animation &mdash; or when several concurrent scans push the working set out of the buffer cache and the whole instance slows down.</p>
-          <h4>When a scan is correct</h4>
-          <table>
-            <tr><th>Case</th><th>Why</th></tr>
-            <tr><td>Small table (a few hundred pages)</td><td>the whole thing is already cached</td></tr>
-            <tr><td>Returning most of the rows</td><td>sequential I/O beats random</td></tr>
-            <tr><td>Analytics and aggregation</td><td>column scan is the point</td></tr>
-          </table>
+        <p>A sequential scan is not a bug. Reading pages in physical order is far faster per page than random access, so for anything above roughly 10% selectivity, or for a small table, it wins outright. Forcing an index scan there makes the query slower.</p>
+        <p>It becomes a problem only when it is used for a highly selective predicate — the 555,555:1 ratio in the first animation — or when several concurrent scans push the working set out of the buffer cache and the whole instance slows down.</p>
+        <h4>When a scan is correct</h4>
+        <table><tr><th>Case</th><th>Why</th></tr>
+        <tr><td>Small table (a few hundred pages)</td><td>the whole thing is already cached</td></tr>
+        <tr><td>Returning most of the rows</td><td>sequential I/O beats random</td></tr>
+        <tr><td>Analytics and aggregation</td><td>column scan is the point</td></tr></table>
         </template></div>
-
         <div class="term"><b>N+1 queries</b><span>One query to fetch a list, then one more per item — the most common application-side performance bug.</span><template class="term-detail" data-see="Query plan, Connection pool, Working set">
-          <p>Fetch 200 orders, then lazily touch <code>order.Customer.Name</code> inside the loop, and the ORM issues 201 round trips. Each one is individually fast, so nothing looks slow in the database; the time is 201 network round trips plus 201 pool acquisitions, and it only appears under load.</p>
-          <p>It is also the fastest way to exhaust a connection pool, because each request now holds its connection for far longer than anyone sized for.</p>
-          <h4>Fixes, in order</h4>
-          <table>
-            <tr><th>Fix</th><th>Note</th></tr>
-            <tr><td>Eager load / join</td><td><code>Include</code>, <code>selectinload</code>, <code>JOIN FETCH</code></td></tr>
-            <tr><td>Batch the second query</td><td>one <code>WHERE id IN (...)</code></td></tr>
-            <tr><td>Project to a DTO</td><td>fetch only what the screen needs</td></tr>
-            <tr><td>Fail the build</td><td>assert query count in tests</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Counting queries per request in tests catches this before production does.</li></ul>
+        <p>Fetch 200 orders, then lazily touch <code>order.Customer.Name</code> inside the loop, and the ORM issues 201 round trips. Each one is individually fast, so nothing looks slow in the database; the time is 201 network round trips plus 201 pool acquisitions, and it only appears under load.</p>
+        <p>It is also the fastest way to exhaust a connection pool, because each request now holds its connection for far longer than anyone sized for.</p>
+        <h4>Fixes, in order</h4>
+        <table><tr><th>Fix</th><th>Note</th></tr>
+        <tr><td>Eager load / join</td><td><code>Include</code>, <code>selectinload</code>, <code>JOIN FETCH</code></td></tr>
+        <tr><td>Batch the second query</td><td>one <code>WHERE id IN (...)</code></td></tr>
+        <tr><td>Project to a DTO</td><td>fetch only what the screen needs</td></tr>
+        <tr><td>Fail the build</td><td>assert query count in tests</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Counting queries per request in tests catches this before production does.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Connection pool</b><span>A bounded set of reusable database connections shared by application threads.</span><template class="term-detail" data-see="Pool sizing, N+1 queries, Lock contention">
-          <p>Opening a PostgreSQL connection costs milliseconds and a backend process with its own memory; opening thousands costs the server more than the queries do. A pool keeps a small number open and hands them out, which also acts as a concurrency limiter &mdash; its most valuable and least appreciated property.</p>
-          <p>Treat pool saturation as a signal, not a problem to configure away: it means work is arriving faster than the database completes it, and raising the limit only moves the queue somewhere worse.</p>
-          <h4>Settings that matter</h4>
-          <table>
-            <tr><th>Setting</th><th>Sensible value</th></tr>
-            <tr><td>Max pool size</td><td>small &mdash; see pool sizing</td></tr>
-            <tr><td>Acquisition timeout</td><td>1&ndash;5 s; fail fast, do not pile up</td></tr>
-            <tr><td>Statement timeout</td><td>below the request timeout</td></tr>
-            <tr><td>Idle timeout</td><td>minutes, to release idle backends</td></tr>
-            <tr><td>Leak detection</td><td>on &mdash; finds unreturned connections</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The second animation is a pool saturating because the query got slower, not because the pool was small.</li></ul>
+        <p>Opening a PostgreSQL connection costs milliseconds and a backend process with its own memory; opening thousands costs the server more than the queries do. A pool keeps a small number open and hands them out, which also acts as a concurrency limiter — its most valuable and least appreciated property.</p>
+        <p>Treat pool saturation as a signal, not a problem to configure away: it means work is arriving faster than the database completes it, and raising the limit only moves the queue somewhere worse.</p>
+        <h4>Settings that matter</h4>
+        <table><tr><th>Setting</th><th>Sensible value</th></tr>
+        <tr><td>Max pool size</td><td>small — see pool sizing</td></tr>
+        <tr><td>Acquisition timeout</td><td>1–5 s; fail fast, do not pile up</td></tr>
+        <tr><td>Statement timeout</td><td>below the request timeout</td></tr>
+        <tr><td>Idle timeout</td><td>minutes, to release idle backends</td></tr>
+        <tr><td>Leak detection</td><td>on — finds unreturned connections</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The second animation is a pool saturating because the query got slower, not because the pool was small.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Pool sizing</b><span>How many connections you actually need: arrival rate times time held, by Little's Law — usually a much smaller number than teams expect.</span><template class="term-detail" data-see="Connection pool, Lock contention">
-          <p><code>connections = requests per second &times; seconds held</code>. At 100 requests per second each holding a connection for 50 ms, five are busy on average; a pool of ten has headroom. The famous HikariCP guidance &mdash; roughly <code>cores &times; 2 + effective spindles</code> &mdash; lands in the same place from the server's side: a 16-core database rarely benefits from more than about 32 concurrent queries, because beyond that they just compete.</p>
-          <p>Remember to multiply by instances: ten application pods with a pool of 20 each is 200 connections at the server, which is where "too many clients already" comes from.</p>
-          <h4>Worked examples</h4>
-          <table>
-            <tr><th>Rate</th><th>Held</th><th>Busy connections</th></tr>
-            <tr><td>100/s</td><td>50 ms</td><td>5</td></tr>
-            <tr><td>100/s</td><td>200 ms</td><td>20</td></tr>
-            <tr><td>500/s</td><td>20 ms</td><td>10</td></tr>
-            <tr><td>50/s</td><td>2 s</td><td>100 &mdash; fix the query</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>This is Little's Law applied to connections; the same arithmetic sizes thread pools and queues.</li></ul>
+        <p><code>connections = requests per second × seconds held</code>. At 100 requests per second each holding a connection for 50 ms, five are busy on average; a pool of ten has headroom. The famous HikariCP guidance — roughly <code>cores × 2 + effective spindles</code> — lands in the same place from the server's side: a 16-core database rarely benefits from more than about 32 concurrent queries, because beyond that they just compete.</p>
+        <p>Remember to multiply by instances: ten application pods with a pool of 20 each is 200 connections at the server, which is where "too many clients already" comes from.</p>
+        <h4>Worked examples</h4>
+        <table><tr><th>Rate</th><th>Held</th><th>Busy connections</th></tr>
+        <tr><td>100/s</td><td>50 ms</td><td>5</td></tr>
+        <tr><td>100/s</td><td>200 ms</td><td>20</td></tr>
+        <tr><td>500/s</td><td>20 ms</td><td>10</td></tr>
+        <tr><td>50/s</td><td>2 s</td><td>100 — fix the query</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>This is Little's Law applied to connections; the same arithmetic sizes thread pools and queues.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Partitioning</b><span>Splitting one logical table into physical pieces inside the same database, by range, list or hash.</span><template class="term-detail" data-see="Partition pruning, Sharding, Working set">
-          <p>Partitioning is a maintenance and locality tool, not primarily a speed tool. Its biggest wins are operational: dropping last year's data becomes <code>DROP TABLE</code> on a partition instead of a <code>DELETE</code> of 400 million rows; vacuum, index rebuilds and statistics run per partition; and indexes stay small enough to cache.</p>
-          <p>Range partitioning by time is the overwhelmingly common case. Hash partitioning spreads writes but gives up pruning on ranges; list partitioning suits tenant or region keys.</p>
-          <h4>Choosing a scheme</h4>
-          <table>
-            <tr><th>Scheme</th><th>Good for</th><th>Watch out for</th></tr>
-            <tr><td>Range (time)</td><td>logs, events, orders</td><td>the newest partition is always hot</td></tr>
-            <tr><td>List (tenant, region)</td><td>multitenancy</td><td>skew between tenants</td></tr>
-            <tr><td>Hash</td><td>even write spread</td><td>no range pruning</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Partitioning stays inside one database; <b>sharding</b> crosses machines and loses transactions.</li></ul>
+        <p>Partitioning is a maintenance and locality tool, not primarily a speed tool. Its biggest wins are operational: dropping last year's data becomes <code>DROP TABLE</code> on a partition instead of a <code>DELETE</code> of 400 million rows; vacuum, index rebuilds and statistics run per partition; and indexes stay small enough to cache.</p>
+        <p>Range partitioning by time is the overwhelmingly common case. Hash partitioning spreads writes but gives up pruning on ranges; list partitioning suits tenant or region keys.</p>
+        <h4>Choosing a scheme</h4>
+        <table><tr><th>Scheme</th><th>Good for</th><th>Watch out for</th></tr>
+        <tr><td>Range (time)</td><td>logs, events, orders</td><td>the newest partition is always hot</td></tr>
+        <tr><td>List (tenant, region)</td><td>multitenancy</td><td>skew between tenants</td></tr>
+        <tr><td>Hash</td><td>even write spread</td><td>no range pruning</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Partitioning stays inside one database; <b>sharding</b> crosses machines and loses transactions.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Partition pruning</b><span>The planner skipping partitions that cannot contain matching rows — where the speed-up actually comes from.</span><template class="term-detail" data-see="Partitioning, Query plan">
-          <p>A query with <code>WHERE placed_at &gt;= '2026-11-01'</code> on a table partitioned by month touches one partition instead of 36. Pruning only works when the partition key appears in the predicate, which is why a partitioned table with queries that filter on something else is all cost and no benefit.</p>
-          <p>Check it, do not assume it: the plan should show one partition scanned. Functions wrapped around the key, implicit casts and parameters resolved too late are the usual reasons pruning silently fails.</p>
-          <h4>Pruning works when</h4>
-          <table>
-            <tr><th>Query</th><th>Pruned?</th></tr>
-            <tr><td><code>WHERE placed_at &gt; '2026-11-01'</code></td><td>yes</td></tr>
-            <tr><td><code>WHERE date_trunc('day', placed_at) = ?</code></td><td>often not</td></tr>
-            <tr><td><code>WHERE customer_id = ?</code></td><td>no &mdash; all partitions</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Partition on what you filter by, or do not partition.</li></ul>
+        <p>A query with <code>WHERE placed_at &gt;= '2026-11-01'</code> on a table partitioned by month touches one partition instead of 36. Pruning only works when the partition key appears in the predicate, which is why a partitioned table with queries that filter on something else is all cost and no benefit.</p>
+        <p>Check it, do not assume it: the plan should show one partition scanned. Functions wrapped around the key, implicit casts and parameters resolved too late are the usual reasons pruning silently fails.</p>
+        <h4>Pruning works when</h4>
+        <table><tr><th>Query</th><th>Pruned?</th></tr>
+        <tr><td><code>WHERE placed_at &gt; '2026-11-01'</code></td><td>yes</td></tr>
+        <tr><td><code>WHERE date_trunc('day', placed_at) = ?</code></td><td>often not</td></tr>
+        <tr><td><code>WHERE customer_id = ?</code></td><td>no — all partitions</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Partition on what you filter by, or do not partition.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Sharding</b><span>Spreading one dataset across independent databases, each owning a subset of the rows.</span><template class="term-detail" data-see="Shard key, Partitioning, Read replica">
-          <p>Sharding is the only way past the write throughput or storage of a single machine, and it is the most expensive step on the ladder. Each shard is a separate database: cross-shard joins disappear, cross-shard transactions require a protocol nobody enjoys, unique constraints become application concerns, and every operational task now happens N times.</p>
-          <p>Do it when a single primary genuinely cannot keep up after the cheaper steps &mdash; not because the table is large. A well-indexed, partitioned table on a modern machine handles billions of rows.</p>
-          <div class="anim" id="sh-anim" data-steps="sh"><h4>Keys landing on shards, and what resharding costs</h4>
-            <div class="stage">
-              <svg viewBox="0 0 580 210" role="img" aria-label="Three keys hashed onto three shards, then a fourth shard added and most keys moving">
-                <text x="290" y="24" font-size="11.5" text-anchor="middle" fill="#5f6f66">router: shard = hash(user_id) % N</text>
-                <g id="sh-k1"><rect x="35" y="40" width="100" height="28" rx="4" fill="#fbf3c4" stroke="#d9c25a"/><text x="85" y="59" font-size="10.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">user:17</text></g>
-                <g id="sh-k2"><rect x="200" y="40" width="100" height="28" rx="4" fill="#fbf3c4" stroke="#d9c25a"/><text x="250" y="59" font-size="10.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">user:42</text></g>
-                <g id="sh-k3"><rect x="365" y="40" width="100" height="28" rx="4" fill="#fbf3c4" stroke="#d9c25a"/><text x="415" y="59" font-size="10.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">user:99</text></g>
-                <rect id="sh-a" x="30" y="110" width="110" height="56" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
-                <text x="85" y="144" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">shard A</text>
-                <rect id="sh-b" x="170" y="110" width="110" height="56" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
-                <text x="225" y="144" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">shard B</text>
-                <rect id="sh-c" x="310" y="110" width="110" height="56" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
-                <text x="365" y="144" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">shard C</text>
-                <rect id="sh-d" class="hidden" x="450" y="110" width="110" height="56" rx="6" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
-                <text id="sh-dt" class="hidden" x="505" y="144" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">shard D</text>
-                <text id="sh-msg" x="290" y="192" font-size="11.5" text-anchor="middle" fill="#5f6f66">three keys, three homes</text>
-              </svg>
-            </div><div class="controls"></div><div class="narration"></div></div>
-          <h4>How it relates</h4>
-          <ul><li>Try <b>read replicas</b> and <b>partitioning</b> first; they keep one logical database.</li></ul>
+        <p>Sharding is the only way past the write throughput or storage of a single machine, and it is the most expensive step on the ladder. Each shard is a separate database: cross-shard joins disappear, cross-shard transactions require a protocol nobody enjoys, unique constraints become application concerns, and every operational task now happens N times.</p>
+        <p>Do it when a single primary genuinely cannot keep up after the cheaper steps — not because the table is large. A well-indexed, partitioned table on a modern machine handles billions of rows.</p>
+        <div class="anim" id="sh-anim" data-steps="sh">
+          <h4>Keys landing on shards, and what resharding costs</h4>
+          <div class="stage">
+            <svg viewBox="0 0 580 210" role="img" aria-label="Three keys hashed onto three shards, then a fourth shard added and most keys moving">
+              <text x="290" y="24" font-size="11.5" text-anchor="middle" fill="#5f6f66">router: shard = hash(user_id) % N</text>
+              <g id="sh-k1"><rect x="35" y="40" width="100" height="28" rx="4" fill="#fbf3c4" stroke="#d9c25a"/><text x="85" y="59" font-size="10.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">user:17</text></g>
+              <g id="sh-k2"><rect x="200" y="40" width="100" height="28" rx="4" fill="#fbf3c4" stroke="#d9c25a"/><text x="250" y="59" font-size="10.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">user:42</text></g>
+              <g id="sh-k3"><rect x="365" y="40" width="100" height="28" rx="4" fill="#fbf3c4" stroke="#d9c25a"/><text x="415" y="59" font-size="10.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">user:99</text></g>
+              <rect id="sh-a" x="30" y="110" width="110" height="56" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="85" y="144" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">shard A</text>
+              <rect id="sh-b" x="170" y="110" width="110" height="56" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="225" y="144" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">shard B</text>
+              <rect id="sh-c" x="310" y="110" width="110" height="56" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="365" y="144" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">shard C</text>
+              <rect id="sh-d" class="hidden" x="450" y="110" width="110" height="56" rx="6" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+              <text id="sh-dt" class="hidden" x="505" y="144" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">shard D</text>
+              <text id="sh-msg" x="290" y="192" font-size="11.5" text-anchor="middle" fill="#5f6f66">three keys, three homes</text>
+            </svg>
+          </div>
+          <div class="controls"></div>
+          <div class="narration"></div>
+        </div>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Try <b>read replicas</b> and <b>partitioning</b> first; they keep one logical database.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Shard key</b><span>The column that decides which shard a row lives on — the single most consequential and least reversible choice in a sharded system.</span><template class="term-detail" data-see="Sharding, Partitioning">
-          <p>A good shard key spreads writes evenly, keeps rows that are queried together on the same shard, and appears in almost every query so the router can avoid fan-out. <code>tenant_id</code> and <code>user_id</code> usually qualify; a timestamp almost never does, because all of today's writes land on one shard.</p>
-          <p>Changing it later means moving every row, so model the top five queries against the candidate key before committing.</p>
-          <h4>Good and bad keys</h4>
-          <table>
-            <tr><th>Key</th><th>Verdict</th></tr>
-            <tr><td><code>tenant_id</code></td><td>good &mdash; natural locality; watch for whale tenants</td></tr>
-            <tr><td><code>user_id</code> (hashed)</td><td>good &mdash; even spread</td></tr>
-            <tr><td><code>created_at</code></td><td>bad &mdash; all writes hit one shard</td></tr>
-            <tr><td>Auto-increment id</td><td>bad &mdash; same hot-shard problem</td></tr>
-            <tr><td><code>country</code></td><td>bad &mdash; extreme skew</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>A hot shard is the sharded version of a hot partition: the median looks fine and one tenant is on fire.</li></ul>
+        <p>A good shard key spreads writes evenly, keeps rows that are queried together on the same shard, and appears in almost every query so the router can avoid fan-out. <code>tenant_id</code> and <code>user_id</code> usually qualify; a timestamp almost never does, because all of today's writes land on one shard.</p>
+        <p>Changing it later means moving every row, so model the top five queries against the candidate key before committing.</p>
+        <h4>Good and bad keys</h4>
+        <table><tr><th>Key</th><th>Verdict</th></tr>
+        <tr><td><code>tenant_id</code></td><td>good — natural locality; watch for whale tenants</td></tr>
+        <tr><td><code>user_id</code> (hashed)</td><td>good — even spread</td></tr>
+        <tr><td><code>created_at</code></td><td>bad — all writes hit one shard</td></tr>
+        <tr><td>Auto-increment id</td><td>bad — same hot-shard problem</td></tr>
+        <tr><td><code>country</code></td><td>bad — extreme skew</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>A hot shard is the sharded version of a hot partition: the median looks fine and one tenant is on fire.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Read replica</b><span>A copy of the primary that serves reads, with a replication lag you must design around.</span><template class="term-detail" data-see="Working set, Sharding, Connection pool">
-          <p>Replicas are the cheapest real scaling step: no schema change, no application rewrite beyond routing. They scale reads only &mdash; every replica still applies every write &mdash; and they introduce lag, usually single-digit milliseconds but seconds under heavy write load or a long-running query blocking replay.</p>
-          <p>The practical rule is the same as for any eventually consistent read: send a user's own data to the primary right after they change it, and everything else to a replica.</p>
-          <h4>What replicas fix</h4>
-          <table>
-            <tr><th>Problem</th><th>Replica helps?</th></tr>
-            <tr><td>Too many reads</td><td>yes</td></tr>
-            <tr><td>Reporting disturbing OLTP</td><td>yes</td></tr>
-            <tr><td>Too many writes</td><td>no &mdash; shard or partition</td></tr>
-            <tr><td>Slow individual query</td><td>no &mdash; index it</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Replication lag is the same read-your-own-writes problem CQRS has, with the same mitigations.</li></ul>
+        <p>Replicas are the cheapest real scaling step: no schema change, no application rewrite beyond routing. They scale reads only — every replica still applies every write — and they introduce lag, usually single-digit milliseconds but seconds under heavy write load or a long-running query blocking replay.</p>
+        <p>The practical rule is the same as for any eventually consistent read: send a user's own data to the primary right after they change it, and everything else to a replica.</p>
+        <h4>What replicas fix</h4>
+        <table><tr><th>Problem</th><th>Replica helps?</th></tr>
+        <tr><td>Too many reads</td><td>yes</td></tr>
+        <tr><td>Reporting disturbing OLTP</td><td>yes</td></tr>
+        <tr><td>Too many writes</td><td>no — shard or partition</td></tr>
+        <tr><td>Slow individual query</td><td>no — index it</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Replication lag is the same read-your-own-writes problem CQRS has, with the same mitigations.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Lock contention</b><span>Transactions waiting on each other's row or table locks — latency that no index will fix.</span><template class="term-detail" data-see="Connection pool, Pool sizing, Query plan">
-          <p>Two shapes dominate. A <b>hot row</b> &mdash; a counter, a balance, a sequence table &mdash; serialises every transaction that touches it, so throughput is capped at one divided by the lock hold time regardless of hardware. And <b>long transactions</b> hold locks far longer than the statement that took them, especially when an HTTP call happens inside one.</p>
-          <p>Deadlocks are the loud version and are usually fixed by acquiring rows in a consistent order. The quiet version &mdash; everything 50 ms slower &mdash; is more common and only visible in lock wait metrics.</p>
-          <h4>Patterns and fixes</h4>
-          <table>
-            <tr><th>Pattern</th><th>Fix</th></tr>
-            <tr><td>Hot counter row</td><td>sharded counters, or aggregate asynchronously</td></tr>
-            <tr><td>Long transaction</td><td>never call out over the network inside one</td></tr>
-            <tr><td>Deadlock</td><td>consistent lock ordering, short transactions</td></tr>
-            <tr><td>Lock escalation</td><td>batch updates in chunks</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Lock waits inflate the time a connection is held, which is what saturates the pool.</li></ul>
+        <p>Two shapes dominate. A <b>hot row</b> — a counter, a balance, a sequence table — serialises every transaction that touches it, so throughput is capped at one divided by the lock hold time regardless of hardware. And <b>long transactions</b> hold locks far longer than the statement that took them, especially when an HTTP call happens inside one.</p>
+        <p>Deadlocks are the loud version and are usually fixed by acquiring rows in a consistent order. The quiet version — everything 50 ms slower — is more common and only visible in lock wait metrics.</p>
+        <h4>Patterns and fixes</h4>
+        <table><tr><th>Pattern</th><th>Fix</th></tr>
+        <tr><td>Hot counter row</td><td>sharded counters, or aggregate asynchronously</td></tr>
+        <tr><td>Long transaction</td><td>never call out over the network inside one</td></tr>
+        <tr><td>Deadlock</td><td>consistent lock ordering, short transactions</td></tr>
+        <tr><td>Lock escalation</td><td>batch updates in chunks</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Lock waits inflate the time a connection is held, which is what saturates the pool.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Working set</b><span>The pages actually touched by your queries. Performance falls off a cliff when it stops fitting in RAM.</span><template class="term-detail" data-see="Covering index, Partitioning, Read replica">
-          <p>Databases are fast because the hot pages live in the buffer cache: a hit is about 100 nanoseconds, a miss on NVMe is 50&ndash;500 microseconds, several hundred times slower. Most tables have a small hot subset &mdash; recent orders, active users &mdash; so what matters is not the size of the data but the size of the part you keep touching.</p>
-          <p>The failure mode is non-linear and sudden: the working set grows just past RAM, hit rate drops, I/O climbs, queries slow, connections are held longer, the pool saturates, and the whole thing looks like a pool incident.</p>
-          <h4>Keeping it small</h4>
-          <table>
-            <tr><th>Technique</th><th>Effect</th></tr>
-            <tr><td>Partition by time</td><td>cold months stop competing for cache</td></tr>
-            <tr><td>Narrower rows / TOAST</td><td>more rows per page</td></tr>
-            <tr><td>Partial and covering indexes</td><td>fewer pages per query</td></tr>
-            <tr><td>Archive old data</td><td>the only permanent fix</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Cache hit ratio and <code>shared read</code> counts are the early warning; latency percentiles are the late one.</li></ul>
+        <p>Databases are fast because the hot pages live in the buffer cache: a hit is about 100 nanoseconds, a miss on NVMe is 50–500 microseconds, several hundred times slower. Most tables have a small hot subset — recent orders, active users — so what matters is not the size of the data but the size of the part you keep touching.</p>
+        <p>The failure mode is non-linear and sudden: the working set grows just past RAM, hit rate drops, I/O climbs, queries slow, connections are held longer, the pool saturates, and the whole thing looks like a pool incident.</p>
+        <h4>Keeping it small</h4>
+        <table><tr><th>Technique</th><th>Effect</th></tr>
+        <tr><td>Partition by time</td><td>cold months stop competing for cache</td></tr>
+        <tr><td>Narrower rows / TOAST</td><td>more rows per page</td></tr>
+        <tr><td>Partial and covering indexes</td><td>fewer pages per query</td></tr>
+        <tr><td>Archive old data</td><td>the only permanent fix</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Cache hit ratio and <code>shared read</code> counts are the early warning; latency percentiles are the late one.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Bloat &amp; vacuum</b><span>Dead row versions left by updates and deletes, and the background work that reclaims them.</span><template class="term-detail" data-see="Working set, Query plan, B-tree index">
-          <p>In MVCC engines an <code>UPDATE</code> writes a new row version and leaves the old one as garbage. Autovacuum reclaims that space and refreshes the visibility map, but it is throttled by default and loses ground on write-heavy tables &mdash; so the table grows, scans read more pages, indexes point at dead tuples and index-only scans silently stop being index-only.</p>
-          <p>Long-running transactions and abandoned replication slots are the usual culprits: vacuum cannot remove a row version that some old snapshot might still need, so a forgotten session can bloat a table for days.</p>
-          <h4>Symptoms and causes</h4>
-          <table>
-            <tr><th>Symptom</th><th>Likely cause</th></tr>
-            <tr><td>Table far bigger than its data</td><td>autovacuum falling behind</td></tr>
-            <tr><td>Index-only scans vanished</td><td>visibility map stale</td></tr>
-            <tr><td>Vacuum never completes</td><td>long transaction or stale slot</td></tr>
-            <tr><td>Growing after a bulk delete</td><td>space reclaimed but not returned to the OS</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Bloat quietly grows the <b>working set</b>, which is how a healthy system becomes a slow one without any code change.</li></ul>
+        <p>In MVCC engines an <code>UPDATE</code> writes a new row version and leaves the old one as garbage. Autovacuum reclaims that space and refreshes the visibility map, but it is throttled by default and loses ground on write-heavy tables — so the table grows, scans read more pages, indexes point at dead tuples and index-only scans silently stop being index-only.</p>
+        <p>Long-running transactions and abandoned replication slots are the usual culprits: vacuum cannot remove a row version that some old snapshot might still need, so a forgotten session can bloat a table for days.</p>
+        <h4>Symptoms and causes</h4>
+        <table><tr><th>Symptom</th><th>Likely cause</th></tr>
+        <tr><td>Table far bigger than its data</td><td>autovacuum falling behind</td></tr>
+        <tr><td>Index-only scans vanished</td><td>visibility map stale</td></tr>
+        <tr><td>Vacuum never completes</td><td>long transaction or stale slot</td></tr>
+        <tr><td>Growing after a bulk delete</td><td>space reclaimed but not returned to the OS</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Bloat quietly grows the <b>working set</b>, which is how a healthy system becomes a slow one without any code change.</li>
+        </ul>
         </template></div>
       </div>
     </section>
@@ -497,7 +479,6 @@ FROM   pg_stat_user_indexes WHERE idx_scan = 0 ORDER BY 3 DESC;</code></pre><div
 FROM   pg_stat_activity
 WHERE  state &lt;&gt; 'idle' ORDER BY age DESC;</code></pre><div class="what">Live sessions, what they are waiting on, and the long transaction that is blocking vacuum.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Indexes</h3>
         <div class="cmd"><pre class="language-sql"><code class="language-sql">CREATE INDEX CONCURRENTLY ix_orders_cust_date
@@ -511,7 +492,6 @@ CREATE INDEX CONCURRENTLY ix_orders_open
 ALTER TABLE orders ALTER COLUMN customer_id SET STATISTICS 500;
 REINDEX INDEX CONCURRENTLY ix_orders_cust_date;  -- rebuild a bloated index</code></pre><div class="what">Fix the planner's information before adding more indexes — many "missing index" problems are mis-estimates.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Partitioning</h3>
         <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">CREATE TABLE orders (
@@ -527,7 +507,6 @@ DROP TABLE orders_2025_11;
 -- confirm pruning actually happens
 EXPLAIN SELECT count(*) FROM orders WHERE placed_at &gt;= '2026-11-01';</code></pre><div class="what">The real win of partitioning: instant retention, and plans that touch one partition instead of thirty-six.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Connection pools</h3>
         <div class="cmd"><pre class="language-none"><code class="language-none"># Npgsql (.NET) — small pool, fail fast
@@ -563,7 +542,6 @@ with pool.connection() as conn:           # always context-managed
     with conn.cursor() as cur:
         cur.execute("SELECT total FROM orders WHERE id = %s", (order_id,))</code></pre><div class="what">A leaked connection is a pool of one. Context managers, and leak detection, are not optional.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Safety rails</h3>
         <div class="cmd"><pre class="language-sql"><code class="language-sql">ALTER ROLE app SET statement_timeout = '10s';
@@ -588,7 +566,7 @@ ALTER ROLE app SET lock_timeout = '3s';</code></pre><div class="what">Three sett
           <li>Partitioning only helps if the partition key is in your predicates; otherwise it is pure overhead.</li>
           <li>Sharding loses cross-shard joins, transactions and unique constraints, and multiplies all operations.</li>
           <li>Replicas add lag, so read-your-own-writes has to be handled explicitly.</li>
-          <li>Plans change on their own as data grows &mdash; tuning is never finished.</li>
+          <li>Plans change on their own as data grows — tuning is never finished.</li>
           <li>Tuning in a staging environment with 1% of the data regularly produces the wrong conclusion.</li>
         </ul></div>
       </div>
@@ -601,7 +579,7 @@ ALTER ROLE app SET lock_timeout = '3s';</code></pre><div class="what">Three sett
         <div class="card"><h3>A list page that got slow as the company grew</h3><p>A dashboard query was fine at 200,000 rows and takes 3 seconds at 20 million. The plan shows a sequential scan: the index exists but the query wraps the column in a function, so it cannot be used. Rewriting the predicate restores a 4 ms index scan.</p></div>
         <div class="card"><h3>Retention on an events table</h3><p>A nightly <code>DELETE FROM events WHERE created_at &lt; now() - interval '90 days'</code> runs for hours, bloats the table and starves autovacuum. Range-partitioning by week turns it into <code>DROP TABLE</code> per partition: instant, no bloat, no vacuum debt.</p></div>
         <div class="card"><h3>Reports crushing the transactional database</h3><p>Analysts run heavy aggregations against the primary and checkout latency rises at month end. Routing those queries to a read replica isolates them completely; the lag of a few hundred milliseconds is irrelevant for a report.</p></div>
-        <div class="card"><h3>A multi-tenant table with one enormous tenant</h3><p>Average query time looks fine while the largest tenant times out. List-partitioning by <code>tenant_id</code> with the whales on their own partitions &mdash; and per-tenant limits &mdash; fixes the tail without sharding the whole system.</p></div>
+        <div class="card"><h3>A multi-tenant table with one enormous tenant</h3><p>Average query time looks fine while the largest tenant times out. List-partitioning by <code>tenant_id</code> with the whales on their own partitions — and per-tenant limits — fixes the tail without sharding the whole system.</p></div>
       </div>
     </section>
 
@@ -620,7 +598,7 @@ ALTER ROLE app SET lock_timeout = '3s';</code></pre><div class="what">Three sett
         <div class="col bad"><h3>Avoid when…</h3><ul>
           <li>Indexing a low-cardinality column for a query that returns half the table. Use <b>a partial index, or nothing</b>.</li>
           <li>Partitioning a table whose queries never filter on the key. Use <b>better indexes</b>.</li>
-          <li>Sharding to make queries faster. Use <b>indexes, caching and replicas</b> &mdash; sharding addresses write and storage limits, not latency.</li>
+          <li>Sharding to make queries faster. Use <b>indexes, caching and replicas</b> — sharding addresses write and storage limits, not latency.</li>
           <li>Enlarging the pool because it saturates. Use <b>a faster query, or load shedding</b>.</li>
           <li>Tuning against a staging database with 1% of production data. Use <b>a production-sized copy</b> or the real plans.</li>
         </ul></div>
@@ -630,13 +608,13 @@ ALTER ROLE app SET lock_timeout = '3s';</code></pre><div class="what">Three sett
     <section id="gotchas">
       <h2>Common mistakes &amp; gotchas</h2>
       <div class="gotcha"><b>Wrapping an indexed column in a function</b><span><code>WHERE lower(email) = ?</code> or <code>WHERE date(created_at) = ?</code> cannot use a plain index on the column, so a perfectly good index sits unused while the table is scanned.</span><div class="fix">Fix: index the expression (<code>CREATE INDEX ... ON t (lower(email))</code>), or rewrite the predicate as a range: <code>created_at &gt;= d AND created_at &lt; d + 1</code>.</div></div>
-      <div class="gotcha"><b>Enlarging the pool when it saturates</b><span>More connections means more concurrent queries on the same cores, so each gets slower, so each is held longer &mdash; the classic congestion collapse.</span><div class="fix">Fix: keep the pool small, fail fast on acquisition, and fix the thing that made queries slower. A pool is a concurrency limiter, and that is a feature.</div></div>
+      <div class="gotcha"><b>Enlarging the pool when it saturates</b><span>More connections means more concurrent queries on the same cores, so each gets slower, so each is held longer — the classic congestion collapse.</span><div class="fix">Fix: keep the pool small, fail fast on acquisition, and fix the thing that made queries slower. A pool is a concurrency limiter, and that is a feature.</div></div>
       <div class="gotcha"><b>One index per column</b><span>Six single-column indexes serve fewer queries than two well-ordered composite ones, while costing six times the write amplification and cache.</span><div class="fix">Fix: design indexes from your actual query shapes, equality columns first. Drop indexes with zero scans in <code>pg_stat_user_indexes</code>.</div></div>
       <div class="gotcha"><b>Partitioning on the wrong key</b><span>Partitioning by hash of the id while every query filters by date means no pruning at all: all the maintenance cost, none of the benefit, plus more planning time.</span><div class="fix">Fix: partition on what the predicates use, verify with EXPLAIN that one partition is scanned, and keep the partition count in the dozens, not thousands.</div></div>
       <div class="gotcha"><b>Choosing a timestamp as the shard key</b><span>All of today's writes land on one shard, so you have the complexity of sharding and the throughput of a single machine.</span><div class="fix">Fix: shard on something with natural locality and even spread (hashed <code>tenant_id</code> or <code>user_id</code>), and model your top queries against it before committing.</div></div>
       <div class="gotcha"><b>Long transactions holding everything hostage</b><span>A transaction opened before an HTTP call keeps locks and blocks vacuum for as long as the remote service takes, which bloats tables and stalls replicas.</span><div class="fix">Fix: never make a network call inside a transaction, and set <code>idle_in_transaction_session_timeout</code> so a stuck session cannot do it anyway.</div></div>
       <div class="gotcha"><b>Trusting averages</b><span>A mean query time of 20 ms hides a p99 of 4 seconds, and the p99 is what users and timeouts actually experience.</span><div class="fix">Fix: alert on percentiles and on <code>total_exec_time</code> from <code>pg_stat_statements</code>, not on means.</div></div>
-      <div class="gotcha"><b>Creating indexes without CONCURRENTLY in production</b><span>A plain <code>CREATE INDEX</code> takes a lock that blocks writes for the whole build &mdash; minutes to hours on a large table.</span><div class="fix">Fix: use <code>CREATE INDEX CONCURRENTLY</code>, and check <code>pg_index.indisvalid</code> afterwards, because a concurrent build that fails leaves an invalid index behind.</div></div>
+      <div class="gotcha"><b>Creating indexes without CONCURRENTLY in production</b><span>A plain <code>CREATE INDEX</code> takes a lock that blocks writes for the whole build — minutes to hours on a large table.</span><div class="fix">Fix: use <code>CREATE INDEX CONCURRENTLY</code>, and check <code>pg_index.indisvalid</code> afterwards, because a concurrent build that fails leaves an invalid index behind.</div></div>
     </section>
 
     <section id="alternatives">
@@ -645,13 +623,13 @@ ALTER ROLE app SET lock_timeout = '3s';</code></pre><div class="what">Three sett
         <table>
           <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs indexing and tuning</th></tr></thead>
           <tbody>
-            <tr class="self"><td><b>Indexes &amp; query tuning</b></td><td>almost every slow query</td><td>Low</td><td>free; write-side tax</td><td>&mdash;</td></tr>
+            <tr class="self"><td><b>Indexes &amp; query tuning</b></td><td>almost every slow query</td><td>Low</td><td>free; write-side tax</td><td>—</td></tr>
             <tr><td><b>Caching</b></td><td>hot, repeated reads</td><td>Low</td><td>a cache node</td><td>Avoids the database entirely; brings invalidation and staleness instead</td></tr>
             <tr><td><b>Read replicas</b></td><td>read scaling, report isolation</td><td>Low</td><td>extra instances</td><td>More capacity for the same queries; adds replication lag, no help for writes</td></tr>
             <tr><td><b>Partitioning</b></td><td>very large tables, retention</td><td>Medium</td><td>free</td><td>Maintenance and locality rather than raw speed; needs the key in your predicates</td></tr>
             <tr><td><b>Sharding</b></td><td>write volume beyond one machine</td><td>High</td><td>free; operational cost large</td><td>The only way past a single primary; loses joins and transactions</td></tr>
             <tr><td><b>Bigger machine</b></td><td>buying a year of runway</td><td>None</td><td>linear in cloud spend</td><td>Changes nothing structurally; often the correct short-term answer</td></tr>
-            <tr><td><b>A different store</b></td><td>search, time series, analytics</td><td>Medium&ndash;High</td><td>another system to run</td><td>Right data model for one access pattern; a second source of truth to keep in sync</td></tr>
+            <tr><td><b>A different store</b></td><td>search, time series, analytics</td><td>Medium–High</td><td>another system to run</td><td>Right data model for one access pattern; a second source of truth to keep in sync</td></tr>
           </tbody>
         </table>
       </div>
@@ -659,7 +637,7 @@ ALTER ROLE app SET lock_timeout = '3s';</code></pre><div class="what">Three sett
         <li><b>Pick caching</b> when the same answers are read far more often than the data changes.</li>
         <li><b>Pick read replicas</b> when the queries are fine but there are too many, or reports are disturbing live traffic.</li>
         <li><b>Pick partitioning</b> when retention and maintenance hurt more than query latency does.</li>
-        <li><b>Pick sharding</b> only when a single primary cannot absorb the writes &mdash; and expect to redesign your queries.</li>
+        <li><b>Pick sharding</b> only when a single primary cannot absorb the writes — and expect to redesign your queries.</li>
         <li><b>Pick a bigger machine</b> without shame while you fix the real cause; vertical scaling is cheap compared to a rushed shard.</li>
         <li><b>Pick a specialised store</b> (search index, columnar warehouse, time-series DB) when an access pattern is fundamentally alien to a row store.</li>
       </ul>
@@ -669,10 +647,10 @@ ALTER ROLE app SET lock_timeout = '3s';</code></pre><div class="what">Three sett
       <h2>Resources</h2>
       <ul>
         <li><a href="https://use-the-index-luke.com/" target="_blank" rel="noopener">Use The Index, Luke!</a>: the best free book on SQL indexing, engine-agnostic and relentlessly practical.</li>
-        <li><a href="https://www.postgresql.org/docs/current/using-explain.html" target="_blank" rel="noopener">PostgreSQL &mdash; Using EXPLAIN</a>: how to read a plan, with worked examples.</li>
+        <li><a href="https://www.postgresql.org/docs/current/using-explain.html" target="_blank" rel="noopener">PostgreSQL — Using EXPLAIN</a>: how to read a plan, with worked examples.</li>
         <li><a href="https://explain.dalibo.com/" target="_blank" rel="noopener">explain.dalibo.com</a>: paste a plan and get a readable, annotated visualisation of where the time went.</li>
-        <li><a href="https://www.postgresql.org/docs/current/ddl-partitioning.html" target="_blank" rel="noopener">PostgreSQL &mdash; Table Partitioning</a>: declarative partitioning, pruning and its limitations.</li>
-        <li><a href="https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing" target="_blank" rel="noopener">HikariCP &mdash; About Pool Sizing</a>: the short argument for why your pool should be much smaller than you think.</li>
+        <li><a href="https://www.postgresql.org/docs/current/ddl-partitioning.html" target="_blank" rel="noopener">PostgreSQL — Table Partitioning</a>: declarative partitioning, pruning and its limitations.</li>
+        <li><a href="https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing" target="_blank" rel="noopener">HikariCP — About Pool Sizing</a>: the short argument for why your pool should be much smaller than you think.</li>
         <li><a href="https://www.pgbouncer.org/usage.html" target="_blank" rel="noopener">PgBouncer documentation</a>: pool modes and what each one forbids.</li>
       </ul>
     </section>
@@ -719,38 +697,39 @@ ALTER ROLE app SET lock_timeout = '3s';</code></pre><div class="what">Three sett
 <script src="../assets/player.js?v=3658cbc7"></script>
 <script>
 createAnimation('anim-idx', [
-  { say: 'An orders table with 20 million rows, about 4 GB on disk. The query wants one customer\'s recent orders — 36 rows out of 20 million.', hl: ['ix-heap'] },
-  { say: 'With no usable index the planner has only one option: read every page of the table, test every row, and throw almost all of them away.', hl: ['ix-plan'], text: { 'ix-ht': 'reading all 20,000,000 rows' } },
-  { say: 'That ratio — 555,555 rows examined for every row returned — is the number to look at first in any plan. It says "a structure is missing", regardless of how long the query took today.', unhl: ['ix-heap', 'ix-plan'] },
-  { say: 'Add a B-tree index on <code>customer_id</code>. Each node holds hundreds of keys, so even 20 million entries make a tree only four levels deep.', show: ['ix-btree', 'ix-btt', 'ix-n0'], text: { 'ix-ratio': 'B-tree depth for 20M rows: 4 levels' } },
-  { say: 'The lookup descends: root, then the internal node covering the range containing 4711, then the leaf. Three page reads — and page reads, not rows, are what cost time.', show: ['ix-n1', 'ix-n2'], hl: ['ix-n0'] },
-  { say: 'The leaf holds pointers to the 36 matching rows. The engine fetches those 36 heap pages and nothing else: 2,400 ms becomes 0.8 ms.', show: ['ix-l1'], unhl: ['ix-n0'], hl: ['ix-l1'], text: { 'ix-p1': 'Index Scan using ix_cust', 'ix-p2': 'rows examined: 36', 'ix-p3': '0.8 ms', 'ix-ht': '36 heap pages read', 'ix-ratio': 'examined / returned = 1 : 1' }, fill: { 'ix-p3': '#2f6b3f', 'ix-ht': '#2f6b3f' } },
-  { say: 'The second predicate, <code>placed_at</code>, is still applied <em>after</em> the fetch. Make the index composite on <code>(customer_id, placed_at)</code> and both predicates narrow the tree instead.', unhl: ['ix-l1'], text: { 'ix-btt': 'B-tree on (customer_id, placed_at)', 'ix-p2': 'rows examined: 4', 'ix-ht': '4 heap pages read' } },
-  { say: 'Column order is the whole trick. <code>(customer_id, placed_at)</code> serves a filter on customer, on customer plus date, and sorting by date within a customer — but never a filter on date alone. That is the leftmost-prefix rule.', text: { 'ix-ratio': 'leftmost prefix: (a), (a,b) — never (b) alone' } },
-  { say: 'One step further: add the selected columns to the index. Now everything the query needs is in the index, the heap is never touched at all, and this becomes an index-only scan.', text: { 'ix-btt': '… INCLUDE (total)', 'ix-p1': 'Index Only Scan', 'ix-ht': 'heap: never touched', 'ix-ht2': 'returns 4 rows', 'ix-ht3': 'reads 0 table pages' }, fill: { 'ix-ht': '#2f6b3f' }, hl: ['ix-btree'] },
-  { say: 'And the bill. Every one of these indexes must be updated on every insert, on every delete, and on every update that touches an indexed column — plus it competes with your data for the buffer cache. Index what you query, not what you have.', show: ['ix-hand'], unhl: ['ix-btree'], text: { 'ix-ratio': 'reads got 3,000x faster · writes got slower', 'ix-cost': 'drop indexes with zero scans — they are pure tax' } },
+  { say: "An orders table with 20 million rows, about 4 GB on disk. The query wants one customer's recent orders — 36 rows out of 20 million.", hl: ["ix-heap"] },
+  { say: "With no usable index the planner has only one option: read every page of the table, test every row, and throw almost all of them away.", hl: ["ix-plan"], text: {"ix-ht":"reading all 20,000,000 rows"} },
+  { say: "That ratio — 555,555 rows examined for every row returned — is the number to look at first in any plan. It says \"a structure is missing\", regardless of how long the query took today.", unhl: ["ix-heap","ix-plan"] },
+  { say: "Add a B-tree index on <code>customer_id</code>. Each node holds hundreds of keys, so even 20 million entries make a tree only four levels deep.", show: ["ix-btree","ix-btt","ix-n0"], text: {"ix-ratio":"B-tree depth for 20M rows: 4 levels"} },
+  { say: "The lookup descends: root, then the internal node covering the range containing 4711, then the leaf. Three page reads — and page reads, not rows, are what cost time.", show: ["ix-n1","ix-n2"], hl: ["ix-n0"] },
+  { say: "The leaf holds pointers to the 36 matching rows. The engine fetches those 36 heap pages and nothing else: 2,400 ms becomes 0.8 ms.", show: ["ix-l1"], hl: ["ix-l1"], unhl: ["ix-n0"], text: {"ix-p1":"Index Scan using ix_cust","ix-p2":"rows examined: 36","ix-p3":"0.8 ms","ix-ht":"36 heap pages read","ix-ratio":"examined / returned = 1 : 1"}, fill: {"ix-p3":"#2f6b3f","ix-ht":"#2f6b3f"} },
+  { say: "The second predicate, <code>placed_at</code>, is still applied <em>after</em> the fetch. Make the index composite on <code>(customer_id, placed_at)</code> and both predicates narrow the tree instead.", unhl: ["ix-l1"], text: {"ix-btt":"B-tree on (customer_id, placed_at)","ix-p2":"rows examined: 4","ix-ht":"4 heap pages read"} },
+  { say: "Column order is the whole trick. <code>(customer_id, placed_at)</code> serves a filter on customer, on customer plus date, and sorting by date within a customer — but never a filter on date alone. That is the leftmost-prefix rule.", text: {"ix-ratio":"leftmost prefix: (a), (a,b) — never (b) alone"} },
+  { say: "One step further: add the selected columns to the index. Now everything the query needs is in the index, the heap is never touched at all, and this becomes an index-only scan.", hl: ["ix-btree"], text: {"ix-btt":"… INCLUDE (total)","ix-p1":"Index Only Scan","ix-ht":"heap: never touched","ix-ht2":"returns 4 rows","ix-ht3":"reads 0 table pages"}, fill: {"ix-ht":"#2f6b3f"} },
+  { say: "And the bill. Every one of these indexes must be updated on every insert, on every delete, and on every update that touches an indexed column — plus it competes with your data for the buffer cache. Index what you query, not what you have.", show: ["ix-hand"], unhl: ["ix-btree"], text: {"ix-ratio":"reads got 3,000x faster · writes got slower","ix-cost":"drop indexes with zero scans — they are pure tax"} },
 ]);
 
 createAnimation('anim-pool', [
-  { say: 'A service taking 100 requests a second. Each request holds a database connection for about 50 ms. The pool allows 10.', hl: ['pl-app'] },
-  { say: 'Little\'s Law gives the answer directly: 100 per second times 0.05 seconds is 5 connections busy at any moment. Half the pool is idle, and that is a healthy system.', unhl: ['pl-app'], fill: { 'pl-s1': '#e3eedc', 'pl-s2': '#e3eedc', 'pl-s3': '#e3eedc', 'pl-s4': '#e3eedc', 'pl-s5': '#e3eedc' }, hl: ['pl-calc'] },
-  { say: 'Now a deploy drops an index, and the same query starts taking 200 ms. Nothing about the traffic changed: the arrival rate is still 100 a second.', unhl: ['pl-calc'], hl: ['pl-db'], text: { 'pl-dbt': 'query time: 200 ms', 'pl-dbs': 'index dropped by a migration', 'pl-t': 't = 10 s' }, fill: { 'pl-dbt': '#c53b3b' } },
-  { say: 'But the connections needed quadruple: 100 per second times 0.2 seconds is 20. The pool only has 10, so all ten are busy and the rest of the work queues up inside the pool.', unhl: ['pl-db'], fill: { 'pl-s6': '#f9e3df', 'pl-s7': '#f9e3df', 'pl-s8': '#f9e3df', 'pl-s9': '#f9e3df', 'pl-s10': '#f9e3df', 'pl-s1': '#f9e3df', 'pl-s2': '#f9e3df', 'pl-s3': '#f9e3df', 'pl-s4': '#f9e3df', 'pl-s5': '#f9e3df' }, text: { 'pl-c2': '= 100/s × 0.2 s = 20', 'pl-c3': 'need 20, have 10', 'pl-waitt': 'waiting for a connection: 12' }, hl: ['pl-pool'] },
-  { say: 'The queue cannot drain. Requests arrive at 100 a second; the pool completes 10 ÷ 0.2 = 50 a second. The backlog grows by 50 every second, forever — this is not a spike, it is an unstable system.', unhl: ['pl-pool'], hl: ['pl-wait'], text: { 'pl-waitt': 'waiting: 140 and climbing (+50/s)', 'pl-t': 't = 13 s' } },
-  { say: 'Wait times cross the acquisition timeout and the app starts failing with "pool exhausted". The error names the pool, which is why the pool is what gets changed.', unhl: ['pl-wait'], text: { 'pl-errt': 'timeouts: 60/s', 'pl-waitt': 'waiting: 300 · timing out', 'pl-t': 't = 20 s' }, fill: { 'pl-errt': '#c53b3b' }, hl: ['pl-app'] },
-  { say: 'So someone raises the pool to 100. Now 100 queries run at once on 16 cores: context switching, more lock contention, more memory per backend. Each query slows to 600 ms and throughput <em>drops</em>.', unhl: ['pl-app'], hl: ['pl-db'], show: ['pl-hand'], text: { 'pl-dbt': 'query time: 600 ms', 'pl-dbs': 'pool raised to 100 — 100 concurrent queries', 'pl-dbs2': '16 cores, all of them thrashing', 'pl-c2': '= 100/s × 0.6 s = 60', 'pl-c3': 'congestion collapse' }, fill: { 'pl-c3': '#c53b3b' } },
-  { say: 'The pool was never the problem. It was doing its real job — bounding concurrency — and the saturation was a symptom of the query that got four times slower.', unhl: ['pl-db'], text: { 'pl-dbs': 'a concurrency limiter, not a bottleneck' } },
-  { say: 'Restore the index. Query time returns to 50 ms, the required connections drop back to 5, the queue drains in seconds and the error rate goes to zero. One revert, no config change.', text: { 'pl-dbt': 'query time: 50 ms', 'pl-dbs': 'index restored', 'pl-dbs2': ' ', 'pl-c2': '= 100/s × 0.05 s = 5', 'pl-c3': '5 connections busy of 10', 'pl-waitt': 'waiting for a connection: 0', 'pl-errt': 'no errors', 'pl-t': 't = 25 s' }, fill: { 'pl-dbt': '#23362e', 'pl-c3': '#2f6b3f', 'pl-errt': '#5f6f66', 'pl-s1': '#e3eedc', 'pl-s2': '#e3eedc', 'pl-s3': '#e3eedc', 'pl-s4': '#e3eedc', 'pl-s5': '#e3eedc', 'pl-s6': '#e8ece2', 'pl-s7': '#e8ece2', 'pl-s8': '#e8ece2', 'pl-s9': '#e8ece2', 'pl-s10': '#e8ece2' } },
-  { say: 'The rule worth keeping: size the pool from <code>rate × hold time</code>, keep it small, fail fast on acquisition, and treat saturation as a pointer to what got slower — never as a number to raise.', hl: ['pl-calc'] },
+  { say: "A service taking 100 requests a second. Each request holds a database connection for about 50 ms. The pool allows 10.", hl: ["pl-app"] },
+  { say: "Little's Law gives the answer directly: 100 per second times 0.05 seconds is 5 connections busy at any moment. Half the pool is idle, and that is a healthy system.", hl: ["pl-calc"], unhl: ["pl-app"], fill: {"pl-s1":"#e3eedc","pl-s2":"#e3eedc","pl-s3":"#e3eedc","pl-s4":"#e3eedc","pl-s5":"#e3eedc"} },
+  { say: "Now a deploy drops an index, and the same query starts taking 200 ms. Nothing about the traffic changed: the arrival rate is still 100 a second.", hl: ["pl-db"], unhl: ["pl-calc"], text: {"pl-dbt":"query time: 200 ms","pl-dbs":"index dropped by a migration","pl-t":"t = 10 s"}, fill: {"pl-dbt":"#c53b3b"} },
+  { say: "But the connections needed quadruple: 100 per second times 0.2 seconds is 20. The pool only has 10, so all ten are busy and the rest of the work queues up inside the pool.", hl: ["pl-pool"], unhl: ["pl-db"], text: {"pl-c2":"= 100/s × 0.2 s = 20","pl-c3":"need 20, have 10","pl-waitt":"waiting for a connection: 12"}, fill: {"pl-s6":"#f9e3df","pl-s7":"#f9e3df","pl-s8":"#f9e3df","pl-s9":"#f9e3df","pl-s10":"#f9e3df","pl-s1":"#f9e3df","pl-s2":"#f9e3df","pl-s3":"#f9e3df","pl-s4":"#f9e3df","pl-s5":"#f9e3df"} },
+  { say: "The queue cannot drain. Requests arrive at 100 a second; the pool completes 10 ÷ 0.2 = 50 a second. The backlog grows by 50 every second, forever — this is not a spike, it is an unstable system.", hl: ["pl-wait"], unhl: ["pl-pool"], text: {"pl-waitt":"waiting: 140 and climbing (+50/s)","pl-t":"t = 13 s"} },
+  { say: "Wait times cross the acquisition timeout and the app starts failing with \"pool exhausted\". The error names the pool, which is why the pool is what gets changed.", hl: ["pl-app"], unhl: ["pl-wait"], text: {"pl-errt":"timeouts: 60/s","pl-waitt":"waiting: 300 · timing out","pl-t":"t = 20 s"}, fill: {"pl-errt":"#c53b3b"} },
+  { say: "So someone raises the pool to 100. Now 100 queries run at once on 16 cores: context switching, more lock contention, more memory per backend. Each query slows to 600 ms and throughput <em>drops</em>.", show: ["pl-hand"], hl: ["pl-db"], unhl: ["pl-app"], text: {"pl-dbt":"query time: 600 ms","pl-dbs":"pool raised to 100 — 100 concurrent queries","pl-dbs2":"16 cores, all of them thrashing","pl-c2":"= 100/s × 0.6 s = 60","pl-c3":"congestion collapse"}, fill: {"pl-c3":"#c53b3b"} },
+  { say: "The pool was never the problem. It was doing its real job — bounding concurrency — and the saturation was a symptom of the query that got four times slower.", unhl: ["pl-db"], text: {"pl-dbs":"a concurrency limiter, not a bottleneck"} },
+  { say: "Restore the index. Query time returns to 50 ms, the required connections drop back to 5, the queue drains in seconds and the error rate goes to zero. One revert, no config change.", text: {"pl-dbt":"query time: 50 ms","pl-dbs":"index restored","pl-dbs2":" ","pl-c2":"= 100/s × 0.05 s = 5","pl-c3":"5 connections busy of 10","pl-waitt":"waiting for a connection: 0","pl-errt":"no errors","pl-t":"t = 25 s"}, fill: {"pl-dbt":"#23362e","pl-c3":"#2f6b3f","pl-errt":"#5f6f66","pl-s1":"#e3eedc","pl-s2":"#e3eedc","pl-s3":"#e3eedc","pl-s4":"#e3eedc","pl-s5":"#e3eedc","pl-s6":"#e8ece2","pl-s7":"#e8ece2","pl-s8":"#e8ece2","pl-s9":"#e8ece2","pl-s10":"#e8ece2"} },
+  { say: "The rule worth keeping: size the pool from <code>rate × hold time</code>, keep it small, fail fast on acquisition, and treat saturation as a pointer to what got slower — never as a number to raise.", hl: ["pl-calc"] },
 ]);
 
+/* Animations inside key-concept panels */
 window.TERM_ANIMS = {
   sh: [
-    { say: 'Three shards and three user ids. A router computes <code>hash(user_id) % 3</code> to decide where each row lives — the application never picks a shard by hand.', hl: ['sh-a', 'sh-b', 'sh-c'] },
-    { say: 'The keys land on their shards. Each shard is an entirely separate database: its own storage, its own transactions, its own backups. A join across two of them does not exist.', move: { 'sh-k1': [0, 84], 'sh-k2': [-25, 84], 'sh-k3': [-50, 84] }, unhl: ['sh-a', 'sh-b', 'sh-c'], text: { 'sh-msg': 'three independent databases — no cross-shard joins' } },
-    { say: 'Write volume grows, so a fourth shard is added. The divisor changes from 3 to 4.', show: ['sh-d', 'sh-dt'], text: { 'sh-msg': 'shard = hash(user_id) % 4' } },
-    { say: 'And with plain modulo, nearly every key now maps somewhere else: 17 moves to B, 42 to C, 99 to D. Resharding means physically moving most of the dataset while it is being written to.', move: { 'sh-k1': [140, 84], 'sh-k2': [115, 84], 'sh-k3': [90, 84] }, hl: ['sh-d'], text: { 'sh-msg': 'modulo rehashing moves ~3/4 of the rows' } },
-    { say: 'That is why real systems use consistent hashing or a lookup table of ranges: adding a shard then moves only about 1/N of the keys. Decide this before the first shard, not during the migration.', unhl: ['sh-d'], text: { 'sh-msg': 'consistent hashing: only ~1/N of keys move' } },
+    { say: "Three shards and three user ids. A router computes <code>hash(user_id) % 3</code> to decide where each row lives — the application never picks a shard by hand.", hl: ["sh-a","sh-b","sh-c"] },
+    { say: "The keys land on their shards. Each shard is an entirely separate database: its own storage, its own transactions, its own backups. A join across two of them does not exist.", unhl: ["sh-a","sh-b","sh-c"], move: {"sh-k1":[0,84],"sh-k2":[-25,84],"sh-k3":[-50,84]}, text: {"sh-msg":"three independent databases — no cross-shard joins"} },
+    { say: "Write volume grows, so a fourth shard is added. The divisor changes from 3 to 4.", show: ["sh-d","sh-dt"], text: {"sh-msg":"shard = hash(user_id) % 4"} },
+    { say: "And with plain modulo, nearly every key now maps somewhere else: 17 moves to B, 42 to C, 99 to D. Resharding means physically moving most of the dataset while it is being written to.", hl: ["sh-d"], move: {"sh-k1":[140,84],"sh-k2":[115,84],"sh-k3":[90,84]}, text: {"sh-msg":"modulo rehashing moves ~3/4 of the rows"} },
+    { say: "That is why real systems use consistent hashing or a lookup table of ranges: adding a shard then moves only about 1/N of the keys. Decide this before the first shard, not during the migration.", unhl: ["sh-d"], text: {"sh-msg":"consistent hashing: only ~1/N of keys move"} },
   ],
 };
 </script>

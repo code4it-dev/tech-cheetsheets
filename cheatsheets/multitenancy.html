@@ -37,11 +37,11 @@
   <main>
     <header class="hero" id="overview">
       <h1>Multitenancy strategies</h1>
-      <p class="tagline">One system, many customers &mdash; the only real question is where you draw the isolation line.</p>
+      <p class="tagline">One system, many customers — the only real question is where you draw the isolation line.</p>
       <span class="meta">As of Nov 2026 · the strategies are stable; examples are .NET 10 (LTS), EF Core and PostgreSQL</span>
-      <p>A multi-tenant system serves many customers from one set of running code. That is what makes SaaS economics work: one deployment, one on-call rota, one upgrade, amortised across thousands of tenants. The architectural question is not <em>whether</em> to share &mdash; it is <b>how much</b>, and the answer lives almost entirely in the data layer.</p>
+      <p>A multi-tenant system serves many customers from one set of running code. That is what makes SaaS economics work: one deployment, one on-call rota, one upgrade, amortised across thousands of tenants. The architectural question is not <em>whether</em> to share — it is <b>how much</b>, and the answer lives almost entirely in the data layer.</p>
       <p>There are four answers in practice. Put every tenant's rows in one table behind a <b>discriminator column</b>; give each tenant its own <b>schema</b> in a shared database; give each tenant its own <b>database</b>; or group tenants into <b>pools</b> of shared databases and promote the big ones. They differ in isolation, in what a noisy neighbour can do to you, in what a migration costs, in whether you can restore one customer, and in how much each tenant costs you per month.</p>
-      <p>Everything else &mdash; resolving which tenant a request belongs to, keeping caches from mixing tenants, enforcing per-tenant limits, onboarding and offboarding &mdash; sits on top and is largely the same whichever you pick. The four animations below run the same request, the same noisy neighbour and the same restore through each strategy, so the trade-offs are visible side by side.</p>
+      <p>Everything else — resolving which tenant a request belongs to, keeping caches from mixing tenants, enforcing per-tenant limits, onboarding and offboarding — sits on top and is largely the same whichever you pick. The four animations below run the same request, the same noisy neighbour and the same restore through each strategy, so the trade-offs are visible side by side.</p>
     </header>
 
     <section id="architecture">
@@ -111,16 +111,15 @@
           <text class="hand" x="300" y="312" font-size="16" fill="#c53b3b">pick the blast radius you can live with</text>
         </svg>
       </div>
-      <p class="caption">Resolution and routing look the same in all four. What changes is what sits at the end of the arrow &mdash; and that decides isolation, cost and how a bad day goes.</p>
+      <p class="caption">Resolution and routing look the same in all four. What changes is what sits at the end of the arrow — and that decides isolation, cost and how a bad day goes.</p>
     </section>
 
     <section id="how-it-works">
       <h2>How it works</h2>
-      <p style="margin:0 0 18px">Three tenants &mdash; <b>acme</b>, <b>globex</b> and <b>initech</b> &mdash; and the same three events in every animation: a normal read, a noisy neighbour running a huge import, and a request to restore one tenant to yesterday. Watch how differently each layout handles them.</p>
-      <span class="note" style="margin:-8px 0 18px">every strategy is the same system until something goes wrong</span>
-
+      <p>Three tenants — <b>acme</b>, <b>globex</b> and <b>initech</b> — and the same three events in every animation: a normal read, a noisy neighbour running a huge import, and a request to restore one tenant to yesterday. Watch how differently each layout handles them.</p>
+      <span class="note" style="margin:-6px 0 14px">every strategy is the same system until something goes wrong</span>
       <div class="anim" id="anim-shared">
-        <h3>1 &middot; Shared database, shared schema</h3>
+        <h3>1 · Shared database, shared schema</h3>
         <div class="stage">
           <svg viewBox="0 0 800 300" role="img" aria-label="Animated shared schema multitenancy with a tenant id column filtering rows">
             <defs>
@@ -153,9 +152,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-schema">
-        <h3>2 &middot; Schema per tenant</h3>
+        <h3>2 · Schema per tenant</h3>
         <div class="stage">
           <svg viewBox="0 0 800 300" role="img" aria-label="Animated schema per tenant multitenancy with one schema per tenant inside a shared database">
             <defs>
@@ -189,9 +187,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-db">
-        <h3>3 &middot; Database per tenant</h3>
+        <h3>3 · Database per tenant</h3>
         <div class="stage">
           <svg viewBox="0 0 800 300" role="img" aria-label="Animated database per tenant multitenancy routed through a tenant catalogue">
             <defs>
@@ -223,9 +220,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-pool">
-        <h3>4 &middot; Sharded pools (the hybrid)</h3>
+        <h3>4 · Sharded pools (the hybrid)</h3>
         <div class="stage">
           <svg viewBox="0 0 800 300" role="img" aria-label="Animated pooled multitenancy where tenants are grouped into shards and large tenants are promoted">
             <defs>
@@ -260,9 +256,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <h3 id="compare-strategies">Comparing them</h3>
-      <p>Same three events, four very different days. The rows people underestimate are <i>migration</i> and <i>restore one tenant</i> &mdash; they are invisible until the system is two years old.</p>
+      <p>Same three events, four very different days. The rows people underestimate are <em>migration</em> and <em>restore one tenant</em> — they are invisible until the system is two years old.</p>
       <div class="table-wrap">
         <table>
           <thead><tr><th></th><th>Shared schema</th><th>Schema per tenant</th><th>Database per tenant</th><th>Sharded pools</th></tr></thead>
@@ -270,28 +265,28 @@
             <tr><td><b>Isolation</b></td><td>a <code>WHERE</code> clause</td><td>a namespace</td><td><b>a connection string</b></td><td>per shard</td></tr>
             <tr><td><b>Cross-tenant leak needs</b></td><td>one forgotten filter</td><td>a wrong <code>search_path</code></td><td>connecting to the wrong database</td><td>one forgotten filter, within a shard</td></tr>
             <tr><td><b>Noisy neighbour</b></td><td>hits everyone</td><td>hits everyone on the instance</td><td><b>contained</b></td><td>hits one shard</td></tr>
-            <tr><td><b>Cost per tenant</b></td><td><b>lowest</b></td><td>low</td><td>highest &mdash; idle tenants still cost</td><td>low</td></tr>
+            <tr><td><b>Cost per tenant</b></td><td><b>lowest</b></td><td>low</td><td>highest — idle tenants still cost</td><td>low</td></tr>
             <tr><td><b>Practical tenant ceiling</b></td><td>100,000+</td><td>hundreds</td><td>hundreds to low thousands</td><td><b>100,000+</b></td></tr>
-            <tr><td><b>A migration is</b></td><td>1 run</td><td>N runs, and partial failure leaves mixed versions</td><td>N runs, across N instances</td><td>one run per shard &mdash; tens</td></tr>
+            <tr><td><b>A migration is</b></td><td>1 run</td><td>N runs, and partial failure leaves mixed versions</td><td>N runs, across N instances</td><td>one run per shard — tens</td></tr>
             <tr><td><b>Restore one tenant</b></td><td>row surgery from a backup</td><td>restore that schema</td><td><b>trivial</b></td><td>restore a shard, then extract one tenant</td></tr>
             <tr><td><b>Per-tenant region or key</b></td><td>no</td><td>no</td><td><b>yes</b></td><td>per shard</td></tr>
-            <tr><td><b>Onboarding a tenant</b></td><td>an <code>INSERT</code></td><td>create a schema, migrate it</td><td>provision a database &mdash; minutes</td><td>an <code>INSERT</code>, usually</td></tr>
+            <tr><td><b>Onboarding a tenant</b></td><td>an <code>INSERT</code></td><td>create a schema, migrate it</td><td>provision a database — minutes</td><td>an <code>INSERT</code>, usually</td></tr>
             <tr class="self"><td><b>Blast radius of an incident</b></td><td>every customer</td><td>every customer</td><td>one customer</td><td>one shard</td></tr>
           </tbody>
         </table>
       </div>
-      <p style="margin-top:14px">What that actually tells you:</p>
+      <p>What that actually tells you:</p>
       <ul>
-        <li><b>Shared schema and database-per-tenant are the two honest extremes.</b> One optimises cost and operational simplicity, the other isolation and compliance. Everything in between is a compromise, and schema-per-tenant in particular gets the <i>worst</i> of both at scale: N migrations without the isolation that would justify them.</li>
-        <li><b>The migration row is the one that decides your ceiling.</b> A shared schema deploys in seconds forever. Schema- or database-per-tenant turns every release into a fan-out job with partial failures, retries and version skew &mdash; and that is what caps you at hundreds of tenants rather than thousands.</li>
-        <li><b>Sharded pools is where most SaaS ends up</b>, because it is the only option that lets you choose the blast radius <i>per tenant</i>: small customers share, big ones get promoted, and both run the same code with the same migrations.</li>
+      <li><b>Shared schema and database-per-tenant are the two honest extremes.</b> One optimises cost and operational simplicity, the other isolation and compliance. Everything in between is a compromise, and schema-per-tenant in particular gets the <em>worst</em> of both at scale: N migrations without the isolation that would justify them.</li>
+      <li><b>The migration row is the one that decides your ceiling.</b> A shared schema deploys in seconds forever. Schema- or database-per-tenant turns every release into a fan-out job with partial failures, retries and version skew — and that is what caps you at hundreds of tenants rather than thousands.</li>
+      <li><b>Sharded pools is where most SaaS ends up</b>, because it is the only option that lets you choose the blast radius <em>per tenant</em>: small customers share, big ones get promoted, and both run the same code with the same migrations.</li>
       </ul>
       <p><b>Choosing, in one line each:</b></p>
       <ul>
-        <li><b>Shared schema</b> for a new product, many small tenants, no per-tenant compliance requirement. Start here.</li>
-        <li><b>Sharded pools</b> once you can no longer tolerate every customer sharing one blast radius &mdash; design the tenant catalogue early so this is a config change, not a rewrite.</li>
-        <li><b>Database per tenant</b> for a few large, demanding or regulated customers, or when contracts require data residency and separate keys.</li>
-        <li><b>Schema per tenant</b> only when you have a bounded, small number of tenants and a strong reason &mdash; it is the least common end state for a reason.</li>
+      <li><b>Shared schema</b> for a new product, many small tenants, no per-tenant compliance requirement. Start here.</li>
+      <li><b>Sharded pools</b> once you can no longer tolerate every customer sharing one blast radius — design the tenant catalogue early so this is a config change, not a rewrite.</li>
+      <li><b>Database per tenant</b> for a few large, demanding or regulated customers, or when contracts require data residency and separate keys.</li>
+      <li><b>Schema per tenant</b> only when you have a bounded, small number of tenants and a strong reason — it is the least common end state for a reason.</li>
       </ul>
     </section>
 
@@ -299,265 +294,259 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>tenant</b><span>The unit of isolation and usually of billing: a customer organisation, not a user. Getting this definition wrong is expensive to undo.</span><template class="term-detail" data-see="tenant resolution, tenant catalogue, tenant lifecycle">
-<p>A tenant is the boundary inside which data may be shared and across which it must not be. Almost always a company, not a person &mdash; users belong to tenants.</p>
-<table><tr><th>Decision</th><th>Ask</th></tr>
-<tr><td>Can a user belong to two tenants?</td><td>consultants, agencies, parent companies &mdash; usually yes, and retrofitting it is painful</td></tr>
-<tr><td>Can a tenant have sub-units?</td><td>departments, regions, franchises &mdash; a hierarchy you cannot add later for free</td></tr>
-<tr><td>Is the tenant the billing entity?</td><td>often, but not always &mdash; one contract can cover many tenants</td></tr>
-<tr><td>Can data move between tenants?</td><td>mergers and demergers happen; decide now whether it is supported or manual</td></tr></table>
-<p>Model the tenant id as a strongly-typed value from day one, not a bare <code>Guid</code> or <code>string</code>. It appears in every table, every cache key, every log line and every metric, and a type the compiler can check stops it being swapped with a user id in a method call.</p>
-<p>The single most important early decision is to make everything tenant-aware <em>from the first commit</em>. Adding a tenant column to a production schema with forty tables and no filtering is a project, not a change.</p>
+        <p>A tenant is the boundary inside which data may be shared and across which it must not be. Almost always a company, not a person — users belong to tenants.</p>
+        <table><tr><th>Decision</th><th>Ask</th></tr>
+        <tr><td>Can a user belong to two tenants?</td><td>consultants, agencies, parent companies — usually yes, and retrofitting it is painful</td></tr>
+        <tr><td>Can a tenant have sub-units?</td><td>departments, regions, franchises — a hierarchy you cannot add later for free</td></tr>
+        <tr><td>Is the tenant the billing entity?</td><td>often, but not always — one contract can cover many tenants</td></tr>
+        <tr><td>Can data move between tenants?</td><td>mergers and demergers happen; decide now whether it is supported or manual</td></tr></table>
+        <p>Model the tenant id as a strongly-typed value from day one, not a bare <code>Guid</code> or <code>string</code>. It appears in every table, every cache key, every log line and every metric, and a type the compiler can check stops it being swapped with a user id in a method call.</p>
+        <p>The single most important early decision is to make everything tenant-aware <em>from the first commit</em>. Adding a tenant column to a production schema with forty tables and no filtering is a project, not a change.</p>
         </template></div>
         <div class="term"><b>tenant resolution</b><span>Deciding which tenant a request belongs to, before anything touches data. The first middleware in the pipeline, and a security boundary.</span><template class="term-detail" data-see="tenant, tenant catalogue, global query filter">
-<p>Resolution has to happen early, be unambiguous, and be impossible for the caller to forge.</p>
-<table><tr><th>Strategy</th><th>Example</th><th>Notes</th></tr>
-<tr><td>Subdomain</td><td><code>acme.app.com</code></td><td>clean URLs and easy cookie scoping; needs wildcard DNS and certificates</td></tr>
-<tr><td>Path segment</td><td><code>app.com/acme/...</code></td><td>simplest to deploy; every route carries the tenant</td></tr>
-<tr><td>Token claim</td><td><code>tid</code> in the JWT</td><td><b>the trustworthy one</b> &mdash; signed by your identity provider</td></tr>
-<tr><td>Header</td><td><code>X-Tenant-Id</code></td><td>fine service-to-service, never from a browser</td></tr></table>
-<p>The rule that prevents the worst class of bug: <b>resolve from the token, and treat anything in the URL as a hint to be validated against it</b>. If the host says <code>acme</code> and the token says <code>globex</code>, that is a <code>403</code>, not a judgement call.</p>
-<pre class="language-csharp"><code class="language-csharp">var fromToken = user.FindFirstValue("tid");
+        <p>Resolution has to happen early, be unambiguous, and be impossible for the caller to forge.</p>
+        <table><tr><th>Strategy</th><th>Example</th><th>Notes</th></tr>
+        <tr><td>Subdomain</td><td><code>acme.app.com</code></td><td>clean URLs and easy cookie scoping; needs wildcard DNS and certificates</td></tr>
+        <tr><td>Path segment</td><td><code>app.com/acme/...</code></td><td>simplest to deploy; every route carries the tenant</td></tr>
+        <tr><td>Token claim</td><td><code>tid</code> in the JWT</td><td><b>the trustworthy one</b> — signed by your identity provider</td></tr>
+        <tr><td>Header</td><td><code>X-Tenant-Id</code></td><td>fine service-to-service, never from a browser</td></tr></table>
+        <p>The rule that prevents the worst class of bug: <b>resolve from the token, and treat anything in the URL as a hint to be validated against it</b>. If the host says <code>acme</code> and the token says <code>globex</code>, that is a <code>403</code>, not a judgement call.</p>
+        <pre class="language-csharp"><code class="language-csharp">var fromToken = user.FindFirstValue("tid");
 var fromHost  = HostToTenant(ctx.Request.Host);
-if (fromHost is not null &amp;&amp; fromHost != fromToken) return Results.Forbid();</code></pre>
-<p>Make an unresolved tenant a hard failure. A request with no tenant must never fall through to a default, because the default will eventually be "all of them".</p>
+if (fromHost is not null &amp;&amp; fromHost != fromToken) return Results.Forbid();</code></pre><p>Make an unresolved tenant a hard failure. A request with no tenant must never fall through to a default, because the default will eventually be "all of them".</p>
         </template></div>
         <div class="term"><b>discriminator column</b><span>A <code>tenant_id</code> on every tenant-owned table. The entire isolation mechanism of the shared-schema model.</span><template class="term-detail" data-see="global query filter, row-level security, shared schema">
-<p>Cheap, simple and completely dependent on every single query remembering to use it.</p>
-<table><tr><th>Detail</th><th>Guidance</th></tr>
-<tr><td>Place in the index</td><td><b>first column</b> of every index &mdash; <code>(tenant_id, created_at)</code>, not the reverse</td></tr>
-<tr><td>Nullability</td><td>never nullable; a null tenant is a row nobody owns</td></tr>
-<tr><td>Composite keys</td><td>include it in the primary key for tables you may shard or extract later</td></tr>
-<tr><td>Foreign keys</td><td>include <code>tenant_id</code> in the FK so a child cannot point at another tenant's parent</td></tr>
-<tr><td>Type</td><td>short and fixed &mdash; it is on every row of every table</td></tr></table>
-<p>That first row matters more than it looks: an index on <code>(created_at)</code> alone makes every tenant scan every other tenant's rows before filtering. With thousands of tenants that is the difference between a 2 ms query and a 2 second one.</p>
-<p>The composite foreign key trick is underused and free: <code>FOREIGN KEY (tenant_id, order_id)</code> makes a cross-tenant reference impossible at the database level, so a bug produces a constraint violation instead of a leak.</p>
+        <p>Cheap, simple and completely dependent on every single query remembering to use it.</p>
+        <table><tr><th>Detail</th><th>Guidance</th></tr>
+        <tr><td>Place in the index</td><td><b>first column</b> of every index — <code>(tenant_id, created_at)</code>, not the reverse</td></tr>
+        <tr><td>Nullability</td><td>never nullable; a null tenant is a row nobody owns</td></tr>
+        <tr><td>Composite keys</td><td>include it in the primary key for tables you may shard or extract later</td></tr>
+        <tr><td>Foreign keys</td><td>include <code>tenant_id</code> in the FK so a child cannot point at another tenant's parent</td></tr>
+        <tr><td>Type</td><td>short and fixed — it is on every row of every table</td></tr></table>
+        <p>That first row matters more than it looks: an index on <code>(created_at)</code> alone makes every tenant scan every other tenant's rows before filtering. With thousands of tenants that is the difference between a 2 ms query and a 2 second one.</p>
+        <p>The composite foreign key trick is underused and free: <code>FOREIGN KEY (tenant_id, order_id)</code> makes a cross-tenant reference impossible at the database level, so a bug produces a constraint violation instead of a leak.</p>
         </template></div>
         <div class="term"><b>global query filter</b><span>Applying the tenant predicate automatically in the ORM so no developer has to remember it. Necessary, and not sufficient.</span><template class="term-detail" data-see="discriminator column, row-level security, tenant resolution">
-<p>In EF Core one line per entity makes the filter implicit on every LINQ query.</p>
-<pre class="language-csharp line-numbers"><code class="language-csharp">protected override void OnModelCreating(ModelBuilder b)
+        <p>In EF Core one line per entity makes the filter implicit on every LINQ query.</p>
+        <pre class="language-csharp line-numbers"><code class="language-csharp">protected override void OnModelCreating(ModelBuilder b)
 {
     b.Entity&lt;Invoice&gt;().HasQueryFilter(i =&gt; i.TenantId == _tenant.Id);
     b.Entity&lt;Customer&gt;().HasQueryFilter(c =&gt; c.TenantId == _tenant.Id);
-}</code></pre>
-<h4>Where it does not reach</h4>
-<table><tr><th>Bypass</th><th>Risk</th></tr>
-<tr><td><code>IgnoreQueryFilters()</code></td><td>deliberate, and sometimes correct &mdash; ban it outside an audited helper</td></tr>
-<tr><td><code>FromSqlRaw</code> and Dapper</td><td>no filter at all; the developer must write the predicate</td></tr>
-<tr><td>Stored procedures and views</td><td>outside the ORM entirely</td></tr>
-<tr><td>Background jobs</td><td>no request, so often no tenant in scope &mdash; a very common leak</td></tr>
-<tr><td>Admin and reporting tools</td><td>frequently built with the filter off "temporarily"</td></tr></table>
-<div class="anim" id="leak-anim" data-steps="leak">
-  <h4>How a cross-tenant leak actually happens</h4>
-  <div class="stage">
-    <svg viewBox="0 0 560 240" role="img" aria-label="Animated cross-tenant leak caused by a raw SQL report bypassing the query filter">
-      <text x="12" y="22" font-size="12" font-weight="600" fill="#23362e">A Tuesday afternoon, one sprint before the audit</text>
-      <text id="lk-s1" class="hidden" x="12" y="50" font-size="11.5" fill="#23362e" font-family="Fira Code, monospace">1. every LINQ query is filtered — all green</text>
-      <text id="lk-s2" class="hidden" x="12" y="76" font-size="11.5" fill="#23362e" font-family="Fira Code, monospace">2. a report needs a window function → FromSqlRaw</text>
-      <text id="lk-s3" class="hidden" x="12" y="102" font-size="11.5" fill="#c53b3b" font-family="Fira Code, monospace">3. raw SQL ignores HasQueryFilter entirely</text>
-      <text id="lk-s4" class="hidden" x="12" y="128" font-size="11.5" fill="#c53b3b" font-family="Fira Code, monospace">4. the report returns every tenant's invoices</text>
-      <text id="lk-s5" class="hidden" x="12" y="154" font-size="11.5" fill="#c53b3b" font-family="Fira Code, monospace">5. nothing errors — it just shows more rows</text>
-      <rect x="330" y="30" width="218" height="46" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
-      <text x="439" y="50" font-size="11" text-anchor="middle" fill="#5f6f66">rows returned to acme</text>
-      <text id="lk-rows" x="439" y="68" font-size="13" text-anchor="middle" fill="#2f6b3f" font-weight="700" font-family="Fira Code, monospace">2 of 2</text>
-      <rect x="330" y="92" width="218" height="46" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
-      <text x="439" y="112" font-size="11" text-anchor="middle" fill="#5f6f66">detected by</text>
-      <text id="lk-det" x="439" y="130" font-size="12" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">—</text>
-      <text id="lk-fix" class="hidden" x="12" y="186" font-size="11.5" fill="#2f6b3f" font-family="Fira Code, monospace">fix: row-level security — the database refuses, not the ORM</text>
-      <text id="lk-note" class="hand hidden" x="12" y="222" font-size="15" fill="#c53b3b">the filter was never the problem — the bypass was</text>
-    </svg>
-  </div>
-  <div class="controls"></div><div class="narration"></div>
-</div>
-<p>So: use global filters, and do not rely on them alone. The database-level backstop in the next concept is what turns a leak into an empty result set.</p>
+}</code></pre><h4>Where it does not reach</h4>
+        <table><tr><th>Bypass</th><th>Risk</th></tr>
+        <tr><td><code>IgnoreQueryFilters()</code></td><td>deliberate, and sometimes correct — ban it outside an audited helper</td></tr>
+        <tr><td><code>FromSqlRaw</code> and Dapper</td><td>no filter at all; the developer must write the predicate</td></tr>
+        <tr><td>Stored procedures and views</td><td>outside the ORM entirely</td></tr>
+        <tr><td>Background jobs</td><td>no request, so often no tenant in scope — a very common leak</td></tr>
+        <tr><td>Admin and reporting tools</td><td>frequently built with the filter off "temporarily"</td></tr></table>
+        <div class="anim" id="leak-anim" data-steps="leak">
+          <h4>How a cross-tenant leak actually happens</h4>
+          <div class="stage">
+            <svg viewBox="0 0 560 240" role="img" aria-label="Animated cross-tenant leak caused by a raw SQL report bypassing the query filter">
+              <text x="12" y="22" font-size="12" font-weight="600" fill="#23362e">A Tuesday afternoon, one sprint before the audit</text>
+              <text id="lk-s1" class="hidden" x="12" y="50" font-size="11.5" fill="#23362e" font-family="Fira Code, monospace">1. every LINQ query is filtered — all green</text>
+              <text id="lk-s2" class="hidden" x="12" y="76" font-size="11.5" fill="#23362e" font-family="Fira Code, monospace">2. a report needs a window function → FromSqlRaw</text>
+              <text id="lk-s3" class="hidden" x="12" y="102" font-size="11.5" fill="#c53b3b" font-family="Fira Code, monospace">3. raw SQL ignores HasQueryFilter entirely</text>
+              <text id="lk-s4" class="hidden" x="12" y="128" font-size="11.5" fill="#c53b3b" font-family="Fira Code, monospace">4. the report returns every tenant's invoices</text>
+              <text id="lk-s5" class="hidden" x="12" y="154" font-size="11.5" fill="#c53b3b" font-family="Fira Code, monospace">5. nothing errors — it just shows more rows</text>
+              <rect x="330" y="30" width="218" height="46" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
+              <text x="439" y="50" font-size="11" text-anchor="middle" fill="#5f6f66">rows returned to acme</text>
+              <text id="lk-rows" x="439" y="68" font-size="13" text-anchor="middle" fill="#2f6b3f" font-weight="700" font-family="Fira Code, monospace">2 of 2</text>
+              <rect x="330" y="92" width="218" height="46" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
+              <text x="439" y="112" font-size="11" text-anchor="middle" fill="#5f6f66">detected by</text>
+              <text id="lk-det" x="439" y="130" font-size="12" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">—</text>
+              <text id="lk-fix" class="hidden" x="12" y="186" font-size="11.5" fill="#2f6b3f" font-family="Fira Code, monospace">fix: row-level security — the database refuses, not the ORM</text>
+              <text id="lk-note" class="hand hidden" x="12" y="222" font-size="15" fill="#c53b3b">the filter was never the problem — the bypass was</text>
+            </svg>
+          </div>
+          <div class="controls"></div>
+          <div class="narration"></div>
+        </div>
+        <p>So: use global filters, and do not rely on them alone. The database-level backstop in the next concept is what turns a leak into an empty result set.</p>
         </template></div>
         <div class="term"><b>row-level security</b><span>The database enforcing the tenant predicate itself, so a forgotten filter returns nothing instead of everything. The backstop worth the setup.</span><template class="term-detail" data-see="global query filter, discriminator column, shared schema">
-<p>PostgreSQL, SQL Server and others can attach a policy to a table that is applied to every statement, whatever issued it &mdash; ORM, raw SQL, a psql session or a stored procedure.</p>
-<pre class="language-sql line-numbers"><code class="language-sql">ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
+        <p>PostgreSQL, SQL Server and others can attach a policy to a table that is applied to every statement, whatever issued it — ORM, raw SQL, a psql session or a stored procedure.</p>
+        <pre class="language-sql line-numbers"><code class="language-sql">ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE invoices FORCE ROW LEVEL SECURITY;      -- applies to the table owner too
 
 CREATE POLICY tenant_isolation ON invoices
-  USING (tenant_id = current_setting('app.tenant_id', true)::uuid);</code></pre>
-<pre class="language-csharp line-numbers"><code class="language-csharp">// set it once per connection, from resolved tenant context
+  USING (tenant_id = current_setting('app.tenant_id', true)::uuid);</code></pre><pre class="language-csharp line-numbers"><code class="language-csharp">// set it once per connection, from resolved tenant context
 await using var cmd = conn.CreateCommand();
 cmd.CommandText = "SELECT set_config('app.tenant_id', $1, false)";
 cmd.Parameters.Add(new NpgsqlParameter { Value = tenant.Id.ToString() });
-await cmd.ExecuteNonQueryAsync(ct);</code></pre>
-<table><tr><th>Watch out for</th><th>Why</th></tr>
-<tr><td>Connection pooling</td><td>the setting must be applied on every checkout, or a connection carries the previous tenant's context</td></tr>
-<tr><td>The table owner</td><td>policies are bypassed by the owner unless you add <code>FORCE</code></td></tr>
-<tr><td>Migration users</td><td>they need <code>BYPASSRLS</code>, so keep that account out of the application</td></tr>
-<tr><td>Query plans</td><td>the predicate is added to every statement &mdash; index for it</td></tr></table>
-<p>The cost is a few hours of setup and some care with pooling. The benefit is that the <i>most common and most damaging</i> bug in a shared-schema system becomes structurally impossible, including in the raw SQL and the admin tool nobody reviewed.</p>
+await cmd.ExecuteNonQueryAsync(ct);</code></pre><table><tr><th>Watch out for</th><th>Why</th></tr>
+        <tr><td>Connection pooling</td><td>the setting must be applied on every checkout, or a connection carries the previous tenant's context</td></tr>
+        <tr><td>The table owner</td><td>policies are bypassed by the owner unless you add <code>FORCE</code></td></tr>
+        <tr><td>Migration users</td><td>they need <code>BYPASSRLS</code>, so keep that account out of the application</td></tr>
+        <tr><td>Query plans</td><td>the predicate is added to every statement — index for it</td></tr></table>
+        <p>The cost is a few hours of setup and some care with pooling. The benefit is that the <em>most common and most damaging</em> bug in a shared-schema system becomes structurally impossible, including in the raw SQL and the admin tool nobody reviewed.</p>
         </template></div>
         <div class="term"><b>shared schema</b><span>One database, one set of tables, every tenant's rows together. The cheapest model and the default starting point.</span><template class="term-detail" data-see="discriminator column, row-level security, noisy neighbour, cost per tenant">
-<p>Everything is shared, so everything is cheap: one migration, one backup, one connection pool, one set of dashboards &mdash; and an idle tenant costs essentially nothing.</p>
-<table><tr><th>Property</th><th>Value</th></tr>
-<tr><td>Tenants per database</td><td>tens of thousands, comfortably</td></tr>
-<tr><td>Onboarding</td><td>an <code>INSERT</code> &mdash; instant, free, no provisioning</td></tr>
-<tr><td>Migration</td><td>one run, seconds</td></tr>
-<tr><td>Isolation</td><td>a predicate &mdash; as strong as your weakest query</td></tr>
-<tr><td>Per-tenant restore</td><td>painful: restore a copy, extract rows, reconcile keys</td></tr></table>
-<p>The two things that eventually push people off it are the per-tenant restore and the compliance conversation. "Can you guarantee our data is not in the same table as our competitor's?" has no good answer here, however correct your filtering is.</p>
-<p>Start here anyway unless you already know otherwise. Design the tenant catalogue and route every query through tenant context from day one, and moving to pools later is a routing change rather than a rewrite.</p>
+        <p>Everything is shared, so everything is cheap: one migration, one backup, one connection pool, one set of dashboards — and an idle tenant costs essentially nothing.</p>
+        <table><tr><th>Property</th><th>Value</th></tr>
+        <tr><td>Tenants per database</td><td>tens of thousands, comfortably</td></tr>
+        <tr><td>Onboarding</td><td>an <code>INSERT</code> — instant, free, no provisioning</td></tr>
+        <tr><td>Migration</td><td>one run, seconds</td></tr>
+        <tr><td>Isolation</td><td>a predicate — as strong as your weakest query</td></tr>
+        <tr><td>Per-tenant restore</td><td>painful: restore a copy, extract rows, reconcile keys</td></tr></table>
+        <p>The two things that eventually push people off it are the per-tenant restore and the compliance conversation. "Can you guarantee our data is not in the same table as our competitor's?" has no good answer here, however correct your filtering is.</p>
+        <p>Start here anyway unless you already know otherwise. Design the tenant catalogue and route every query through tenant context from day one, and moving to pools later is a routing change rather than a rewrite.</p>
         </template></div>
         <div class="term"><b>schema per tenant</b><span>One database, one schema per tenant, each with its own copy of the tables. A middle ground that gets squeezed from both sides.</span><template class="term-detail" data-see="shared schema, database per tenant, per-tenant migration, pooled model">
-<p>Better isolation than a predicate &mdash; a missing filter returns the current tenant's data rather than everyone's &mdash; without a database per customer.</p>
-<table><tr><th>Gains</th><th>Costs</th></tr>
-<tr><td>no tenant column, no filter to forget</td><td>a migration per schema on every release</td></tr>
-<tr><td>restore one schema</td><td>connection pooling fragments, or <code>search_path</code> is reset per checkout</td></tr>
-<tr><td>per-tenant customisation is possible</td><td>per-tenant customisation becomes a support nightmare</td></tr>
-<tr><td>easier compliance conversation</td><td>still one instance, so a noisy neighbour still hurts</td></tr></table>
-<p>The practical ceiling is low. Thousands of schemas &times; forty tables is hundreds of thousands of objects, and PostgreSQL's catalogue, <code>pg_dump</code> and your migration tool all slow down noticeably. Several hundred tenants is a realistic limit.</p>
-<p>Be honest about why you are choosing it. If the reason is isolation, database-per-tenant gives you more; if the reason is cost, shared schema gives you more. It fits when the tenant count is small and bounded &mdash; an enterprise product with fifty customers &mdash; and rarely otherwise.</p>
+        <p>Better isolation than a predicate — a missing filter returns the current tenant's data rather than everyone's — without a database per customer.</p>
+        <table><tr><th>Gains</th><th>Costs</th></tr>
+        <tr><td>no tenant column, no filter to forget</td><td>a migration per schema on every release</td></tr>
+        <tr><td>restore one schema</td><td>connection pooling fragments, or <code>search_path</code> is reset per checkout</td></tr>
+        <tr><td>per-tenant customisation is possible</td><td>per-tenant customisation becomes a support nightmare</td></tr>
+        <tr><td>easier compliance conversation</td><td>still one instance, so a noisy neighbour still hurts</td></tr></table>
+        <p>The practical ceiling is low. Thousands of schemas × forty tables is hundreds of thousands of objects, and PostgreSQL's catalogue, <code>pg_dump</code> and your migration tool all slow down noticeably. Several hundred tenants is a realistic limit.</p>
+        <p>Be honest about why you are choosing it. If the reason is isolation, database-per-tenant gives you more; if the reason is cost, shared schema gives you more. It fits when the tenant count is small and bounded — an enterprise product with fifty customers — and rarely otherwise.</p>
         </template></div>
         <div class="term"><b>database per tenant</b><span>Each tenant gets its own database. The strongest isolation, the simplest restore, and a cost that scales with your customer count.</span><template class="term-detail" data-see="tenant catalogue, noisy neighbour, data residency, cost per tenant">
-<p>A leak now requires connecting to the wrong database, which is a very different class of mistake from forgetting a <code>WHERE</code> clause.</p>
-<table><tr><th>What it unlocks</th><th>Detail</th></tr>
-<tr><td>Per-tenant restore</td><td>point-in-time restore of one customer, with no effect on anyone else</td></tr>
-<tr><td>Data residency</td><td>that tenant's database lives in their region, full stop</td></tr>
-<tr><td>Per-tenant encryption keys</td><td>including customer-managed keys, which some contracts require</td></tr>
-<tr><td>Noisy neighbour</td><td>contained by construction</td></tr>
-<tr><td>Offboarding</td><td>hand over a backup, then drop the database</td></tr></table>
-<table><tr><th>What it costs</th><th>Detail</th></tr>
-<tr><td>Money</td><td>a floor price per database; 2,000 idle tenants still cost 2,000 databases</td></tr>
-<tr><td>Migrations</td><td>N runs, with partial failure and version skew to manage</td></tr>
-<tr><td>Connections</td><td>a pool per tenant, so an app instance cannot hold them all open</td></tr>
-<tr><td>Onboarding</td><td>minutes to provision, not milliseconds</td></tr>
-<tr><td>Cross-tenant reporting</td><td>needs a separate warehouse &mdash; you cannot <code>GROUP BY</code> across databases</td></tr></table>
-<p>Elastic pools and serverless tiers soften the cost by sharing compute across many small databases, which is what makes this viable at a few thousand tenants rather than a few hundred.</p>
+        <p>A leak now requires connecting to the wrong database, which is a very different class of mistake from forgetting a <code>WHERE</code> clause.</p>
+        <table><tr><th>What it unlocks</th><th>Detail</th></tr>
+        <tr><td>Per-tenant restore</td><td>point-in-time restore of one customer, with no effect on anyone else</td></tr>
+        <tr><td>Data residency</td><td>that tenant's database lives in their region, full stop</td></tr>
+        <tr><td>Per-tenant encryption keys</td><td>including customer-managed keys, which some contracts require</td></tr>
+        <tr><td>Noisy neighbour</td><td>contained by construction</td></tr>
+        <tr><td>Offboarding</td><td>hand over a backup, then drop the database</td></tr></table>
+        <table><tr><th>What it costs</th><th>Detail</th></tr>
+        <tr><td>Money</td><td>a floor price per database; 2,000 idle tenants still cost 2,000 databases</td></tr>
+        <tr><td>Migrations</td><td>N runs, with partial failure and version skew to manage</td></tr>
+        <tr><td>Connections</td><td>a pool per tenant, so an app instance cannot hold them all open</td></tr>
+        <tr><td>Onboarding</td><td>minutes to provision, not milliseconds</td></tr>
+        <tr><td>Cross-tenant reporting</td><td>needs a separate warehouse — you cannot <code>GROUP BY</code> across databases</td></tr></table>
+        <p>Elastic pools and serverless tiers soften the cost by sharing compute across many small databases, which is what makes this viable at a few thousand tenants rather than a few hundred.</p>
         </template></div>
         <div class="term"><b>pooled model</b><span>Tenants grouped into a handful of shared-schema databases, with the option to promote a big tenant to its own. Where most SaaS converges.</span><template class="term-detail" data-see="tenant catalogue, shared schema, database per tenant, noisy neighbour">
-<p>The insight is that isolation does not have to be uniform. Small tenants share, big or demanding ones do not, and the code is identical in both cases because routing is a catalogue lookup.</p>
-<table><tr><th>Decision</th><th>Typical</th></tr>
-<tr><td>Tenants per shard</td><td>100&ndash;1,000, sized by the blast radius you accept</td></tr>
-<tr><td>Assignment</td><td>least-loaded at signup, not a hash &mdash; you want to be able to move tenants</td></tr>
-<tr><td>Promotion trigger</td><td>a tenant exceeding a share of shard resources, or buying an isolation tier</td></tr>
-<tr><td>Migration fan-out</td><td>one run per shard &mdash; tens, not thousands</td></tr>
-<tr><td>Rebalancing</td><td>copy, verify, flip the catalogue row, keep the old copy for a day</td></tr></table>
-<p>Do not hash tenants to shards. A hash is one line of code and makes moving a tenant impossible without changing the function, which is exactly the operation you will need most. An explicit mapping row is the whole point.</p>
-<p>The price is machinery: the catalogue, a per-shard migration runner, and tooling to move a tenant between shards with verification. Build the catalogue early &mdash; even a single-shard system with a catalogue can become a pooled one without touching application code.</p>
+        <p>The insight is that isolation does not have to be uniform. Small tenants share, big or demanding ones do not, and the code is identical in both cases because routing is a catalogue lookup.</p>
+        <table><tr><th>Decision</th><th>Typical</th></tr>
+        <tr><td>Tenants per shard</td><td>100–1,000, sized by the blast radius you accept</td></tr>
+        <tr><td>Assignment</td><td>least-loaded at signup, not a hash — you want to be able to move tenants</td></tr>
+        <tr><td>Promotion trigger</td><td>a tenant exceeding a share of shard resources, or buying an isolation tier</td></tr>
+        <tr><td>Migration fan-out</td><td>one run per shard — tens, not thousands</td></tr>
+        <tr><td>Rebalancing</td><td>copy, verify, flip the catalogue row, keep the old copy for a day</td></tr></table>
+        <p>Do not hash tenants to shards. A hash is one line of code and makes moving a tenant impossible without changing the function, which is exactly the operation you will need most. An explicit mapping row is the whole point.</p>
+        <p>The price is machinery: the catalogue, a per-shard migration runner, and tooling to move a tenant between shards with verification. Build the catalogue early — even a single-shard system with a catalogue can become a pooled one without touching application code.</p>
         </template></div>
         <div class="term"><b>tenant catalogue</b><span>The small shared table mapping each tenant to where it lives, plus its plan, region and status. The one piece every strategy needs.</span><template class="term-detail" data-see="pooled model, tenant resolution, provisioning">
-<p>It is a routing table, and it is the thing that makes changing strategy later a configuration change rather than a rewrite.</p>
-<pre class="language-none line-numbers"><code class="language-none">tenant_id | slug    | shard      | status    | region  | plan
+        <p>It is a routing table, and it is the thing that makes changing strategy later a configuration change rather than a rewrite.</p>
+        <pre class="language-none line-numbers"><code class="language-none">tenant_id | slug    | shard      | status    | region  | plan
 ----------+---------+------------+-----------+---------+-------
  a1f2…    | acme    | shard-01   | active    | eu-west | pro
  b3c4…    | globex  | dedicated  | active    | us-east | enterprise
- c5d6…    | initech | shard-02   | suspended | eu-west | free</code></pre>
-<table><tr><th>Operational note</th><th>Guidance</th></tr>
-<tr><td>It is on every request path</td><td>cache it aggressively, with a short TTL and an explicit invalidation on change</td></tr>
-<tr><td>It is a single point of failure</td><td>replicate it; a catalogue outage is a total outage</td></tr>
-<tr><td>It holds no tenant data</td><td>just routing and status &mdash; keep it that way</td></tr>
-<tr><td><code>status</code> is load-bearing</td><td>suspended, migrating and read-only all need to be honoured before any query runs</td></tr></table>
-<p>Build this on day one even with a single shared database, where every row says <code>shard-01</code>. It costs an afternoon, and it is the difference between "add a shard" and "re-architect".</p>
+ c5d6…    | initech | shard-02   | suspended | eu-west | free</code></pre><table><tr><th>Operational note</th><th>Guidance</th></tr>
+        <tr><td>It is on every request path</td><td>cache it aggressively, with a short TTL and an explicit invalidation on change</td></tr>
+        <tr><td>It is a single point of failure</td><td>replicate it; a catalogue outage is a total outage</td></tr>
+        <tr><td>It holds no tenant data</td><td>just routing and status — keep it that way</td></tr>
+        <tr><td><code>status</code> is load-bearing</td><td>suspended, migrating and read-only all need to be honoured before any query runs</td></tr></table>
+        <p>Build this on day one even with a single shared database, where every row says <code>shard-01</code>. It costs an afternoon, and it is the difference between "add a shard" and "re-architect".</p>
         </template></div>
         <div class="term"><b>noisy neighbour</b><span>One tenant consuming shared resources and degrading everyone else. The problem isolation is really protecting against.</span><template class="term-detail" data-see="per-tenant limits, pooled model, database per tenant">
-<p>It is rarely malice. It is a customer importing three years of history, or running an unbounded report, or integrating badly.</p>
-<table><tr><th>Resource</th><th>How one tenant exhausts it</th><th>Mitigation</th></tr>
-<tr><td>Connection pool</td><td>a long transaction holds connections</td><td>per-tenant concurrency limits, short statement timeouts</td></tr>
-<tr><td>CPU and I/O</td><td>a big import or a missing index</td><td>separate shard, resource governor, async job queue per tenant</td></tr>
-<tr><td>Cache</td><td>a large tenant evicts everyone else's hot keys</td><td>per-tenant cache budgets or key prefixes with separate limits</td></tr>
-<tr><td>Background workers</td><td>10,000 queued jobs from one tenant</td><td>fair queuing &mdash; round-robin across tenants, not FIFO</td></tr>
-<tr><td>Rate limits</td><td>one tenant uses the global budget</td><td>limit per tenant, never globally &mdash; see the rate limiting page</td></tr></table>
-<p>The one most teams miss is <b>fair queuing</b> in background work. A FIFO queue means one tenant's bulk import delays every other tenant's exports for an hour, and no amount of database isolation helps. Round-robin over tenants with a per-tenant cap fixes it.</p>
-<p>Measure per tenant before you need to: queries, CPU seconds, queue depth, storage. Without those metrics the answer to "who is causing this?" is a guess, and the answer to "should this tenant be promoted to its own database?" is unknowable.</p>
+        <p>It is rarely malice. It is a customer importing three years of history, or running an unbounded report, or integrating badly.</p>
+        <table><tr><th>Resource</th><th>How one tenant exhausts it</th><th>Mitigation</th></tr>
+        <tr><td>Connection pool</td><td>a long transaction holds connections</td><td>per-tenant concurrency limits, short statement timeouts</td></tr>
+        <tr><td>CPU and I/O</td><td>a big import or a missing index</td><td>separate shard, resource governor, async job queue per tenant</td></tr>
+        <tr><td>Cache</td><td>a large tenant evicts everyone else's hot keys</td><td>per-tenant cache budgets or key prefixes with separate limits</td></tr>
+        <tr><td>Background workers</td><td>10,000 queued jobs from one tenant</td><td>fair queuing — round-robin across tenants, not FIFO</td></tr>
+        <tr><td>Rate limits</td><td>one tenant uses the global budget</td><td>limit per tenant, never globally — see the rate limiting page</td></tr></table>
+        <p>The one most teams miss is <b>fair queuing</b> in background work. A FIFO queue means one tenant's bulk import delays every other tenant's exports for an hour, and no amount of database isolation helps. Round-robin over tenants with a per-tenant cap fixes it.</p>
+        <p>Measure per tenant before you need to: queries, CPU seconds, queue depth, storage. Without those metrics the answer to "who is causing this?" is a guess, and the answer to "should this tenant be promoted to its own database?" is unknowable.</p>
         </template></div>
         <div class="term"><b>per-tenant migration</b><span>Running schema changes across N schemas or N databases. The hidden operational cost that caps how far the isolated models scale.</span><template class="term-detail" data-see="schema per tenant, database per tenant, pooled model">
-<p>With a shared schema a release is one migration. With 2,000 tenant databases it is 2,000, some of which will fail, while the application is running code that expects the new shape.</p>
-<table><tr><th>Problem</th><th>Approach</th></tr>
-<tr><td>It takes hours</td><td>run in parallel with a bounded worker pool, and make it resumable</td></tr>
-<tr><td>Some fail</td><td>record a schema version per tenant, retry only the failures</td></tr>
-<tr><td>Version skew while it runs</td><td><b>expand and contract</b>: deploy code that works with both shapes, migrate, then remove the old path</td></tr>
-<tr><td>A tenant is mid-migration</td><td>the catalogue <code>status</code> gates traffic for that tenant only</td></tr>
-<tr><td>New tenants during a release</td><td>provision from the latest schema, not from a stale template</td></tr></table>
-<p>Expand and contract is not optional here. A release that requires every tenant to be migrated before any request can be served is a release with an outage in it, and with thousands of tenants that outage is measured in hours.</p>
-<p>Track a schema version per tenant in the catalogue and alert on drift. A tenant that silently missed three migrations is a bug report you will receive in six months and will not be able to reproduce.</p>
+        <p>With a shared schema a release is one migration. With 2,000 tenant databases it is 2,000, some of which will fail, while the application is running code that expects the new shape.</p>
+        <table><tr><th>Problem</th><th>Approach</th></tr>
+        <tr><td>It takes hours</td><td>run in parallel with a bounded worker pool, and make it resumable</td></tr>
+        <tr><td>Some fail</td><td>record a schema version per tenant, retry only the failures</td></tr>
+        <tr><td>Version skew while it runs</td><td><b>expand and contract</b>: deploy code that works with both shapes, migrate, then remove the old path</td></tr>
+        <tr><td>A tenant is mid-migration</td><td>the catalogue <code>status</code> gates traffic for that tenant only</td></tr>
+        <tr><td>New tenants during a release</td><td>provision from the latest schema, not from a stale template</td></tr></table>
+        <p>Expand and contract is not optional here. A release that requires every tenant to be migrated before any request can be served is a release with an outage in it, and with thousands of tenants that outage is measured in hours.</p>
+        <p>Track a schema version per tenant in the catalogue and alert on drift. A tenant that silently missed three migrations is a bug report you will receive in six months and will not be able to reproduce.</p>
         </template></div>
         <div class="term"><b>restore granularity</b><span>Can you restore one tenant to yesterday without touching anyone else? Nobody asks until a customer deletes something important.</span><template class="term-detail" data-see="shared schema, database per tenant, tenant lifecycle">
-<p>This is the question that most often changes an architecture decision after the fact, because the answer in a shared schema is genuinely bad.</p>
-<table><tr><th>Model</th><th>Restoring one tenant</th></tr>
-<tr><td>Shared schema</td><td>restore the whole backup to a side instance, extract that tenant's rows, reconcile identity columns and foreign keys, re-import. Hours, and risky.</td></tr>
-<tr><td>Schema per tenant</td><td>restore one schema from a dump. Straightforward.</td></tr>
-<tr><td>Database per tenant</td><td>point-in-time restore of one database. Minutes, and routine.</td></tr>
-<tr><td>Pooled</td><td>restore the shard to a side instance, then extract as above &mdash; but across hundreds of tenants, not thousands.</td></tr></table>
-<p>Two cheap mitigations for a shared schema, worth adding early: <b>soft deletes</b> with a retention window, so the common case ("we deleted the wrong project") never needs a restore at all; and a per-tenant <b>export</b> endpoint you can also use as the input to a re-import.</p>
-<p>Whatever your model, rehearse it. A restore procedure nobody has run is a document, not a capability, and you will be reading it for the first time during an incident with a customer on the phone.</p>
+        <p>This is the question that most often changes an architecture decision after the fact, because the answer in a shared schema is genuinely bad.</p>
+        <table><tr><th>Model</th><th>Restoring one tenant</th></tr>
+        <tr><td>Shared schema</td><td>restore the whole backup to a side instance, extract that tenant's rows, reconcile identity columns and foreign keys, re-import. Hours, and risky.</td></tr>
+        <tr><td>Schema per tenant</td><td>restore one schema from a dump. Straightforward.</td></tr>
+        <tr><td>Database per tenant</td><td>point-in-time restore of one database. Minutes, and routine.</td></tr>
+        <tr><td>Pooled</td><td>restore the shard to a side instance, then extract as above — but across hundreds of tenants, not thousands.</td></tr></table>
+        <p>Two cheap mitigations for a shared schema, worth adding early: <b>soft deletes</b> with a retention window, so the common case ("we deleted the wrong project") never needs a restore at all; and a per-tenant <b>export</b> endpoint you can also use as the input to a re-import.</p>
+        <p>Whatever your model, rehearse it. A restore procedure nobody has run is a document, not a capability, and you will be reading it for the first time during an incident with a customer on the phone.</p>
         </template></div>
         <div class="term"><b>data residency</b><span>Contractual or legal requirements that a tenant's data stays in a region. A requirement that effectively picks your strategy for you.</span><template class="term-detail" data-see="database per tenant, tenant catalogue, tenant lifecycle">
-<p>If one tenant's data must stay in the EU, that tenant cannot share a database with a tenant whose data is in the US. The isolation boundary and the geography boundary have to agree.</p>
-<table><tr><th>Requirement</th><th>Implies</th></tr>
-<tr><td>Region per tenant</td><td>at minimum a shard per region; realistically a database per tenant for the strict ones</td></tr>
-<tr><td>Customer-managed encryption keys</td><td>database per tenant &mdash; you cannot key one table by row</td></tr>
-<tr><td>"Not physically co-located with competitors"</td><td>database per tenant, and a diagram for the auditor</td></tr>
-<tr><td>Right to erasure within 30 days</td><td>deleting rows is enough, but backups must age out too</td></tr></table>
-<p>Keep the region in the tenant catalogue and resolve it before any data access, including in background jobs and in the analytics pipeline &mdash; the warehouse is where residency rules are most often quietly broken.</p>
-<p>Watch the edges: logs, traces, metrics, email, exports and support tooling all carry tenant data out of the region if nobody checks. A compliant database behind a global log aggregator is not compliant.</p>
+        <p>If one tenant's data must stay in the EU, that tenant cannot share a database with a tenant whose data is in the US. The isolation boundary and the geography boundary have to agree.</p>
+        <table><tr><th>Requirement</th><th>Implies</th></tr>
+        <tr><td>Region per tenant</td><td>at minimum a shard per region; realistically a database per tenant for the strict ones</td></tr>
+        <tr><td>Customer-managed encryption keys</td><td>database per tenant — you cannot key one table by row</td></tr>
+        <tr><td>"Not physically co-located with competitors"</td><td>database per tenant, and a diagram for the auditor</td></tr>
+        <tr><td>Right to erasure within 30 days</td><td>deleting rows is enough, but backups must age out too</td></tr></table>
+        <p>Keep the region in the tenant catalogue and resolve it before any data access, including in background jobs and in the analytics pipeline — the warehouse is where residency rules are most often quietly broken.</p>
+        <p>Watch the edges: logs, traces, metrics, email, exports and support tooling all carry tenant data out of the region if nobody checks. A compliant database behind a global log aggregator is not compliant.</p>
         </template></div>
         <div class="term"><b>tenant-aware caching</b><span>Every cache key carries the tenant. Miss this and you serve one customer's data to another from memory rather than from the database.</span><template class="term-detail" data-see="per-tenant limits, noisy neighbour, global query filter">
-<p>The database defences do not reach the cache. A correct query whose result is cached under <code>product:42</code> is a leak the moment a second tenant asks for product 42.</p>
-<pre class="language-csharp"><code class="language-csharp">// never
+        <p>The database defences do not reach the cache. A correct query whose result is cached under <code>product:42</code> is a leak the moment a second tenant asks for product 42.</p>
+        <pre class="language-csharp"><code class="language-csharp">// never
 var key = $"invoice:{id}";
 // always
-var key = $"t:{tenant.Id}:invoice:{id}";</code></pre>
-<table><tr><th>Also carries tenant state</th><th>Watch for</th></tr>
-<tr><td>In-memory caches</td><td>a static dictionary with no tenant in the key &mdash; the classic</td></tr>
-<tr><td>Output and response caches</td><td><code>VaryBy</code> must include the tenant</td></tr>
-<tr><td>CDN</td><td>never cache an authenticated multi-tenant response as <code>public</code></td></tr>
-<tr><td>Compiled queries and lookups</td><td>reference data that differs per tenant</td></tr>
-<tr><td>Background job state</td><td>a worker reusing a cached tenant context between jobs</td></tr></table>
-<p>Enforce it rather than remembering it: wrap your cache client so the key is composed from ambient tenant context and a raw key cannot be passed in. Then add a test that fails if any key is produced without a tenant prefix.</p>
-<p>The caching strategies page covers key design in general; the multi-tenant addition is simply that the tenant is never optional.</p>
+var key = $"t:{tenant.Id}:invoice:{id}";</code></pre><table><tr><th>Also carries tenant state</th><th>Watch for</th></tr>
+        <tr><td>In-memory caches</td><td>a static dictionary with no tenant in the key — the classic</td></tr>
+        <tr><td>Output and response caches</td><td><code>VaryBy</code> must include the tenant</td></tr>
+        <tr><td>CDN</td><td>never cache an authenticated multi-tenant response as <code>public</code></td></tr>
+        <tr><td>Compiled queries and lookups</td><td>reference data that differs per tenant</td></tr>
+        <tr><td>Background job state</td><td>a worker reusing a cached tenant context between jobs</td></tr></table>
+        <p>Enforce it rather than remembering it: wrap your cache client so the key is composed from ambient tenant context and a raw key cannot be passed in. Then add a test that fails if any key is produced without a tenant prefix.</p>
+        <p>The caching strategies page covers key design in general; the multi-tenant addition is simply that the tenant is never optional.</p>
         </template></div>
         <div class="term"><b>per-tenant limits</b><span>Quotas and rate limits keyed on the tenant, so one customer cannot consume the capacity the others are paying for.</span><template class="term-detail" data-see="noisy neighbour, tenant catalogue, cost per tenant">
-<p>A global rate limit protects the system and distributes the pain randomly. A per-tenant limit protects tenants from each other, which is the thing you actually promised.</p>
-<table><tr><th>Limit</th><th>Keyed on</th><th>Typical</th></tr>
-<tr><td>API requests</td><td>tenant, then plan</td><td>60/min free, 600/min pro, negotiated for enterprise</td></tr>
-<tr><td>Concurrent heavy jobs</td><td>tenant</td><td>1&ndash;5, whatever the plan says</td></tr>
-<tr><td>Storage</td><td>tenant</td><td>soft limit with an alert, hard limit at 2x</td></tr>
-<tr><td>Background queue share</td><td>tenant</td><td>fair round-robin, with a cap per tenant</td></tr>
-<tr><td>Query timeout</td><td>tenant tier</td><td>shorter on shared shards than on dedicated</td></tr></table>
-<p>The tenant id is the natural counter key, and the plan from the catalogue is the natural limit &mdash; which makes the whole thing a lookup plus a token bucket. The rate limiting page covers the algorithms; here the only addition is that the key must be the tenant and the limit must come from the tenant's plan.</p>
-<p>Return limit headers and expose usage in the product. A tenant that can see it is approaching a limit upgrades; a tenant that is silently throttled files a support ticket saying your product is slow.</p>
+        <p>A global rate limit protects the system and distributes the pain randomly. A per-tenant limit protects tenants from each other, which is the thing you actually promised.</p>
+        <table><tr><th>Limit</th><th>Keyed on</th><th>Typical</th></tr>
+        <tr><td>API requests</td><td>tenant, then plan</td><td>60/min free, 600/min pro, negotiated for enterprise</td></tr>
+        <tr><td>Concurrent heavy jobs</td><td>tenant</td><td>1–5, whatever the plan says</td></tr>
+        <tr><td>Storage</td><td>tenant</td><td>soft limit with an alert, hard limit at 2x</td></tr>
+        <tr><td>Background queue share</td><td>tenant</td><td>fair round-robin, with a cap per tenant</td></tr>
+        <tr><td>Query timeout</td><td>tenant tier</td><td>shorter on shared shards than on dedicated</td></tr></table>
+        <p>The tenant id is the natural counter key, and the plan from the catalogue is the natural limit — which makes the whole thing a lookup plus a token bucket. The rate limiting page covers the algorithms; here the only addition is that the key must be the tenant and the limit must come from the tenant's plan.</p>
+        <p>Return limit headers and expose usage in the product. A tenant that can see it is approaching a limit upgrades; a tenant that is silently throttled files a support ticket saying your product is slow.</p>
         </template></div>
         <div class="term"><b>provisioning</b><span>Creating everything a new tenant needs. Cheap in a shared schema, a workflow of its own once tenants get their own storage.</span><template class="term-detail" data-see="tenant catalogue, database per tenant, tenant lifecycle">
-<p>Onboarding cost is a direct function of the strategy, and it determines whether self-service signup is even possible.</p>
-<table><tr><th>Model</th><th>Onboarding</th><th>Self-service?</th></tr>
-<tr><td>Shared schema</td><td>an <code>INSERT</code> &mdash; milliseconds</td><td>yes, trivially</td></tr>
-<tr><td>Schema per tenant</td><td>create schema, run migrations &mdash; seconds</td><td>yes, with a progress screen</td></tr>
-<tr><td>Database per tenant</td><td>provision, migrate, seed &mdash; minutes</td><td>only asynchronously</td></tr>
-<tr><td>Pooled</td><td>pick a shard, insert &mdash; milliseconds</td><td>yes</td></tr></table>
-<p>Make provisioning idempotent and resumable. It is a multi-step workflow that creates a database, runs migrations, seeds reference data, creates the first admin user and sends an email &mdash; and it will fail halfway at some point. A durable workflow fits this exactly.</p>
-<p>Seed data deserves attention: every tenant needs the same reference data, and divergence between what provisioning creates today and what it created two years ago is a long-lived source of bugs. Derive seeds from the same migrations, not from a copied template database.</p>
+        <p>Onboarding cost is a direct function of the strategy, and it determines whether self-service signup is even possible.</p>
+        <table><tr><th>Model</th><th>Onboarding</th><th>Self-service?</th></tr>
+        <tr><td>Shared schema</td><td>an <code>INSERT</code> — milliseconds</td><td>yes, trivially</td></tr>
+        <tr><td>Schema per tenant</td><td>create schema, run migrations — seconds</td><td>yes, with a progress screen</td></tr>
+        <tr><td>Database per tenant</td><td>provision, migrate, seed — minutes</td><td>only asynchronously</td></tr>
+        <tr><td>Pooled</td><td>pick a shard, insert — milliseconds</td><td>yes</td></tr></table>
+        <p>Make provisioning idempotent and resumable. It is a multi-step workflow that creates a database, runs migrations, seeds reference data, creates the first admin user and sends an email — and it will fail halfway at some point. A durable workflow fits this exactly.</p>
+        <p>Seed data deserves attention: every tenant needs the same reference data, and divergence between what provisioning creates today and what it created two years ago is a long-lived source of bugs. Derive seeds from the same migrations, not from a copied template database.</p>
         </template></div>
         <div class="term"><b>tenant lifecycle</b><span>Suspend, reactivate, export, delete. The operations nobody designs up front and everybody needs within the first year.</span><template class="term-detail" data-see="tenant catalogue, restore granularity, data residency">
-<p>A tenant is not just created. It stops paying, comes back, asks for its data, or demands deletion &mdash; and each of those is a code path.</p>
-<table><tr><th>State</th><th>Behaviour</th></tr>
-<tr><td><code>active</code></td><td>normal</td></tr>
-<tr><td><code>suspended</code></td><td>no API access, data retained, billing stopped &mdash; usually reversible for 30&ndash;90 days</td></tr>
-<tr><td><code>read-only</code></td><td>past the plan limit or in a payment dispute; exports still work</td></tr>
-<tr><td><code>migrating</code></td><td>being moved between shards; writes paused or dual-written</td></tr>
-<tr><td><code>pending-deletion</code></td><td>a grace period, then hard delete</td></tr></table>
-<p>Honour the status <em>before</em> the query, in the same middleware that resolves the tenant. A suspended tenant whose background jobs keep running is a billing problem and sometimes a legal one.</p>
-<p>Build export early. It is required for GDPR-style portability, it is the best possible answer to "can we have our data?", and it doubles as your per-tenant backup in a shared-schema system where a real restore is hard.</p>
-<p>Deletion must cover backups, logs, caches, search indexes, the warehouse and any third-party processor. "We deleted the rows" is not deletion, and the gap between those two statements is where compliance findings come from.</p>
+        <p>A tenant is not just created. It stops paying, comes back, asks for its data, or demands deletion — and each of those is a code path.</p>
+        <table><tr><th>State</th><th>Behaviour</th></tr>
+        <tr><td><code>active</code></td><td>normal</td></tr>
+        <tr><td><code>suspended</code></td><td>no API access, data retained, billing stopped — usually reversible for 30–90 days</td></tr>
+        <tr><td><code>read-only</code></td><td>past the plan limit or in a payment dispute; exports still work</td></tr>
+        <tr><td><code>migrating</code></td><td>being moved between shards; writes paused or dual-written</td></tr>
+        <tr><td><code>pending-deletion</code></td><td>a grace period, then hard delete</td></tr></table>
+        <p>Honour the status <em>before</em> the query, in the same middleware that resolves the tenant. A suspended tenant whose background jobs keep running is a billing problem and sometimes a legal one.</p>
+        <p>Build export early. It is required for GDPR-style portability, it is the best possible answer to "can we have our data?", and it doubles as your per-tenant backup in a shared-schema system where a real restore is hard.</p>
+        <p>Deletion must cover backups, logs, caches, search indexes, the warehouse and any third-party processor. "We deleted the rows" is not deletion, and the gap between those two statements is where compliance findings come from.</p>
         </template></div>
         <div class="term"><b>cost per tenant</b><span>What one tenant costs you per month. The number that decides whether your pricing works and which tenants deserve isolation.</span><template class="term-detail" data-see="pooled model, database per tenant, per-tenant limits">
-<p>Isolation is bought with money, so the decision needs an actual figure rather than a preference.</p>
-<table><tr><th>Model</th><th>Rough floor per tenant per month</th></tr>
-<tr><td>Shared schema</td><td>cents &mdash; storage and a share of compute</td></tr>
-<tr><td>Pooled (200 per shard)</td><td>a few cents to a euro</td></tr>
-<tr><td>Schema per tenant</td><td>similar to pooled, plus migration time</td></tr>
-<tr><td>Database per tenant (elastic pool)</td><td>a few euros</td></tr>
-<tr><td>Database per tenant (provisioned)</td><td>tens of euros &mdash; whether or not the tenant logs in</td></tr></table>
-<p>The arithmetic that matters: a free tier on database-per-tenant at, say, €15 a month means 1,000 free tenants cost €15,000 a month before anyone pays you. That single calculation is why free and small tenants live in pools and only paying enterprise customers get dedicated storage.</p>
-<p>Instrument it: storage, queries, CPU seconds, egress and background job time per tenant. Without those, pricing is guesswork and "this customer is unprofitable" is an opinion. The back-of-the-envelope page covers how to turn these per-unit numbers into a monthly figure before you build anything.</p>
+        <p>Isolation is bought with money, so the decision needs an actual figure rather than a preference.</p>
+        <table><tr><th>Model</th><th>Rough floor per tenant per month</th></tr>
+        <tr><td>Shared schema</td><td>cents — storage and a share of compute</td></tr>
+        <tr><td>Pooled (200 per shard)</td><td>a few cents to a euro</td></tr>
+        <tr><td>Schema per tenant</td><td>similar to pooled, plus migration time</td></tr>
+        <tr><td>Database per tenant (elastic pool)</td><td>a few euros</td></tr>
+        <tr><td>Database per tenant (provisioned)</td><td>tens of euros — whether or not the tenant logs in</td></tr></table>
+        <p>The arithmetic that matters: a free tier on database-per-tenant at, say, €15 a month means 1,000 free tenants cost €15,000 a month before anyone pays you. That single calculation is why free and small tenants live in pools and only paying enterprise customers get dedicated storage.</p>
+        <p>Instrument it: storage, queries, CPU seconds, egress and background job time per tenant. Without those, pricing is guesswork and "this customer is unprofitable" is an opinion. The back-of-the-envelope page covers how to turn these per-unit numbers into a monthly figure before you build anything.</p>
         </template></div>
       </div>
     </section>
 
     <section id="commands">
       <h2>Code &amp; syntax</h2>
-
       <div class="cmd-group">
         <h3>Resolving the tenant</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">app.Use(async (ctx, next) =&gt;
@@ -581,7 +570,6 @@ async def tenant_connection(pool, tenant_id: UUID):
             yield conn
         finally:
             await conn.execute("SELECT set_config('app.tenant_id', '', false)")</code></pre><div class="what">The reset in <code>finally</code> is the important half: pooled connections are reused, and a stale <code>app.tenant_id</code> is a cross-tenant data leak.</div></div>
-        
         <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">current_tenant: ContextVar[Tenant] = ContextVar("current_tenant")
 
 @app.middleware("http")
@@ -596,14 +584,12 @@ async def resolve_tenant(request: Request, call_next):
         return await call_next(request)
     finally:
         current_tenant.reset(token)         # never leak a tenant into the next request</code></pre><div class="what">A <code>ContextVar</code> is the asyncio-safe equivalent of an AsyncLocal: a module-level global would leak one tenant’s context into another’s request.</div></div>
-        
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">builder.Services.AddMultiTenant&lt;AppTenantInfo&gt;()
     .WithHostStrategy("__tenant__.*")
     .WithClaimStrategy("tid")
     .WithEFCoreStore&lt;CatalogueDbContext, AppTenantInfo&gt;()
     .WithPerTenantAuthentication();</code></pre><div class="what">Finbuckle.MultiTenant packages resolution, the catalogue store and per-tenant options if you would rather not hand-roll it.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Shared schema: filter, index, and the database backstop</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">protected override void OnModelCreating(ModelBuilder b)
@@ -627,7 +613,6 @@ SELECT set_config('app.tenant_id', @tenantId, false);</code></pre><div class="wh
   ADD CONSTRAINT fk_order_lines_order
   FOREIGN KEY (tenant_id, order_id) REFERENCES orders (tenant_id, id);</code></pre><div class="what">A composite foreign key makes a cross-tenant reference a constraint violation instead of a leak.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Schema and database per tenant</h3>
         <div class="cmd"><pre class="language-csharp"><code class="language-csharp">protected override void OnModelCreating(ModelBuilder b)
@@ -645,7 +630,6 @@ SELECT set_config('app.tenant_id', @tenantId, false);</code></pre><div class="wh
         await catalogue.RecordSchemaVersionAsync(t.Id, CurrentVersion, ct);  // track drift
     });</code></pre><div class="what">The per-tenant migration runner: bounded parallelism, resumable, and a recorded version per tenant so failures can be retried alone.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>The catalogue and pooled routing</h3>
         <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">CREATE TABLE tenants (
@@ -661,7 +645,7 @@ SELECT set_config('app.tenant_id', @tenantId, false);</code></pre><div class="wh
     async _ =&gt; await catalogue.FindAsync(slug), TimeSpan.FromMinutes(5));
 
 if (tenant.Status is "suspended") return Results.StatusCode(402);
-if (tenant.Status is "migrating") return Results.StatusCode(503);</code></pre><div class="what">The catalogue is on every request, so cache it &mdash; and honour the status before any query runs.</div></div>
+if (tenant.Status is "migrating") return Results.StatusCode(503);</code></pre><div class="what">The catalogue is on every request, so cache it — and honour the status before any query runs.</div></div>
         <div class="cmd"><pre class="language-none line-numbers"><code class="language-none"># move a tenant between shards
 1. set status = 'migrating'        # writes pause or dual-write
 2. copy rows to the target shard
@@ -669,7 +653,6 @@ if (tenant.Status is "migrating") return Results.StatusCode(503);</code></pre><d
 4. update shard, set status = 'active'
 5. keep the source rows for 24 h, then drop</code></pre><div class="what">The operation that justifies an explicit mapping instead of hashing tenants to shards.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Everything else that must be tenant-aware</h3>
         <div class="cmd"><pre class="language-csharp"><code class="language-csharp">var key = $"t:{tenant.Id}:invoice:{id}";               // never "invoice:{id}"</code></pre><div class="what">The cache does not inherit your query filter. Wrap the cache client so a key without a tenant cannot be built.</div></div>
@@ -692,7 +675,7 @@ foreach (var tenantId in await catalogue.ActiveTenantIdsAsync(ct))
       <div class="cols">
         <div class="col good"><h3>Pros of sharing more</h3><ul>
           <li>Cost per tenant falls to cents, which is what makes a free tier and small customers viable.</li>
-          <li>One migration, one backup, one set of dashboards &mdash; operations do not grow with the customer count.</li>
+          <li>One migration, one backup, one set of dashboards — operations do not grow with the customer count.</li>
           <li>Onboarding is an <code>INSERT</code>, so self-service signup is instant.</li>
           <li>Cross-tenant reporting and analytics are ordinary queries.</li>
           <li>Capacity is pooled, so one tenant's quiet week pays for another's busy one.</li>
@@ -714,8 +697,8 @@ foreach (var tenantId in await catalogue.ActiveTenantIdsAsync(ct))
       <div class="cards">
         <div class="card"><h3>A new SaaS with a free tier</h3><p>Thousands of signups, most of which never become paying customers. Shared schema with row-level security: a tenant costs cents, onboarding is instant, and a free tenant that never logs in again costs nothing. A tenant catalogue is built on day one with every row pointing at the single shard, so pools are a configuration change later.</p></div>
         <div class="card"><h3>Enterprise customer demanding isolation</h3><p>A bank will sign a seven-figure contract if its data is in its own database, in the EU, with a customer-managed key. The tenant is promoted from a shard to a dedicated database: the catalogue row changes, the application code does not, and 20,000 other tenants stay pooled.</p></div>
-        <div class="card"><h3>The import that took everyone down</h3><p>One customer uploads three years of history. A FIFO job queue means every other tenant's exports sit behind it for an hour, and the connection pool is exhausted by long transactions. The fix is per-tenant: fair round-robin queuing, a cap on concurrent heavy jobs, and a statement timeout &mdash; none of which is about the database layout.</p></div>
-        <div class="card"><h3>"Can you restore our data to Tuesday?"</h3><p>A customer deletes a project and asks for a restore. In a shared schema this means restoring the full backup to a side instance and extracting one tenant's rows, so the team ships soft deletes with a 30-day window instead &mdash; which turns the common case into an <code>UPDATE</code> and leaves true restores for genuine disasters.</p></div>
+        <div class="card"><h3>The import that took everyone down</h3><p>One customer uploads three years of history. A FIFO job queue means every other tenant's exports sit behind it for an hour, and the connection pool is exhausted by long transactions. The fix is per-tenant: fair round-robin queuing, a cap on concurrent heavy jobs, and a statement timeout — none of which is about the database layout.</p></div>
+        <div class="card"><h3>"Can you restore our data to Tuesday?"</h3><p>A customer deletes a project and asks for a restore. In a shared schema this means restoring the full backup to a side instance and extracting one tenant's rows, so the team ships soft deletes with a 30-day window instead — which turns the common case into an <code>UPDATE</code> and leaves true restores for genuine disasters.</p></div>
         <div class="card"><h3>Outgrowing one database</h3><p>At 40,000 tenants one PostgreSQL instance is at its limit and every incident affects every customer. Tenants are split across eight shards of 5,000, assigned least-loaded at signup rather than by hash so they can be moved. Migrations go from one run to eight, and the blast radius of an incident drops by 87%.</p></div>
       </div>
     </section>
@@ -724,7 +707,7 @@ foreach (var tenantId in await catalogue.ActiveTenantIdsAsync(ct))
       <h2>When to use / when not to</h2>
       <span class="note" style="margin:-6px 0 14px">Start shared, build the catalogue anyway, and isolate the tenants who pay for it.</span>
       <div class="cols">
-        <div class="col good"><h3>Share more when&hellip;</h3><ul>
+        <div class="col good"><h3>Share more when…</h3><ul>
           <li>Tenants are numerous and small, and many will never pay you anything.</li>
           <li>Cost per tenant has to be measured in cents for the pricing to work.</li>
           <li>Self-service signup must be instant.</li>
@@ -732,7 +715,7 @@ foreach (var tenantId in await catalogue.ActiveTenantIdsAsync(ct))
           <li>Cross-tenant analytics are a product feature rather than an afterthought.</li>
           <li>Your team is small and cannot operate thousands of databases.</li>
         </ul></div>
-        <div class="col bad"><h3>Isolate more when&hellip;</h3><ul>
+        <div class="col bad"><h3>Isolate more when…</h3><ul>
           <li>A contract requires data residency or customer-managed keys. Use <b>database per tenant</b>.</li>
           <li>Tenants differ in size by orders of magnitude. Use <b>pools plus promotion</b>.</li>
           <li>Restoring one customer must be routine. Use <b>database per tenant</b>.</li>
@@ -746,12 +729,12 @@ foreach (var tenantId in await catalogue.ActiveTenantIdsAsync(ct))
     <section id="gotchas">
       <h2>Common mistakes &amp; gotchas</h2>
       <div class="gotcha"><b>Raw SQL bypassing the query filter</b><span>A report needs a window function, so it uses <code>FromSqlRaw</code> or Dapper. Global query filters do not apply, nothing errors, and the report quietly returns every tenant's rows to whoever opened it.</span><div class="fix">Fix: enable row-level security so the database enforces the predicate whatever issued the statement. Failing that, ban raw SQL outside an audited helper that takes the tenant as a required parameter.</div></div>
-      <div class="gotcha"><b>Background jobs with no tenant in scope</b><span>A nightly job runs outside a request, so nothing resolved a tenant. The filter compares against an empty context and either returns nothing or &mdash; worse, with a nullable comparison &mdash; everything.</span><div class="fix">Fix: make tenant context required rather than optional, so an unset tenant throws. Loop over tenants explicitly, creating a scope and setting the tenant for each one.</div></div>
-      <div class="gotcha"><b>Row-level security and connection pooling</b><span><code>set_config</code> runs once when the connection opens rather than on every checkout. A pooled connection carries the previous request's tenant, so one tenant occasionally sees another's data &mdash; intermittently, under load, and impossible to reproduce locally.</span><div class="fix">Fix: set the tenant setting on every checkout, in a connection interceptor, and assert it matches the ambient tenant before executing. Test it with a pool size of one and concurrent requests.</div></div>
+      <div class="gotcha"><b>Background jobs with no tenant in scope</b><span>A nightly job runs outside a request, so nothing resolved a tenant. The filter compares against an empty context and either returns nothing or — worse, with a nullable comparison — everything.</span><div class="fix">Fix: make tenant context required rather than optional, so an unset tenant throws. Loop over tenants explicitly, creating a scope and setting the tenant for each one.</div></div>
+      <div class="gotcha"><b>Row-level security and connection pooling</b><span><code>set_config</code> runs once when the connection opens rather than on every checkout. A pooled connection carries the previous request's tenant, so one tenant occasionally sees another's data — intermittently, under load, and impossible to reproduce locally.</span><div class="fix">Fix: set the tenant setting on every checkout, in a connection interceptor, and assert it matches the ambient tenant before executing. Test it with a pool size of one and concurrent requests.</div></div>
       <div class="gotcha"><b>Cache keys without the tenant</b><span>Every query is correctly filtered, then the result is cached under <code>product:42</code>. The second tenant to ask for product 42 gets the first tenant's data out of memory, and no database control can see it happen.</span><div class="fix">Fix: compose keys from ambient tenant context inside a cache wrapper so a raw key cannot be passed. Add a test asserting every key produced starts with the tenant prefix.</div></div>
       <div class="gotcha"><b>Trusting a tenant id from the request body</b><span>An endpoint accepts <code>tenantId</code> in the payload "for flexibility". Changing one field in a request now reads or writes another customer's data.</span><div class="fix">Fix: the tenant comes from the signed token only. Stamp it server-side on insert, ignore it on input, and return <code>403</code> when a supplied tenant disagrees with the resolved one.</div></div>
       <div class="gotcha"><b>Indexes without the tenant first</b><span><code>CREATE INDEX ON invoices (created_at)</code> looks right and performs fine with ten tenants. At five thousand, every tenant's query scans everyone else's rows before filtering, and the whole system slows together.</span><div class="fix">Fix: <code>tenant_id</code> is the first column of essentially every index. Review the plans with production-like tenant counts, not with your seed data.</div></div>
-      <div class="gotcha"><b>Hashing tenants to shards</b><span><code>shard = hash(tenantId) % 8</code> is one line and makes moving a tenant impossible without rehashing everyone &mdash; which is exactly what you need when one tenant outgrows its shard or buys isolation.</span><div class="fix">Fix: store the mapping explicitly in the catalogue. Assign least-loaded at signup, and keep the ability to change one row to move one tenant.</div></div>
+      <div class="gotcha"><b>Hashing tenants to shards</b><span><code>shard = hash(tenantId) % 8</code> is one line and makes moving a tenant impossible without rehashing everyone — which is exactly what you need when one tenant outgrows its shard or buys isolation.</span><div class="fix">Fix: store the mapping explicitly in the catalogue. Assign least-loaded at signup, and keep the ability to change one row to move one tenant.</div></div>
       <div class="gotcha"><b>No plan for per-tenant migrations</b><span>Schema- or database-per-tenant is chosen for isolation, and the first release that touches the schema takes four hours, fails for 3% of tenants and leaves the fleet on two different versions.</span><div class="fix">Fix: expand and contract so both shapes work during the rollout, a resumable runner with bounded parallelism, a recorded schema version per tenant, and an alert on drift.</div></div>
       <div class="gotcha"><b>Deletion that only deletes rows</b><span>A tenant exercises its right to erasure. The rows go, and the data stays in backups, logs, the search index, the warehouse and three third-party processors.</span><div class="fix">Fix: write down everywhere tenant data lands, and make deletion a workflow across all of them with a backup retention window the contract reflects. Rehearse it before you are asked.</div></div>
     </section>
@@ -766,15 +749,15 @@ foreach (var tenantId in await catalogue.ActiveTenantIdsAsync(ct))
             <tr><td><b>Schema per tenant</b></td><td>a small, bounded tenant count</td><td>a namespace</td><td>low</td><td>Removes the filter, adds N migrations; squeezed from both sides at scale</td></tr>
             <tr><td><b>Database per tenant</b></td><td>few, large, regulated tenants</td><td>a connection</td><td>tens of euros</td><td>Residency, per-tenant keys and trivial restores; you pay for idle tenants</td></tr>
             <tr class="self"><td><b>Sharded pools</b></td><td>most SaaS at scale</td><td>per shard, per tenant</td><td>cents</td><td>Blast radius chosen per tenant; needs a catalogue and move tooling</td></tr>
-            <tr><td><b>Single-tenant deployments</b></td><td>on-premises and air-gapped customers</td><td>total &mdash; whole stack</td><td>very high</td><td>Not multitenancy at all: N installations, N upgrades, N on-call surfaces</td></tr>
-            <tr><td><b>Cell-based architecture</b></td><td>very large platforms</td><td>per cell</td><td>low</td><td>Shards the <i>entire stack</i>, not just the database; the ceiling above pools</td></tr>
+            <tr><td><b>Single-tenant deployments</b></td><td>on-premises and air-gapped customers</td><td>total — whole stack</td><td>very high</td><td>Not multitenancy at all: N installations, N upgrades, N on-call surfaces</td></tr>
+            <tr><td><b>Cell-based architecture</b></td><td>very large platforms</td><td>per cell</td><td>low</td><td>Shards the <em>entire stack</em>, not just the database; the ceiling above pools</td></tr>
             <tr><td><b>Namespace per tenant (Kubernetes)</b></td><td>isolating compute, not data</td><td>per namespace</td><td>medium</td><td>Solves the noisy neighbour at the compute layer; data isolation is still your problem</td></tr>
           </tbody>
         </table>
       </div>
       <ul style="margin-top:12px">
         <li><b>Pick shared schema</b> to start, and add row-level security immediately rather than eventually.</li>
-        <li><b>Pick sharded pools</b> when one blast radius for every customer stops being acceptable &mdash; usually long before you hit a technical limit.</li>
+        <li><b>Pick sharded pools</b> when one blast radius for every customer stops being acceptable — usually long before you hit a technical limit.</li>
         <li><b>Pick database per tenant</b> for the specific customers whose contracts pay for it, not for everyone.</li>
         <li><b>Consider cell-based architecture</b> when sharding the database is no longer enough and you need the whole stack partitioned.</li>
         <li><b>Avoid single-tenant deployments</b> unless the customer is paying for an installation, because you are agreeing to operate N products.</li>
@@ -785,10 +768,10 @@ foreach (var tenantId in await catalogue.ActiveTenantIdsAsync(ct))
     <section id="resources">
       <h2>Resources</h2>
       <ul>
-        <li><a href="https://learn.microsoft.com/azure/architecture/guide/multitenant/overview" target="_blank" rel="noopener">Azure Architecture Center &mdash; Multitenant architecture guidance</a>: the most complete catalogue of tenancy models and their trade-offs.</li>
+        <li><a href="https://learn.microsoft.com/azure/architecture/guide/multitenant/overview" target="_blank" rel="noopener">Azure Architecture Center — Multitenant architecture guidance</a>: the most complete catalogue of tenancy models and their trade-offs.</li>
         <li><a href="https://learn.microsoft.com/azure/azure-sql/database/saas-tenancy-app-design-patterns" target="_blank" rel="noopener">SaaS tenancy app design patterns</a>: shared, sharded and dedicated compared with concrete cost and management implications.</li>
-        <li><a href="https://www.postgresql.org/docs/current/ddl-rowsecurity.html" target="_blank" rel="noopener">PostgreSQL &mdash; Row Security Policies</a>: the reference for the database-level backstop, including <code>FORCE</code> and the pooling caveats.</li>
-        <li><a href="https://learn.microsoft.com/ef/core/querying/filters" target="_blank" rel="noopener">EF Core &mdash; Global query filters</a>: the ORM half, and exactly where it does not apply.</li>
+        <li><a href="https://www.postgresql.org/docs/current/ddl-rowsecurity.html" target="_blank" rel="noopener">PostgreSQL — Row Security Policies</a>: the reference for the database-level backstop, including <code>FORCE</code> and the pooling caveats.</li>
+        <li><a href="https://learn.microsoft.com/ef/core/querying/filters" target="_blank" rel="noopener">EF Core — Global query filters</a>: the ORM half, and exactly where it does not apply.</li>
         <li><a href="https://www.finbuckle.com/MultiTenant/Docs/v9.1.0/Introduction" target="_blank" rel="noopener">Finbuckle.MultiTenant</a>: resolution strategies, catalogue stores and per-tenant options for ASP.NET Core.</li>
         <li><a href="https://docs.aws.amazon.com/wellarchitected/latest/saas-lens/saas-lens.html" target="_blank" rel="noopener">AWS SaaS Lens</a>: tenant isolation, noisy neighbours, onboarding and per-tenant cost attribution as operational practice.</li>
       </ul>
@@ -835,140 +818,59 @@ foreach (var tenantId in await catalogue.ActiveTenantIdsAsync(ct))
 
 <script src="../assets/player.js?v=3658cbc7"></script>
 <script>
-/* ---------- 1. Shared database, shared schema ---------- */
 createAnimation('anim-shared', [
-  { say: 'Three tenants, one table. Every row carries a <code>tenant_id</code>, and that column is the entire isolation mechanism &mdash; there is nothing else separating acme from globex.',
-    hl: ['sh-f'] },
-  { say: 'A request arrives for <b>acme</b>. The tenant is resolved from the signed token before anything touches data, and the ORM adds the predicate to every query automatically.',
-    unhl: ['sh-f'], hl: ['sh-app'],
-    text: { 'sh-app-t': 'GET /invoices', 'sh-f-t': "WHERE tenant_id = 'acme'", 'sh-s2': 'event: a normal read' } },
-  { say: 'Two of the five rows come back. The other three were never visible &mdash; but they were in the same table, on the same pages, one predicate away.',
-    unhl: ['sh-app'],
-    fill: { 'sh-r1': '#e3eedc', 'sh-r3': '#e3eedc' },
-    text: { 'sh-app-t': '2 rows · 1.8 ms' } },
-  { say: 'Now the failure mode. A report needs a window function, so somebody writes raw SQL. Global query filters <b>do not apply</b> to raw SQL &mdash; and nothing errors. The report simply returns more rows than it should.',
-    fill: { 'sh-r2': '#f9e3df', 'sh-r4': '#f9e3df', 'sh-r5': '#f9e3df' },
-    text: { 'sh-f-t': 'bypassed by FromSqlRaw', 'sh-s1': 'isolation: a WHERE clause — and it was skipped',
-            'sh-s2': 'event: cross-tenant leak' } },
-  { say: 'The fix is to stop relying on the ORM. With <b>row-level security</b> the database applies the predicate itself, so raw SQL, Dapper, a stored procedure or a psql session all get filtered &mdash; a forgotten filter returns nothing instead of everything.',
-    fill: { 'sh-r2': '#fbfcf8', 'sh-r4': '#fbfcf8', 'sh-r5': '#fbfcf8' },
-    text: { 'sh-f-t': 'RLS policy on the table', 'sh-f-s': 'enforced by the database',
-            'sh-s1': 'isolation: a database policy', 'sh-s2': 'event: leak prevented' } },
-  { say: 'Second event: <b>globex</b> starts importing three years of history. Same table, same instance, same connection pool &mdash; so acme’s 1.8 ms query is now taking 400 ms. Nothing isolates them.',
-    fill: { 'sh-r2': '#fbf3c4', 'sh-r5': '#fbf3c4' }, hl: ['sh-app'],
-    text: { 'sh-app-t': '2 rows · 400 ms', 'sh-app-u': 'pool exhausted by globex',
-            'sh-s2': 'event: noisy neighbour — everyone slows down' } },
-  { say: 'Third event: acme asks to be restored to yesterday. There is no way to restore <i>part</i> of a database, so this means restoring the whole backup to a side instance, extracting acme’s rows, reconciling keys and re-importing. Hours, and risky.',
-    unhl: ['sh-app'],
-    text: { 'sh-s2': 'event: restore one tenant — row surgery from a full backup' } },
-  { say: 'So: cents per tenant, instant onboarding, one migration, and cross-tenant analytics for free &mdash; against an isolation boundary that is only as strong as your weakest query, no defence against a noisy neighbour, and a painful restore. Start here, add row-level security on day one, and build the tenant catalogue before you need it.',
-    show: ['sh-note'],
-    text: { 'sh-s1': 'isolation: a database policy · cost: cents per tenant' } },
+  { say: "Three tenants, one table. Every row carries a <code>tenant_id</code>, and that column is the entire isolation mechanism — there is nothing else separating acme from globex.", hl: ["sh-f"] },
+  { say: "A request arrives for <b>acme</b>. The tenant is resolved from the signed token before anything touches data, and the ORM adds the predicate to every query automatically.", hl: ["sh-app"], unhl: ["sh-f"], text: {"sh-app-t":"GET /invoices","sh-f-t":"WHERE tenant_id = 'acme'","sh-s2":"event: a normal read"} },
+  { say: "Two of the five rows come back. The other three were never visible — but they were in the same table, on the same pages, one predicate away.", unhl: ["sh-app"], text: {"sh-app-t":"2 rows · 1.8 ms"}, fill: {"sh-r1":"#e3eedc","sh-r3":"#e3eedc"} },
+  { say: "Now the failure mode. A report needs a window function, so somebody writes raw SQL. Global query filters <b>do not apply</b> to raw SQL — and nothing errors. The report simply returns more rows than it should.", text: {"sh-f-t":"bypassed by FromSqlRaw","sh-s1":"isolation: a WHERE clause — and it was skipped","sh-s2":"event: cross-tenant leak"}, fill: {"sh-r2":"#f9e3df","sh-r4":"#f9e3df","sh-r5":"#f9e3df"} },
+  { say: "The fix is to stop relying on the ORM. With <b>row-level security</b> the database applies the predicate itself, so raw SQL, Dapper, a stored procedure or a psql session all get filtered — a forgotten filter returns nothing instead of everything.", text: {"sh-f-t":"RLS policy on the table","sh-f-s":"enforced by the database","sh-s1":"isolation: a database policy","sh-s2":"event: leak prevented"}, fill: {"sh-r2":"#fbfcf8","sh-r4":"#fbfcf8","sh-r5":"#fbfcf8"} },
+  { say: "Second event: <b>globex</b> starts importing three years of history. Same table, same instance, same connection pool — so acme’s 1.8 ms query is now taking 400 ms. Nothing isolates them.", hl: ["sh-app"], text: {"sh-app-t":"2 rows · 400 ms","sh-app-u":"pool exhausted by globex","sh-s2":"event: noisy neighbour — everyone slows down"}, fill: {"sh-r2":"#fbf3c4","sh-r5":"#fbf3c4"} },
+  { say: "Third event: acme asks to be restored to yesterday. There is no way to restore <em>part</em> of a database, so this means restoring the whole backup to a side instance, extracting acme’s rows, reconciling keys and re-importing. Hours, and risky.", unhl: ["sh-app"], text: {"sh-s2":"event: restore one tenant — row surgery from a full backup"} },
+  { say: "So: cents per tenant, instant onboarding, one migration, and cross-tenant analytics for free — against an isolation boundary that is only as strong as your weakest query, no defence against a noisy neighbour, and a painful restore. Start here, add row-level security on day one, and build the tenant catalogue before you need it.", show: ["sh-note"], text: {"sh-s1":"isolation: a database policy · cost: cents per tenant"} },
 ]);
 
-/* ---------- 2. Schema per tenant ---------- */
 createAnimation('anim-schema', [
-  { say: 'Same database, but now each tenant gets its own <b>schema</b> holding its own copy of the tables. No <code>tenant_id</code> column anywhere.',
-    hl: ['sc-s1', 'sc-s2', 'sc-s3'] },
-  { say: 'Resolution sets the schema on the connection rather than adding a predicate to the query. In PostgreSQL that is the <code>search_path</code>; in EF Core it is the default schema on the model.',
-    unhl: ['sc-s1', 'sc-s2', 'sc-s3'], hl: ['sc-f'],
-    text: { 'sc-f-t': 'search_path = acme', 'sc-app-t': 'GET /invoices', 'sc-st2': 'event: a normal read' } },
-  { say: 'The query itself has no tenant clause at all &mdash; and that is the real gain. A developer who forgets to filter gets <i>this</i> tenant’s data, not everyone’s. The failure mode from animation 1 simply does not exist.',
-    unhl: ['sc-f'], fill: { 'sc-s1': '#e3eedc' },
-    text: { 'sc-app-t': '2 rows · 1.8 ms', 'sc-st1': 'isolation: a namespace — no filter to forget' } },
-  { say: 'Restores improve too: acme can be restored from a dump of one schema, without touching globex or initech.',
-    text: { 'sc-st2': 'event: restore one tenant — restore one schema' } },
-  { say: 'But here is the bill. A release that adds a column now runs <b>once per schema</b>. With three tenants that is invisible; with five hundred it is a fan-out job that takes an hour.',
-    fill: { 'sc-s1': '#fbf3c4', 'sc-s2': '#fbf3c4', 'sc-s3': '#fbf3c4' },
-    text: { 'sc-v1': 'invoices, customers · migrating', 'sc-v2': 'invoices, customers · migrating',
-            'sc-v3': 'invoices, customers · migrating', 'sc-st2': 'event: deploy — N migrations' } },
-  { say: 'And some of them fail. Now the fleet is on two schema versions at once, while the application is running one version of the code &mdash; so every release needs expand-and-contract, a resumable runner and a recorded version per tenant.',
-    fill: { 'sc-s2': '#f9e3df' },
-    text: { 'sc-v1': 'invoices, customers · v42', 'sc-v2': 'FAILED · still v41', 'sc-v3': 'invoices, customers · v42',
-            'sc-st1': 'isolation: a namespace · version skew: yes' } },
-  { say: 'Meanwhile globex starts its import. It is still the <b>same instance</b> &mdash; same CPU, same I/O, same connection pool &mdash; so the noisy neighbour hurts exactly as much as it did in animation 1. The isolation was logical, not physical.',
-    fill: { 'sc-s2': '#fbf3c4' }, hl: ['sc-app'],
-    text: { 'sc-app-t': '2 rows · 400 ms', 'sc-st2': 'event: noisy neighbour — unchanged' } },
-  { say: 'Which is why this one is squeezed from both sides: it costs N migrations without buying the isolation that would justify them, and the catalogue bloat caps it at a few hundred tenants. Choose it when the tenant count is small and bounded &mdash; fifty enterprise customers &mdash; and rarely otherwise.',
-    show: ['sc-note'], unhl: ['sc-app'],
-    fill: { 'sc-s1': '#eef1e8', 'sc-s2': '#eef1e8', 'sc-s3': '#eef1e8' } },
+  { say: "Same database, but now each tenant gets its own <b>schema</b> holding its own copy of the tables. No <code>tenant_id</code> column anywhere.", hl: ["sc-s1","sc-s2","sc-s3"] },
+  { say: "Resolution sets the schema on the connection rather than adding a predicate to the query. In PostgreSQL that is the <code>search_path</code>; in EF Core it is the default schema on the model.", hl: ["sc-f"], unhl: ["sc-s1","sc-s2","sc-s3"], text: {"sc-f-t":"search_path = acme","sc-app-t":"GET /invoices","sc-st2":"event: a normal read"} },
+  { say: "The query itself has no tenant clause at all — and that is the real gain. A developer who forgets to filter gets <em>this</em> tenant’s data, not everyone’s. The failure mode from animation 1 simply does not exist.", unhl: ["sc-f"], text: {"sc-app-t":"2 rows · 1.8 ms","sc-st1":"isolation: a namespace — no filter to forget"}, fill: {"sc-s1":"#e3eedc"} },
+  { say: "Restores improve too: acme can be restored from a dump of one schema, without touching globex or initech.", text: {"sc-st2":"event: restore one tenant — restore one schema"} },
+  { say: "But here is the bill. A release that adds a column now runs <b>once per schema</b>. With three tenants that is invisible; with five hundred it is a fan-out job that takes an hour.", text: {"sc-v1":"invoices, customers · migrating","sc-v2":"invoices, customers · migrating","sc-v3":"invoices, customers · migrating","sc-st2":"event: deploy — N migrations"}, fill: {"sc-s1":"#fbf3c4","sc-s2":"#fbf3c4","sc-s3":"#fbf3c4"} },
+  { say: "And some of them fail. Now the fleet is on two schema versions at once, while the application is running one version of the code — so every release needs expand-and-contract, a resumable runner and a recorded version per tenant.", text: {"sc-v1":"invoices, customers · v42","sc-v2":"FAILED · still v41","sc-v3":"invoices, customers · v42","sc-st1":"isolation: a namespace · version skew: yes"}, fill: {"sc-s2":"#f9e3df"} },
+  { say: "Meanwhile globex starts its import. It is still the <b>same instance</b> — same CPU, same I/O, same connection pool — so the noisy neighbour hurts exactly as much as it did in animation 1. The isolation was logical, not physical.", hl: ["sc-app"], text: {"sc-app-t":"2 rows · 400 ms","sc-st2":"event: noisy neighbour — unchanged"}, fill: {"sc-s2":"#fbf3c4"} },
+  { say: "Which is why this one is squeezed from both sides: it costs N migrations without buying the isolation that would justify them, and the catalogue bloat caps it at a few hundred tenants. Choose it when the tenant count is small and bounded — fifty enterprise customers — and rarely otherwise.", show: ["sc-note"], unhl: ["sc-app"], fill: {"sc-s1":"#eef1e8","sc-s2":"#eef1e8","sc-s3":"#eef1e8"} },
 ]);
 
-/* ---------- 3. Database per tenant ---------- */
 createAnimation('anim-db', [
-  { say: 'Now each tenant gets its own database. Note what appeared in the middle: a <b>tenant catalogue</b>, the one small shared table that maps a tenant to where its data lives.',
-    hl: ['db-cat'] },
-  { say: 'The request for acme resolves the tenant, looks up its connection string, and opens a connection to <code>db_acme</code>. Isolation is no longer a predicate or a namespace &mdash; it is a different database.',
-    unhl: ['db-cat'], hl: ['db-d1'],
-    text: { 'db-cat-t': "acme → db_acme", 'db-app-t': 'GET /invoices', 'db-s2': 'event: a normal read' } },
-  { say: 'A leak would now require connecting to the wrong database, which is a very different class of mistake from forgetting a <code>WHERE</code> clause. This is the answer that survives the compliance meeting.',
-    fill: { 'db-d1': '#e3eedc' },
-    text: { 'db-app-t': '2 rows · 1.8 ms', 'db-s1': 'isolation: a connection string' } },
-  { say: 'Globex starts the same import &mdash; and this time it is on its own instance. Acme does not notice. The noisy neighbour problem is solved by construction rather than by limits and fair queuing.',
-    fill: { 'db-d2': '#fbf3c4' },
-    text: { 'db-t2': 'own instance · importing hard · us-east', 'db-app-t': '2 rows · 1.8 ms — unaffected',
-            'db-s2': 'event: noisy neighbour — contained' } },
-  { say: 'The restore is now routine: a point-in-time restore of one database, with no effect on anyone else. Minutes, not hours, and no row surgery.',
-    fill: { 'db-d2': '#eef1e8', 'db-d1': '#e3eedc' },
-    text: { 'db-s2': 'event: restore one tenant — point-in-time, minutes' } },
-  { say: 'And it unlocks things the other models simply cannot offer: each database lives in its tenant’s region, can use a customer-managed encryption key, and can be handed over as a backup when the customer leaves.',
-    text: { 'db-t1': 'own instance · own key · eu-west', 'db-t3': 'own instance · own key · eu-west',
-            'db-s1': 'isolation: a connection string · residency: per tenant' } },
-  { say: 'Then the invoice arrives. Every database has a floor price whether or not the tenant logs in, migrations run N times across N instances, each app instance needs a connection pool per tenant, and onboarding takes minutes instead of milliseconds.',
-    fill: { 'db-d1': '#fbf3c4', 'db-d2': '#fbf3c4', 'db-d3': '#fbf3c4' }, hl: ['db-app'],
-    text: { 'db-app-u': 'one pool per tenant',
-            'db-s2': 'event: deploy — N migrations across N instances' } },
-  { say: 'So this is the right answer for a <i>few, large, demanding</i> tenants &mdash; and an impossible one for ten thousand small ones, where a free tier at tens of euros a month each would cost more than the company earns. Which is exactly why the fourth option exists.',
-    show: ['db-note'], unhl: ['db-app'],
-    fill: { 'db-d1': '#eef1e8', 'db-d2': '#eef1e8', 'db-d3': '#eef1e8' } },
+  { say: "Now each tenant gets its own database. Note what appeared in the middle: a <b>tenant catalogue</b>, the one small shared table that maps a tenant to where its data lives.", hl: ["db-cat"] },
+  { say: "The request for acme resolves the tenant, looks up its connection string, and opens a connection to <code>db_acme</code>. Isolation is no longer a predicate or a namespace — it is a different database.", hl: ["db-d1"], unhl: ["db-cat"], text: {"db-cat-t":"acme → db_acme","db-app-t":"GET /invoices","db-s2":"event: a normal read"} },
+  { say: "A leak would now require connecting to the wrong database, which is a very different class of mistake from forgetting a <code>WHERE</code> clause. This is the answer that survives the compliance meeting.", text: {"db-app-t":"2 rows · 1.8 ms","db-s1":"isolation: a connection string"}, fill: {"db-d1":"#e3eedc"} },
+  { say: "Globex starts the same import — and this time it is on its own instance. Acme does not notice. The noisy neighbour problem is solved by construction rather than by limits and fair queuing.", text: {"db-t2":"own instance · importing hard · us-east","db-app-t":"2 rows · 1.8 ms — unaffected","db-s2":"event: noisy neighbour — contained"}, fill: {"db-d2":"#fbf3c4"} },
+  { say: "The restore is now routine: a point-in-time restore of one database, with no effect on anyone else. Minutes, not hours, and no row surgery.", text: {"db-s2":"event: restore one tenant — point-in-time, minutes"}, fill: {"db-d2":"#eef1e8","db-d1":"#e3eedc"} },
+  { say: "And it unlocks things the other models simply cannot offer: each database lives in its tenant’s region, can use a customer-managed encryption key, and can be handed over as a backup when the customer leaves.", text: {"db-t1":"own instance · own key · eu-west","db-t3":"own instance · own key · eu-west","db-s1":"isolation: a connection string · residency: per tenant"} },
+  { say: "Then the invoice arrives. Every database has a floor price whether or not the tenant logs in, migrations run N times across N instances, each app instance needs a connection pool per tenant, and onboarding takes minutes instead of milliseconds.", hl: ["db-app"], text: {"db-app-u":"one pool per tenant","db-s2":"event: deploy — N migrations across N instances"}, fill: {"db-d1":"#fbf3c4","db-d2":"#fbf3c4","db-d3":"#fbf3c4"} },
+  { say: "So this is the right answer for a <em>few, large, demanding</em> tenants — and an impossible one for ten thousand small ones, where a free tier at tens of euros a month each would cost more than the company earns. Which is exactly why the fourth option exists.", show: ["db-note"], unhl: ["db-app"], fill: {"db-d1":"#eef1e8","db-d2":"#eef1e8","db-d3":"#eef1e8"} },
 ]);
 
-/* ---------- 4. Sharded pools ---------- */
 createAnimation('anim-pool', [
-  { say: 'The hybrid, and where most SaaS converges. Tenants are grouped into <b>shards</b> &mdash; each one an ordinary shared-schema database &mdash; and the catalogue maps each tenant to its shard.',
-    hl: ['pl-p1', 'pl-p2'] },
-  { say: 'Routing is identical to database-per-tenant: resolve the tenant, look up where it lives, connect. The application code does not know or care which model it is running under.',
-    unhl: ['pl-p1', 'pl-p2'], hl: ['pl-cat'],
-    text: { 'pl-cat-t': 'acme → shard-01', 'pl-app-t': 'GET /invoices', 'pl-s2': 'event: a normal read' } },
-  { say: 'Inside a shard it is animation 1 again &mdash; a tenant column, a query filter and row-level security. All the cost advantages come back: cents per tenant, instant onboarding, pooled capacity.',
-    unhl: ['pl-cat'], fill: { 'pl-p1': '#e3eedc' },
-    text: { 'pl-app-t': '2 rows · 1.8 ms', 'pl-s1': 'blast radius: one shard · 200 tenants' } },
-  { say: 'The difference is the <b>blast radius</b>, and it is a number you choose. Globex’s import now degrades the 200 tenants on shard-01 &mdash; bad, but not the 40,000 on the platform.',
-    fill: { 'pl-p1': '#fbf3c4' },
-    text: { 'pl-t1': 'acme, globex + 198 more · degraded', 'pl-app-t': '2 rows · 400 ms',
-            'pl-s2': 'event: noisy neighbour — bounded to 200 tenants' } },
-  { say: 'And here is the move that makes the pattern worth its machinery. Globex keeps growing, so it is <b>promoted</b>: its data is copied to a dedicated database, verified, and the catalogue row is flipped.',
-    fill: { 'pl-p3': '#e3eedc', 'pl-p1': '#eef1e8' },
-    text: { 'pl-t3h': 'dedicated — db_globex', 'pl-t3': 'promoted from shard-01 · own instance',
-            'pl-t1': 'acme + 198 more · healthy', 'pl-cat-t': 'globex → dedicated',
-            'pl-s2': 'event: promotion — one catalogue row' } },
-  { say: 'No code changed. That is why the catalogue must hold an explicit mapping rather than hashing tenants to shards &mdash; a hash makes exactly this operation impossible without rehashing everyone.',
-    text: { 'pl-cat-s': 'explicit mapping, never a hash' } },
-  { say: 'Migrations land in the middle too: one run per shard plus one per dedicated database. Tens of runs, not thousands &mdash; which is what keeps the operational cost flat as the tenant count grows.',
-    fill: { 'pl-p1': '#fbf3c4', 'pl-p2': '#fbf3c4', 'pl-p3': '#fbf3c4' },
-    text: { 'pl-s2': 'event: deploy — one migration per shard' } },
-  { say: 'So you get shared-schema economics for the small tenants, dedicated isolation for the ones who pay for it, and one code path serving both. The price is real machinery: the catalogue, a per-shard migration runner, and tooling to move a tenant with verification &mdash; which is why you build the catalogue on day one, even when every row says <code>shard-01</code>.',
-    show: ['pl-note'],
-    fill: { 'pl-p1': '#eef1e8', 'pl-p2': '#eef1e8', 'pl-p3': '#e3eedc' },
-    text: { 'pl-s1': 'blast radius: chosen per tenant · cost: cents, except where it matters' } },
+  { say: "The hybrid, and where most SaaS converges. Tenants are grouped into <b>shards</b> — each one an ordinary shared-schema database — and the catalogue maps each tenant to its shard.", hl: ["pl-p1","pl-p2"] },
+  { say: "Routing is identical to database-per-tenant: resolve the tenant, look up where it lives, connect. The application code does not know or care which model it is running under.", hl: ["pl-cat"], unhl: ["pl-p1","pl-p2"], text: {"pl-cat-t":"acme → shard-01","pl-app-t":"GET /invoices","pl-s2":"event: a normal read"} },
+  { say: "Inside a shard it is animation 1 again — a tenant column, a query filter and row-level security. All the cost advantages come back: cents per tenant, instant onboarding, pooled capacity.", unhl: ["pl-cat"], text: {"pl-app-t":"2 rows · 1.8 ms","pl-s1":"blast radius: one shard · 200 tenants"}, fill: {"pl-p1":"#e3eedc"} },
+  { say: "The difference is the <b>blast radius</b>, and it is a number you choose. Globex’s import now degrades the 200 tenants on shard-01 — bad, but not the 40,000 on the platform.", text: {"pl-t1":"acme, globex + 198 more · degraded","pl-app-t":"2 rows · 400 ms","pl-s2":"event: noisy neighbour — bounded to 200 tenants"}, fill: {"pl-p1":"#fbf3c4"} },
+  { say: "And here is the move that makes the pattern worth its machinery. Globex keeps growing, so it is <b>promoted</b>: its data is copied to a dedicated database, verified, and the catalogue row is flipped.", text: {"pl-t3h":"dedicated — db_globex","pl-t3":"promoted from shard-01 · own instance","pl-t1":"acme + 198 more · healthy","pl-cat-t":"globex → dedicated","pl-s2":"event: promotion — one catalogue row"}, fill: {"pl-p3":"#e3eedc","pl-p1":"#eef1e8"} },
+  { say: "No code changed. That is why the catalogue must hold an explicit mapping rather than hashing tenants to shards — a hash makes exactly this operation impossible without rehashing everyone.", text: {"pl-cat-s":"explicit mapping, never a hash"} },
+  { say: "Migrations land in the middle too: one run per shard plus one per dedicated database. Tens of runs, not thousands — which is what keeps the operational cost flat as the tenant count grows.", text: {"pl-s2":"event: deploy — one migration per shard"}, fill: {"pl-p1":"#fbf3c4","pl-p2":"#fbf3c4","pl-p3":"#fbf3c4"} },
+  { say: "So you get shared-schema economics for the small tenants, dedicated isolation for the ones who pay for it, and one code path serving both. The price is real machinery: the catalogue, a per-shard migration runner, and tooling to move a tenant with verification — which is why you build the catalogue on day one, even when every row says <code>shard-01</code>.", show: ["pl-note"], text: {"pl-s1":"blast radius: chosen per tenant · cost: cents, except where it matters"}, fill: {"pl-p1":"#eef1e8","pl-p2":"#eef1e8","pl-p3":"#e3eedc"} },
 ]);
 
-/* ---------- Key-concept animations ---------- */
+/* Animations inside key-concept panels */
 window.TERM_ANIMS = {
   leak: [
-    { say: 'Every query in the codebase goes through EF Core, and every entity has a global query filter. An audit of the LINQ is completely clean.',
-      show: ['lk-s1'] },
-    { say: 'Then a reporting screen needs a window function that LINQ cannot express, so somebody reaches for <code>FromSqlRaw</code>. Entirely reasonable, and reviewed by two people.',
-      show: ['lk-s2'] },
-    { say: 'But global query filters are an ORM concept. Raw SQL goes straight to the database, and the predicate is never added.',
-      show: ['lk-s3'] },
-    { say: 'The report returns every tenant’s invoices. Note what does <i>not</i> happen: no exception, no warning, no failed test. The page just shows more rows than it used to.',
-      show: ['lk-s4'], text: { 'lk-rows': '5 of 2' }, fill: { 'lk-rows': '#c53b3b' } },
-    { say: 'So it is found by a customer, usually months later, usually in the worst possible way. There is nothing in the system that treats "more rows than expected" as an error.',
-      show: ['lk-s5'], text: { 'lk-det': 'a customer, in month 7' } },
-    { say: 'The fix is not more discipline &mdash; it is moving the check somewhere the bypass cannot reach. With row-level security the database refuses, so the same raw SQL returns two rows and the report is simply correct.',
-      show: ['lk-fix', 'lk-note'], text: { 'lk-rows': '2 of 2', 'lk-det': 'nothing to detect' },
-      fill: { 'lk-rows': '#2f6b3f' } },
+    { say: "Every query in the codebase goes through EF Core, and every entity has a global query filter. An audit of the LINQ is completely clean.", show: ["lk-s1"] },
+    { say: "Then a reporting screen needs a window function that LINQ cannot express, so somebody reaches for <code>FromSqlRaw</code>. Entirely reasonable, and reviewed by two people.", show: ["lk-s2"] },
+    { say: "But global query filters are an ORM concept. Raw SQL goes straight to the database, and the predicate is never added.", show: ["lk-s3"] },
+    { say: "The report returns every tenant’s invoices. Note what does <em>not</em> happen: no exception, no warning, no failed test. The page just shows more rows than it used to.", show: ["lk-s4"], text: {"lk-rows":"5 of 2"}, fill: {"lk-rows":"#c53b3b"} },
+    { say: "So it is found by a customer, usually months later, usually in the worst possible way. There is nothing in the system that treats \"more rows than expected\" as an error.", show: ["lk-s5"], text: {"lk-det":"a customer, in month 7"} },
+    { say: "The fix is not more discipline — it is moving the check somewhere the bypass cannot reach. With row-level security the database refuses, so the same raw SQL returns two rows and the report is simply correct.", show: ["lk-fix","lk-note"], text: {"lk-rows":"2 of 2","lk-det":"nothing to detect"}, fill: {"lk-rows":"#2f6b3f"} },
   ],
 };
 </script>

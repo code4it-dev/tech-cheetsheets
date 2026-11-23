@@ -1,0 +1,936 @@
+title: RAG
+slug: rag
+tagline: The model does not know your data. RAG is the machinery that puts the right paragraph in front of it, just in time.
+asof: Nov 2026 · examples use Microsoft.Extensions.AI, pgvector and Azure AI Search
+description: "RAG cheatsheet: chunking, embeddings, hybrid retrieval, reranking and prompt assembly — why retrieval quality, not the model, decides whether the answer is right."
+aliases:
+  - RAG
+  - Retrieval-Augmented Generation
+  - retrieval augmented generation
+  - retrieval-augmented
+  - grounding
+  - grounded generation
+  - hybrid search
+  - reranking
+  - reranker
+  - chunking
+  - RRF
+  - reciprocal rank fusion
+keywords:
+  - rag
+  - retrieval augmented generation
+  - llm
+  - embeddings
+  - vector search
+  - hybrid search
+  - reranking
+  - chunking
+  - grounding
+  - ai
+related:
+  - vector-database
+  - semantic-caching
+  - agent-harness
+  - mcp
+  - caching-strategies
+overview:
+  - "**Retrieval-Augmented Generation** answers a question by first <em>finding</em> the relevant text in a corpus you control, then asking a language model to answer <em>using only that text</em>. The model supplies fluency and reasoning; your index supplies the facts. Nothing is memorised, so when a document changes the answer changes with it — no retraining, no fine-tuning, no model release."
+  - "Mechanically it is two pipelines. **Ingestion** runs offline: split documents into chunks, turn each chunk into an embedding vector, store vector plus text plus metadata. **Query** runs per request: embed the question, search for nearby chunks, rerank them, paste the survivors into the prompt with the question, generate, and cite."
+  - The uncomfortable truth of RAG is that almost every failure is a <em>retrieval</em> failure, not a generation failure. If the answer is not in the retrieved chunks, no model can produce it, and a good model will confidently produce something else. Teams reach for a bigger LLM when the actual fix is better chunking, a hybrid index or a reranker — which cost a fraction as much.
+architecture:
+  svg: rag/architecture.svg
+  alt: "RAG architecture: an offline ingestion pipeline writing into an index, and an online query pipeline reading from it and calling an LLM"
+  caption: An index built offline, read online. The model is the last box, and the least interesting one.
+howItWorks:
+  - md: The first animation follows one real question from keystroke to cited answer. The second is the retrieval failure that nearly every RAG system hits in week two.
+  - note: retrieve wide, rerank hard, generate narrow.
+  - anim:
+      id: anim-query
+      title: 1 · One question, end to end
+      svg: rag/anim-query.svg
+      alt: A question is embedded, searched against an index, reranked, assembled into a prompt and answered with citations
+      steps:
+        - say: A support agent types `why was invoice 8841 rejected?`. Nothing about this invoice exists in the model’s weights — it was created last Tuesday.
+          show: [ rq-msg ]
+          hl: [ rq-s1 ]
+          text:
+            rq-phase: "a support agent types: why was invoice 8841 rejected?"
+            rq-s1t: "\"invoice 8841 rejected?\""
+        - say: The question is embedded by the <em>same</em> model that embedded every chunk at ingestion. Different models produce different vector spaces, and the scores would be noise.
+          hl: [ rq-s2 ]
+          unhl: [ rq-s1 ]
+          move:
+            rq-msg: [ 150, 0 ]
+          text:
+            rq-msgt: "[0.021, -0.44, 0.08, …]"
+            rq-s2t: text-embedding-3-small
+        - say: "Two searches run against the index at once: approximate nearest neighbours over the vectors, and BM25 over the raw tokens. Fifty candidates each, filtered to this tenant inside the query."
+          hl: [ rq-s3 ]
+          unhl: [ rq-s2 ]
+          move:
+            rq-msg: [ 310, 0 ]
+          text:
+            rq-pat: candidates after fusion — 50 retrieved, top 5 shown
+            rq-a1: 1  billing-faq#7        rrf .0320
+            rq-a2: 2  inv-8841-notes#3     rrf .0318
+            rq-a3: 3  refund-policy#2      rrf .0164
+            rq-a4: 4  billing-faq#2        rrf .0161
+            rq-a5: 5  dunning-rules#9      rrf .0159
+        - say: Notice the ordering is wrong. `billing-faq#7` is about rejected invoices in general; the chunk that actually explains <em>this</em> rejection is second. Cosine similarity cannot tell the difference.
+          text:
+            rq-a6: the chunk that answers the question is ranked 2nd, not 1st
+          fill:
+            rq-a6: "#c53b3b"
+        - say: So the 50 candidates go to a cross-encoder, which reads the question and each chunk <em>together</em> rather than comparing two vectors computed in isolation. It is far more accurate and far too slow to run over the whole index.
+          hl: [ rq-s4 ]
+          unhl: [ rq-s3 ]
+          move:
+            rq-msg: [ 470, 0 ]
+          text:
+            rq-msgt: 50 candidates
+            rq-s4t: query + chunk together
+        - say: Reranked, and cut to three. The right chunk is now first, two weak candidates fell below the score cut-off and were dropped entirely — better a short context than a padded one.
+          text:
+            rq-pat: after reranking — 50 → 3
+            rq-a1: 1  inv-8841-notes#3     score 0.91
+            rq-a2: 2  billing-faq#7        score 0.62
+            rq-a3: 3  dunning-rules#9      score 0.41
+            rq-a4: ✗  refund-policy#2      score 0.18 — dropped
+            rq-a5: ✗  billing-faq#2        score 0.11 — dropped
+            rq-a6: cut-off keeps distractors out of the prompt
+          fill:
+            rq-a1: "#2f6b3f"
+            rq-a4: "#5f6f66"
+            rq-a5: "#5f6f66"
+            rq-a6: "#2f6b3f"
+        - say: "Now the prompt is assembled: the grounding rules, the three chunks with their ids, and the question. This — not the index — is all the model will ever see."
+          hl: [ rq-s5 ]
+          unhl: [ rq-s4 ]
+          move:
+            rq-msg: [ 629, 0 ]
+          text:
+            rq-msgt: 3 chunks + question
+            rq-b1: "system: answer ONLY from the context,"
+            rq-b2: "        cite every claim as [id],"
+            rq-b3: "        else say you do not know"
+            rq-b4: "[inv-8841-notes#3] … VAT id missing …"
+            rq-b5: "[billing-faq#7] … rejected invoices …"
+            rq-b6: "question: why was invoice 8841 rejected?"
+        - say: The model generates an answer that only restates what it was given, with the chunk id attached to the claim.
+          unhl: [ rq-s5 ]
+          text:
+            rq-pbt: the answer
+            rq-b1: Invoice 8841 was rejected because the
+            rq-b2: supplier VAT identifier was missing from
+            rq-b3: the header. [inv-8841-notes#3]
+            rq-b4: "&nbsp;"
+            rq-b5: ~1,900 input tokens · 420 ms end to end
+            rq-b6: citation checked against the ids we actually sent
+          fill:
+            rq-b1: "#23362e"
+            rq-b2: "#23362e"
+            rq-b3: "#2f6b3f"
+            rq-b6: "#2f6b3f"
+        - say: Nothing was memorised. Correct the note in the source system, re-ingest that one document, and the next identical question gets the new answer — no retraining, no deploy.
+          text:
+            rq-phase: the index is the memory; the model is just the writer
+            rq-pat: change the document → change the answer
+        - say: And every failure mode has an address. Wrong answer with the right chunk retrieved is a prompt or model problem. Wrong answer with the chunk missing is a chunking, hybrid-search or ranking problem — which is nearly always the one you have.
+          text:
+            rq-pat: retrieved the right chunk? → generation bug. did not? → retrieval bug
+          fill:
+            rq-pat: "#c53b3b"
+  - anim:
+      id: anim-hybrid
+      title: 2 · Why pure vector search loses the exact match
+      svg: rag/anim-hybrid.svg
+      alt: Dense vector search returns semantically similar but wrong chunks while BM25 finds the exact identifier, and reciprocal rank fusion combines both
+      steps:
+        - say: "A user asks: `what is blocking INV-8841 from being paid?` There is exactly one chunk that answers it, and it contains that identifier verbatim."
+          hl: [ rh-res ]
+          text:
+            rh-r1: "target chunk: inv-8841-notes#3"
+        - say: Dense retrieval embeds the question and walks the vector index. Embeddings capture meaning, so it finds chunks about blocked invoices, dunning and payment holds — all genuinely about this topic.
+          hl: [ rh-dense ]
+          unhl: [ rh-res ]
+          text:
+            rh-d1: 1. dunning-rules#9   0.84
+            rh-d2: 2. billing-faq#7     0.82
+            rh-d3: 3. payment-holds#1   0.81
+            rh-d4: all about blocked invoices in general
+        - say: But the exact chunk is nowhere near the top. To an embedding model, `INV-8841` is a near-meaningless token; it carries almost no semantic signal, so a chunk containing it looks no more relevant than one that does not.
+          hl: [ rh-verd ]
+          text:
+            rh-d4: inv-8841-notes#3 → ranked 38th
+          fill:
+            rh-d4: "#c53b3b"
+        - say: "Run BM25 over the same corpus and the picture inverts. Rare tokens are exactly what term-frequency ranking is good at: `INV-8841` appears in three chunks in the whole index, so its inverse document frequency is enormous."
+          hl: [ rh-bm ]
+          unhl: [ rh-dense, rh-verd ]
+          text:
+            rh-k1: 1. inv-8841-notes#3  18.4
+            rh-k2: 2. inv-8841-notes#1  11.2
+            rh-k3: 3. ledger-2026-03#4   6.1
+            rh-k4: exact token match, no embedding involved
+          fill:
+            rh-k1: "#2f6b3f"
+        - say: BM25 alone is not the answer either. Ask “how do I get my money back” and it scores zero against a page titled “Refund policy”, because they share no words. Each retriever fails where the other works.
+          unhl: [ rh-bm ]
+          text:
+            rh-phase: each retriever is blind in a different way
+        - say: "So fuse them. Reciprocal Rank Fusion ignores the scores — 0.84 cosine and 18.4 BM25 are not on comparable scales — and uses only positions: score = sum of 1/(60 + rank)."
+          hl: [ rh-fuse ]
+          text:
+            rh-f1: RRF, k = 60
+            rh-f2: Σ 1 / (60 + rank)
+            rh-f3: positions only
+            rh-f4: no calibration needed
+        - say: "The target chunk is rank 1 in one list and rank 38 in the other: 1/61 + 1/98 = 0.0266. It goes straight to the top, and agreement between the two retrievers is what put it there."
+          hl: [ rh-res ]
+          unhl: [ rh-fuse ]
+          text:
+            rh-r1: 1. inv-8841-notes#3   .0266
+            rh-r2: 2. dunning-rules#9    .0164
+            rh-r3: 3. billing-faq#7      .0161
+            rh-r4: 4. inv-8841-notes#1   .0161
+            rh-r5: 5. payment-holds#1    .0159
+          fill:
+            rh-r1: "#2f6b3f"
+        - say: A reranker then scores these few properly and keeps three. The answer is now reachable — and with dense search alone it never was, no matter which model generated the final text.
+          unhl: [ rh-res ]
+          text:
+            rh-r6: reranked → 3 chunks → prompt
+            rh-r7: with dense-only retrieval this question was unanswerable
+          fill:
+            rh-r7: "#c53b3b"
+        - say: This is why hybrid search is close to a default. It costs one extra query, needs no tuning, and rescues the entire class of questions containing an id, a code, a SKU or a proper noun — which in business software is most of them.
+          text:
+            rh-v: dense finds meaning · BM25 finds strings · fusion needs no calibration
+          fill:
+            rh-verd: "#e3eedc"
+            rh-v: "#2f6b3f"
+        - say: "The tell in production: a sudden cluster of “I could not find that” answers to questions that all contain an identifier. Log the query alongside the retrieved ids and the pattern is obvious within a day."
+          text:
+            rh-phase: "symptom: every failing query contains a code or an id"
+            rh-v: log query + retrieved ids on every request. the pattern shows up fast.
+concepts:
+  - term: Chunking
+    short: Splitting documents into retrievable units small enough to be precise and large enough to be self-contained.
+    see:
+      - Embedding
+      - Parent-document retrieval
+      - Context window budget
+      - Index freshness
+    anim:
+      key: chunk
+      title: A sliding window with overlap
+      svg: rag/chunk.svg
+      alt: A document split into overlapping chunks, showing how overlap rescues a sentence that straddles a boundary
+      steps:
+        - say: One section of a refund policy. The sentence that answers “how long do I have?” starts on one line and finishes on the next.
+          hl: [ ck-phase ]
+        - say: "A fixed-size splitter cuts at 500 tokens regardless of meaning. Chunk 1 ends mid-sentence: `…The window`."
+          show: [ ck-c1, ck-c1t ]
+          unhl: [ ck-phase ]
+          text:
+            ck-n1: "chunk 1 ends: \"…refunds are issued to the original method. The window\""
+        - say: Chunk 2 starts where chunk 1 stopped. On its own it says `for a refund request is 30 days` — a number with no subject. Retrieve either one and the model cannot answer.
+          show: [ ck-c2, ck-c2t ]
+          text:
+            ck-n2: "chunk 2 starts: \"for a refund request is 30 days from delivery…\""
+          fill:
+            ck-n2: "#c53b3b"
+        - say: "Overlap fixes it mechanically: start each chunk a little before the previous one ended, typically 10–20% of the chunk size."
+          show: [ ck-ov, ck-ovt ]
+          text:
+            ck-n3: overlap ≈ 75 of 500 tokens — now the full sentence lives in chunk 2
+          fill:
+            ck-n3: "#2f6b3f"
+        - say: "The cost is duplication: 15% overlap is 15% more vectors, more storage and more near-duplicate hits in the results. That is usually a bargain, but it is why overlap is a dial and not a default of 50%."
+          text:
+            ck-phase: overlap buys completeness with storage and duplicate hits
+        - say: The better fix, where the format allows, is to split on structure first — heading, paragraph, list item, table row — and prepend the heading path to every chunk, so each one says what it is about.
+          text:
+            ck-phase: split on structure, then on size
+            ck-n1: "prefix each chunk: \"Billing > Refunds > Timing — …\""
+            ck-n2: now even a truncated chunk carries its subject
+            ck-n3: structure-aware splitting beats tuning the number
+          fill:
+            ck-n1: "#2f6b3f"
+            ck-n2: "#2f6b3f"
+    detail: |-
+      Chunking is the single highest-leverage decision in a RAG system, and the one most often made by accepting a library default. A chunk is what gets embedded, what gets scored, and what gets pasted into the prompt — so it must stand alone. "The limit is 30 days" is useless without the sentence that says <em>what</em> has a 30-day limit.
+
+      Split on structure first (headings, sections, list items, code blocks, table rows), then on size. Splitting a 400-page PDF every 1,000 characters cuts tables in half and orphans headings; a Markdown-aware splitter that keeps a section together and prepends its heading path to every chunk is usually worth more than any model upgrade.
+
+      #### Common values
+
+      | Content | Chunk size | Overlap |
+      | --- | --- | --- |
+      | Prose, policy, wiki | 400–800 tokens | 10–20% |
+      | FAQ / Q&A pairs | one pair per chunk | none |
+      | Code | one function or class | none, keep signature |
+      | Tables / CSV | row + header row | header repeated |
+      | Transcripts | 2–5 min window | 30–60 s |
+
+      ::anim chunk::
+
+      #### How it relates
+
+      - Chunk size trades off against **Context window budget**: five 800-token chunks is 4,000 tokens before the question is even asked.
+      - **Parent-document retrieval** is the escape hatch when you need small chunks for matching and large ones for answering.
+  - term: Embedding
+    short: "A fixed-length vector of floats whose geometry encodes meaning: similar text lands nearby."
+    see: [ Vector search, Chunking, Hybrid search, Index freshness ]
+    detail: |-
+      An embedding model maps text to a point in a few hundred to a few thousand dimensions, trained so that semantically related passages have a small angle between them. Cosine similarity of two embeddings is then a usable proxy for "these are about the same thing" — which is why a question and its answer can match even when they share no words.
+
+      Two rules that cost people weeks. First, the <em>same</em> model must embed both documents and queries; mixing models produces vectors from different spaces and the scores become noise. Second, changing the embedding model means re-embedding the whole corpus, so treat the model name and version as part of your index schema.
+
+      #### Common values
+
+      | Model family | Dimensions | Notes |
+      | --- | --- | --- |
+      | OpenAI text-embedding-3-small | 1536 (truncatable) | cheap default |
+      | OpenAI text-embedding-3-large | 3072 (truncatable) | better recall, 4× storage |
+      | Cohere embed v3 | 1024 | strong multilingual |
+      | Open-source (BGE, E5, GTE) | 384–1024 | self-hosted, no egress |
+
+      Storage is blunt arithmetic: 1536 dims × 4 bytes = 6 KB per chunk, so a million chunks is ~6 GB of raw vectors before the index overhead. Quantising to `int8` or binary cuts that by 4× or 32×.
+
+      #### How it relates
+
+      - **Hybrid search** exists because embeddings are weak exactly where exact tokens matter: ids, SKUs, error codes, names.
+  - term: Vector search
+    short: Finding the nearest chunk vectors to the query vector, approximately, in sublinear time.
+    see: [ Embedding, Hybrid search, Metadata filtering, Top-k ]
+    detail: |-
+      Exact nearest-neighbour search compares the query to every vector: perfect recall, linear cost. Above a few hundred thousand chunks you switch to <em>approximate</em> nearest neighbour — HNSW graphs or IVF lists — which trade a few percent of recall for one to two orders of magnitude of speed.
+
+      The practical consequence is that a vector index has a recall knob, and it is not set to 100%. In HNSW, `ef_search` controls how wide the graph walk is; too low and relevant chunks simply never appear as candidates, which looks exactly like a model problem from the outside.
+
+      #### Common values
+
+      | Parameter | Typical | Effect |
+      | --- | --- | --- |
+      | HNSW `m` | 16–32 | graph degree; more = better recall, more memory |
+      | HNSW `ef_construction` | 64–200 | build quality and build time |
+      | HNSW `ef_search` | 40–200 | query-time recall vs latency |
+      | Distance metric | cosine | match what the embedding model was trained on |
+
+      #### How it relates
+
+      - Where these vectors live and how the index is built is the subject of the **Vector database** page.
+  - term: Hybrid search
+    short: Running dense vector search and keyword (BM25) search together, then fusing the two ranked lists.
+    see: [ Reciprocal Rank Fusion, Vector search, Embedding, Reranker ]
+    detail: |-
+      Dense retrieval is good at paraphrase and bad at precision on rare tokens. BM25 is the opposite: it will find `INV-8841`, `ERR_CONN_RESET` or a product SKU instantly, and will miss "how do I get my money back" against a page titled "Refund policy". Running both and fusing is close to free and is the single most reliable quality improvement in RAG.
+
+      Most engines support it natively — Azure AI Search, Elasticsearch, OpenSearch, Weaviate, Qdrant, and Postgres with `pgvector` plus `tsvector`. Fusion is usually **Reciprocal Rank Fusion** rather than score addition, because cosine scores and BM25 scores are on incomparable scales.
+
+      #### When each wins
+
+      | Query | Dense | BM25 |
+      | --- | --- | --- |
+      | "why was my card declined" | wins | weak |
+      | `INV-8841` | poor | wins |
+      | "NullReferenceException in checkout" | partial | wins |
+      | Multilingual question | wins | fails |
+
+      #### How it relates
+
+      - The second animation above is exactly this failure and its fix.
+  - term: Reciprocal Rank Fusion
+    short: Combining ranked lists by summing 1/(k + rank) instead of trying to compare incompatible scores.
+    see: [ Hybrid search, Reranker, Top-k ]
+    figure:
+      svg: rag/figure-reciprocal-rank-fusion.svg
+      alt: Two ranked lists fused by reciprocal rank fusion into one list
+    detail: |-
+      RRF ignores scores entirely and uses only positions. For each document, score = Σ 1/(k + rank<sub>i</sub>) across the lists it appears in, with `k` typically 60. A document ranked 1st in one list and 3rd in another beats one ranked 2nd in a single list — agreement across retrievers is rewarded, and no calibration is needed.
+
+      ::figure::
+
+      #### How it relates
+
+      - RRF produces the candidate set a **Reranker** then scores properly.
+  - term: Reranker
+    short: A cross-encoder that reads the query and each candidate chunk together and scores true relevance.
+    see: [ Hybrid search, Top-k, Reciprocal Rank Fusion, Context window budget ]
+    detail: |-
+      Retrieval compares two vectors computed independently — a <em>bi</em>-encoder. A reranker is a <em>cross</em>-encoder: it concatenates query and chunk and runs them through a model together, so it can see that "the window is 30 days" answers "how long do I have". Far more accurate, far more expensive: you cannot run it over a million chunks, so you run it over the 25–100 candidates retrieval handed you.
+
+      This "retrieve wide, rerank hard" shape is why top-k at retrieval and top-n after reranking are different numbers. Retrieve 50, rerank, keep 5. Adding a reranker typically moves answer quality more than any prompt change.
+
+      #### Common values
+
+      | Setting | Typical |
+      | --- | --- |
+      | Candidates in | 25–100 |
+      | Chunks kept | 3–8 |
+      | Added latency | 50–300 ms |
+      | Score cut-off | drop below ~0.3, even if that leaves 1 chunk |
+
+      #### How it relates
+
+      - A reranker with a cut-off is also your best "I don't know" detector: no chunk above threshold means refuse, not guess.
+  - term: Top-k
+    short: How many chunks you retrieve, and how many survive into the prompt — two different numbers.
+    see: [ Reranker, Context window budget, Lost in the middle ]
+    detail: |-
+      Raising k raises recall and lowers precision. Every extra chunk is another chance that the answer is present — and another chance that a plausible but wrong passage distracts the model. Past roughly eight chunks, accuracy on most benchmarks starts falling even though the correct chunk is more likely to be in the set.
+
+      #### Common values
+
+      | Stage | k | Why |
+      | --- | --- | --- |
+      | Dense retrieval | 50 | cheap, maximise recall |
+      | BM25 retrieval | 50 | same list length for fair RRF |
+      | After fusion | 25–50 | what the reranker can afford |
+      | Into the prompt | 3–8 | precision, cost, attention |
+
+      #### How it relates
+
+      - Measure the two halves separately: **context recall** (was the answer retrieved at all?) and **faithfulness** (did the model stick to it?). They have different fixes.
+  - term: Grounding & citations
+    short: Instructing the model to answer only from the supplied chunks, and to point at which one.
+    see: [ Faithfulness, Top-k, Context window budget ]
+    detail: |-
+      Grounding is a prompt contract plus a verification step. The contract: "Answer using only the context below. If the context does not contain the answer, say you don't know." The verification: require a citation marker per claim, then check post-hoc that each cited id was actually in the context you sent.
+
+      Citations are not decoration. They are the only affordance that lets a user catch a wrong answer in two seconds instead of trusting it, and the only cheap automated check you have — an answer citing a chunk id you never supplied is a hallucination you can detect in code.
+
+      #### A prompt that behaves
+
+      ```yaml
+      Answer the question using ONLY the context.
+      Cite the source id of every claim as [id].
+      If the context is insufficient, reply exactly:
+      "I don't have enough information."
+
+      Context:
+      [doc-412#2] Refund requests must be made within 30 days of delivery.
+      [doc-412#3] Refunds are issued to the original payment method.
+
+      Question: how long do I have to request a refund?
+      ```
+
+      #### How it relates
+
+      - Pair this with a **Reranker** score cut-off so the "insufficient" branch actually gets taken.
+  - term: Query rewriting
+    short: Turning the user's raw message into one or more good search queries before retrieving.
+    see: [ Hybrid search, Reranker, Grounding & citations ]
+    detail: |-
+      Users do not type search queries. They type "and what about the second one?", or a 300-word complaint with the real question in the middle. Embedding that verbatim retrieves noise. A cheap model call that rewrites the message — resolving pronouns against conversation history, dropping pleasantries, expanding acronyms — often improves retrieval more than any index tuning.
+
+      #### Variants
+
+      | Technique | What it does |
+      | --- | --- |
+      | Condensation | rewrite a follow-up into a standalone question |
+      | Multi-query | generate 3 phrasings, retrieve each, fuse with RRF |
+      | HyDE | generate a <em>hypothetical answer</em>, embed that instead of the question |
+      | Decomposition | split a multi-part question into sub-questions |
+
+      HyDE works because answers look like documents and questions do not; embedding a fake answer puts the query vector in the right neighbourhood.
+
+      #### How it relates
+
+      - Every rewrite adds latency and a failure mode. Measure before keeping it.
+  - term: Metadata filtering
+    short: Restricting the search to chunks the user is allowed to see, in the right tenant, language and date range.
+    see: [ Vector search, Index freshness, Chunking ]
+    detail: |-
+      This is where RAG becomes a security surface. Every chunk carries metadata — tenant id, ACL group, document class, language, valid-from date — and the filter must be applied <em>inside</em> the search, not after it. Filter after retrieval and a user with access to nothing still gets an empty list from a top-k that was consumed by documents they cannot see; worse, a careless implementation leaks the text into the prompt and then into the answer.
+
+      Filtering also interacts badly with ANN indexes. A very selective filter over an HNSW graph can make the walk fail to find enough matching neighbours — "pre-filter" vs "post-filter" vs "filtered graph traversal" is a real difference between engines, and the reason a tenant with 50 documents sometimes gets worse results than one with 50,000.
+
+      #### Common fields
+
+      | Field | Use |
+      | --- | --- |
+      | `tenant_id` | hard isolation, always filtered |
+      | `acl` / `groups` | per-document permissions |
+      | `source`, `url`, `title` | citations |
+      | `updated_at` | freshness boosting, stale filtering |
+      | `lang` | avoid cross-language noise |
+
+      #### How it relates
+
+      - In a multi-tenant system this is the same decision as in **Multitenancy strategies**: shared index with a filter, or an index per tenant.
+  - term: Context window budget
+    short: The token accounting that decides how many chunks you can actually afford per request.
+    see: [ Top-k, Lost in the middle, Chunking, Reranker ]
+    detail: |-
+      A large context window is permission, not advice. Tokens cost money and latency on every single request, and time-to-first-token grows with the prompt. A budget makes the trade explicit: system prompt + history + context + question + reserved output must fit, and context is the part you control.
+
+      #### A worked budget
+
+      | Part | Tokens |
+      | --- | --- |
+      | System prompt + rules | 400 |
+      | Conversation history (summarised) | 600 |
+      | 6 chunks × 500 tokens | 3,000 |
+      | Question | 60 |
+      | Reserved for the answer | 800 |
+      | **Total per request** | **~4,860** |
+
+      At 10 requests/second that is ~49k input tokens per second, which is the number your bill is actually made of. Trimming from 6 chunks to 4 is a 33% cut to the largest line item.
+
+      #### How it relates
+
+      - **Semantic caching** removes the whole request for near-duplicate questions, which is a bigger saving than any trimming.
+  - term: Lost in the middle
+    short: Models attend most to the beginning and end of a long context, and least to what sits in between.
+    see: [ Top-k, Context window budget, Reranker ]
+    detail: |-
+      Measured repeatedly across model families: place the answer-bearing passage at position 1 or last and accuracy is high; place it in the middle of ten passages and accuracy drops sharply, sometimes below a model given no context at all. The effect weakens in newer long-context models but does not disappear.
+
+      Two practical responses. Keep the context short, so there is no middle to get lost in. And order deliberately — put the top-ranked chunk first and the second-ranked chunk <em>last</em>, rather than in rank order.
+
+      #### How it relates
+
+      - This is the main argument against "just retrieve 50 chunks, the window is big enough".
+  - term: Parent-document retrieval
+    short: Matching on small chunks but sending the larger surrounding section to the model.
+    see: [ Chunking, Top-k, Context window budget ]
+    detail: |-
+      Small chunks match precisely because they contain little noise; large chunks answer well because they contain the context. Parent-document retrieval has both: index sentence-level or paragraph-level children, retrieve on those, then replace each hit with its parent section before building the prompt, de-duplicating where several children share a parent.
+
+      Two common shapes: <em>parent/child</em> (child = paragraph, parent = section) and <em>sentence-window</em> (match one sentence, send the three sentences either side). Both cost one extra lookup and usually beat tuning chunk size for days.
+
+      #### How it relates
+
+      - Store the parent id in **Metadata filtering** fields at ingestion so the second lookup is a key read, not another search.
+  - term: Index freshness
+    short: Keeping the index in step with the source, including deletions, without rebuilding it nightly.
+    see: [ Metadata filtering, Chunking, Embedding ]
+    detail: |-
+      RAG's selling point is that updating a document updates the answer — which only holds if ingestion is incremental and reliable. Give each chunk a deterministic id (`docId#chunkIndex`) and a content hash: re-ingesting a document upserts changed chunks, leaves unchanged ones alone, and deletes chunks beyond the new chunk count.
+
+      Deletion is the part everyone forgets. A revoked document that stays in the index will be retrieved and quoted, with a citation, for as long as it is there. Treat "document deleted" as a first-class event, not a nightly reconciliation.
+
+      #### Common values
+
+      | Source | Trigger | Lag |
+      | --- | --- | --- |
+      | CMS / wiki | webhook on publish | seconds |
+      | Database | CDC or outbox | seconds |
+      | File share | poll by mtime | minutes |
+      | Full reconcile | scheduled | daily, as a safety net |
+
+      #### How it relates
+
+      - The **Outbox pattern** is the usual way to make "row changed" and "chunk re-indexed" reliable without a dual write.
+  - term: Faithfulness
+    short: Whether every claim in the answer is actually supported by the retrieved context.
+    see: [ Grounding & citations, Context recall, Top-k ]
+    detail: |-
+      Faithfulness is the generation-side metric: given this context, is the answer entailed by it? It is measured by splitting the answer into atomic claims and checking each against the context, usually with a model-as-judge. It is deliberately independent of whether the answer is <em>correct</em> — a faithful answer to bad context is still wrong, and that is a retrieval bug, not a generation bug.
+
+      #### The standard four
+
+      | Metric | Question it answers | Fix when low |
+      | --- | --- | --- |
+      | Context recall | was the needed text retrieved? | chunking, hybrid, k |
+      | Context precision | is the retrieved text mostly relevant? | reranker, cut-off |
+      | Faithfulness | is the answer supported? | prompt, citations, model |
+      | Answer relevance | did it answer the question asked? | query rewriting, prompt |
+
+      #### How it relates
+
+      - Build a 50–200 question golden set <em>before</em> tuning anything; otherwise every change is a vibe.
+  - term: Context recall
+    short: The share of questions whose answer-bearing chunk appeared in the retrieved set at all.
+    see: [ Faithfulness, Top-k, Hybrid search ]
+    detail: |-
+      This is the ceiling on your whole system. If context recall is 72%, then 28% of questions cannot be answered correctly no matter which model you buy — and will instead be answered incorrectly and confidently. Measure it first, measure it per query type, and only look at generation once it is high.
+
+      It is also the cheapest metric to compute: for each golden question you already know the correct chunk id, so recall@k is a set-membership check with no model in the loop.
+
+      #### Reading the number
+
+      | recall@5 | What to do |
+      | --- | --- |
+      | < 60% | chunking is wrong; look at actual chunks |
+      | 60–85% | add hybrid search and a reranker |
+      | > 90% | now generation is worth tuning |
+
+      #### How it relates
+
+      - Recall@50 far above recall@5 means retrieval is fine and ranking is the problem — that is a **Reranker**, not a new index.
+  - term: Agentic RAG
+    short: Letting the model decide when to search, what to search for, and whether to search again.
+    see: [ Query rewriting, Grounding & citations, Top-k ]
+    detail: |-
+      Classic RAG retrieves once, unconditionally. Agentic RAG exposes search as a <em>tool</em> and lets the loop run: the model may skip retrieval for "hello", issue two different searches for a comparison question, read a result and search again with a better term, or stop when it has enough. It handles multi-hop questions that single-shot retrieval cannot.
+
+      The cost is latency and non-determinism — three tool calls instead of one, and a different number each time. It needs a step cap, a per-request budget and good tool descriptions, which is exactly what an **Agent harness** provides. **MCP** is now the common way to expose the search tool itself.
+
+      #### How it relates
+
+      - Start with single-shot RAG, measure, and move to agentic only for the question types that provably need multiple hops.
+commands:
+  heading: Essential code
+  tocLabel: Code
+  groups:
+    - group: Ingestion — chunk, embed, upsert
+      items:
+        - lang: csharp
+          code: |-
+            // C# — Microsoft.Extensions.AI + pgvector via Npgsql
+            using Microsoft.Extensions.AI;
+
+            IEmbeddingGenerator<string, Embedding<float>> embedder = /* DI */;
+
+            static IEnumerable<(int Index, string Text)> Chunk(string doc, int size = 500, int overlap = 75)
+            {
+                var words = doc.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                for (int i = 0, n = 0; i < words.Length; i += size - overlap, n++)
+                    yield return (n, string.Join(' ', words.Skip(i).Take(size)));
+            }
+
+            var chunks = Chunk(document).ToList();
+            var vectors = await embedder.GenerateAsync(chunks.Select(c => c.Text));
+
+            await using var batch = new NpgsqlBatch(conn);
+            foreach (var (chunk, vector) in chunks.Zip(vectors))
+            {
+                var cmd = new NpgsqlBatchCommand("""
+                    INSERT INTO chunks (id, doc_id, idx, content, embedding, tenant_id, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, now())
+                    ON CONFLICT (id) DO UPDATE
+                      SET content = EXCLUDED.content,
+                          embedding = EXCLUDED.embedding,
+                          updated_at = now();
+                    """);
+                cmd.Parameters.AddWithValue($"{docId}#{chunk.Index}");   // deterministic id = free upsert
+                cmd.Parameters.AddWithValue(docId);
+                cmd.Parameters.AddWithValue(chunk.Index);
+                cmd.Parameters.AddWithValue(chunk.Text);
+                cmd.Parameters.AddWithValue(new Vector(vector.Vector));
+                cmd.Parameters.AddWithValue(tenantId);
+                batch.BatchCommands.Add(cmd);
+            }
+            await batch.ExecuteNonQueryAsync();
+
+            // and the step everyone forgets:
+            await conn.ExecuteAsync("DELETE FROM chunks WHERE doc_id = $1 AND idx >= $2",
+                                    docId, chunks.Count);
+          what: Deterministic ids make re-ingestion an upsert; the trailing delete removes chunks that the new, shorter version no longer has.
+        - lang: python
+          code: |-
+            # Python — openai + psycopg + pgvector
+            from dataclasses import dataclass
+            from openai import OpenAI
+            from pgvector.psycopg import register_vector
+            import psycopg
+
+            client = OpenAI()
+
+            @dataclass(frozen=True)
+            class Chunk:
+                index: int
+                text: str
+
+            def chunk(doc: str, size: int = 500, overlap: int = 75) -> list[Chunk]:
+                words = doc.split()
+                step = size - overlap
+                return [Chunk(n, " ".join(words[i:i + size]))
+                        for n, i in enumerate(range(0, len(words), step))]
+
+            chunks = chunk(document)
+            resp = client.embeddings.create(model="text-embedding-3-small",
+                                            input=[c.text for c in chunks])
+
+            with psycopg.connect(DSN) as conn:
+                register_vector(conn)
+                with conn.cursor() as cur:
+                    cur.executemany("""
+                        INSERT INTO chunks (id, doc_id, idx, content, embedding, tenant_id, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, now())
+                        ON CONFLICT (id) DO UPDATE
+                          SET content = EXCLUDED.content,
+                              embedding = EXCLUDED.embedding,
+                              updated_at = now()
+                    """, [(f"{doc_id}#{c.index}", doc_id, c.index, c.text,
+                           d.embedding, tenant_id)
+                          for c, d in zip(chunks, resp.data)])
+                    cur.execute("DELETE FROM chunks WHERE doc_id = %s AND idx >= %s",
+                                (doc_id, len(chunks)))
+          what: "Same shape: batch the embedding call (one request for many chunks is far cheaper than many requests), then upsert and prune."
+    - group: Retrieval — hybrid, fused, filtered
+      items:
+        - lang: sql
+          code: |-
+            -- Postgres: dense + BM25-ish full text, fused with RRF, tenant filter inside both
+            WITH dense AS (
+              SELECT id, content, row_number() OVER (ORDER BY embedding <=> $1) AS rank
+              FROM chunks
+              WHERE tenant_id = $2                      -- filter INSIDE the search, never after
+              ORDER BY embedding <=> $1                 -- <=> is cosine distance
+              LIMIT 50
+            ),
+            sparse AS (
+              SELECT id, content,
+                     row_number() OVER (ORDER BY ts_rank_cd(tsv, websearch_to_tsquery($3)) DESC) AS rank
+              FROM chunks
+              WHERE tenant_id = $2 AND tsv @@ websearch_to_tsquery($3)
+              LIMIT 50
+            )
+            SELECT COALESCE(d.id, s.id) AS id,
+                   COALESCE(d.content, s.content) AS content,
+                   COALESCE(1.0 / (60 + d.rank), 0) + COALESCE(1.0 / (60 + s.rank), 0) AS rrf
+            FROM dense d FULL OUTER JOIN sparse s USING (id)
+            ORDER BY rrf DESC
+            LIMIT 25;
+          what: One query, two retrievers, reciprocal rank fusion with k=60. The 25 survivors go to the reranker.
+        - lang: csharp
+          code: |-
+            // C# — Azure AI Search does hybrid + semantic reranking server-side
+            var options = new SearchOptions
+            {
+                VectorSearch = new()
+                {
+                    Queries = { new VectorizedQuery(queryVector) { KNearestNeighborsCount = 50, Fields = { "embedding" } } }
+                },
+                Filter = $"tenant_id eq '{tenantId}'",
+                QueryType = SearchQueryType.Semantic,                  // cross-encoder rerank
+                SemanticSearch = new() { SemanticConfigurationName = "default" },
+                Size = 5,
+                Select = { "id", "content", "url", "title" },
+            };
+
+            var results = await searchClient.SearchAsync<Chunk>(userQuery, options);   // text => BM25, vector => ANN
+
+            var context = string.Join("\n\n", await results.Value.GetResultsAsync()
+                .Where(r => r.SemanticSearch?.RerankerScore > 1.5)      // cut-off: better empty than wrong
+                .Select(r => $"[{r.Document.Id}] {r.Document.Content}")
+                .ToListAsync());
+          what: Passing both the text and the vector is what makes it hybrid; `RerankerScore` is the cut-off that lets you answer "I don't know".
+    - group: Generation — grounded, cited, refusable
+      items:
+        - lang: csharp
+          code: |-
+            // C# — the prompt contract is the whole trick
+            var messages = new List<ChatMessage>
+            {
+                new(ChatRole.System, """
+                    Answer using ONLY the context below.
+                    Cite the id of every claim like [doc-412#2].
+                    If the context is insufficient, reply exactly: I don't have enough information.
+                    """),
+                new(ChatRole.User, $"Context:\n{context}\n\nQuestion: {question}"),
+            };
+
+            var answer = await chatClient.GetResponseAsync(messages,
+                new ChatOptions { Temperature = 0.1f, MaxOutputTokens = 800 });
+
+            // verify every citation actually came from the context we sent
+            var cited = Regex.Matches(answer.Text, @"\[([\w\-#]+)\]").Select(m => m.Groups[1].Value);
+            var invented = cited.Except(retrievedIds).ToList();
+            if (invented.Count > 0) logger.LogWarning("Hallucinated citations: {Ids}", invented);
+          what: Low temperature, an explicit refusal string, and a cheap regex check that catches invented citations in production.
+        - lang: python
+          code: |-
+            # Python — the same contract, plus a trivial faithfulness gate
+            SYSTEM = (
+                "Answer using ONLY the context below.\n"
+                "Cite the id of every claim like [doc-412#2].\n"
+                "If the context is insufficient, reply exactly: I don't have enough information."
+            )
+
+            answer = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                temperature=0.1,
+                messages=[
+                    {"role": "system", "content": SYSTEM},
+                    {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"},
+                ],
+            ).choices[0].message.content
+
+            cited = set(re.findall(r"\[([\w\-#]+)\]", answer))
+            if not cited and "I don't have enough information" not in answer:
+                log.warning("uncited answer — treat as unverified: %s", answer[:200])
+          what: An answer with no citations and no refusal is the shape a hallucination takes; log it and you will find your retrieval gaps.
+    - group: Index & evaluation
+      items:
+        - lang: sql
+          code: |-
+            -- pgvector: HNSW index, and the recall knob
+            CREATE EXTENSION IF NOT EXISTS vector;
+
+            ALTER TABLE chunks ADD COLUMN embedding vector(1536);
+            ALTER TABLE chunks ADD COLUMN tsv tsvector
+              GENERATED ALWAYS AS (to_tsvector('english', content)) STORED;
+
+            CREATE INDEX ON chunks USING hnsw (embedding vector_cosine_ops)
+              WITH (m = 16, ef_construction = 64);
+            CREATE INDEX ON chunks USING gin (tsv);
+            CREATE INDEX ON chunks (tenant_id, doc_id);
+
+            SET hnsw.ef_search = 100;      -- per-session recall vs latency knob
+          what: Build the index after the bulk load, not before; `ef_search` is the first thing to raise when recall looks bad.
+        - lang: python
+          code: |-
+            # Measure context recall before you tune anything else
+            golden = [("how long do I have to request a refund?", "doc-412#2"), ...]
+
+            hits = sum(expected in [c.id for c in retrieve(q, k=5)] for q, expected in golden)
+            print(f"recall@5 = {hits / len(golden):.0%}")      # this is your ceiling
+
+            hits50 = sum(expected in [c.id for c in retrieve(q, k=50)] for q, expected in golden)
+            print(f"recall@50 = {hits50 / len(golden):.0%}")   # gap vs recall@5 => add a reranker
+          what: Fifteen lines that tell you whether to fix chunking, ranking or the prompt. Run it in CI.
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - Answers reflect your data as of now — edit a document, the answer changes.
+      - Citations make answers checkable, which is what makes them usable in regulated work.
+      - "No training: a corpus, an embedding call and an index get you a working system in a day."
+      - Access control is enforced at retrieval, per user, with the data never entering model weights.
+      - Far cheaper than fine-tuning to keep current, and trivially reversible.
+      - Each stage is separately measurable and separately fixable.
+  bad:
+    heading: Cons
+    items:
+      - Retrieval quality caps everything, and it is harder to get right than it looks.
+      - "Adds 200 ms–1 s of latency: embed, search, rerank, then a long prompt to process."
+      - Context tokens dominate the bill — you pay for the chunks on every request.
+      - A confident wrong answer from bad context is worse than no answer at all.
+      - An extra data pipeline to build, monitor and reconcile, including deletions.
+      - Multi-hop and aggregate questions ("how many contracts expire in Q2?") fit the model badly.
+      - The index is a copy of your data, with its own ACL and compliance surface.
+when:
+  note: use RAG for facts. use fine-tuning for form. they fix different problems.
+  good:
+    heading: Use it when…
+    items:
+      - Answers must come from a corpus the model has never seen — private, internal or very recent.
+      - The corpus changes often enough that retraining would never keep up.
+      - Users need to verify answers, so citations are a requirement rather than a nicety.
+      - Different users may see different documents, so access control must be applied per query.
+      - The corpus is far larger than any context window, or too expensive to resend every time.
+  bad:
+    heading: Avoid it when…
+    items:
+      - The whole corpus fits comfortably in the context window and rarely changes. Use **prompt stuffing**, possibly with prompt caching.
+      - You need a different <em>style</em>, format or tone rather than different facts. Use **fine-tuning** or a better prompt.
+      - The question is an aggregate or a join over structured data. Use **text-to-SQL** against the database.
+      - Answers must be exact and auditable with no generation at all. Use **search** and show the document.
+      - The task needs multi-step reasoning across many documents. Use an **agent harness** with retrieval as one tool.
+      - Latency budget is under ~150 ms. Use **semantic caching** in front, or precomputed answers.
+useCases:
+  - title: Support agent assistant
+    body: Agents answer policy questions by searching a wiki that changes weekly. RAG over the wiki plus the customer's own ticket history answers in seconds with a link to the exact paragraph, so the agent can verify before sending. Fine-tuning would be stale by the next release.
+  - title: Internal documentation search
+    body: Ten years of Confluence, SharePoint and Google Docs nobody can find anything in. Hybrid retrieval with per-document ACLs gives every employee an answer scoped to what they may see, and citations make the stale pages visible for the first time.
+  - title: Contract and policy Q&A
+    body: Legal needs "what does this contract say about termination?" with the clause attached. Chunking by clause, retrieving with a reranker and demanding citations turns an hour of reading into thirty seconds — and the citation is the deliverable, not the prose.
+  - title: Product-aware chat
+    body: "A storefront assistant answers from the live catalogue: specifications, stock, shipping rules. Metadata filters keep it to the user's region and language, and because the index is rebuilt from the catalogue, price changes propagate without touching the model."
+  - title: Developer assistant over a private codebase
+    body: "Chunked per function with the file path and signature prepended, so \"where do we validate VAT numbers?\" returns the function plus its tests. Hybrid search matters here more than anywhere: half the queries are exact symbol names."
+gotchas:
+  items:
+    - mistake: Blaming the model for a retrieval failure
+      why: The answer is wrong, so the team upgrades the model, raises the temperature, rewrites the prompt — and nothing improves, because the correct chunk was never in the context.
+      fix: log the retrieved chunk ids with every answer, and measure context recall on a golden set. If recall@5 is 70%, no prompt will save you.
+    - mistake: Vector search only
+      why: Everything works in the demo and then a user searches for an order number, an error code or a product SKU and gets five semantically adjacent, useless chunks.
+      fix: hybrid search. Run BM25 alongside the vector query and fuse with RRF. It is usually one query change and the largest single quality jump available.
+    - mistake: Chunking by character count
+      why: The default 1,000-character splitter cuts tables in half, separates headings from their content, and produces chunks that are meaningless out of context — "the limit is 30 days" with no subject.
+      fix: split on structure, then size. Prepend the document title and heading path to every chunk. Read fifty random chunks out loud; if you cannot tell what they are about, neither can the retriever.
+    - mistake: Filtering after retrieval
+      why: Top-k is taken globally, then rows the user may not see are dropped. A user with narrow permissions gets two results instead of five, or worse, the text reaches the prompt and is paraphrased into the answer.
+      fix: push tenant and ACL predicates into the search itself, and verify with a test that a user from tenant B can never retrieve a chunk from tenant A.
+    - mistake: No deletion path
+      why: Documents are upserted happily, but a retracted policy or an offboarded employee's notes stay in the index for ever — and get cited.
+      fix: deterministic chunk ids, delete-by-doc-id on removal, prune trailing chunks when a document shrinks, and a periodic reconcile that diffs index ids against source ids.
+    - mistake: Raising k to fix quality
+      why: Recall improves, answers get worse. More chunks means more distractors, a longer prompt, higher cost, and the right passage buried in the middle where the model attends least.
+      fix: retrieve wide but rerank down to 3–8, and order the best chunk first. If recall@50 is far above recall@5, the problem is ranking, not retrieval.
+    - mistake: Changing the embedding model in place
+      why: New vectors are written with a new model while old ones remain. The two live in different spaces, scores become meaningless, and quality degrades quietly rather than failing loudly.
+      fix: treat the embedding model as part of the index identity. Build a new index, backfill, switch reads atomically, then drop the old one.
+    - mistake: No way to say "I don't know"
+      why: With no score cut-off and no refusal instruction, the model always answers — including from the five least-irrelevant chunks when the corpus simply does not contain the answer.
+      fix: a reranker score threshold plus an explicit refusal string in the system prompt, and alert on how often it fires. A rising refusal rate is a content gap worth knowing about.
+    - mistake: Shipping without an evaluation set
+      why: Every change is judged by trying three questions by hand. Improvements and regressions are indistinguishable, and the system drifts.
+      fix: 50–200 real questions with known answer chunks, scored in CI for context recall, faithfulness and answer relevance. It takes a day and pays for itself in the first week.
+alternatives:
+  columns: [ Approach, Best for, Complexity, Cost, Key difference vs RAG ]
+  rows:
+    - self: true
+      cells:
+        - "**RAG**"
+        - large, changing, private corpora
+        - Medium
+        - index + context tokens
+        - —
+    - cells:
+        - "**Long-context stuffing**"
+        - small, stable corpora
+        - Very low
+        - high per request
+        - No index at all; you pay for the whole corpus on every call and quality falls as it grows
+    - cells:
+        - "**Prompt caching**"
+        - a fixed corpus reused constantly
+        - Low
+        - cheap reads, cached writes
+        - Stuffing made affordable — still bounded by the window, still no per-user filtering
+    - cells:
+        - "**Fine-tuning**"
+        - style, format, domain tone
+        - High
+        - training + hosting
+        - Changes behaviour, not knowledge; cannot cite, cannot be updated per document
+    - cells:
+        - "**Text-to-SQL**"
+        - structured, aggregate questions
+        - Medium
+        - low per query
+        - Exact answers over tables; useless over prose
+    - cells:
+        - "**GraphRAG**"
+        - multi-hop, entity-heavy corpora
+        - High
+        - expensive ingestion
+        - Builds an entity graph first, so it can answer "how are X and Y connected"
+    - cells:
+        - "**Agentic search**"
+        - open-ended research questions
+        - High
+        - several calls per answer
+        - The model decides when and what to search, repeatedly; slower and non-deterministic
+  notes:
+    - "**Pick long-context stuffing** when the corpus is a handful of documents — a product manual, a single policy — and simplicity beats everything."
+    - "**Pick fine-tuning** when the complaint is \"it doesn't sound like us\" rather than \"it doesn't know that\"."
+    - "**Pick text-to-SQL** for counting, summing and filtering — questions whose answer is a number, not a paragraph."
+    - "**Pick GraphRAG** when questions span many documents and relationships, and you can afford a much heavier ingestion step."
+    - "**Pick agentic RAG** only once single-shot RAG is measurably good and you can name the question types that need more hops."
+resources:
+  - url: https://arxiv.org/abs/2005.11401
+    title: Lewis et al. — Retrieval-Augmented Generation (2020)
+    why: the original paper that named the pattern.
+  - url: https://arxiv.org/abs/2307.03172
+    title: Lost in the Middle
+    why: the measurements behind "short, well-ordered context beats long context".
+  - url: https://docs.ragas.io/
+    title: Ragas
+    why: a practical evaluation library for context recall, precision, faithfulness and answer relevance.
+  - url: https://learn.microsoft.com/en-us/azure/search/hybrid-search-overview
+    title: Azure AI Search — hybrid search and RRF
+    why: a clear vendor-neutral explanation of fusion and semantic reranking.
+  - url: https://github.com/pgvector/pgvector
+    title: pgvector
+    why: vectors in Postgres, including HNSW parameters and the distance operators.
+  - url: https://www.anthropic.com/news/contextual-retrieval
+    title: Contextual Retrieval
+    why: prepending generated context to each chunk, with measured recall improvements.

@@ -1,0 +1,811 @@
+title: Outbox pattern
+slug: outbox-pattern
+tagline: You cannot commit a database and a broker together. So write the message as a row, and let it ride along.
+asof: Nov 2026 · examples use PostgreSQL, Kafka and Debezium; the idea is engine-agnostic
+description: "Transactional outbox cheatsheet: why the dual write loses or invents events, how one table and a relay fix it, and what at-least-once delivery then demands of consumers."
+aliases:
+  - Outbox pattern
+  - transactional outbox
+  - outbox
+  - dual write
+  - dual-write problem
+  - inbox pattern
+  - idempotent consumer
+keywords:
+  - outbox
+  - transactional outbox
+  - dual write
+  - messaging
+  - cdc
+  - debezium
+  - kafka
+  - idempotency
+  - microservices
+  - reliability
+related:
+  - cqrs
+  - kafka
+  - domain-driven-design
+  - database-performance
+  - azure-durable-functions
+overview:
+  - "Almost every service that owns data also has to tell someone about it: save the order <em>and</em> publish `OrderPlaced`. These are two different systems with two different transaction managers, so \"do both or neither\" is not something you can simply write down. This is the **dual write problem**, and left alone it produces two failures that are both silent: an event that was never published, and an event published for work that then rolled back."
+  - The transactional outbox removes the second system from the critical path. The event is written as an ordinary row into an `outbox` table in the <em>same transaction</em> as the state change, so it is atomic by construction — one commit, one database, no new guarantees needed. A separate **relay** then reads that table and publishes to the broker, retrying until it succeeds.
+  - "What you buy is that no event is ever lost and no event is ever invented. What you pay is that delivery becomes **at-least-once**: the relay can crash after publishing and before marking the row sent, so every consumer must be idempotent. That trade — duplicates instead of losses — is almost always the right one, because duplicates can be detected and losses cannot."
+architecture:
+  svg: outbox-pattern/architecture.svg
+  alt: A service writing state and an outbox row in one transaction, a relay publishing to a broker, and a consumer deduplicating with an inbox table
+  caption: The message becomes data first and a message second. Everything after the commit is retryable, because the fact is already durable.
+howItWorks:
+  - md: "The first animation is the problem: both orderings of a dual write fail, in different and equally silent ways. The second is the relay doing its job, and what at-least-once then demands from everyone downstream."
+  - note: there is no ordering of two commits that is safe — stop looking for one
+  - anim:
+      id: anim-dual
+      title: 1 · Both ways of doing a dual write are broken
+      svg: outbox-pattern/anim-dual.svg
+      alt: A service committing to a database and publishing to a broker, failing in both orderings, then fixed with an outbox row
+      steps:
+        - say: "The order service must do two things when an order is placed: store it, and tell the shipping service. Two systems, two transaction managers, no way to commit them together."
+          hl: [ dw-svc ]
+        - say: "Attempt A: commit the database first. Order 42 is now durable — whatever happens next, the order exists."
+          hl: [ dw-db ]
+          unhl: [ dw-svc ]
+          text:
+            dw-dbt: "orders: 42 ✓"
+            dw-svct2: about to publish…
+          fill:
+            dw-dbt: "#2f6b3f"
+        - say: "The pod is rescheduled before the publish call. The order exists and nobody will ever be told about it: no shipment, no invoice, no error anywhere. The customer finds out instead of you."
+          hl: [ dw-br ]
+          unhl: [ dw-db ]
+          text:
+            dw-svct: process killed
+            dw-svct2: publish never happened
+            dw-brt: "topic: empty"
+            dw-v: "attempt A: the event is lost, silently and permanently"
+          fill:
+            dw-svct: "#c53b3b"
+            dw-v: "#c53b3b"
+            dw-verd: "#f9e3df"
+        - say: "So try the other order. Attempt B: publish first, so the event can never be lost."
+          unhl: [ dw-br ]
+          text:
+            dw-step: attempt B — publish first, then commit the database
+            dw-dbt: "orders: empty"
+            dw-brt: "topic: OrderPlaced(42) ✓"
+            dw-svct: handling PlaceOrder
+            dw-svct2: published, now committing…
+            dw-v: two systems, two commits, no shared transaction
+          fill:
+            dw-dbt: "#5f6f66"
+            dw-brt: "#2f6b3f"
+            dw-svct: "#5f6f66"
+            dw-v: "#23362e"
+            dw-verd: "#e8ece2"
+        - say: The transaction then fails — a unique violation, a deadlock, a timeout — and rolls back. Shipping now creates a shipment for an order that does not exist. This is worse than losing it, because the damage spreads.
+          hl: [ dw-db ]
+          text:
+            dw-dbt: ROLLBACK — no order 42
+            dw-brt2: shipping already reacted
+            dw-v: "attempt B: a phantom event for work that never happened"
+          fill:
+            dw-dbt: "#c53b3b"
+            dw-brt2: "#c53b3b"
+            dw-v: "#c53b3b"
+            dw-verd: "#f9e3df"
+        - say: "There is no third ordering. Publishing <em>inside</em> the transaction is worse still: the broker's latency is now holding your row locks, and if the broker is down your database writes fail with it."
+          unhl: [ dw-db ]
+          text:
+            dw-v: and publishing inside the transaction couples your availability to the broker
+        - say: Two-phase commit would solve it in theory. In practice Kafka has no XA, the protocol blocks when the coordinator dies, and it ties your uptime to the broker's. Almost nobody chooses it.
+          text:
+            dw-v: "2PC: real atomicity, at a price nearly everyone refuses"
+        - say: "The outbox sidesteps the whole problem: write the message as a <em>row</em>, in your own database, in the same transaction as the order. One commit, one system — atomic by construction, no new protocol."
+          show: [ dw-ob ]
+          hl: [ dw-db ]
+          text:
+            dw-dbt: "orders: 42 ✓"
+            dw-obt: OrderPlaced(42) unsent
+            dw-step: the outbox — one transaction, one database
+            dw-brt: "topic: empty"
+            dw-brt2: not involved yet
+            dw-v: both rows commit together, or neither does
+          fill:
+            dw-dbt: "#2f6b3f"
+            dw-brt: "#5f6f66"
+            dw-brt2: "#5f6f66"
+            dw-v: "#2f6b3f"
+            dw-verd: "#e3eedc"
+        - say: A separate relay publishes that row afterwards and retries until it succeeds. If it crashes, the row is still sitting there. The fact was durable the moment the order committed — everything after is just delivery.
+          hl: [ dw-br ]
+          unhl: [ dw-db ]
+          text:
+            dw-obt: OrderPlaced(42) sent ✓
+            dw-brt: "topic: OrderPlaced(42) ✓"
+            dw-brt2: shipping reacts — correctly
+            dw-v: nothing lost, nothing invented — at the cost of possible duplicates
+          fill:
+            dw-brt: "#2f6b3f"
+  - anim:
+      id: anim-relay
+      title: 2 · The relay, duplicates, and the inbox that absorbs them
+      svg: outbox-pattern/anim-relay.svg
+      alt: A relay polling an outbox table, publishing to a broker, crashing before marking sent, and a consumer deduplicating by message id
+      steps:
+        - say: Three rows sit in the outbox, all unsent. They were written by three different business transactions that have already committed, so these facts are durable regardless of what happens next.
+          hl: [ rl-tbl ]
+        - say: The relay polls for unsent rows in id order, claiming a batch with `FOR UPDATE SKIP LOCKED` — which is what lets a second relay instance take different rows instead of blocking on these.
+          hl: [ rl-relay ]
+          unhl: [ rl-tbl ]
+          text:
+            rl-rt: claimed row 1
+            rl-rt2: SKIP LOCKED batch
+        - say: It publishes row 1 to the broker, keyed by aggregate id so every event for order 42 lands on the same partition and stays in order.
+          hl: [ rl-br ]
+          unhl: [ rl-relay ]
+          text:
+            rl-brt: OrderPlaced(42)
+            rl-brt2: key = order 42
+        - say: "Then — and only then — it marks the row sent. Publish first, mark second: the ordering is deliberate, and it is why nothing can be lost."
+          unhl: [ rl-br ]
+          text:
+            rl-r1t: 1 OrderPlaced  sent=t
+            rl-rt: marked row 1 sent
+          fill:
+            rl-r1t: "#2f6b3f"
+        - say: Now the failure that defines the pattern. The relay publishes row 2 — and dies before the UPDATE lands.
+          hl: [ rl-relay ]
+          text:
+            rl-brt: ItemAdded(42)
+            rl-rt: crashed
+            rl-rt2: before marking sent
+          fill:
+            rl-rt: "#c53b3b"
+        - say: On restart, row 2 is still `sent=f`, so it is published again. The consumer receives `ItemAdded` twice. This gap cannot be closed — closing it would need exactly the dual-write guarantee we gave up.
+          hl: [ rl-br ]
+          unhl: [ rl-relay ]
+          text:
+            rl-rt: restarted
+            rl-rt2: republishing row 2
+            rl-brt2: ItemAdded delivered twice
+          fill:
+            rl-rt: "#5f6f66"
+            rl-brt2: "#c53b3b"
+            rl-n: "at-least-once: never lost, sometimes duplicated"
+        - say: So the consumer absorbs it. Each message id is inserted into an inbox table in the <em>same transaction</em> as the business change; the second insert conflicts, the handler returns early, and the shipment is created exactly once.
+          hl: [ rl-cons ]
+          unhl: [ rl-br ]
+          text:
+            rl-in1: msg a1b2 ✓
+            rl-in2: c3d4 ✓ dup
+            rl-ct: "shipments: 1"
+            rl-ct2: duplicate ignored
+            rl-n: at-least-once delivery + idempotent consumer = exactly-once processing
+          fill:
+            rl-ct2: "#2f6b3f"
+            rl-n: "#2f6b3f"
+        - say: "Row 3 goes out normally and the backlog drains. Note what never happened: no business code called the broker, and no transaction waited on the network."
+          unhl: [ rl-cons ]
+          text:
+            rl-r2t: 2 ItemAdded    sent=t
+            rl-r3t: 3 OrderShipped sent=t
+            rl-brt: OrderShipped(42)
+            rl-brt2: all delivered
+            rl-ct: "shipments: 1 · shipped"
+            rl-lag: "oldest unsent: none"
+          fill:
+            rl-r2t: "#2f6b3f"
+            rl-r3t: "#2f6b3f"
+            rl-brt2: "#5f6f66"
+        - say: "If the broker had been down, nothing visible would have broken: the API keeps returning 200 and the rows simply accumulate. That is the pattern's best property and its most dangerous one."
+          hl: [ rl-tbl ]
+          text:
+            rl-r1t: … 40,000 rows unsent
+            rl-lag: "oldest unsent: 22 min"
+            rl-n: everything looks healthy while nobody downstream hears anything
+          fill:
+            rl-lag: "#c53b3b"
+            rl-n: "#c53b3b"
+            rl-note: "#f9e3df"
+        - say: "Hence the one metric to alert on: the age of the oldest unsent row. And the one chore not to skip: delete published rows, or the outbox becomes the largest table you own."
+          unhl: [ rl-tbl ]
+          text:
+            rl-r1t: 1 OrderPlaced  sent=t
+            rl-lag: "alert: oldest unsent > 60 s"
+            rl-n: monitor the lag · bound the retries · delete the sent rows
+            rl-n2: the relay may be stupid and slow — it may not be silent
+          fill:
+            rl-note: "#e3eedc"
+            rl-n: "#2f6b3f"
+            rl-lag: "#5f6f66"
+concepts:
+  - term: Dual write
+    short: Writing to two systems that cannot share a transaction — the problem the outbox exists to remove.
+    see: [ Outbox table, Two-phase commit, Relay ]
+    detail: |-
+      Save the row, then publish the message. Or publish, then save. Either way there is a window in which one has happened and the other has not, and a crash, a timeout or a rollback inside that window leaves the two systems permanently disagreeing.
+
+      What makes it dangerous is that both failure modes are silent: nothing throws, no alert fires, and the inconsistency is discovered days later by a customer. Retrying does not help, because the process that would retry is the one that died.
+
+      #### Both orderings fail
+
+      | Order | Failure | Result |
+      | --- | --- | --- |
+      | Commit, then publish | crash before publish | event lost — nobody reacts |
+      | Publish, then commit | transaction rolls back | phantom event — others react to nothing |
+      | Publish inside the transaction | broker slow or down | long transaction, locks held, both fail together |
+
+      #### How it relates
+
+      - The first animation walks through all three.
+  - term: Outbox table
+    short: An ordinary table in the service's own database where outgoing messages are inserted inside the business transaction.
+    see: [ Dual write, Relay, Retention ]
+    detail: |-
+      Keep it boring: a monotonic id for ordering, a stable message id for deduplication, the aggregate id for partitioning, a type, a JSON payload, a timestamp, and either a `sent_at` column or nothing at all if you are using change data capture.
+
+      Because it is in the same database as the state, the insert joins the same transaction automatically. There is no new protocol and no new failure mode — if the business change commits, the message exists; if it rolls back, the message never existed.
+
+      #### Columns that earn their place
+
+      | Column | Why |
+      | --- | --- |
+      | `id bigserial` | publication order |
+      | `message_id uuid` | consumer deduplication key |
+      | `aggregate_id` | partition key — preserves per-entity order |
+      | `type`, `payload jsonb` | routing and body |
+      | `occurred_at`, `sent_at` | lag metric and cleanup |
+
+      #### How it relates
+
+      - In an event-sourced service the event store already <em>is</em> the outbox.
+  - term: Relay
+    short: The separate process that reads unsent outbox rows and publishes them to the broker, retrying until it succeeds.
+    see: [ Polling publisher, Change data capture, At-least-once ]
+    detail: |-
+      The relay is deliberately dumb: it has no business logic, it is restartable at any moment, and its only state is "which rows have I published". That is what makes the pattern robust — the durable fact is already committed, so the relay failing is an availability problem, never a correctness one.
+
+      Run it either as a sidecar beside the service, as a separate deployment, or not at all if you use CDC and let the connector be your relay.
+
+      #### Where to run it
+
+      | Option | Trade-off |
+      | --- | --- |
+      | In the service process | simplest; competes for the same resources |
+      | Sidecar container | isolated, scales with the pod |
+      | Separate deployment | scaled independently; one more thing to run |
+      | CDC connector | no code at all; a platform dependency |
+
+      #### How it relates
+
+      - Several relay instances can run safely with `SKIP LOCKED`, shown in the **polling publisher** animation.
+  - term: Polling publisher
+    short: "The simplest relay: periodically select unsent rows, publish them, mark them sent."
+    see: [ Relay, Change data capture, Lag ]
+    anim:
+      key: sk
+      title: Two relays, one table, no collisions
+      svg: outbox-pattern/sk.svg
+      alt: Two relay workers claiming different batches of outbox rows using SKIP LOCKED
+      steps:
+        - say: Three unsent rows and two relay instances, both polling the same table at the same moment.
+          hl: [ sk-w1, sk-w2 ]
+        - say: Relay A opens a transaction and claims rows 1 and 2 with `SELECT … FOR UPDATE`. Those rows are now locked.
+          hl: [ sk-r1, sk-r2 ]
+          unhl: [ sk-w1, sk-w2 ]
+          text:
+            sk-r1t: row 1 · locked by A
+            sk-r2t: row 2 · locked by A
+            sk-w1t: publishing 1, 2
+        - say: Without `SKIP LOCKED`, relay B would block here waiting for A to finish — two workers, the throughput of one.
+          text:
+            sk-w2t: "plain FOR UPDATE: blocked"
+          fill:
+            sk-w2t: "#c53b3b"
+        - say: With `SKIP LOCKED` it simply steps over the locked rows and takes row 3 instead. Both relays work in parallel and neither publishes the same row twice.
+          hl: [ sk-r3 ]
+          unhl: [ sk-r1, sk-r2 ]
+          text:
+            sk-r3t: row 3 · locked by B
+            sk-w2t: publishing 3
+          fill:
+            sk-w2t: "#2f6b3f"
+        - say: "One caveat: this prevents collisions, not reordering. If order matters for an aggregate, partition the relays by aggregate id rather than letting both touch the same entity."
+          unhl: [ sk-r3 ]
+          text:
+            sk-r1t: row 1 · sent
+            sk-r2t: row 2 · sent
+            sk-r3t: row 3 · sent
+            sk-w1t: idle
+            sk-w2t: idle
+          fill:
+            sk-w2t: "#5f6f66"
+    detail: |-
+      A loop with `SELECT ... WHERE sent_at IS NULL ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED` is enough for most systems. `SKIP LOCKED` is what lets several relay instances run concurrently without stepping on each other — each grabs a different batch instead of blocking.
+
+      Polling adds latency equal to half the poll interval, and constant query load even when idle. `LISTEN`/`NOTIFY` (or an in-process signal after commit) removes the latency while keeping the poll as a safety net.
+
+      ::anim sk::
+
+      #### How it relates
+
+      - Batch size and poll interval are the two knobs that trade throughput against latency.
+  - term: Change data capture
+    short: Tailing the database's own replication log instead of polling, so the outbox is published with no extra queries.
+    see: [ Relay, Polling publisher, Outbox table ]
+    detail: |-
+      Debezium and similar connectors read the write-ahead log and emit a message for every committed row change. Point one at your outbox table and the relay disappears: no polling load, latency in the low milliseconds, and ordering guaranteed by the log itself. Debezium even ships an "outbox event router" that unwraps the row into a properly shaped event.
+
+      The cost is a platform dependency — Kafka Connect or equivalent — plus replication slots that will quietly bloat your database if a connector stops consuming.
+
+      #### Polling versus CDC
+
+      |  | Polling | CDC |
+      | --- | --- | --- |
+      | Latency | half the interval | milliseconds |
+      | DB load | constant queries | log reading only |
+      | Ops cost | a loop you own | a connector cluster |
+      | Risk | slow when backlogged | stale slot bloats the DB |
+
+      #### How it relates
+
+      - CDC is also how read-model projections are commonly fed.
+  - term: At-least-once
+    short: "The delivery guarantee an outbox gives you: every message arrives, and some arrive more than once."
+    see: [ Idempotent consumer, Inbox table, Relay ]
+    detail: |-
+      The relay publishes, then marks the row sent. If it dies between those two steps the row is still unsent, so after restart it publishes again. That gap cannot be closed — closing it would require exactly the dual-write guarantee the pattern was invented to avoid.
+
+      So duplicates are not an edge case to be surprised by; they are part of the contract. The good news is that a duplicate is detectable (the message id is the same) while a lost message is not.
+
+      #### The guarantees
+
+      | Guarantee | Means |
+      | --- | --- |
+      | At-most-once | never duplicated, may be lost |
+      | At-least-once | never lost, may be duplicated |
+      | "Exactly-once" | at-least-once plus deduplication at the consumer |
+
+      #### How it relates
+
+      - "Exactly-once processing" is achievable; exactly-once <em>delivery</em> is not.
+  - term: Idempotent consumer
+    short: A consumer for which processing the same message twice has the same effect as processing it once.
+    see: [ At-least-once, Inbox table, Message id ]
+    detail: |-
+      This is non-negotiable with an outbox. The cheapest version is a naturally idempotent handler: setting a status to `shipped` is safe to repeat, incrementing a counter is not. When the operation is not naturally idempotent, record the message id and skip anything already seen.
+
+      Idempotency must cover side effects too. A handler that sends an email is not idempotent just because its database write is.
+
+      #### Making a handler safe
+
+      | Operation | Approach |
+      | --- | --- |
+      | Set a status | already idempotent |
+      | Insert a row | upsert on a natural key |
+      | Increment a total | inbox table, or store absolute values |
+      | Send an email / charge a card | idempotency key at the provider |
+
+      #### How it relates
+
+      - The last steps of the second animation show a duplicate hitting an inbox and being dropped.
+  - term: Inbox table
+    short: "The mirror image of the outbox: the consumer records processed message ids, in the same transaction as its own state change."
+    see: [ Idempotent consumer, Message id, Outbox table ]
+    detail: |-
+      On receipt, insert the message id into `inbox`; if the insert violates the primary key, this message has already been handled and you acknowledge it without doing anything. Doing that insert in the same transaction as the business change is what makes "process exactly once" true in effect, even though delivery was at-least-once.
+
+      Give the table a retention policy — typically a few days, longer than any plausible redelivery — or it grows forever.
+
+      #### Shape
+
+      | Column | Note |
+      | --- | --- |
+      | `message_id` PK | the deduplication key |
+      | `processed_at` | for retention |
+      | `handler` | if several handlers consume the same topic |
+
+      #### How it relates
+
+      - Outbox plus inbox is the full "transactional messaging" pair.
+  - term: Message id
+    short: A stable identifier generated once, when the outbox row is written — never when it is published.
+    see: [ Inbox table, Idempotent consumer, At-least-once ]
+    detail: |-
+      If the relay generated the id at publish time, a republished row would carry a new id and no consumer could tell it was a duplicate. Generating it inside the business transaction makes the id part of the durable fact.
+
+      Prefer a UUIDv7 or similar time-ordered identifier: unique, sortable, and it doubles as a debugging handle you can trace from the producing transaction to the consuming one.
+
+      #### Also worth carrying
+
+      | Field | Use |
+      | --- | --- |
+      | `message_id` | deduplication |
+      | `correlation_id` | tracing across services |
+      | `causation_id` | which message caused this one |
+      | `schema version` | safe payload evolution |
+
+      #### How it relates
+
+      - Propagating trace context through the outbox is the only way distributed tracing survives the asynchronous hop.
+  - term: Ordering
+    short: Messages are published in outbox id order, and keyed by aggregate id so a consumer sees one entity's events in sequence.
+    see: [ Outbox table, Relay, Message id ]
+    detail: |-
+      Global ordering across a whole service is neither achievable nor useful. Per-aggregate ordering is both: publish with `aggregate_id` as the partition key so `OrderPlaced` always reaches a consumer before `OrderShipped` for that order.
+
+      Two things quietly break this: running several relay instances that publish concurrently across the same aggregate, and retries that reorder a failed message behind a later one. Partition the relay by aggregate, or accept out-of-order delivery and make handlers tolerate it.
+
+      #### Ordering choices
+
+      | Scope | Feasible | Cost |
+      | --- | --- | --- |
+      | Per aggregate | yes | partition key |
+      | Per topic | only with one partition | no parallelism |
+      | Global | effectively no | — |
+
+      #### How it relates
+
+      - Handlers that tolerate out-of-order arrival (version checks, state machines) are far cheaper than strict ordering.
+  - term: Lag
+    short: The age of the oldest unsent outbox row — the one metric that tells you the pattern is working.
+    see: [ Relay, Retention, Poison message ]
+    detail: |-
+      Everything else can look healthy while the relay is dead: the API returns 200, the database commits, the business logic is fine. Only the outbox backlog reveals that nobody downstream has heard anything for twenty minutes.
+
+      Alert on the <em>age</em> of the oldest unsent row rather than the row count, because a slow trickle of unsendable messages matters more than a large burst that is draining normally.
+
+      #### What to export
+
+      | Metric | Healthy |
+      | --- | --- |
+      | Age of oldest unsent row | under a few seconds |
+      | Unsent row count | bounded, draining |
+      | Publish errors per minute | zero, or retrying |
+      | Table size | flat — cleanup is running |
+
+      #### How it relates
+
+      - Rising lag with zero errors usually means a poison message at the head of the queue.
+  - term: Poison message
+    short: A row the relay can never publish, which blocks everything behind it if the relay insists on order.
+    see: [ Lag, Relay, Ordering ]
+    detail: |-
+      A payload too large for the broker, an unserialisable field, a topic that no longer exists. The relay retries, fails, retries — and if it publishes strictly in id order, the whole outbox stops behind one bad row while lag climbs and errors stay constant.
+
+      Give up after a bounded number of attempts: move the row to a dead-letter table, record why, alert, and continue. Losing ordering for one aggregate is better than losing delivery for all of them.
+
+      #### Handling
+
+      | Step | Action |
+      | --- | --- |
+      | Retry | exponential backoff, bounded |
+      | Give up | move to `outbox_dead` with the error |
+      | Alert | a human must see it |
+      | Replay | fix and re-insert, keeping the message id |
+
+      #### How it relates
+
+      - Keeping the original message id on replay means consumers still deduplicate correctly.
+  - term: Retention
+    short: Deleting published rows, so the outbox does not quietly become the largest table in the database.
+    see: [ Outbox table, Lag ]
+    detail: |-
+      A busy service writes millions of outbox rows a week. Left alone they bloat the table, slow the relay's own query, and inflate backups. Delete or archive rows once they are published and old enough to be past any replay you would realistically want.
+
+      Deleting in small batches avoids long locks; partitioning the outbox by day turns cleanup into dropping a partition, which is instant.
+
+      #### Approaches
+
+      | Approach | Note |
+      | --- | --- |
+      | Delete sent rows after N days | batch it; watch for bloat |
+      | Partition by day and drop | instant, no vacuum debt |
+      | Delete immediately after publish | simplest; no replay possible |
+      | Archive to object storage | when the events have audit value |
+
+      #### How it relates
+
+      - Partitioned retention is the same trick used on any large append-only table.
+  - term: Two-phase commit
+    short: The distributed protocol that would make a dual write atomic — and the reason almost nobody uses one.
+    see: [ Dual write, Outbox table ]
+    detail: |-
+      XA/2PC genuinely solves the problem: a coordinator asks both resource managers to prepare, then tells both to commit. In practice it is slow, requires locks held across a network round trip, is unsupported by most modern brokers (Kafka has no XA), and has a blocking failure mode when the coordinator dies mid-protocol.
+
+      Worse, it couples availability: if the broker is down, your database writes fail too. The outbox deliberately refuses that coupling — your service keeps working and the messages go out when the broker returns.
+
+      #### Why the outbox wins
+
+      |  | 2PC | Outbox |
+      | --- | --- | --- |
+      | Broker support | rare | any |
+      | Latency | high | unchanged |
+      | Availability coupling | yes | no |
+      | Duplicates | no | yes — handled at the consumer |
+
+      #### How it relates
+
+      - The outbox trades a strong guarantee for a weaker one plus a cheap consumer-side fix.
+  - term: Listen to yourself
+    short: A variant where the producing service also consumes its own published event, instead of updating state directly.
+    see: [ Outbox table, Idempotent consumer, Relay ]
+    detail: |-
+      Rather than writing state and an outbox row, the service writes only the event, publishes it, and updates its own state when it consumes it back. Every service — including the producer — then runs the same code path, and there is exactly one source of truth for "what happened".
+
+      The price is that the producer's own state is eventually consistent with its own API, which surprises callers who expect to read back what they just wrote. It fits command-heavy, event-driven systems and fits poorly behind a synchronous CRUD API.
+
+      #### Compared
+
+      |  | Outbox | Listen to yourself |
+      | --- | --- | --- |
+      | Own state after commit | immediately current | eventually current |
+      | Code paths | two | one |
+      | Fits | most services | event-driven cores |
+
+      #### How it relates
+
+      - It has the same read-your-own-writes consequences as a CQRS read model.
+commands:
+  heading: Essential code patterns
+  tocLabel: Code patterns
+  groups:
+    - group: The table
+      items:
+        - lang: sql
+          code: |-
+            CREATE TABLE outbox (
+                id            bigserial PRIMARY KEY,       -- publication order
+                message_id    uuid        NOT NULL UNIQUE, -- consumer dedup key
+                aggregate_id  uuid        NOT NULL,        -- partition key
+                type          text        NOT NULL,
+                payload       jsonb       NOT NULL,
+                occurred_at   timestamptz NOT NULL DEFAULT now(),
+                sent_at       timestamptz,
+                attempts      int         NOT NULL DEFAULT 0
+            );
+
+            CREATE INDEX ix_outbox_unsent ON outbox (id) WHERE sent_at IS NULL;
+          what: A partial index on unsent rows keeps the relay's query fast even when the table holds millions of published rows.
+        - lang: sql
+          code: |-
+            BEGIN;
+              INSERT INTO orders (id, customer_id, total) VALUES (...);
+              INSERT INTO outbox (message_id, aggregate_id, type, payload)
+                   VALUES (gen_random_uuid(), $order_id, 'OrderPlaced', $payload);
+            COMMIT;        -- both rows, or neither. no broker involved.
+          what: "The entire pattern in four lines: the message becomes data, committed atomically with the state it describes."
+    - group: The relay
+      items:
+        - lang: sql
+          code: |-
+            BEGIN;
+            SELECT id, message_id, aggregate_id, type, payload
+            FROM   outbox
+            WHERE  sent_at IS NULL
+            ORDER  BY id
+            LIMIT  100
+            FOR UPDATE SKIP LOCKED;     -- lets several relay instances run safely
+            -- publish each row, then:
+            UPDATE outbox SET sent_at = now() WHERE id = ANY($ids);
+            COMMIT;
+          what: Publish first, mark second. A crash in between republishes — at-least-once, which is the guarantee you want.
+        - code: |-
+            -- wake the relay immediately instead of waiting for the next poll
+            NOTIFY outbox_new;
+            -- relay: LISTEN outbox_new, and keep a 1s poll as a safety net
+          what: Removes polling latency without removing the poll — the poll is what recovers after a missed notification.
+        - lang: sql
+          code: |-
+            -- the metric that matters
+            SELECT now() - min(occurred_at) AS oldest_unsent
+            FROM   outbox WHERE sent_at IS NULL;
+          what: Alert on the age of the oldest unsent row. Everything else can look healthy while nothing is being delivered.
+        - lang: sql
+          code: |-
+            -- retention: delete published rows in small batches
+            DELETE FROM outbox
+            WHERE id IN (SELECT id FROM outbox
+                         WHERE sent_at < now() - interval '7 days' LIMIT 10000);
+          what: Or partition the outbox by day and drop partitions — instant, and no vacuum debt.
+    - group: C#
+      items:
+        - lang: csharp
+          code: |-
+            public async Task Handle(PlaceOrder cmd, CancellationToken ct)
+            {
+                var order = Order.Place(cmd.CartId, cmd.CustomerId);
+                db.Orders.Add(order);
+
+                foreach (var e in order.ReleaseEvents())
+                    db.Outbox.Add(new OutboxRow {
+                        MessageId   = Guid.CreateVersion7(),
+                        AggregateId = order.Id,
+                        Type        = e.GetType().Name,
+                        Payload     = JsonSerializer.Serialize(e),
+                    });
+
+                await db.SaveChangesAsync(ct);   // ONE transaction — no broker call here
+            }
+          what: The handler never touches the broker. An EF Core SaveChanges interceptor can add the outbox rows automatically so nobody can forget.
+    - group: "Consumer side: the inbox"
+      items:
+        - lang: sql
+          code: |-
+            CREATE TABLE inbox (
+                message_id   uuid PRIMARY KEY,
+                processed_at timestamptz NOT NULL DEFAULT now()
+            );
+          what: "One column does the work: the primary key is the deduplication."
+        - lang: python
+          code: |-
+            def handle(msg, conn):
+                with conn.transaction():
+                    inserted = conn.execute(
+                        "INSERT INTO inbox (message_id) VALUES (%s) ON CONFLICT DO NOTHING",
+                        (msg.message_id,),
+                    ).rowcount
+                    if not inserted:
+                        return                      # already processed — ack and move on
+                    create_shipment(conn, msg)      # same transaction as the dedup marker
+          what: Dedup marker and business change commit together, which turns at-least-once delivery into exactly-once processing.
+    - group: "No relay at all: CDC"
+      items:
+        - code: |-
+            {
+              "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+              "table.include.list": "public.outbox",
+              "transforms": "outbox",
+              "transforms.outbox.type":
+                  "io.debezium.transforms.outbox.EventRouter",
+              "transforms.outbox.route.by.field": "type",
+              "transforms.outbox.table.field.event.key": "aggregate_id"
+            }
+          what: Debezium's outbox event router tails the WAL, unwraps each row into a proper event and keys it by aggregate — no polling, millisecond latency, no relay code.
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - No event is ever lost and no event is ever published for work that rolled back.
+      - Uses only a local transaction — no distributed protocol, no 2PC, no new guarantees from the broker.
+      - The service keeps working when the broker is down; messages drain when it returns.
+      - The broker call leaves the request path, so latency and tail latency improve.
+      - Works with any broker and any database that has transactions.
+      - The outbox doubles as an audit trail and a replay source while rows are retained.
+  bad:
+    heading: Cons
+    items:
+      - Delivery becomes at-least-once, so every consumer must be idempotent — including ones other teams own.
+      - "Another moving part to run, monitor and alert on: the relay and its lag."
+      - Publication latency grows by the poll interval unless you use CDC or notifications.
+      - The table grows fast and needs real retention, or it becomes your largest table.
+      - Strict ordering needs care once more than one relay instance runs.
+      - Does not help across two databases — that is a saga, not an outbox.
+when:
+  note: if a commit and a publish appear in the same method, you already need this
+  good:
+    heading: Use it when…
+    items:
+      - A state change in your database must reliably result in a message to someone else.
+      - Losing an event would cause real, hard-to-detect inconsistency — money, stock, shipments.
+      - You want to stay available when the broker is not.
+      - You are feeding a read model or a projection that must not miss anything.
+      - You already have a transactional database next to the thing emitting events.
+  bad:
+    heading: Avoid it when…
+    items:
+      - Losing the occasional message is genuinely fine — metrics, analytics pings. Use **fire-and-forget publishing**.
+      - The service has no database. Use **the broker as the system of record**, or an idempotent retry from the caller.
+      - You are event-sourced already. Use **the event store as the outbox**; a second copy adds nothing.
+      - The work spans two services' databases and must be undone on failure. Use **a saga with compensating actions**.
+      - Consumers genuinely cannot be made idempotent and duplicates are unacceptable. Use **a broker with transactional producers** within one cluster, and accept the narrower scope.
+useCases:
+  - title: Orders that never reached shipping
+    body: A handful of orders a week are paid for and never shipped. The handler commits the order and then publishes, and the gap between those two statements is exactly where the pod gets rescheduled. An outbox row written in the same transaction removes the gap entirely.
+  - title: Shipments for orders that do not exist
+    body: "The opposite bug: the service publishes first so the event is never lost, and then a unique-constraint violation rolls the order back. Downstream, a shipment and an invoice already exist for nothing. The outbox makes a rolled-back transaction leave no trace."
+  - title: Broker outage without an incident
+    body: Kafka is unavailable for twenty minutes. Because nothing in the request path talks to it, the API keeps serving 200s and the outbox simply grows; when the broker returns the relay drains the backlog in order. The only visible signal was the lag metric.
+  - title: Feeding a CQRS read model
+    body: A projection must never miss an event or it is permanently wrong. Reading from the outbox (directly or via CDC) guarantees the projector sees every committed change, and the message id gives it a free deduplication key.
+  - title: Tail latency in the request path
+    body: p99 checkout latency is dominated by an occasional slow broker publish. Moving the publish out of the transaction and into the relay takes the broker off the critical path; p99 drops to the database's own numbers.
+gotchas:
+  items:
+    - mistake: Publishing inside the transaction
+      why: "Calling the broker before `COMMIT` feels atomic and is not: the publish can succeed and the transaction still roll back, and meanwhile the broker's latency is holding your database locks."
+      fix: never call the broker inside a transaction. Write the row, commit, and let the relay do the network work.
+    - mistake: Generating the message id at publish time
+      why: A republished row then carries a new id, so consumers cannot recognise the duplicate and every at-least-once delivery becomes a real duplicate.
+      fix: generate the id when the outbox row is written, inside the business transaction, and never change it — including on replay from a dead-letter table.
+    - mistake: Assuming consumers are idempotent
+      why: The pattern guarantees delivery, not deduplication. A consumer that increments a balance will drift quietly after every relay restart.
+      fix: make it an explicit contract. Ship an inbox table or upsert-by-key in every consumer, and test by replaying the same message twice.
+    - mistake: No retention policy
+      why: The outbox becomes the biggest table in the database, the relay's own query slows down, backups grow, and autovacuum falls behind.
+      fix: delete published rows in batches after a few days, or partition by day and drop partitions. Decide this on day one.
+    - mistake: Not monitoring lag
+      why: "Every other signal stays green while the relay is crash-looping: the API returns 200, the database commits, the business logic is fine — and nobody downstream has heard anything for an hour."
+      fix: alert on the age of the oldest unsent row. It is the only metric that observes this failure.
+    - mistake: One poison row blocking everything
+      why: A payload the broker rejects is retried forever, and strict ordering means the entire backlog stops behind it while error counts look constant.
+      fix: bound the retries, move the row to a dead-letter table with the error, alert, and keep going.
+    - mistake: Several relays destroying ordering
+      why: Two instances publish rows 5 and 6 concurrently, and the consumer sees `OrderShipped` before `OrderPlaced`.
+      fix: partition relay work by aggregate id, or make handlers tolerate out-of-order arrival with version checks. `SKIP LOCKED` prevents collisions, not reordering.
+    - mistake: Expecting it to coordinate two services
+      why: An outbox makes <em>your</em> database and your messages atomic. It does nothing about a remote service that accepted a call and then failed.
+      fix: for multi-service workflows use a saga with explicit compensating actions; the outbox is how each step of that saga publishes reliably.
+alternatives:
+  columns:
+    - Approach
+    - Best for
+    - Complexity
+    - Cost / license
+    - Key difference vs the outbox
+  rows:
+    - self: true
+      cells:
+        - "**Transactional outbox**"
+        - reliable events from a service that owns a database
+        - Medium
+        - free; a relay to run
+        - —
+    - cells:
+        - "**Dual write**"
+        - nothing, honestly
+        - Low
+        - free
+        - Simplest and silently wrong; loses or invents events
+    - cells:
+        - "**Two-phase commit (XA)**"
+        - legacy brokers and XA databases
+        - High
+        - free; heavy
+        - True atomicity, at the cost of latency, blocking and coupled availability
+    - cells:
+        - "**Change data capture only**"
+        - publishing from existing tables
+        - Medium
+        - a connector cluster
+        - No outbox table; events mirror rows, so you publish your schema rather than your intent
+    - cells:
+        - "**Event sourcing**"
+        - services where history is the model
+        - High
+        - free; real ops cost
+        - The event store <em>is</em> the outbox; no second write at all
+    - cells:
+        - "**Broker transactions**"
+        - Kafka-to-Kafka pipelines
+        - Medium
+        - free
+        - Atomic within one broker cluster; does not include your database
+    - cells:
+        - "**Listen to yourself**"
+        - event-driven cores
+        - Medium
+        - free
+        - Only the event is written; own state becomes eventually consistent
+  notes:
+    - "**Pick CDC on your business tables** if you only need to mirror data and can live with publishing your schema shape."
+    - "**Pick event sourcing** if you already store events — then skip the outbox entirely."
+    - "**Pick broker transactions** for read-process-write pipelines that never leave the broker."
+    - "**Pick a saga** when the problem is coordinating several services, not publishing reliably from one."
+    - "**Pick 2PC** only if you are already in an XA world and cannot make consumers idempotent."
+resources:
+  - url: https://microservices.io/patterns/data/transactional-outbox.html
+    title: microservices.io — Transactional outbox
+    why: the canonical pattern description with its related patterns.
+  - url: https://debezium.io/documentation/reference/stable/transformations/outbox-event-router.html
+    title: Debezium — Outbox Event Router
+    why: the CDC relay, configuration and expected table shape.
+  - url: https://debezium.io/blog/2019/02/19/reliable-microservices-data-exchange-with-the-outbox-pattern/
+    title: Reliable data exchange with the outbox pattern
+    why: the article that popularised the CDC variant, with a full worked example.
+  - url: https://learn.microsoft.com/en-us/azure/architecture/best-practices/transactional-outbox-cosmos
+    title: Azure Architecture Center — Transactional outbox
+    why: the same pattern written up for a managed cloud stack.
+  - url: https://microservices.io/patterns/data/idempotent-consumer.html
+    title: microservices.io — Idempotent consumer
+    why: the other half of the contract, which the outbox obliges you to implement.

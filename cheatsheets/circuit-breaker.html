@@ -39,9 +39,9 @@
       <h1>Circuit breaker</h1>
       <p class="tagline">Stop calling the thing that is broken. You are not helping it, and it is destroying you.</p>
       <span class="meta">As of Nov 2026 · named by Michael Nygard in <em>Release It!</em>, 2007 · examples use Polly, Resilience4j and Envoy</span>
-      <p>When a dependency starts failing, the instinct of most code is to keep calling it &mdash; and to retry. Each call now costs a full timeout instead of 20 milliseconds, so the caller's threads, connections and memory fill up with work that is guaranteed to fail. Within a minute the caller is also unavailable, including for requests that never needed the broken dependency at all. That is a cascading failure, and it is how one small outage becomes a site-wide one.</p>
-      <p>A <b>circuit breaker</b> is a small state machine wrapped around a dependency. While calls succeed it is <b>closed</b> and traffic flows. When the failure rate crosses a threshold it <b>opens</b>, and every subsequent call fails immediately without touching the network &mdash; one millisecond instead of two seconds. After a cooldown it goes <b>half-open</b>, letting a handful of trial calls through: if they succeed it closes again, and if they fail it reopens.</p>
-      <p>Note what it does <em>not</em> do: it does not fix the dependency, and it does not make your feature work. It converts a slow, expensive, resource-consuming failure into a fast, cheap, predictable one &mdash; which is precisely what you need in order to do something sensible instead, whether that is a fallback value, a cached answer or a degraded page. Its natural partner is the <b>bulkhead</b>, which bounds how much of your capacity any one dependency can occupy in the first place.</p>
+      <p>When a dependency starts failing, the instinct of most code is to keep calling it — and to retry. Each call now costs a full timeout instead of 20 milliseconds, so the caller's threads, connections and memory fill up with work that is guaranteed to fail. Within a minute the caller is also unavailable, including for requests that never needed the broken dependency at all. That is a cascading failure, and it is how one small outage becomes a site-wide one.</p>
+      <p>A <b>circuit breaker</b> is a small state machine wrapped around a dependency. While calls succeed it is <b>closed</b> and traffic flows. When the failure rate crosses a threshold it <b>opens</b>, and every subsequent call fails immediately without touching the network — one millisecond instead of two seconds. After a cooldown it goes <b>half-open</b>, letting a handful of trial calls through: if they succeed it closes again, and if they fail it reopens.</p>
+      <p>Note what it does <em>not</em> do: it does not fix the dependency, and it does not make your feature work. It converts a slow, expensive, resource-consuming failure into a fast, cheap, predictable one — which is precisely what you need in order to do something sensible instead, whether that is a fallback value, a cached answer or a degraded page. Its natural partner is the <b>bulkhead</b>, which bounds how much of your capacity any one dependency can occupy in the first place.</p>
     </header>
 
     <section id="architecture">
@@ -109,11 +109,10 @@
 
     <section id="how-it-works">
       <h2>How it works</h2>
-      <p style="margin:0 0 18px">The first animation runs the state machine through a real outage and back. The second is why it exists: one slow dependency taking down a service that mostly does not need it.</p>
-      <span class="note" style="margin:-8px 0 18px">a breaker never fixes anything &mdash; it buys you a fast, predictable failure to build on</span>
-
+      <p>The first animation runs the state machine through a real outage and back. The second is why it exists: one slow dependency taking down a service that mostly does not need it.</p>
+      <span class="note" style="margin:-6px 0 14px">a breaker never fixes anything — it buys you a fast, predictable failure to build on</span>
       <div class="anim" id="anim-states">
-        <h3>1 &middot; Trip, cool down, probe, recover</h3>
+        <h3>1 · Trip, cool down, probe, recover</h3>
         <div class="stage">
           <svg viewBox="0 0 800 320" role="img" aria-label="A circuit breaker counting failures, tripping open, failing fast, probing in half-open and closing again">
             <text id="cs-phase" x="400" y="20" font-size="12.5" text-anchor="middle" fill="#5f6f66">threshold: more than 50% failures over a rolling window of 20 calls</text>
@@ -161,9 +160,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-cascade">
-        <h3>2 &middot; One slow dependency, or a whole service</h3>
+        <h3>2 · One slow dependency, or a whole service</h3>
         <div class="stage">
           <svg viewBox="0 0 800 320" role="img" aria-label="A service whose worker pool fills with calls to a slow dependency until unrelated requests also fail, then the same service protected by a bulkhead and a breaker">
             <defs>
@@ -232,247 +230,241 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>Circuit breaker</b><span>A state machine around a dependency that stops calling it once it is clearly failing, and probes later to see whether it recovered.</span><template class="term-detail" data-see="Closed, Open, Half-open, Bulkhead">
-          <p>Borrowed from electrical engineering, where a breaker trips to protect the <em>circuit</em>, not the fault. The software version protects the caller: it stops you spending threads, connections and time on calls that are going to fail anyway, and incidentally gives the struggling dependency some quiet.</p>
-          <p>It is deliberately simple &mdash; three states, two thresholds and a timer &mdash; and almost all the value comes from the fast failure rather than from any cleverness in the counting.</p>
-          <h4>Who it protects</h4>
-          <table>
-            <tr><th>Mechanism</th><th>Protects</th><th>From</th></tr>
-            <tr><td>Circuit breaker</td><td>the caller</td><td>a failing dependency</td></tr>
-            <tr><td>Load shedding</td><td>yourself</td><td>your own overload</td></tr>
-            <tr><td>Rate limiting</td><td>you and other tenants</td><td>one noisy client</td></tr>
-            <tr><td>Backpressure</td><td>the whole chain</td><td>unbounded queueing</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Pair it with a fallback: a fast failure is only useful if you have something to do with it.</li></ul>
+        <p>Borrowed from electrical engineering, where a breaker trips to protect the <em>circuit</em>, not the fault. The software version protects the caller: it stops you spending threads, connections and time on calls that are going to fail anyway, and incidentally gives the struggling dependency some quiet.</p>
+        <p>It is deliberately simple — three states, two thresholds and a timer — and almost all the value comes from the fast failure rather than from any cleverness in the counting.</p>
+        <h4>Who it protects</h4>
+        <table><tr><th>Mechanism</th><th>Protects</th><th>From</th></tr>
+        <tr><td>Circuit breaker</td><td>the caller</td><td>a failing dependency</td></tr>
+        <tr><td>Load shedding</td><td>yourself</td><td>your own overload</td></tr>
+        <tr><td>Rate limiting</td><td>you and other tenants</td><td>one noisy client</td></tr>
+        <tr><td>Backpressure</td><td>the whole chain</td><td>unbounded queueing</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Pair it with a fallback: a fast failure is only useful if you have something to do with it.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Closed</b><span>The normal state: calls pass through and their outcomes are recorded in a rolling window.</span><template class="term-detail" data-see="Failure threshold, Rolling window, Open">
-          <p>Closed is not "not monitoring". Every call's outcome feeds a window, and the breaker evaluates the failure rate continuously. The cost is a couple of atomic operations per call, which is why breakers can sit in front of every dependency without being noticeable.</p>
-          <p>The important design decision in this state is what counts as a failure &mdash; get that wrong and the breaker either never trips or trips constantly.</p>
-          <h4>How it relates</h4>
-          <ul><li>A breaker that has never opened in production is usually misconfigured, not lucky.</li></ul>
+        <p>Closed is not "not monitoring". Every call's outcome feeds a window, and the breaker evaluates the failure rate continuously. The cost is a couple of atomic operations per call, which is why breakers can sit in front of every dependency without being noticeable.</p>
+        <p>The important design decision in this state is what counts as a failure — get that wrong and the breaker either never trips or trips constantly.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>A breaker that has never opened in production is usually misconfigured, not lucky.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Open</b><span>The tripped state: calls fail immediately without touching the dependency.</span><template class="term-detail" data-see="Closed, Half-open, Break duration, Fallback">
-          <p>Two things happen at once. The caller stops paying a timeout per call, so its threads and connections are returned immediately; and the dependency stops receiving traffic, which is frequently what it needs to recover &mdash; a service being hammered by retries cannot drain its own backlog.</p>
-          <p>From the caller's perspective the failure is now fast and <em>deterministic</em>: it knows instantly that the feature is unavailable, which is what makes a sensible fallback possible.</p>
-          <h4>What changes when it opens</h4>
-          <table>
-            <tr><th></th><th>Closed and failing</th><th>Open</th></tr>
-            <tr><td>Latency per call</td><td>2,000 ms</td><td>~1 ms</td></tr>
-            <tr><td>Workers occupied</td><td>all of them</td><td>none</td></tr>
-            <tr><td>Load on dependency</td><td>full, plus retries</td><td>zero</td></tr>
-            <tr><td>Caller's other features</td><td>starved</td><td>unaffected</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Open is where graceful degradation takes over &mdash; the breaker hands it a clean signal.</li></ul>
+        <p>Two things happen at once. The caller stops paying a timeout per call, so its threads and connections are returned immediately; and the dependency stops receiving traffic, which is frequently what it needs to recover — a service being hammered by retries cannot drain its own backlog.</p>
+        <p>From the caller's perspective the failure is now fast and <em>deterministic</em>: it knows instantly that the feature is unavailable, which is what makes a sensible fallback possible.</p>
+        <h4>What changes when it opens</h4>
+        <table><tr><th></th><th>Closed and failing</th><th>Open</th></tr>
+        <tr><td>Latency per call</td><td>2,000 ms</td><td>~1 ms</td></tr>
+        <tr><td>Workers occupied</td><td>all of them</td><td>none</td></tr>
+        <tr><td>Load on dependency</td><td>full, plus retries</td><td>zero</td></tr>
+        <tr><td>Caller's other features</td><td>starved</td><td>unaffected</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Open is where graceful degradation takes over — the breaker hands it a clean signal.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Half-open</b><span>The trial state: a strictly limited number of calls are allowed through to test whether the dependency has recovered.</span><template class="term-detail" data-see="Open, Probe limit, Break duration">
-          <p>The limit is the entire point. If the breaker simply closed after the cooldown, a recovering service would receive the full traffic rate in one instant and fall straight over, tripping the breaker again &mdash; a flapping loop that can continue indefinitely.</p>
-          <p>Allowing two or three concurrent probes while everything else keeps failing fast lets you learn whether it is healthy at almost no cost to it.</p>
-          <div class="anim" id="probe-anim" data-steps="probe"><h4>Why the probe limit exists</h4>
-            <div class="stage">
-              <svg viewBox="0 0 560 200" role="img" aria-label="A recovering service hit by full traffic when the breaker closes, versus a limited number of trial calls in half-open">
-                <text x="280" y="24" font-size="11.5" text-anchor="middle" fill="#5f6f66">the cooldown has just ended &mdash; what happens next decides everything</text>
-                <rect id="pb-br" x="30" y="48" width="180" height="56" rx="6" fill="#f9e3df" stroke="#e6b3ad" stroke-width="1.5"/>
-                <text x="120" y="70" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">breaker</text>
-                <text id="pb-brt" x="120" y="90" font-size="10.5" text-anchor="middle" fill="#5f6f66">OPEN · 1,000 / s fast-failed</text>
-                <rect id="pb-svc" x="330" y="48" width="200" height="56" rx="6" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
-                <text x="430" y="70" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">recovering service</text>
-                <text id="pb-svct" x="430" y="90" font-size="10.5" text-anchor="middle" fill="#5f6f66">receiving 0 / s · draining</text>
-                <text id="pb-flow" x="270" y="82" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">0 / s</text>
-                <text id="pb-msg" x="280" y="142" font-size="11.5" text-anchor="middle" fill="#5f6f66">it has had thirty seconds of quiet</text>
-                <text id="pb-msg2" x="280" y="166" font-size="10.5" text-anchor="middle" fill="#5f6f66">and it is nearly, but not quite, ready</text>
-              </svg>
-            </div><div class="controls"></div><div class="narration"></div></div>
-          <h4>How it relates</h4>
-          <ul><li>Same reasoning as hysteresis in load shedding: never flip state on a single observation.</li></ul>
+        <p>The limit is the entire point. If the breaker simply closed after the cooldown, a recovering service would receive the full traffic rate in one instant and fall straight over, tripping the breaker again — a flapping loop that can continue indefinitely.</p>
+        <p>Allowing two or three concurrent probes while everything else keeps failing fast lets you learn whether it is healthy at almost no cost to it.</p>
+        <div class="anim" id="probe-anim" data-steps="probe">
+          <h4>Why the probe limit exists</h4>
+          <div class="stage">
+            <svg viewBox="0 0 560 200" role="img" aria-label="A recovering service hit by full traffic when the breaker closes, versus a limited number of trial calls in half-open">
+              <text x="280" y="24" font-size="11.5" text-anchor="middle" fill="#5f6f66">the cooldown has just ended &mdash; what happens next decides everything</text>
+              <rect id="pb-br" x="30" y="48" width="180" height="56" rx="6" fill="#f9e3df" stroke="#e6b3ad" stroke-width="1.5"/>
+              <text x="120" y="70" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">breaker</text>
+              <text id="pb-brt" x="120" y="90" font-size="10.5" text-anchor="middle" fill="#5f6f66">OPEN · 1,000 / s fast-failed</text>
+              <rect id="pb-svc" x="330" y="48" width="200" height="56" rx="6" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+              <text x="430" y="70" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">recovering service</text>
+              <text id="pb-svct" x="430" y="90" font-size="10.5" text-anchor="middle" fill="#5f6f66">receiving 0 / s · draining</text>
+              <text id="pb-flow" x="270" y="82" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">0 / s</text>
+              <text id="pb-msg" x="280" y="142" font-size="11.5" text-anchor="middle" fill="#5f6f66">it has had thirty seconds of quiet</text>
+              <text id="pb-msg2" x="280" y="166" font-size="10.5" text-anchor="middle" fill="#5f6f66">and it is nearly, but not quite, ready</text>
+            </svg>
+          </div>
+          <div class="controls"></div>
+          <div class="narration"></div>
+        </div>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Same reasoning as hysteresis in load shedding: never flip state on a single observation.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Failure threshold</b><span>The rate and volume of failures that trip the breaker — expressed as a percentage over a minimum number of calls.</span><template class="term-detail" data-see="Rolling window, Minimum throughput, Closed">
-          <p>Use a rate rather than a count: "5 consecutive failures" behaves completely differently at 10 requests a second and at 10,000. Fifty percent over a window of twenty calls is a reasonable starting point for most internal dependencies.</p>
-          <p>Lower thresholds for dependencies that are optional (fail fast and degrade), higher for ones you cannot do without (if the breaker opens the feature is dead anyway, so give it more chances).</p>
-          <h4>Starting points</h4>
-          <table>
-            <tr><th>Dependency</th><th>Threshold</th><th>Break</th></tr>
-            <tr><td>Optional enrichment</td><td>25% of 20</td><td>10 s</td></tr>
-            <tr><td>Normal internal service</td><td>50% of 20</td><td>30 s</td></tr>
-            <tr><td>Critical, no fallback</td><td>70% of 50</td><td>5 s</td></tr>
-            <tr><td>Third-party API</td><td>50% of 20</td><td>60 s</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Tune from your actual error-rate distribution, not from a blog post's defaults &mdash; including this one.</li></ul>
+        <p>Use a rate rather than a count: "5 consecutive failures" behaves completely differently at 10 requests a second and at 10,000. Fifty percent over a window of twenty calls is a reasonable starting point for most internal dependencies.</p>
+        <p>Lower thresholds for dependencies that are optional (fail fast and degrade), higher for ones you cannot do without (if the breaker opens the feature is dead anyway, so give it more chances).</p>
+        <h4>Starting points</h4>
+        <table><tr><th>Dependency</th><th>Threshold</th><th>Break</th></tr>
+        <tr><td>Optional enrichment</td><td>25% of 20</td><td>10 s</td></tr>
+        <tr><td>Normal internal service</td><td>50% of 20</td><td>30 s</td></tr>
+        <tr><td>Critical, no fallback</td><td>70% of 50</td><td>5 s</td></tr>
+        <tr><td>Third-party API</td><td>50% of 20</td><td>60 s</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Tune from your actual error-rate distribution, not from a blog post's defaults — including this one.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Minimum throughput</b><span>The requirement that enough calls have been seen before the breaker is allowed to trip.</span><template class="term-detail" data-see="Failure threshold, Rolling window">
-          <p>Without it, one failure out of two calls is a 50% failure rate and trips the breaker on a quiet endpoint. With a minimum of twenty calls per window, the breaker ignores statistically meaningless samples &mdash; which matters most at night, when traffic is low and a single blip would otherwise disable a feature until morning.</p>
-          <h4>How it relates</h4>
-          <ul><li>Low-traffic dependencies may need active health checks instead; a breaker needs volume to see anything.</li></ul>
+        <p>Without it, one failure out of two calls is a 50% failure rate and trips the breaker on a quiet endpoint. With a minimum of twenty calls per window, the breaker ignores statistically meaningless samples — which matters most at night, when traffic is low and a single blip would otherwise disable a feature until morning.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Low-traffic dependencies may need active health checks instead; a breaker needs volume to see anything.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Rolling window</b><span>The recent history the failure rate is computed over — by count or by time.</span><template class="term-detail" data-see="Failure threshold, Minimum throughput">
-          <p>A count-based window ("the last 100 calls") reacts consistently regardless of traffic but can hold stale information on a quiet endpoint. A time-based window ("the last 10 seconds") always reflects the present but may contain too few samples to be meaningful. Most libraries offer both; time-based with a minimum-throughput guard is the safer default.</p>
-          <h4>Trade-off</h4>
-          <table>
-            <tr><th></th><th>Count-based</th><th>Time-based</th></tr>
-            <tr><td>Consistent sample size</td><td>yes</td><td>no</td></tr>
-            <tr><td>Always current</td><td>no</td><td>yes</td></tr>
-            <tr><td>Needs min-throughput guard</td><td>less</td><td>yes</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Window length also sets how fast the breaker can close again after recovery.</li></ul>
+        <p>A count-based window ("the last 100 calls") reacts consistently regardless of traffic but can hold stale information on a quiet endpoint. A time-based window ("the last 10 seconds") always reflects the present but may contain too few samples to be meaningful. Most libraries offer both; time-based with a minimum-throughput guard is the safer default.</p>
+        <h4>Trade-off</h4>
+        <table><tr><th></th><th>Count-based</th><th>Time-based</th></tr>
+        <tr><td>Consistent sample size</td><td>yes</td><td>no</td></tr>
+        <tr><td>Always current</td><td>no</td><td>yes</td></tr>
+        <tr><td>Needs min-throughput guard</td><td>less</td><td>yes</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Window length also sets how fast the breaker can close again after recovery.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>What counts as a failure</b><span>The most consequential configuration choice, and the one most often left at its default.</span><template class="term-detail" data-see="Failure threshold, Slow-call breaker, Timeout">
-          <p>Timeouts, connection errors and 5xx responses are failures. A <code>404</code> or a <code>400</code> is not &mdash; the dependency answered correctly, and counting those means a client sending bad input can trip your breaker and disable a feature for everybody. A <code>429</code> is a judgement call: it usually means you should back off, which is breaker-like behaviour, but it also means the service is alive.</p>
-          <p>And business exceptions must never count. "Insufficient funds" is a successful call with an unwelcome answer.</p>
-          <h4>Classification</h4>
-          <table>
-            <tr><th>Outcome</th><th>Failure?</th></tr>
-            <tr><td>Timeout, connection refused</td><td>yes</td></tr>
-            <tr><td>500, 502, 503, 504</td><td>yes</td></tr>
-            <tr><td>Call slower than the limit</td><td>yes &mdash; slow is broken</td></tr>
-            <tr><td>400, 404, 409, 422</td><td>no</td></tr>
-            <tr><td>429</td><td>usually no; back off instead</td></tr>
-            <tr><td>Business exception</td><td>never</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Counting 4xx as failures is the most common way a breaker becomes an outage amplifier.</li></ul>
+        <p>Timeouts, connection errors and 5xx responses are failures. A <code>404</code> or a <code>400</code> is not — the dependency answered correctly, and counting those means a client sending bad input can trip your breaker and disable a feature for everybody. A <code>429</code> is a judgement call: it usually means you should back off, which is breaker-like behaviour, but it also means the service is alive.</p>
+        <p>And business exceptions must never count. "Insufficient funds" is a successful call with an unwelcome answer.</p>
+        <h4>Classification</h4>
+        <table><tr><th>Outcome</th><th>Failure?</th></tr>
+        <tr><td>Timeout, connection refused</td><td>yes</td></tr>
+        <tr><td>500, 502, 503, 504</td><td>yes</td></tr>
+        <tr><td>Call slower than the limit</td><td>yes — slow is broken</td></tr>
+        <tr><td>400, 404, 409, 422</td><td>no</td></tr>
+        <tr><td>429</td><td>usually no; back off instead</td></tr>
+        <tr><td>Business exception</td><td>never</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Counting 4xx as failures is the most common way a breaker becomes an outage amplifier.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Slow-call breaker</b><span>Tripping on latency as well as errors, because a dependency that answers in eight seconds is broken even if it answers correctly.</span><template class="term-detail" data-see="What counts as a failure, Timeout, Bulkhead">
-          <p>The dangerous failure mode is not the one that throws &mdash; it is the one that slowly succeeds. A dependency returning 200s at eight seconds each will fill every worker you own without ever incrementing an error counter, so an error-only breaker sits closed throughout the outage.</p>
-          <p>Resilience4j calls this the slow-call rate threshold; Polly expresses it through a timeout strategy that converts slowness into a failure the breaker can see.</p>
-          <h4>Typical settings</h4>
-          <table>
-            <tr><th>Setting</th><th>Example</th></tr>
-            <tr><td>Slow-call duration</td><td>2&times; the p99</td></tr>
-            <tr><td>Slow-call rate threshold</td><td>50%</td></tr>
-            <tr><td>Timeout</td><td>below the caller's own deadline</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Without a timeout there is no slow-call signal at all, which is why timeouts come first.</li></ul>
+        <p>The dangerous failure mode is not the one that throws — it is the one that slowly succeeds. A dependency returning 200s at eight seconds each will fill every worker you own without ever incrementing an error counter, so an error-only breaker sits closed throughout the outage.</p>
+        <p>Resilience4j calls this the slow-call rate threshold; Polly expresses it through a timeout strategy that converts slowness into a failure the breaker can see.</p>
+        <h4>Typical settings</h4>
+        <table><tr><th>Setting</th><th>Example</th></tr>
+        <tr><td>Slow-call duration</td><td>2× the p99</td></tr>
+        <tr><td>Slow-call rate threshold</td><td>50%</td></tr>
+        <tr><td>Timeout</td><td>below the caller's own deadline</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Without a timeout there is no slow-call signal at all, which is why timeouts come first.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Timeout</b><span>The prerequisite: a breaker cannot count a failure that never finishes.</span><template class="term-detail" data-see="Slow-call breaker, What counts as a failure, Bulkhead">
-          <p>A call with no timeout can hang for the lifetime of the connection, and many HTTP clients default to no timeout at all. The breaker sees neither a success nor a failure &mdash; just a worker that never comes back &mdash; so it stays closed while the service dies.</p>
-          <p>Set the timeout below the caller's own deadline, and make sure it covers connect, TLS, send, and read &mdash; "connection timeout" alone is not enough.</p>
-          <h4>Order to apply</h4>
-          <table>
-            <tr><th>#</th><th>Layer</th></tr>
-            <tr><td>1</td><td>Timeout &mdash; bound every call</td></tr>
-            <tr><td>2</td><td>Bulkhead &mdash; bound concurrency</td></tr>
-            <tr><td>3</td><td>Circuit breaker &mdash; stop calling</td></tr>
-            <tr><td>4</td><td>Retry &mdash; only outside the breaker</td></tr>
-            <tr><td>5</td><td>Fallback &mdash; do something useful</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Getting this order wrong &mdash; especially retry inside the breaker &mdash; produces surprising behaviour.</li></ul>
+        <p>A call with no timeout can hang for the lifetime of the connection, and many HTTP clients default to no timeout at all. The breaker sees neither a success nor a failure — just a worker that never comes back — so it stays closed while the service dies.</p>
+        <p>Set the timeout below the caller's own deadline, and make sure it covers connect, TLS, send, and read — "connection timeout" alone is not enough.</p>
+        <h4>Order to apply</h4>
+        <table><tr><th>#</th><th>Layer</th></tr>
+        <tr><td>1</td><td>Timeout — bound every call</td></tr>
+        <tr><td>2</td><td>Bulkhead — bound concurrency</td></tr>
+        <tr><td>3</td><td>Circuit breaker — stop calling</td></tr>
+        <tr><td>4</td><td>Retry — only outside the breaker</td></tr>
+        <tr><td>5</td><td>Fallback — do something useful</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Getting this order wrong — especially retry inside the breaker — produces surprising behaviour.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Bulkhead</b><span>A bounded pool per dependency, so no single one can occupy all your workers while it fails.</span><template class="term-detail" data-see="Circuit breaker, Timeout, Open">
-          <p>Named after ship compartments: flooding one should not sink the vessel. Give payments five concurrent slots out of twenty, and a payments outage can consume at most a quarter of your capacity &mdash; the other fifteen workers keep serving everything that does not need payments.</p>
-          <p>It is the half of the pattern that works <em>before</em> the breaker trips, during the window when failures are accumulating but the threshold has not been reached. Many cascading failures happen entirely inside that window.</p>
-          <h4>Sizing</h4>
-          <table>
-            <tr><th>Dependency</th><th>Share of the pool</th></tr>
-            <tr><td>Critical, most requests use it</td><td>large</td></tr>
-            <tr><td>Optional enrichment</td><td>small &mdash; 10&ndash;20%</td></tr>
-            <tr><td>Known-flaky third party</td><td>small, plus a tight timeout</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Bulkheads apply the same idea as per-queue separation against head-of-line blocking.</li></ul>
+        <p>Named after ship compartments: flooding one should not sink the vessel. Give payments five concurrent slots out of twenty, and a payments outage can consume at most a quarter of your capacity — the other fifteen workers keep serving everything that does not need payments.</p>
+        <p>It is the half of the pattern that works <em>before</em> the breaker trips, during the window when failures are accumulating but the threshold has not been reached. Many cascading failures happen entirely inside that window.</p>
+        <h4>Sizing</h4>
+        <table><tr><th>Dependency</th><th>Share of the pool</th></tr>
+        <tr><td>Critical, most requests use it</td><td>large</td></tr>
+        <tr><td>Optional enrichment</td><td>small — 10–20%</td></tr>
+        <tr><td>Known-flaky third party</td><td>small, plus a tight timeout</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Bulkheads apply the same idea as per-queue separation against head-of-line blocking.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Fallback</b><span>What you actually do when the breaker is open — the part that turns a fast failure into a working product.</span><template class="term-detail" data-see="Open, Graceful degradation, Circuit breaker">
-          <p>A breaker with no fallback converts a slow error into a fast error, which helps your infrastructure and not your user. The valuable version substitutes something: a cached value, a stale-but-acceptable answer, a default, a reduced feature set, or an honest "unavailable right now" that the UI handles well.</p>
-          <p>Fallbacks must be cheap and must not depend on the thing that is broken &mdash; a fallback that calls a second service in the same failing cluster is not a fallback.</p>
-          <h4>Fallbacks, best first</h4>
-          <table>
-            <tr><th>Fallback</th><th>Good for</th></tr>
-            <tr><td>Serve stale from cache</td><td>catalogue, prices, profiles</td></tr>
-            <tr><td>A sensible default</td><td>recommendations, ranking</td></tr>
-            <tr><td>Omit the section</td><td>optional page content</td></tr>
-            <tr><td>Queue for later</td><td>writes that can be async</td></tr>
-            <tr><td>Honest error</td><td>payments &mdash; never fake a success</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The graceful degradation page is about designing these fallbacks as a product, not an afterthought.</li></ul>
+        <p>A breaker with no fallback converts a slow error into a fast error, which helps your infrastructure and not your user. The valuable version substitutes something: a cached value, a stale-but-acceptable answer, a default, a reduced feature set, or an honest "unavailable right now" that the UI handles well.</p>
+        <p>Fallbacks must be cheap and must not depend on the thing that is broken — a fallback that calls a second service in the same failing cluster is not a fallback.</p>
+        <h4>Fallbacks, best first</h4>
+        <table><tr><th>Fallback</th><th>Good for</th></tr>
+        <tr><td>Serve stale from cache</td><td>catalogue, prices, profiles</td></tr>
+        <tr><td>A sensible default</td><td>recommendations, ranking</td></tr>
+        <tr><td>Omit the section</td><td>optional page content</td></tr>
+        <tr><td>Queue for later</td><td>writes that can be async</td></tr>
+        <tr><td>Honest error</td><td>payments — never fake a success</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The graceful degradation page is about designing these fallbacks as a product, not an afterthought.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Breaker per dependency</b><span>One breaker per downstream service — and often per endpoint — never one global breaker.</span><template class="term-detail" data-see="Bulkhead, Circuit breaker, Outlier detection">
-          <p>A shared breaker means a failing recommendations service can disable your payments calls. Scope each breaker to the thing that can fail independently: usually per service, and per endpoint when one route is much heavier or more fragile than the others.</p>
-          <p>Per-<em>instance</em> scoping matters too: if one of six replicas is bad, a service-level breaker sees a 17% failure rate and never trips, while the bad instance keeps failing a sixth of your traffic. That is what outlier detection solves.</p>
-          <h4>Scope</h4>
-          <table>
-            <tr><th>Scope</th><th>Verdict</th></tr>
-            <tr><td>Global</td><td>never &mdash; unrelated failures couple</td></tr>
-            <tr><td>Per service</td><td>the default</td></tr>
-            <tr><td>Per endpoint</td><td>when costs differ a lot</td></tr>
-            <tr><td>Per instance</td><td>outlier detection, usually in a proxy</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Envoy's outlier detection ejects individual bad hosts, which a client-side breaker cannot see.</li></ul>
+        <p>A shared breaker means a failing recommendations service can disable your payments calls. Scope each breaker to the thing that can fail independently: usually per service, and per endpoint when one route is much heavier or more fragile than the others.</p>
+        <p>Per-<em>instance</em> scoping matters too: if one of six replicas is bad, a service-level breaker sees a 17% failure rate and never trips, while the bad instance keeps failing a sixth of your traffic. That is what outlier detection solves.</p>
+        <h4>Scope</h4>
+        <table><tr><th>Scope</th><th>Verdict</th></tr>
+        <tr><td>Global</td><td>never — unrelated failures couple</td></tr>
+        <tr><td>Per service</td><td>the default</td></tr>
+        <tr><td>Per endpoint</td><td>when costs differ a lot</td></tr>
+        <tr><td>Per instance</td><td>outlier detection, usually in a proxy</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Envoy's outlier detection ejects individual bad hosts, which a client-side breaker cannot see.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Outlier detection</b><span>Passive per-instance health checking: eject the single bad replica instead of tripping on the whole service.</span><template class="term-detail" data-see="Breaker per dependency, Sidecar, Circuit breaker">
-          <p>Service meshes watch per-host error rates and remove a misbehaving instance from the load-balancing pool for a while, returning it gradually. This handles the very common case that a breaker is bad at: one unhealthy pod out of many, which never produces a high enough aggregate failure rate to trip anything.</p>
-          <p>It composes well &mdash; outlier detection for instance-level problems, a breaker for service-level ones.</p>
-          <h4>Typical Envoy settings</h4>
-          <table>
-            <tr><th>Setting</th><th>Meaning</th></tr>
-            <tr><td><code>consecutive_5xx</code></td><td>errors before ejecting a host</td></tr>
-            <tr><td><code>base_ejection_time</code></td><td>how long it stays out</td></tr>
-            <tr><td><code>max_ejection_percent</code></td><td>never eject the whole pool</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>In a mesh this is free; without one, client-side load balancers often provide something similar.</li></ul>
+        <p>Service meshes watch per-host error rates and remove a misbehaving instance from the load-balancing pool for a while, returning it gradually. This handles the very common case that a breaker is bad at: one unhealthy pod out of many, which never produces a high enough aggregate failure rate to trip anything.</p>
+        <p>It composes well — outlier detection for instance-level problems, a breaker for service-level ones.</p>
+        <h4>Typical Envoy settings</h4>
+        <table><tr><th>Setting</th><th>Meaning</th></tr>
+        <tr><td><code>consecutive_5xx</code></td><td>errors before ejecting a host</td></tr>
+        <tr><td><code>base_ejection_time</code></td><td>how long it stays out</td></tr>
+        <tr><td><code>max_ejection_percent</code></td><td>never eject the whole pool</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>In a mesh this is free; without one, client-side load balancers often provide something similar.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Retries and breakers</b><span>They interact badly unless you decide which sits inside which.</span><template class="term-detail" data-see="Timeout, Circuit breaker, Failure threshold">
-          <p>If the retry is <em>inside</em> the breaker, one logical call produces three recorded failures and the breaker trips three times faster than you configured. If the retry is <em>outside</em>, it will dutifully retry the breaker's instant rejections, converting a fast failure into a fast loop.</p>
-          <p>The usual arrangement: timeout, then retry, then breaker &mdash; so the breaker records one outcome per logical operation &mdash; and the retry policy must treat the breaker's open-circuit exception as non-retryable.</p>
-          <h4>Rules</h4>
-          <table>
-            <tr><th>Rule</th><th>Why</th></tr>
-            <tr><td>One outcome per logical call</td><td>thresholds mean what you set</td></tr>
-            <tr><td>Never retry an open circuit</td><td>otherwise it is a busy loop</td></tr>
-            <tr><td>Retry only idempotent calls</td><td>a timeout may have succeeded</td></tr>
-            <tr><td>Budget retries globally</td><td>caps amplification</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Retry amplification is covered in detail on the backpressure page.</li></ul>
+        <p>If the retry is <em>inside</em> the breaker, one logical call produces three recorded failures and the breaker trips three times faster than you configured. If the retry is <em>outside</em>, it will dutifully retry the breaker's instant rejections, converting a fast failure into a fast loop.</p>
+        <p>The usual arrangement: timeout, then retry, then breaker — so the breaker records one outcome per logical operation — and the retry policy must treat the breaker's open-circuit exception as non-retryable.</p>
+        <h4>Rules</h4>
+        <table><tr><th>Rule</th><th>Why</th></tr>
+        <tr><td>One outcome per logical call</td><td>thresholds mean what you set</td></tr>
+        <tr><td>Never retry an open circuit</td><td>otherwise it is a busy loop</td></tr>
+        <tr><td>Retry only idempotent calls</td><td>a timeout may have succeeded</td></tr>
+        <tr><td>Budget retries globally</td><td>caps amplification</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Retry amplification is covered in detail on the backpressure page.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Half-open stampede</b><span>The failure where recovery itself re-breaks the dependency, over and over.</span><template class="term-detail" data-see="Half-open, Probe limit, Break duration">
-          <p>Fifty caller instances each open a breaker at the same moment, and thirty seconds later all fifty probe simultaneously. The recovering service receives a synchronised burst, falls over, and every breaker reopens &mdash; forever, on a thirty-second cycle.</p>
-          <p>Fixes: cap concurrent probes per instance, jitter the break duration, and increase the cooldown after each failed probe so the system backs off instead of pulsing.</p>
-          <h4>Defences</h4>
-          <table>
-            <tr><th>Defence</th><th>Effect</th></tr>
-            <tr><td>Probe limit (1&ndash;3)</td><td>tiny load per instance</td></tr>
-            <tr><td>Jittered break duration</td><td>desynchronises the fleet</td></tr>
-            <tr><td>Exponential break increase</td><td>backs off after repeated failures</td></tr>
-            <tr><td>Ramp traffic on close</td><td>no instant full load</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The animation inside <b>half-open</b> walks this failure and its fix.</li></ul>
+        <p>Fifty caller instances each open a breaker at the same moment, and thirty seconds later all fifty probe simultaneously. The recovering service receives a synchronised burst, falls over, and every breaker reopens — forever, on a thirty-second cycle.</p>
+        <p>Fixes: cap concurrent probes per instance, jitter the break duration, and increase the cooldown after each failed probe so the system backs off instead of pulsing.</p>
+        <h4>Defences</h4>
+        <table><tr><th>Defence</th><th>Effect</th></tr>
+        <tr><td>Probe limit (1–3)</td><td>tiny load per instance</td></tr>
+        <tr><td>Jittered break duration</td><td>desynchronises the fleet</td></tr>
+        <tr><td>Exponential break increase</td><td>backs off after repeated failures</td></tr>
+        <tr><td>Ramp traffic on close</td><td>no instant full load</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The animation inside <b>half-open</b> walks this failure and its fix.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Observability</b><span>State transitions are incidents in their own right, and should be visible as events rather than inferred from error graphs.</span><template class="term-detail" data-see="Circuit breaker, Open, Fallback">
-          <p>Export the current state per breaker, a counter of transitions, the rolling failure rate, and how many calls were rejected while open. A breaker opening is one of the highest-signal events in a distributed system &mdash; it means something downstream is genuinely broken, and it usually precedes the user-visible symptoms.</p>
-          <p>It is also worth alerting on breakers that have <em>never</em> opened: usually a sign of a threshold that cannot be reached, which means the protection does not exist.</p>
-          <h4>Metrics</h4>
-          <table>
-            <tr><th>Metric</th><th>Use</th></tr>
-            <tr><td><code>breaker_state</code></td><td>dashboard, per dependency</td></tr>
-            <tr><td><code>breaker_transitions_total</code></td><td>flapping detection</td></tr>
-            <tr><td><code>breaker_rejected_total</code></td><td>blast radius while open</td></tr>
-            <tr><td><code>fallback_used_total</code></td><td>is the fallback actually working?</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Rejections while open are shed requests &mdash; count them separately from errors, as on the load-shedding page.</li></ul>
+        <p>Export the current state per breaker, a counter of transitions, the rolling failure rate, and how many calls were rejected while open. A breaker opening is one of the highest-signal events in a distributed system — it means something downstream is genuinely broken, and it usually precedes the user-visible symptoms.</p>
+        <p>It is also worth alerting on breakers that have <em>never</em> opened: usually a sign of a threshold that cannot be reached, which means the protection does not exist.</p>
+        <h4>Metrics</h4>
+        <table><tr><th>Metric</th><th>Use</th></tr>
+        <tr><td><code>breaker_state</code></td><td>dashboard, per dependency</td></tr>
+        <tr><td><code>breaker_transitions_total</code></td><td>flapping detection</td></tr>
+        <tr><td><code>breaker_rejected_total</code></td><td>blast radius while open</td></tr>
+        <tr><td><code>fallback_used_total</code></td><td>is the fallback actually working?</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Rejections while open are shed requests — count them separately from errors, as on the load-shedding page.</li>
+        </ul>
         </template></div>
       </div>
     </section>
@@ -505,7 +497,6 @@
 // NOT failures: 400, 404, 409, 422 — the dependency answered correctly.
 // Counting those lets one client with bad input disable a feature for everyone.</code></pre><div class="what">The single most important line of breaker configuration, and the one most often left at a permissive default.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Slow calls are failures (Java / Resilience4j)</h3>
         <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">CircuitBreakerConfig.custom()
@@ -519,7 +510,6 @@
     .permittedNumberOfCallsInHalfOpenState(3)           // the probe limit
     .build();</code></pre><div class="what">A dependency returning 200s in eight seconds will exhaust your workers without raising a single error. The slow-call threshold is what catches it.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Go</h3>
         <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">cb := gobreaker.NewCircuitBreaker(gobreaker.Settings{
@@ -537,9 +527,8 @@
 })
 
 resp, err := cb.Execute(func() (any, error) { return client.Do(req) })
-if errors.Is(err, gobreaker.ErrOpenState) { return cachedCatalogue(), nil }</code></pre><div class="what">`MaxRequests` is the probe limit, and `ReadyToTrip` carries the minimum-throughput guard that stops a quiet endpoint tripping on one bad call.</div></div>
+if errors.Is(err, gobreaker.ErrOpenState) { return cachedCatalogue(), nil }</code></pre><div class="what"><code>MaxRequests</code> is the probe limit, and <code>ReadyToTrip</code> carries the minimum-throughput guard that stops a quiet endpoint tripping on one bad call.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>In the mesh: eject bad instances</h3>
         <div class="cmd"><pre class="language-none line-numbers"><code class="language-none"># Envoy — a breaker trips on the whole service; this ejects one bad host
@@ -557,7 +546,6 @@ circuit_breakers:                  # Envoy's "breaker" is really a bulkhead
       max_requests: 100
       max_retries: 3               # caps retry amplification at the proxy</code></pre><div class="what">One unhealthy pod out of six produces a 17% error rate — too low to trip a service-level breaker, and exactly what outlier detection is for.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Retry and breaker, arranged correctly</h3>
         <div class="cmd"><pre class="language-python line-numbers"><code class="language-python"># retry INSIDE the breaker  → 3 retries = 3 recorded failures = trips 3× too fast
@@ -565,10 +553,8 @@ circuit_breakers:                  # Envoy's "breaker" is really a bulkhead
 
 # correct: one recorded outcome per logical call, and never retry an open circuit
 if isinstance(err, CircuitOpenError):
-    raise                      # non-retryable by policy
-</code></pre><div class="what">Most "my breaker trips immediately" reports are a retry policy sitting on the wrong side of it.</div></div>
+    raise                      # non-retryable by policy</code></pre><div class="what">Most "my breaker trips immediately" reports are a retry policy sitting on the wrong side of it.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>What to export</h3>
         <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">breaker_state{dep="payments"}              # 0 closed, 1 open, 2 half-open
@@ -594,7 +580,7 @@ fallback_used_total{dep="payments"}        # is the fallback actually working?
           <li>Available as a few lines of configuration in every mainstream library and proxy.</li>
         </ul></div>
         <div class="col bad"><h3>Cons</h3><ul>
-          <li>Fixes nothing on its own &mdash; without a fallback it just fails faster.</li>
+          <li>Fixes nothing on its own — without a fallback it just fails faster.</li>
           <li>Misconfigured thresholds either never trip or disable healthy features.</li>
           <li>Counting 4xx as failures lets one client's bad input break everybody's feature.</li>
           <li>Needs enough traffic to see a rate; quiet endpoints need health checks instead.</li>
@@ -608,21 +594,21 @@ fallback_used_total{dep="payments"}        # is the fallback actually working?
       <h2>Concrete use cases</h2>
       <div class="cards">
         <div class="card"><h3>A payment provider degrading</h3><p>The provider starts timing out at two seconds. Without a breaker every worker fills with payment calls and the whole storefront stops. With one, payment calls fail in a millisecond, browsing is untouched, and checkout shows an honest "try again shortly" instead of hanging.</p></div>
-        <div class="card"><h3>One bad pod out of six</h3><p>A single replica has a corrupted cache and returns 500s. The aggregate error rate is 17% &mdash; too low to trip a breaker. Outlier detection in the mesh ejects that instance for thirty seconds and the error rate returns to zero without anyone being paged.</p></div>
-        <div class="card"><h3>Optional enrichment on a hot path</h3><p>A personalisation service is nice to have and frequently slow. A tight timeout, a bulkhead of three, and an aggressive breaker mean it either answers in 50 ms or is skipped entirely &mdash; and the page renders either way.</p></div>
-        <div class="card"><h3>Letting a database recover</h3><p>A database is overwhelmed and every query times out. Retrying keeps it pinned. The breaker opens, queries stop entirely for thirty seconds, the backlog drains, and a probe finds it healthy &mdash; a recovery that could not have happened under continuous load.</p></div>
+        <div class="card"><h3>One bad pod out of six</h3><p>A single replica has a corrupted cache and returns 500s. The aggregate error rate is 17% — too low to trip a breaker. Outlier detection in the mesh ejects that instance for thirty seconds and the error rate returns to zero without anyone being paged.</p></div>
+        <div class="card"><h3>Optional enrichment on a hot path</h3><p>A personalisation service is nice to have and frequently slow. A tight timeout, a bulkhead of three, and an aggressive breaker mean it either answers in 50 ms or is skipped entirely — and the page renders either way.</p></div>
+        <div class="card"><h3>Letting a database recover</h3><p>A database is overwhelmed and every query times out. Retrying keeps it pinned. The breaker opens, queries stop entirely for thirty seconds, the backlog drains, and a probe finds it healthy — a recovery that could not have happened under continuous load.</p></div>
         <div class="card"><h3>Third-party API with a monthly incident</h3><p>A shipping-rates API fails for twenty minutes every few weeks. The breaker opens, a cached rate table serves as the fallback, and customers see slightly stale shipping prices instead of a broken checkout. Nobody is paged.</p></div>
       </div>
     </section>
 
     <section id="when">
       <h2>When to use / when not to</h2>
-      <span class="note" style="margin:-6px 0 14px">timeout first, then bulkhead, then breaker &mdash; a breaker without a timeout protects nothing</span>
+      <span class="note" style="margin:-6px 0 14px">timeout first, then bulkhead, then breaker — a breaker without a timeout protects nothing</span>
       <div class="cols">
         <div class="col good"><h3>Use it when…</h3><ul>
           <li>You call a remote dependency that can fail or slow down independently of you.</li>
           <li>A dependency's failure would otherwise exhaust your threads, connections or pool.</li>
-          <li>There is something sensible to do instead &mdash; a cache, a default, a reduced feature.</li>
+          <li>There is something sensible to do instead — a cache, a default, a reduced feature.</li>
           <li>The dependency benefits from being left alone while it recovers.</li>
           <li>Traffic is high enough that a failure <em>rate</em> is statistically meaningful.</li>
         </ul></div>
@@ -639,14 +625,14 @@ fallback_used_total{dep="payments"}        # is the fallback actually working?
 
     <section id="gotchas">
       <h2>Common mistakes &amp; gotchas</h2>
-      <div class="gotcha"><b>No timeout underneath it</b><span>A breaker can only count calls that finish. With no timeout &mdash; the default in several HTTP clients &mdash; calls hang indefinitely, the breaker stays closed, and your workers disappear one by one.</span><div class="fix">Fix: set a timeout on every call, covering connect, TLS, send and read, and keep it below your own deadline. The breaker is the third layer, not the first.</div></div>
+      <div class="gotcha"><b>No timeout underneath it</b><span>A breaker can only count calls that finish. With no timeout — the default in several HTTP clients — calls hang indefinitely, the breaker stays closed, and your workers disappear one by one.</span><div class="fix">Fix: set a timeout on every call, covering connect, TLS, send and read, and keep it below your own deadline. The breaker is the third layer, not the first.</div></div>
       <div class="gotcha"><b>Counting 4xx as failures</b><span>One client sending malformed requests drives the failure rate past the threshold, the breaker opens, and a perfectly healthy dependency becomes unavailable for every other caller.</span><div class="fix">Fix: only timeouts, connection errors, 5xx and slow calls count. 400, 404, 409 and 422 mean the dependency answered correctly.</div></div>
       <div class="gotcha"><b>Ignoring slow successes</b><span>An error-only breaker sits closed while a dependency returns 200s in eight seconds and quietly consumes every worker you have. This is the most common cascading failure in practice.</span><div class="fix">Fix: add a slow-call threshold, or a timeout that converts slowness into a countable failure. Slow is broken.</div></div>
-      <div class="gotcha"><b>A breaker with no fallback</b><span>You have replaced a slow error with a fast error. Your infrastructure is happier; the user sees the same broken page.</span><div class="fix">Fix: decide the fallback before configuring the breaker &mdash; stale cache, a default, or omitting the section. If there genuinely is none, say so explicitly in the UI.</div></div>
+      <div class="gotcha"><b>A breaker with no fallback</b><span>You have replaced a slow error with a fast error. Your infrastructure is happier; the user sees the same broken page.</span><div class="fix">Fix: decide the fallback before configuring the breaker — stale cache, a default, or omitting the section. If there genuinely is none, say so explicitly in the UI.</div></div>
       <div class="gotcha"><b>Half-open stampede</b><span>Fifty instances trip together and probe together thirty seconds later. The recovering service is hit by a synchronised burst, dies, and the cycle repeats indefinitely.</span><div class="fix">Fix: cap concurrent probes at one to three per instance, jitter the break duration, and lengthen it after each failed probe.</div></div>
       <div class="gotcha"><b>Retry on the wrong side</b><span>Retries inside the breaker make it trip three times faster than configured; retries outside it loop on instant rejections.</span><div class="fix">Fix: record one outcome per logical call, and mark the open-circuit exception as non-retryable in your retry policy.</div></div>
       <div class="gotcha"><b>One breaker for everything</b><span>A shared breaker couples unrelated dependencies, so a failing recommendations service disables your payment calls.</span><div class="fix">Fix: one breaker per dependency, and per endpoint when their cost or reliability differ. Add outlier detection for per-instance problems.</div></div>
-      <div class="gotcha"><b>Tripping on a quiet endpoint</b><span>At 02:00 an endpoint gets two calls, one fails, and a 50% failure rate disables the feature until the morning.</span><div class="fix">Fix: require a minimum throughput &mdash; typically twenty calls &mdash; before the breaker may trip at all.</div></div>
+      <div class="gotcha"><b>Tripping on a quiet endpoint</b><span>At 02:00 an endpoint gets two calls, one fails, and a 50% failure rate disables the feature until the morning.</span><div class="fix">Fix: require a minimum throughput — typically twenty calls — before the breaker may trip at all.</div></div>
     </section>
 
     <section id="alternatives">
@@ -655,7 +641,7 @@ fallback_used_total{dep="payments"}        # is the fallback actually working?
         <table>
           <thead><tr><th>Mechanism</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs a circuit breaker</th></tr></thead>
           <tbody>
-            <tr class="self"><td><b>Circuit breaker</b></td><td>a dependency that is failing or slow</td><td>Low</td><td>free</td><td>&mdash;</td></tr>
+            <tr class="self"><td><b>Circuit breaker</b></td><td>a dependency that is failing or slow</td><td>Low</td><td>free</td><td>—</td></tr>
             <tr><td><b>Timeout alone</b></td><td>the minimum viable protection</td><td>Very low</td><td>free</td><td>Bounds one call; does nothing about the thousandth consecutive failure</td></tr>
             <tr><td><b>Bulkhead</b></td><td>containing blast radius</td><td>Low</td><td>free</td><td>Caps how much you lose while failing; does not stop calling. Use both</td></tr>
             <tr><td><b>Outlier detection</b></td><td>one bad instance among many</td><td>Low</td><td>mesh or LB feature</td><td>Per-host ejection; sees what an aggregate breaker cannot</td></tr>
@@ -666,23 +652,23 @@ fallback_used_total{dep="payments"}        # is the fallback actually working?
         </table>
       </div>
       <ul style="margin-top:12px">
-        <li><b>Pick a timeout</b> first, always &mdash; it is the foundation everything else is built on.</li>
+        <li><b>Pick a timeout</b> first, always — it is the foundation everything else is built on.</li>
         <li><b>Pick a bulkhead</b> alongside the breaker; it protects you during the window before the threshold is reached.</li>
         <li><b>Pick outlier detection</b> when failures are concentrated in one instance rather than the service.</li>
         <li><b>Pick backpressure</b> when the dependency still works and you can simply go at its pace.</li>
-        <li><b>Pick retries</b> only for short transient errors, with jitter and a budget &mdash; and never inside the breaker.</li>
+        <li><b>Pick retries</b> only for short transient errors, with jitter and a budget — and never inside the breaker.</li>
       </ul>
     </section>
 
     <section id="resources">
       <h2>Resources</h2>
       <ul>
-        <li><a href="https://martinfowler.com/bliki/CircuitBreaker.html" target="_blank" rel="noopener">Martin Fowler &mdash; Circuit Breaker</a>: the canonical write-up, with the state machine and a worked implementation.</li>
+        <li><a href="https://martinfowler.com/bliki/CircuitBreaker.html" target="_blank" rel="noopener">Martin Fowler — Circuit Breaker</a>: the canonical write-up, with the state machine and a worked implementation.</li>
         <li><a href="https://pragprog.com/titles/mnee2/release-it-second-edition/" target="_blank" rel="noopener">Release It! (Nygard)</a>: where the pattern was named, alongside bulkheads and the stability antipatterns it defends against.</li>
-        <li><a href="https://www.pollydocs.org/strategies/circuit-breaker.html" target="_blank" rel="noopener">Polly &mdash; Circuit breaker</a>: .NET configuration, including how strategies nest in a pipeline.</li>
-        <li><a href="https://resilience4j.readme.io/docs/circuitbreaker" target="_blank" rel="noopener">Resilience4j &mdash; CircuitBreaker</a>: sliding windows, slow-call thresholds and half-open permits, clearly documented.</li>
-        <li><a href="https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/upstream/outlier" target="_blank" rel="noopener">Envoy &mdash; Outlier detection</a>: per-host ejection, which complements a client-side breaker.</li>
-        <li><a href="https://sre.google/sre-book/addressing-cascading-failures/" target="_blank" rel="noopener">Google SRE &mdash; Addressing Cascading Failures</a>: the failure mode breakers exist to interrupt, with real examples.</li>
+        <li><a href="https://www.pollydocs.org/strategies/circuit-breaker.html" target="_blank" rel="noopener">Polly — Circuit breaker</a>: .NET configuration, including how strategies nest in a pipeline.</li>
+        <li><a href="https://resilience4j.readme.io/docs/circuitbreaker" target="_blank" rel="noopener">Resilience4j — CircuitBreaker</a>: sliding windows, slow-call thresholds and half-open permits, clearly documented.</li>
+        <li><a href="https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/upstream/outlier" target="_blank" rel="noopener">Envoy — Outlier detection</a>: per-host ejection, which complements a client-side breaker.</li>
+        <li><a href="https://sre.google/sre-book/addressing-cascading-failures/" target="_blank" rel="noopener">Google SRE — Addressing Cascading Failures</a>: the failure mode breakers exist to interrupt, with real examples.</li>
       </ul>
     </section>
     <!-- RELATED:START (generated by scripts/build-index.mjs, do not edit) -->
@@ -728,38 +714,39 @@ fallback_used_total{dep="payments"}        # is the fallback actually working?
 <script src="../assets/player.js?v=3658cbc7"></script>
 <script>
 createAnimation('anim-states', [
-  { say: 'Closed is the normal state: calls go through and every outcome is recorded in a rolling window. The breaker is doing nothing except counting.', hl: ['cs-closed'] },
-  { say: 'The dependency starts to degrade. Failures appear in the window &mdash; two out of ten so far, which is nowhere near the threshold.', unhl: ['cs-closed'], fill: { 'cs-c3': '#f9e3df', 'cs-c7': '#f9e3df' }, text: { 'cs-rate': 'failures: 20%', 'cs-cost': 'call latency: 2,000 ms (timeouts)', 'cs-dep': 'dependency load: struggling', 'cs-note': 'failures accumulating, breaker still closed' } },
-  { say: 'It gets worse: seven of the last ten calls fail. The rate is 70%, past the 50% threshold &mdash; and the window has more than the twenty-call minimum, so the sample means something.', fill: { 'cs-c1': '#f9e3df', 'cs-c4': '#f9e3df', 'cs-c5': '#f9e3df', 'cs-c8': '#f9e3df', 'cs-c10': '#f9e3df', 'cs-rate': '#c53b3b' }, text: { 'cs-rate': 'failures: 70% — trip', 'cs-note': 'each of those cost a full 2-second timeout before being counted' } },
-  { say: 'The breaker trips to OPEN. From now on calls fail immediately without touching the network at all.', hl: ['cs-open'], text: { 'cs-ct2': ' ', 'cs-ot': 'every call fails instantly', 'cs-ot2': 'current state', 'cs-cost': 'call latency: 1 ms', 'cs-dep': 'dependency load: zero', 'cs-timer': 'break: 30 s', 'cs-v': 'OPEN — fast failure, and silence downstream', 'cs-note': 'two things improved at once' }, fill: { 'cs-open': '#f9e3df', 'cs-closed': '#fbfcf8', 'cs-cost': '#2f6b3f', 'cs-v': '#c53b3b', 'cs-verd': '#f9e3df' } },
-  { say: 'Two benefits, and both matter. The caller gets its workers back instead of holding them for two seconds each &mdash; and the dependency receives nothing, which is frequently what it needs to drain its backlog.', text: { 'cs-note': 'a service being hammered by retries cannot recover; this one now can' } },
-  { say: 'After the break duration the breaker moves to HALF-OPEN and allows a strictly limited number of trial calls &mdash; here, three.', unhl: ['cs-open'], hl: ['cs-half'], text: { 'cs-ot': '—', 'cs-ot2': ' ', 'cs-ht': '3 probes allowed', 'cs-ht2': 'current state', 'cs-timer': 'probes: 0 / 3', 'cs-v': 'HALF-OPEN — testing the water with three calls', 'cs-note': 'everything else still fails fast while the probes run' }, fill: { 'cs-open': '#fbfcf8', 'cs-half': '#fbf3c4', 'cs-v': '#23362e', 'cs-verd': '#fbf3c4' } },
-  { say: 'The limit is the whole trick. If the breaker simply closed and released full traffic, a barely-recovered service would be flattened instantly and the breaker would reopen &mdash; a flapping loop that never ends.', text: { 'cs-timer': 'probes: 3 / 3', 'cs-note': 'three calls is a test; a thousand a second is another outage' } },
-  { say: 'All three probes succeed. The breaker closes and the counters reset.', unhl: ['cs-half'], hl: ['cs-closed'], fill: { 'cs-c1': '#e3eedc', 'cs-c3': '#e3eedc', 'cs-c4': '#e3eedc', 'cs-c5': '#e3eedc', 'cs-c7': '#e3eedc', 'cs-c8': '#e3eedc', 'cs-c10': '#e3eedc', 'cs-rate': '#2f6b3f', 'cs-half': '#fbfcf8', 'cs-closed': '#e3eedc', 'cs-v': '#2f6b3f', 'cs-verd': '#e3eedc', 'cs-cost': '#5f6f66' }, text: { 'cs-ht': '—', 'cs-ht2': ' ', 'cs-ct2': 'current state', 'cs-rate': 'failures: 0%', 'cs-cost': 'call latency: 20 ms', 'cs-dep': 'dependency load: normal', 'cs-timer': ' ', 'cs-v': 'CLOSED — recovered, counters reset' } },
-  { say: 'Had a probe failed instead, the breaker would go straight back to OPEN &mdash; usually for longer than before, so repeated failures back off rather than pulsing on a fixed cycle.', text: { 'cs-note': 'a failed probe → open again, with an increased break duration' } },
-  { say: 'And notice what the breaker never did: it did not repair anything. It converted a slow, expensive, worker-consuming failure into a fast, cheap, predictable one &mdash; which is exactly what a fallback needs in order to exist.', text: { 'cs-phase': 'the breaker buys you a fast failure; the fallback is what makes it useful', 'cs-v': 'without a fallback, you have only made the error arrive sooner', 'cs-note': 'stale cache · a default · omit the section · an honest message' } },
+  { say: "Closed is the normal state: calls go through and every outcome is recorded in a rolling window. The breaker is doing nothing except counting.", hl: ["cs-closed"] },
+  { say: "The dependency starts to degrade. Failures appear in the window — two out of ten so far, which is nowhere near the threshold.", unhl: ["cs-closed"], text: {"cs-rate":"failures: 20%","cs-cost":"call latency: 2,000 ms (timeouts)","cs-dep":"dependency load: struggling","cs-note":"failures accumulating, breaker still closed"}, fill: {"cs-c3":"#f9e3df","cs-c7":"#f9e3df"} },
+  { say: "It gets worse: seven of the last ten calls fail. The rate is 70%, past the 50% threshold — and the window has more than the twenty-call minimum, so the sample means something.", text: {"cs-rate":"failures: 70% — trip","cs-note":"each of those cost a full 2-second timeout before being counted"}, fill: {"cs-c1":"#f9e3df","cs-c4":"#f9e3df","cs-c5":"#f9e3df","cs-c8":"#f9e3df","cs-c10":"#f9e3df","cs-rate":"#c53b3b"} },
+  { say: "The breaker trips to OPEN. From now on calls fail immediately without touching the network at all.", hl: ["cs-open"], text: {"cs-ct2":" ","cs-ot":"every call fails instantly","cs-ot2":"current state","cs-cost":"call latency: 1 ms","cs-dep":"dependency load: zero","cs-timer":"break: 30 s","cs-v":"OPEN — fast failure, and silence downstream","cs-note":"two things improved at once"}, fill: {"cs-open":"#f9e3df","cs-closed":"#fbfcf8","cs-cost":"#2f6b3f","cs-v":"#c53b3b","cs-verd":"#f9e3df"} },
+  { say: "Two benefits, and both matter. The caller gets its workers back instead of holding them for two seconds each — and the dependency receives nothing, which is frequently what it needs to drain its backlog.", text: {"cs-note":"a service being hammered by retries cannot recover; this one now can"} },
+  { say: "After the break duration the breaker moves to HALF-OPEN and allows a strictly limited number of trial calls — here, three.", hl: ["cs-half"], unhl: ["cs-open"], text: {"cs-ot":"—","cs-ot2":" ","cs-ht":"3 probes allowed","cs-ht2":"current state","cs-timer":"probes: 0 / 3","cs-v":"HALF-OPEN — testing the water with three calls","cs-note":"everything else still fails fast while the probes run"}, fill: {"cs-open":"#fbfcf8","cs-half":"#fbf3c4","cs-v":"#23362e","cs-verd":"#fbf3c4"} },
+  { say: "The limit is the whole trick. If the breaker simply closed and released full traffic, a barely-recovered service would be flattened instantly and the breaker would reopen — a flapping loop that never ends.", text: {"cs-timer":"probes: 3 / 3","cs-note":"three calls is a test; a thousand a second is another outage"} },
+  { say: "All three probes succeed. The breaker closes and the counters reset.", hl: ["cs-closed"], unhl: ["cs-half"], text: {"cs-ht":"—","cs-ht2":" ","cs-ct2":"current state","cs-rate":"failures: 0%","cs-cost":"call latency: 20 ms","cs-dep":"dependency load: normal","cs-timer":" ","cs-v":"CLOSED — recovered, counters reset"}, fill: {"cs-c1":"#e3eedc","cs-c3":"#e3eedc","cs-c4":"#e3eedc","cs-c5":"#e3eedc","cs-c7":"#e3eedc","cs-c8":"#e3eedc","cs-c10":"#e3eedc","cs-rate":"#2f6b3f","cs-half":"#fbfcf8","cs-closed":"#e3eedc","cs-v":"#2f6b3f","cs-verd":"#e3eedc","cs-cost":"#5f6f66"} },
+  { say: "Had a probe failed instead, the breaker would go straight back to OPEN — usually for longer than before, so repeated failures back off rather than pulsing on a fixed cycle.", text: {"cs-note":"a failed probe → open again, with an increased break duration"} },
+  { say: "And notice what the breaker never did: it did not repair anything. It converted a slow, expensive, worker-consuming failure into a fast, cheap, predictable one — which is exactly what a fallback needs in order to exist.", text: {"cs-phase":"the breaker buys you a fast failure; the fallback is what makes it useful","cs-v":"without a fallback, you have only made the error arrive sooner","cs-note":"stale cache · a default · omit the section · an honest message"} },
 ]);
 
 createAnimation('anim-cascade', [
-  { say: 'Service A has twenty workers. It serves 1,000 requests a second: 980 of them hit <code>/home</code>, which needs only the catalogue, and 20 hit <code>/profile</code>, which needs payments.', hl: ['cc-a'] },
-  { say: 'Everything is fast, so each worker is free again in 25 ms and only a couple are ever busy at once. 98% of traffic does not touch payments at all.', unhl: ['cc-a'], text: { 'cc-pool': '2 / 20 busy' } },
-  { say: 'Now payments breaks: calls hang until a two-second timeout. Note the catalogue is entirely healthy &mdash; nothing about <code>/home</code> has changed.', hl: ['cc-pay'], text: { 'cc-payt': '2,000 ms · timing out', 'cc-phase': 'payments starts timing out — the catalogue is untouched' }, fill: { 'cc-pay': '#f9e3df', 'cc-payt': '#c53b3b' } },
-  { say: 'Each <code>/profile</code> call now holds a worker for two seconds. By Little\'s Law, 20 requests a second × 2 seconds means 40 workers are needed &mdash; and only 20 exist.', unhl: ['cc-pay'], fill: { 'cc-w1': '#f9e3df', 'cc-w2': '#f9e3df', 'cc-w3': '#f9e3df', 'cc-w4': '#f9e3df', 'cc-w5': '#f9e3df', 'cc-w6': '#f9e3df', 'cc-w7': '#f9e3df', 'cc-w8': '#f9e3df', 'cc-w9': '#f9e3df', 'cc-w10': '#f9e3df' }, text: { 'cc-pool': '10 / 20 busy — all on payments', 'cc-m2': '/profile: slow, 2,000 ms' } },
-  { say: 'Within seconds every worker is blocked on payments. The pool is gone.', fill: { 'cc-w11': '#f9e3df', 'cc-w12': '#f9e3df', 'cc-w13': '#f9e3df', 'cc-w14': '#f9e3df', 'cc-w15': '#f9e3df', 'cc-w16': '#f9e3df', 'cc-w17': '#f9e3df', 'cc-w18': '#f9e3df', 'cc-w19': '#f9e3df', 'cc-w20': '#f9e3df' }, text: { 'cc-pool': '20 / 20 busy — all on payments' } },
-  { say: 'And now the real damage: <code>/home</code> starts failing. Those requests never needed payments, but there is no worker left to run them. Service A is down because payments is down.', hl: ['cc-cli'], text: { 'cc-u1': '/home 980 / s ✗', 'cc-u2': '/profile 20 / s ✗', 'cc-m1': '/home: 503 / timeout', 'cc-m3': 'blast radius: the entire service', 'cc-note': '98% of traffic is failing because of a dependency it never calls', 'cc-v': 'cascading failure — one broken dependency, one dead service' }, fill: { 'cc-u1': '#c53b3b', 'cc-u2': '#c53b3b', 'cc-m1': '#c53b3b', 'cc-m3': '#c53b3b', 'cc-note': '#c53b3b', 'cc-v': '#c53b3b', 'cc-verd': '#f9e3df' } },
-  { say: 'First fix: a bulkhead. Give payments its own five slots out of the twenty. At most five workers can ever be stuck on it, whatever it does.', unhl: ['cc-cli'], hl: ['cc-a'], fill: { 'cc-w6': '#e3eedc', 'cc-w7': '#e3eedc', 'cc-w8': '#e3eedc', 'cc-w9': '#e3eedc', 'cc-w10': '#e3eedc', 'cc-w11': '#e3eedc', 'cc-w12': '#e3eedc', 'cc-w13': '#e3eedc', 'cc-w14': '#e3eedc', 'cc-w15': '#e3eedc', 'cc-w16': '#e3eedc', 'cc-w17': '#e3eedc', 'cc-w18': '#e3eedc', 'cc-w19': '#e3eedc', 'cc-w20': '#e3eedc' }, text: { 'cc-phase': 'bulkhead: payments may occupy at most 5 of the 20 workers', 'cc-pool': '5 / 20 busy — bulkhead holding', 'cc-u1': '/home 980 / s ✓', 'cc-m1': '/home: 200 OK, 25 ms', 'cc-m3': 'blast radius: /profile only', 'cc-note': 'fifteen workers remain for everything that does not need payments', 'cc-v': 'the leak is contained — but /profile still hangs for 2 seconds' } },
-  { say: '<code>/home</code> is fine again. But <code>/profile</code> still takes two seconds to fail, and those five workers are still being burned on calls that are certain to fail.', unhl: ['cc-a'], text: { 'cc-m2': '/profile: still 2,000 ms then fails', 'cc-u2': '/profile 20 / s ✗ (slow)' }, fill: { 'cc-u1': '#2f6b3f', 'cc-m1': '#2f6b3f', 'cc-m3': '#5f6f66', 'cc-note': '#5f6f66', 'cc-v': '#23362e', 'cc-verd': '#fbf3c4' } },
-  { say: 'Second fix: the circuit breaker. After the failure threshold it opens, and payments calls now fail in about a millisecond without leaving the process. Even the five bulkhead workers are released.', hl: ['cc-pay'], fill: { 'cc-w1': '#e3eedc', 'cc-w2': '#e3eedc', 'cc-w3': '#e3eedc', 'cc-w4': '#e3eedc', 'cc-w5': '#e3eedc' }, text: { 'cc-phase': 'breaker open: payments fails in ~1 ms instead of 2,000', 'cc-pool': '2 / 20 busy — normal', 'cc-m2': '/profile: fast fail, 1 ms → degraded view', 'cc-u2': '/profile 20 / s ⚠ degraded', 'cc-payt': 'receiving 0 / s · recovering' } },
-  { say: 'The result: <code>/home</code> untouched, <code>/profile</code> degraded instantly rather than hanging, and payments gets the silence it needs to recover. The bulkhead contained the damage; the breaker ended it.', unhl: ['cc-pay'], text: { 'cc-m3': 'blast radius: one degraded feature', 'cc-note': 'timeout bounds one call · bulkhead bounds the damage · breaker ends it', 'cc-v': 'contained, fast, and recoverable — all three layers doing one job each' }, fill: { 'cc-v': '#2f6b3f', 'cc-verd': '#e3eedc', 'cc-u2': '#5f6f66' } },
+  { say: "Service A has twenty workers. It serves 1,000 requests a second: 980 of them hit <code>/home</code>, which needs only the catalogue, and 20 hit <code>/profile</code>, which needs payments.", hl: ["cc-a"] },
+  { say: "Everything is fast, so each worker is free again in 25 ms and only a couple are ever busy at once. 98% of traffic does not touch payments at all.", unhl: ["cc-a"], text: {"cc-pool":"2 / 20 busy"} },
+  { say: "Now payments breaks: calls hang until a two-second timeout. Note the catalogue is entirely healthy — nothing about <code>/home</code> has changed.", hl: ["cc-pay"], text: {"cc-payt":"2,000 ms · timing out","cc-phase":"payments starts timing out — the catalogue is untouched"}, fill: {"cc-pay":"#f9e3df","cc-payt":"#c53b3b"} },
+  { say: "Each <code>/profile</code> call now holds a worker for two seconds. By Little's Law, 20 requests a second × 2 seconds means 40 workers are needed — and only 20 exist.", unhl: ["cc-pay"], text: {"cc-pool":"10 / 20 busy — all on payments","cc-m2":"/profile: slow, 2,000 ms"}, fill: {"cc-w1":"#f9e3df","cc-w2":"#f9e3df","cc-w3":"#f9e3df","cc-w4":"#f9e3df","cc-w5":"#f9e3df","cc-w6":"#f9e3df","cc-w7":"#f9e3df","cc-w8":"#f9e3df","cc-w9":"#f9e3df","cc-w10":"#f9e3df"} },
+  { say: "Within seconds every worker is blocked on payments. The pool is gone.", text: {"cc-pool":"20 / 20 busy — all on payments"}, fill: {"cc-w11":"#f9e3df","cc-w12":"#f9e3df","cc-w13":"#f9e3df","cc-w14":"#f9e3df","cc-w15":"#f9e3df","cc-w16":"#f9e3df","cc-w17":"#f9e3df","cc-w18":"#f9e3df","cc-w19":"#f9e3df","cc-w20":"#f9e3df"} },
+  { say: "And now the real damage: <code>/home</code> starts failing. Those requests never needed payments, but there is no worker left to run them. Service A is down because payments is down.", hl: ["cc-cli"], text: {"cc-u1":"/home 980 / s ✗","cc-u2":"/profile 20 / s ✗","cc-m1":"/home: 503 / timeout","cc-m3":"blast radius: the entire service","cc-note":"98% of traffic is failing because of a dependency it never calls","cc-v":"cascading failure — one broken dependency, one dead service"}, fill: {"cc-u1":"#c53b3b","cc-u2":"#c53b3b","cc-m1":"#c53b3b","cc-m3":"#c53b3b","cc-note":"#c53b3b","cc-v":"#c53b3b","cc-verd":"#f9e3df"} },
+  { say: "First fix: a bulkhead. Give payments its own five slots out of the twenty. At most five workers can ever be stuck on it, whatever it does.", hl: ["cc-a"], unhl: ["cc-cli"], text: {"cc-phase":"bulkhead: payments may occupy at most 5 of the 20 workers","cc-pool":"5 / 20 busy — bulkhead holding","cc-u1":"/home 980 / s ✓","cc-m1":"/home: 200 OK, 25 ms","cc-m3":"blast radius: /profile only","cc-note":"fifteen workers remain for everything that does not need payments","cc-v":"the leak is contained — but /profile still hangs for 2 seconds"}, fill: {"cc-w6":"#e3eedc","cc-w7":"#e3eedc","cc-w8":"#e3eedc","cc-w9":"#e3eedc","cc-w10":"#e3eedc","cc-w11":"#e3eedc","cc-w12":"#e3eedc","cc-w13":"#e3eedc","cc-w14":"#e3eedc","cc-w15":"#e3eedc","cc-w16":"#e3eedc","cc-w17":"#e3eedc","cc-w18":"#e3eedc","cc-w19":"#e3eedc","cc-w20":"#e3eedc"} },
+  { say: "<code>/home</code> is fine again. But <code>/profile</code> still takes two seconds to fail, and those five workers are still being burned on calls that are certain to fail.", unhl: ["cc-a"], text: {"cc-m2":"/profile: still 2,000 ms then fails","cc-u2":"/profile 20 / s ✗ (slow)"}, fill: {"cc-u1":"#2f6b3f","cc-m1":"#2f6b3f","cc-m3":"#5f6f66","cc-note":"#5f6f66","cc-v":"#23362e","cc-verd":"#fbf3c4"} },
+  { say: "Second fix: the circuit breaker. After the failure threshold it opens, and payments calls now fail in about a millisecond without leaving the process. Even the five bulkhead workers are released.", hl: ["cc-pay"], text: {"cc-phase":"breaker open: payments fails in ~1 ms instead of 2,000","cc-pool":"2 / 20 busy — normal","cc-m2":"/profile: fast fail, 1 ms → degraded view","cc-u2":"/profile 20 / s ⚠ degraded","cc-payt":"receiving 0 / s · recovering"}, fill: {"cc-w1":"#e3eedc","cc-w2":"#e3eedc","cc-w3":"#e3eedc","cc-w4":"#e3eedc","cc-w5":"#e3eedc"} },
+  { say: "The result: <code>/home</code> untouched, <code>/profile</code> degraded instantly rather than hanging, and payments gets the silence it needs to recover. The bulkhead contained the damage; the breaker ended it.", unhl: ["cc-pay"], text: {"cc-m3":"blast radius: one degraded feature","cc-note":"timeout bounds one call · bulkhead bounds the damage · breaker ends it","cc-v":"contained, fast, and recoverable — all three layers doing one job each"}, fill: {"cc-v":"#2f6b3f","cc-verd":"#e3eedc","cc-u2":"#5f6f66"} },
 ]);
 
+/* Animations inside key-concept panels */
 window.TERM_ANIMS = {
   probe: [
-    { say: 'The breaker has been open for thirty seconds. A thousand calls a second are being rejected instantly, and the service downstream has received nothing at all.', hl: ['pb-br'] },
-    { say: 'It has used that quiet to drain its backlog. It is nearly healthy &mdash; but it is not yet ready for a thousand requests a second.', unhl: ['pb-br'], hl: ['pb-svc'], text: { 'pb-svct': 'backlog drained · fragile' } },
-    { say: 'The naive move is to close the breaker when the timer expires. All thousand requests a second arrive in the same instant.', unhl: ['pb-svc'], text: { 'pb-brt': 'CLOSED · full traffic released', 'pb-flow': '1,000 / s', 'pb-svct': 'overwhelmed again', 'pb-msg': 'the recovering service is flattened immediately' }, fill: { 'pb-flow': '#c53b3b', 'pb-svct': '#c53b3b', 'pb-msg': '#c53b3b', 'pb-svc': '#f9e3df' } },
-    { say: 'It fails, the breaker reopens, and thirty seconds later exactly the same thing happens. A flapping loop that can continue for hours &mdash; and with fifty caller instances, all probing in unison, it is guaranteed.', text: { 'pb-brt': 'OPEN again · and again · and again', 'pb-msg': 'recovery itself is what keeps breaking it', 'pb-msg2': 'fifty instances probing in unison makes it certain' } },
-    { say: 'Half-open fixes it: allow three trial calls, keep rejecting everything else. Three succeed, the breaker closes, and the service was never exposed to more than it could handle. Jitter the break duration too, so the fleet does not probe in lockstep.', text: { 'pb-brt': 'HALF-OPEN · 3 probes', 'pb-flow': '3 calls', 'pb-svct': 'answers all three · healthy', 'pb-msg': 'a test, not a reopening', 'pb-msg2': 'cap the probes · jitter the cooldown · back off on repeated failure' }, fill: { 'pb-flow': '#2f6b3f', 'pb-svct': '#2f6b3f', 'pb-msg': '#2f6b3f', 'pb-svc': '#e3eedc' } },
+    { say: "The breaker has been open for thirty seconds. A thousand calls a second are being rejected instantly, and the service downstream has received nothing at all.", hl: ["pb-br"] },
+    { say: "It has used that quiet to drain its backlog. It is nearly healthy — but it is not yet ready for a thousand requests a second.", hl: ["pb-svc"], unhl: ["pb-br"], text: {"pb-svct":"backlog drained · fragile"} },
+    { say: "The naive move is to close the breaker when the timer expires. All thousand requests a second arrive in the same instant.", unhl: ["pb-svc"], text: {"pb-brt":"CLOSED · full traffic released","pb-flow":"1,000 / s","pb-svct":"overwhelmed again","pb-msg":"the recovering service is flattened immediately"}, fill: {"pb-flow":"#c53b3b","pb-svct":"#c53b3b","pb-msg":"#c53b3b","pb-svc":"#f9e3df"} },
+    { say: "It fails, the breaker reopens, and thirty seconds later exactly the same thing happens. A flapping loop that can continue for hours — and with fifty caller instances, all probing in unison, it is guaranteed.", text: {"pb-brt":"OPEN again · and again · and again","pb-msg":"recovery itself is what keeps breaking it","pb-msg2":"fifty instances probing in unison makes it certain"} },
+    { say: "Half-open fixes it: allow three trial calls, keep rejecting everything else. Three succeed, the breaker closes, and the service was never exposed to more than it could handle. Jitter the break duration too, so the fleet does not probe in lockstep.", text: {"pb-brt":"HALF-OPEN · 3 probes","pb-flow":"3 calls","pb-svct":"answers all three · healthy","pb-msg":"a test, not a reopening","pb-msg2":"cap the probes · jitter the cooldown · back off on repeated failure"}, fill: {"pb-flow":"#2f6b3f","pb-svct":"#2f6b3f","pb-msg":"#2f6b3f","pb-svc":"#e3eedc"} },
   ],
 };
 </script>

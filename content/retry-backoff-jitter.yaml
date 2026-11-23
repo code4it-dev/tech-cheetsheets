@@ -1,0 +1,802 @@
+title: Retry, backoff & jitter
+slug: retry-backoff-jitter
+tagline: Retrying is the cheapest way to survive a blip, and the cheapest way to turn one into an outage.
+asof: Nov 2026 · examples use Polly 8 and Tenacity; the jitter analysis is AWS's, from 2015
+description: "Retry cheatsheet: which errors are worth retrying, why exponential backoff without jitter just rearranges the thundering herd, retry budgets, and how three layers turn one request into twenty-seven."
+aliases:
+  - Retry
+  - retry pattern
+  - retries
+  - backoff
+  - exponential backoff
+  - jitter
+  - full jitter
+  - decorrelated jitter
+  - retry budget
+  - retry storm
+  - thundering herd
+keywords:
+  - retry
+  - exponential backoff
+  - jitter
+  - thundering herd
+  - retry budget
+  - resilience
+  - transient faults
+  - polly
+  - tenacity
+  - distributed systems
+related:
+  - circuit-breaker
+  - backpressure
+  - load-shedding
+  - idempotency
+  - queueing-theory
+overview:
+  - Networks drop packets, instances get rescheduled, leaders fail over. A large share of distributed-system errors are transient, and simply trying again a moment later fixes them — which is why retry is the first resilience pattern anyone adds and the one most likely to be added carelessly.
+  - Two separate questions decide whether it helps. **Should you retry?** — is this error actually transient, is the operation safe to repeat, and is there budget left. And **how should you space the attempts?** — which is where exponential backoff and, crucially, jitter come in. Getting the first wrong corrupts data; getting the second wrong turns a two-second blip into a congestion collapse.
+  - "The single most important fact on this page is that **exponential backoff without jitter does not solve the thundering herd**. If a thousand clients fail at the same instant and each waits exactly one second, a thousand retries arrive at the same instant. Backoff spaces the spikes out; only randomness breaks up the spike itself. The second most important fact is that retries <em>multiply</em> through layers: three layers each retrying three times turns one user action into twenty-seven requests, arriving precisely when the system can least afford them."
+architecture:
+  svg: retry-backoff-jitter/architecture.svg
+  alt: A decision path for whether to retry, followed by the backoff schedule and the amplification caused by retrying at several layers
+  caption: A retry is a decision, a delay and a limit. Most retry bugs are a missing limit.
+howItWorks:
+  - md: The first animation is why jitter is not optional. The second is why you should retry at exactly one layer.
+  - note: the failure synchronised your clients. only randomness un-synchronises them.
+  - anim:
+      id: anim-herd
+      title: 1 · Exponential backoff alone just moves the spike
+      svg: retry-backoff-jitter/anim-herd.svg
+      alt: A thousand clients retrying in synchronised spikes with plain exponential backoff, then spread smoothly by jitter
+      steps:
+        - say: A server blips for two seconds. A thousand clients get an error — and crucially, they all get it at the same instant. The failure has just synchronised them.
+          text:
+            hb-read: "peak: — · all 1,000 clients failed at t=0"
+        - say: Each client does the sensible thing and retries after one second. All thousand of them. Capacity is 200 a second.
+          show: [ hb-s1 ]
+          text:
+            hb-read: "peak: 1,000/s at t=1s · 5× capacity"
+          fill:
+            hb-read: "#c53b3b"
+        - say: That spike causes more errors, so they back off and retry at two seconds. Then four. Then eight. The backoff is working exactly as designed.
+          show: [ hb-s2, hb-s3 ]
+          text:
+            hb-read: "peak: still 1,000/s · the spikes just move further apart"
+        - say: "And there is the problem: the spikes never get smaller. Exponential backoff spaces out <em>one client’s</em> attempts, but every client computes the same delay from the same failure time."
+          show: [ hb-s4 ]
+          text:
+            hb-read: "peak: 1,000/s at 1s, 2s, 4s, 8s · recovery: never"
+        - say: Nothing in the system de-synchronises them. The original event put every client in step, and deterministic backoff preserves that perfectly — forever.
+          text:
+            hb-read: backoff alone preserves the lockstep it was meant to fix
+        - say: "Now add jitter: each client waits a <em>random</em> duration inside its backoff window rather than the exact value."
+          show: [ hb-jit ]
+          hide: [ hb-s1, hb-s2, hb-s3, hb-s4 ]
+          text:
+            hb-phase: same thousand clients, same backoff, one random() added
+            hb-read: "peak: ~180/s · under capacity"
+          fill:
+            hb-read: "#2f6b3f"
+        - say: The same thousand retries, spread across the window. No instant is overloaded, so the server answers them as they arrive instead of failing them in batches.
+          text:
+            hb-read: "peak: ~180/s · every retry served · no new failures"
+        - say: And recovery is <em>faster</em>, not slower. Without jitter each spike generated a fresh wave of failures; with it, the first wave succeeds and there is no second wave.
+          text:
+            hb-read: recovered by t≈7s — versus not recovering at all
+        - say: "The formula is one line: `sleep = random(0, min(cap, base × 2ⁿ))`. AWS measured the alternatives and this one — full jitter — gave both the lowest contention and the shortest total completion time."
+          text:
+            hb-phase: "full jitter: random(0, min(cap, base × 2ⁿ))"
+        - say: So jitter is not a refinement of backoff. Without it, exponential backoff mostly rearranges the problem — and the same reasoning applies to cache TTLs, cron schedules and token refreshes, which all create herds of their own.
+          text:
+            hb-phase: anything that fails everyone at once needs randomness, not just spacing
+            hb-read: jitter your TTLs, your crons and your token refreshes too
+  - anim:
+      id: anim-amp
+      title: 2 · One request, twenty-seven calls
+      svg: retry-backoff-jitter/anim-amp.svg
+      alt: Retries at three layers multiplying one user request into twenty-seven database calls
+      steps:
+        - say: "A single user action: load an order. It passes through a gateway and a service before reaching the database. Each layer has a sensible-looking retry policy of three attempts."
+          hl: [ ra-c, ra-g, ra-s ]
+        - say: While everything is healthy the policies are invisible. One request in, one query out.
+          unhl: [ ra-c, ra-g, ra-s ]
+          text:
+            ra-gn: "1"
+            ra-sn: "1"
+            ra-dn: "1"
+        - say: Now the database starts failing. The orders service does what it was configured to do and retries three times.
+          hl: [ ra-s ]
+          text:
+            ra-dt: failing
+            ra-sn: 1 in
+            ra-dn: "3"
+            ra-p1: "calls reaching the database from one user action: 3"
+          fill:
+            ra-dt: "#c53b3b"
+        - say: The service still ends up returning an error, so the gateway retries <em>the service</em> three times — and each of those attempts retries the database three times.
+          hl: [ ra-g ]
+          unhl: [ ra-s ]
+          text:
+            ra-gn: 1 in
+            ra-sn: "3"
+            ra-dn: "9"
+            ra-p1: "calls reaching the database from one user action: 9"
+        - say: And the client retries the gateway three times. One user action is now twenty-seven database calls.
+          hl: [ ra-c ]
+          unhl: [ ra-g ]
+          text:
+            ra-cn: 1 in
+            ra-gn: "3"
+            ra-sn: "9"
+            ra-dn: "27"
+            ra-p1: "calls reaching the database from one user action: 27"
+            ra-v: retries multiply through layers — they never add
+          fill:
+            ra-dn: "#c53b3b"
+            ra-v: "#c53b3b"
+            ra-verd: "#f9e3df"
+        - say: With a thousand concurrent users that is twenty-seven thousand requests, arriving at a database that was already struggling with one thousand. The load peaks exactly when capacity is lowest.
+          unhl: [ ra-c ]
+          text:
+            ra-p3: "at 1,000 concurrent users: 27,000 calls"
+            ra-v2: nobody configured a 27× amplifier — it is the product of three reasonable choices
+        - say: The latency is just as bad. Each layer’s timeout must cover its own retries, so the user’s wait is the product too — and they refreshed the page several seconds ago, creating another request.
+          text:
+            ra-p2: "latency the user waits: 3 × 3 × 3 attempts plus backoff ≈ 20 s"
+          fill:
+            ra-p2: "#c53b3b"
+        - say: "Fix one: retry at exactly one layer. Usually the one closest to the failure, because it knows most about the error and wastes the least work getting there."
+          hl: [ ra-s ]
+          text:
+            ra-phase: retry at one layer only
+            ra-ct: no retry — fail fast
+            ra-gt: no retry — fail fast
+            ra-st: retry 3× (the only one)
+            ra-cn: 1 in
+            ra-gn: "1"
+            ra-sn: "1"
+            ra-dn: "3"
+            ra-p1: "calls reaching the database from one user action: 3"
+            ra-p2: "latency the user waits: 3 attempts plus backoff ≈ 2 s"
+            ra-p3: "at 1,000 concurrent users: 3,000 calls"
+            ra-v: one layer retries; the rest fail fast and let the error through
+          fill:
+            ra-dn: "#23362e"
+            ra-p2: "#5f6f66"
+            ra-v: "#2f6b3f"
+            ra-verd: "#e3eedc"
+        - say: "Fix two: a retry budget. An attempt limit bounds one request, but when everything is failing a limit of three still triples the load. A budget caps retries at around 10% of successful traffic — and when successes stop, it empties."
+          unhl: [ ra-s ]
+          text:
+            ra-st: retry 3×, budget 10%
+            ra-dn: ~1.1×
+            ra-p1: "calls reaching the database: bounded at ~10% above normal"
+            ra-v: the budget is what stops a system-wide failure becoming a self-inflicted flood
+        - say: "Fix three: propagate a deadline, so no layer starts an attempt it cannot finish inside the user’s budget. Together these three turn retries from an amplifier into a shock absorber."
+          text:
+            ra-phase: one layer · a budget · a propagated deadline
+            ra-p2: "latency the user waits: bounded by the deadline, not by the policy"
+            ra-v2: and export attempts ÷ requests, or you will mistake your own retries for traffic
+concepts:
+  - term: Transient error
+    short: A failure likely to go away on its own — the only kind worth retrying.
+    see: [ Retryable errors, Retry budget, Circuit breaker ]
+    detail: |-
+      Connection resets, timeouts, 503s, lock contention, leader elections. They share a property: nothing about the request was wrong, so the same request may well succeed shortly.
+
+      A 400, a 404 or a validation failure is deterministic. Retrying it wastes capacity, delays the error the caller needs to see, and in aggregate looks exactly like an attack.
+
+      #### Retry or not
+
+      | Outcome | Retry? |
+      | --- | --- |
+      | Connection reset, DNS blip | yes |
+      | Timeout | yes, if idempotent |
+      | 503, 429 (honour Retry-After) | yes |
+      | 500 | cautiously — may not be transient |
+      | 400, 404, 409, 422 | never |
+      | 401 / 403 | no — refresh the token instead, once |
+
+      #### How it relates
+
+      - A circuit breaker is what you add when "transient" turns out to mean "for the next twenty minutes".
+  - term: Idempotency requirement
+    short: A retry is only safe if repeating the operation cannot do the work twice.
+    see: [ Transient error, Timeout, Idempotency keys ]
+    detail: |-
+      The dangerous case is the timeout, because it is <em>ambiguous</em>: the request may have been processed and only the response lost. Retrying a `GET` is free; retrying a payment on a timeout can charge the customer twice.
+
+      Reads and natural replacements are safe by construction. For anything that creates or moves money, attach an idempotency key so the server can recognise the repeat.
+
+      #### Safety by operation
+
+      | Operation | Safe to retry? |
+      | --- | --- |
+      | `GET`, `HEAD` | yes — no effect at all |
+      | `PUT`, `DELETE` | yes — idempotent by definition |
+      | `POST` that creates | only with an idempotency key |
+      | Increment, append | no — needs a key or a dedup window |
+
+      #### How it relates
+
+      - The idempotency page covers the server-side half: keys, windows and delivery semantics.
+  - term: Exponential backoff
+    short: Doubling the wait after each failure, so a persistent problem is not hammered.
+    see: [ Jitter, Cap, Attempt limit ]
+    detail: |-
+      `base × 2ⁿ`. With a 100 ms base: 100, 200, 400, 800, 1600. It adapts automatically — a one-off blip costs a tenth of a second, while a real outage quickly drops your request rate by orders of magnitude.
+
+      It is necessary and, on its own, not sufficient: it spaces out <em>each client's</em> attempts without doing anything about the fact that all clients are stepping in time.
+
+      #### Strategies
+
+      | Strategy | Waits | Use |
+      | --- | --- | --- |
+      | Immediate | 0 | one quick retry on a fresh connection |
+      | Constant | 1, 1, 1 | polling a known-slow resource |
+      | Linear | 1, 2, 3 | rarely the right answer |
+      | Exponential | 1, 2, 4, 8 | the default |
+
+      #### How it relates
+
+      - Always pair it with jitter and a cap; the three together are the actual pattern.
+  - term: Jitter
+    short: Randomising the wait so that clients which failed together do not return together.
+    see: [ Exponential backoff, Thundering herd, Retry budget ]
+    anim:
+      key: jit
+      title: Three ways to randomise the wait
+      svg: retry-backoff-jitter/jit.svg
+      alt: Retry arrival times under no jitter, full jitter and decorrelated jitter
+      steps:
+        - say: Twelve clients all failed at the same moment and are now computing their third retry. With no jitter, every one of them calculates the identical delay.
+          hl: [ jt-n ]
+          text:
+            jt-nt: all 12 land on the same instant — a spike
+        - say: "Full jitter picks uniformly between zero and the backoff value: `random(0, min(cap, base × 2ⁿ))`. The same twelve retries spread across the whole window."
+          show: [ jt-f ]
+          hl: [ jt-f ]
+          unhl: [ jt-n ]
+          text:
+            jt-ft: random(0, backoff) — widest spread, lowest peak
+        - say: It is counter-intuitive that throwing away the carefully computed delay helps, but the spread is worth far more than the precision — AWS measured both lower contention and shorter completion times.
+          unhl: [ jt-f ]
+        - say: "Decorrelated jitter takes a different route: `random(base, previous × 3)`, capped. It spreads just as well and keeps growing from wherever it last landed, so it self-limits under a long outage."
+          show: [ jt-d ]
+          hl: [ jt-d ]
+          text:
+            jt-dt: random(base, prev × 3) — spreads and keeps climbing
+        - say: Either is fine; the only wrong choice is the first row. Equal jitter — `backoff/2 + random(0, backoff/2)` — sits between them when you need a guaranteed minimum wait.
+          unhl: [ jt-d ]
+          text:
+            jt-nt: never ship this one
+            jt-ft: full jitter — the default worth using
+            jt-dt: decorrelated — equally good, self-limiting
+    detail: |-
+      The failure event synchronises every client. Deterministic backoff preserves that synchronisation perfectly, so the retries arrive as a spike no matter how far apart the spikes are. Randomness is the only thing that breaks the lockstep.
+
+      AWS's analysis compared the options and found **full jitter** — `random(0, min(cap, base × 2ⁿ))` — gave the lowest contention and the shortest completion time. It is the default worth using unless you have a reason otherwise.
+
+      ::anim jit::
+
+      #### How it relates
+
+      - The first animation is the same point at the scale of a thousand clients.
+  - term: Thundering herd
+    short: Many clients retrying in unison, producing a spike far above capacity exactly when the system is weakest.
+    see: [ Jitter, Retry budget, Load shedding ]
+    detail: |-
+      Anything that fails everyone at once creates it: a restart, a failover, a cache flush, an expiring token with a round-number lifetime, a cron job at the top of the hour. The clients were independent until a shared event put them in step.
+
+      Jitter fixes the retry case. The others need the same medicine — randomised cache TTLs, staggered cron schedules, token lifetimes with a random component.
+
+      #### Other herds worth jittering
+
+      | Source | Fix |
+      | --- | --- |
+      | Cache entries expiring together | randomise the TTL ±10% |
+      | Cron at :00 | spread over the window |
+      | Token refresh | refresh at a random point before expiry |
+      | Reconnect after a deploy | jittered reconnect backoff |
+
+      #### How it relates
+
+      - From the server's side, this is a load-shedding problem; from the client's, a jitter problem.
+  - term: Retry amplification
+    short: Retries at several layers multiplying rather than adding — the reason one blip becomes an outage.
+    see: [ Retry budget, Deadline, Timeout ]
+    detail: |-
+      Three layers each retrying three times is 3³ = 27 requests from one user action, all aimed at a dependency that is already failing. The load arrives precisely when there is least capacity to absorb it, which is how a recoverable degradation becomes congestion collapse.
+
+      The rule is to retry at exactly one layer. Usually the one closest to the failure, because it knows most about the error and wastes the least work; sometimes the edge, if only it can see the whole operation.
+
+      #### Multiplication
+
+      | Layers retrying | Calls per request |
+      | --- | --- |
+      | 1 | 3 |
+      | 2 | 9 |
+      | 3 | 27 |
+      | 4 | 81 |
+
+      #### How it relates
+
+      - The second animation builds this number step by step.
+  - term: Retry budget
+    short: A cap on retries as a fraction of total traffic, so the system cannot retry itself to death.
+    see: [ Retry amplification, Attempt limit, Load shedding ]
+    detail: |-
+      A per-request attempt limit does nothing about aggregate load: if every request fails, a limit of three still triples your traffic. A budget works on the whole client — typically "retries may not exceed 10% of successful requests" — and once exhausted, failures are returned immediately.
+
+      This is what turns retry from a local decision into a system-level one, and it is the control that gRPC and modern service meshes expose for exactly this reason.
+
+      #### Two different limits
+
+      | Limit | Bounds |
+      | --- | --- |
+      | Attempts per request | one request's latency |
+      | Retry budget | total extra load on the dependency |
+
+      #### How it relates
+
+      - Without a budget, a widespread failure means every client retries at once — which is the amplification case again.
+  - term: Attempt limit & cap
+    short: How many tries, and the longest a single wait may become.
+    see: [ Exponential backoff, Deadline, Retry budget ]
+    detail: |-
+      Three to five attempts covers almost all genuinely transient faults; beyond that you are no longer riding out a blip, you are waiting for an outage to end — which is a circuit breaker's job.
+
+      The cap matters because unbounded doubling reaches absurd waits quickly: without one, the eighth attempt is 25 seconds away and the user left long ago.
+
+      #### Sensible defaults
+
+      | Setting | Interactive | Background |
+      | --- | --- | --- |
+      | Attempts | 2–3 | 5–8 |
+      | Base delay | 50–200 ms | 1 s |
+      | Cap | 1–2 s | 30–60 s |
+      | Total budget | the request deadline | minutes |
+
+      #### How it relates
+
+      - An interactive request's real limit is the user's patience, which the deadline encodes.
+  - term: Deadline awareness
+    short: Retrying only while there is time left in the caller's budget, rather than a fixed number of times.
+    see: [ Timeout, Attempt limit, Retry amplification ]
+    detail: |-
+      A retry that starts 50 ms before the caller gives up is pure waste: it consumes a connection and a worker to produce a result nobody will read. Checking the remaining deadline before each attempt removes that work entirely.
+
+      It also bounds latency honestly. With a propagated deadline, the user's two-second budget is the limit regardless of how many layers would like to retry inside it.
+
+      #### Before each attempt
+
+      | Check | If no |
+      | --- | --- |
+      | Time left > expected attempt duration? | fail now |
+      | Budget left in the retry quota? | fail now |
+      | Circuit closed? | fail now |
+
+      #### How it relates
+
+      - Deadline propagation is the same plumbing the backpressure page recommends for discarding dead work.
+  - term: Timeout interaction
+    short: "Retries multiply the timeout: three attempts at two seconds is a six-second wait unless something stops it."
+    see: [ Deadline, Attempt limit, Retry amplification ]
+    detail: |-
+      Teams set a per-attempt timeout and forget that the caller experiences the sum. With backoff added, three attempts at two seconds plus waits is closer to seven — well past the point the user refreshed the page and created a second request.
+
+      Size the per-attempt timeout so that the attempts <em>plus</em> their waits fit inside the overall deadline, not the other way round.
+
+      #### How it relates
+
+      - Without a timeout there is nothing to retry on: the call simply hangs, which is worse than failing.
+  - term: Retry-After
+    short: The server telling you when to come back — and the one input that beats any backoff formula.
+    see: [ Transient error, Jitter, Retry budget ]
+    detail: |-
+      Returned with 429 and often with 503, as seconds or an HTTP date. The server knows more about its own recovery than your exponential curve does, so honour it — and add a small jitter on top, because every client received the same value and would otherwise return together.
+
+      #### Precedence
+
+      | Signal | Priority |
+      | --- | --- |
+      | `Retry-After` | highest — obey it |
+      | Your backoff schedule | when no header |
+      | Immediate retry | at most once, on a fresh connection |
+
+      #### How it relates
+
+      - Jitter the value you were given; identical sleeps re-synchronise the herd you were avoiding.
+  - term: Circuit breaker interaction
+    short: Retry handles a blip; a breaker handles an outage. They need to be arranged deliberately.
+    see: [ Retry budget, Transient error, Attempt limit ]
+    detail: |-
+      If the retry sits <em>inside</em> the breaker, one logical call records three failures and the breaker trips three times faster than configured. If it sits <em>outside</em>, it will retry the breaker's instant rejections and spin.
+
+      The arrangement that works: timeout, then retry, then breaker — one recorded outcome per logical operation — with the open-circuit error marked non-retryable.
+
+      #### How it relates
+
+      - The circuit breaker page covers the full ordering, including bulkheads and fallbacks.
+  - term: Hedged requests
+    short: Sending a second request before the first has failed, to cut tail latency rather than to handle errors.
+    see: [ Idempotency requirement, Retry budget, Timeout ]
+    detail: |-
+      If the p99 is ten times the p50, issue a duplicate once the p95 has elapsed and take whichever answer arrives first. It trades a few percent extra load for a dramatically shorter tail, and it is how large systems hide slow replicas.
+
+      It demands idempotency and a tight budget — typically hedging at most 5% of requests — because it adds load by design rather than only on failure.
+
+      #### Retry vs hedge
+
+      |  | Retry | Hedge |
+      | --- | --- | --- |
+      | Triggered by | an error | slowness |
+      | Fixes | failures | tail latency |
+      | Extra load | only on failure | always, by design |
+
+      #### How it relates
+
+      - Both are retries in the server's eyes, so both must respect the same budget.
+  - term: Where to retry
+    short: One layer, chosen deliberately — not everywhere a library made it easy.
+    see: [ Retry amplification, Retry budget, Deadline ]
+    detail: |-
+      Closest to the failure wastes the least work and knows most about the error. The edge sees the whole operation and can decide whether a retry is still useful. Both are defensible; doing both is not.
+
+      Watch for retries you did not write: HTTP client defaults, SDK policies, service mesh configuration and database drivers all retry silently, and they compose with yours.
+
+      #### Audit these
+
+      | Layer | Often retries by default |
+      | --- | --- |
+      | HTTP client / SDK | yes — check the policy |
+      | Service mesh (Envoy) | yes, if configured |
+      | Database driver | yes, on connection errors |
+      | Message consumer | yes — redelivery is a retry |
+
+      #### How it relates
+
+      - Count the real attempt multiplier before adding one more layer of "resilience".
+  - term: Dead letter
+    short: Where a message goes when the retries are exhausted, so the queue keeps moving.
+    see: [ Attempt limit, Transient error, Retry budget ]
+    detail: |-
+      In message-driven systems a failing message is redelivered, which is a retry under another name. Without a maximum delivery count, one poison message is retried forever and blocks everything behind it.
+
+      Move it aside after a bounded number of attempts, with the error and enough context to replay it later. An empty dead-letter queue nobody monitors is as bad as not having one.
+
+      #### How it relates
+
+      - Alert on dead-letter depth; it is usually the first signal of a systematic failure rather than a transient one.
+  - term: Observability
+    short: Counting attempts separately from requests, so retries are visible before they become an incident.
+    see: [ Retry budget, Retry amplification, Thundering herd ]
+    detail: |-
+      If retries are invisible, a dependency degrading shows up as "traffic increased" — and the obvious response, scaling up, feeds the amplification. Separating attempts from logical requests makes the real story legible.
+
+      The most useful single number is the attempt multiplier: attempts divided by logical requests. At 1.0 nothing is retrying; at 3.0 you are sending three times the load you think you are.
+
+      #### What to export
+
+      | Metric | Watch for |
+      | --- | --- |
+      | `attempts / requests` | rising above ~1.1 |
+      | `retries_exhausted_total` | real failures, not blips |
+      | `retry_budget_rejected` | the budget is engaging |
+      | Dead-letter depth | poison messages |
+
+      #### How it relates
+
+      - Trace spans should record the attempt number, or a retried call looks like several unrelated ones.
+commands:
+  heading: Essential code patterns
+  tocLabel: Code patterns
+  groups:
+    - group: The whole pattern, correctly ordered
+      items:
+        - lang: csharp
+          code: |-
+            var pipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
+                // 3 — stop entirely once it is clearly not transient
+                .AddCircuitBreaker(new CircuitBreakerStrategyOptions<HttpResponseMessage>
+                {
+                    FailureRatio = 0.5, MinimumThroughput = 20,
+                    BreakDuration = TimeSpan.FromSeconds(30),
+                })
+                // 2 — retry, exponentially, with jitter
+                .AddRetry(new RetryStrategyOptions<HttpResponseMessage>
+                {
+                    MaxRetryAttempts = 3,
+                    BackoffType      = DelayBackoffType.Exponential,
+                    UseJitter        = true,                    // the line that matters
+                    Delay            = TimeSpan.FromMilliseconds(200),
+                    MaxDelay         = TimeSpan.FromSeconds(2),
+                    ShouldHandle     = args => ValueTask.FromResult(IsTransient(args.Outcome)),
+                })
+                // 1 — a call that never ends can never be retried
+                .AddTimeout(TimeSpan.FromSeconds(2))
+                .Build();
+          what: Polly applies strategies outermost-first, so at run time this is timeout, then retry, then breaker — one recorded outcome per logical call.
+        - lang: csharp
+          code: |-
+            static bool IsTransient(Outcome<HttpResponseMessage> o) =>
+                o.Exception is TimeoutRejectedException or HttpRequestException
+                || o.Result?.StatusCode is HttpStatusCode.RequestTimeout
+                                       or HttpStatusCode.TooManyRequests
+                                       or HttpStatusCode.ServiceUnavailable
+                                       or HttpStatusCode.GatewayTimeout;
+
+            // NOT retryable: 400, 401, 403, 404, 409, 422 — repeating them changes nothing
+            // and a retried 401 should instead refresh the token, exactly once
+          what: The predicate is where most retry bugs live. Retrying a 400 forever looks, from the server's side, indistinguishable from an attack.
+    - group: The same thing in Python
+      items:
+        - lang: python
+          code: |-
+            from tenacity import (retry, stop_after_attempt, wait_random_exponential,
+                                  retry_if_exception_type, before_sleep_log)
+
+            @retry(
+                retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
+                wait=wait_random_exponential(multiplier=0.2, max=2),   # full jitter, capped at 2 s
+                stop=stop_after_attempt(3),
+                before_sleep=before_sleep_log(log, logging.WARNING),   # make retries visible
+                reraise=True,                                          # surface the real error
+            )
+            async def fetch_order(order_id: str) -> Order:
+                res = await client.get(f"/orders/{order_id}", timeout=2.0)   # per-attempt timeout
+                res.raise_for_status()
+                return Order(**res.json())
+          what: "`wait_random_exponential` is full jitter — `random(0, min(max, multiplier × 2ⁿ))`. Plain `wait_exponential` is the version that keeps the herd in step."
+    - group: The jitter strategies, written out
+      items:
+        - lang: csharp
+          code: |-
+            static readonly Random Rng = Random.Shared;
+
+            TimeSpan NoJitter(int n)      => Min(Cap, Base * Math.Pow(2, n));          // don't
+            TimeSpan FullJitter(int n)    => Rng.NextDouble() * Min(Cap, Base * Math.Pow(2, n));
+            TimeSpan EqualJitter(int n)   => { var t = Min(Cap, Base * Math.Pow(2, n));
+                                               return t / 2 + Rng.NextDouble() * t / 2; }
+            TimeSpan Decorrelated(double prev) => Min(Cap, Base + Rng.NextDouble() * (prev * 3 - Base));
+
+            // AWS measured these: full jitter gave the lowest contention and completion time.
+            // Equal jitter guarantees a minimum wait; decorrelated keeps growing and self-limits.
+          what: Four one-liners. The only wrong answer is the first, and it is the one most libraries still make the default.
+        - lang: python
+          code: |-
+            import random
+
+            def full_jitter(attempt, base=0.2, cap=2.0):
+                return random.uniform(0, min(cap, base * 2 ** attempt))
+
+            def equal_jitter(attempt, base=0.2, cap=2.0):
+                t = min(cap, base * 2 ** attempt)
+                return t / 2 + random.uniform(0, t / 2)
+
+            def decorrelated(prev, base=0.2, cap=2.0):
+                return min(cap, random.uniform(base, prev * 3))
+
+            >>> [round(full_jitter(n), 2) for n in range(5)]
+            [0.07, 0.31, 0.44, 1.21, 1.88]      # same client, five different waits
+          what: "Note what the output shows: even one client's waits are unpredictable, which is exactly what stops a thousand of them colliding."
+    - group: Honour Retry-After, then jitter it
+      items:
+        - code: |-
+            static TimeSpan NextDelay(HttpResponseMessage res, int attempt)
+            {
+                // the server knows more about its recovery than your curve does
+                if (res.Headers.RetryAfter?.Delta is { } delta)
+                    return delta + TimeSpan.FromMilliseconds(Random.Shared.Next(0, 500));  // jitter it
+                if (res.Headers.RetryAfter?.Date is { } at)
+                    return at - DateTimeOffset.UtcNow + TimeSpan.FromMilliseconds(Random.Shared.Next(0, 500));
+
+                return FullJitter(attempt);
+            }
+          what: Every rejected client got the same `Retry-After` value. Sleeping exactly that long recreates the herd the header was meant to prevent.
+    - group: Budget, not just attempts
+      items:
+        - lang: yaml
+          code: |-
+            # Envoy — a per-request attempt limit AND a fleet-wide budget
+            retry_policy:
+              retry_on: "5xx,reset,connect-failure"
+              num_retries: 2                       # bounds one request's latency
+              retry_back_off: { base_interval: 0.1s, max_interval: 2s }
+              retry_budget:
+                budget_percent: { value: 20 }      # retries may not exceed 20% of active requests
+                min_retry_concurrency: 3
+          what: The attempt limit protects one request; the budget protects the dependency. A system-wide failure needs the second.
+        - lang: csharp
+          code: |-
+            // a budget in code: a token bucket refilled by successes
+            sealed class RetryBudget(double ratio = 0.1, int minPerSecond = 3)
+            {
+                private readonly SlidingWindow _ok = new(TimeSpan.FromSeconds(10));
+                private readonly SlidingWindow _retries = new(TimeSpan.FromSeconds(10));
+
+                public bool TryConsume()
+                {
+                    var allowed = Math.Max(minPerSecond, _ok.Count * ratio);
+                    if (_retries.Count >= allowed) return false;   // out of budget: fail now
+                    _retries.Add();
+                    return true;
+                }
+                public void RecordSuccess() => _ok.Add();
+            }
+          what: When everything is failing there are no successes, so the budget empties and retries stop — which is precisely when they were doing harm.
+    - group: Respect the deadline
+      items:
+        - lang: csharp
+          code: |-
+            async Task<T> WithRetries<T>(Func<CancellationToken, Task<T>> call, CancellationToken ct)
+            {
+                for (var attempt = 0; ; attempt++)
+                {
+                    try { return await call(ct); }
+                    catch (Exception ex) when (IsTransient(ex) && attempt < MaxAttempts)
+                    {
+                        var delay = FullJitter(attempt);
+                        // do not start an attempt we cannot finish inside the caller's budget
+                        if (RemainingBudget(ct) < delay + ExpectedAttemptDuration) throw;
+                        await Task.Delay(delay, ct);
+                    }
+                }
+            }
+          what: A retry begun 50 ms before the caller gives up costs a connection and a worker to produce a result nobody reads.
+    - group: Make them visible
+      items:
+        - code: |-
+            attempts_total / requests_total        # the attempt multiplier — 1.0 is healthy
+            retries_exhausted_total{dep="orders"}  # genuine failures, not blips
+            retry_budget_rejected_total            # the budget is doing its job
+            dead_letter_depth                      # poison messages
+
+            # alert when the multiplier exceeds ~1.1 for a sustained period:
+            # a dependency is degrading, and scaling up will make it worse
+          what: Without this, a degrading dependency looks like a traffic increase — and the instinctive response feeds the amplification.
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - Removes a large class of transient failures for a few lines of configuration.
+      - Exponential backoff adapts automatically from a blip to a sustained outage.
+      - Jitter turns a synchronised spike into smooth load at no cost.
+      - Budgets make the aggregate effect bounded and predictable.
+      - Hedging uses the same machinery to cut tail latency.
+      - Every mainstream library implements it; you configure rather than build.
+  bad:
+    heading: Cons
+    items:
+      - Retrying non-idempotent work duplicates it, and timeouts are ambiguous by nature.
+      - Retries multiply through layers, turning degradation into collapse.
+      - Without jitter, backoff preserves the herd it was supposed to break up.
+      - Multiplies user-visible latency unless deadlines are enforced.
+      - Hides a chronically failing dependency behind "it usually works eventually".
+      - Libraries retry silently by default, so the real multiplier is rarely what you think.
+when:
+  note: transient, idempotent, budgeted, jittered — four boxes, and all four must be ticked
+  good:
+    heading: Use it when…
+    items:
+      - The failure is genuinely transient — a timeout, a reset, a failover, a 503.
+      - The operation is idempotent, or carries an idempotency key.
+      - The caller has time left in its deadline for another attempt.
+      - No other layer in the path is already retrying the same thing.
+      - You want to hide a slow replica behind a hedged duplicate request.
+  bad:
+    heading: Avoid it when…
+    items:
+      - The error is deterministic — 400, 404, 422. Use **a clear error response**; retrying changes nothing.
+      - The operation is not safe to repeat. Use **idempotency keys** first, then retry.
+      - The dependency is down rather than flaky. Use **a circuit breaker** and stop calling.
+      - Another layer already retries. Use **that one** and make yours fail fast.
+      - You are overloaded yourself. Use **load shedding** — retries make an overload worse by definition.
+useCases:
+  - title: A database failover
+    body: "The primary fails over and connections drop for four seconds. Three attempts with jittered exponential backoff ride straight through it: users see a slightly slow request instead of an error page, and nothing is paged."
+  - title: A rate-limited partner API
+    body: "The partner returns 429 with `Retry-After: 30`. Honouring the header plus a small random offset means your fleet returns spread across a few seconds rather than all at the thirty-second mark."
+  - title: The outage that scaling made worse
+    body: A dependency degrades, every layer retries, and traffic appears to triple. The team scales up, which adds load to the failing dependency. An attempt-multiplier metric would have shown the "traffic" was their own retries.
+  - title: Double charges from a timeout
+    body: A payment call times out after the charge succeeded but before the response arrived. The retry charges again. An idempotency key on the request would have let the provider recognise the repeat and return the original result.
+  - title: Tail latency on a read path
+    body: p50 is 20 ms and p99 is 400 ms because one replica is slow. Hedging at the p95 and taking the first response cuts p99 to near p50, for about 5% extra load and no error handling at all.
+gotchas:
+  items:
+    - mistake: Backoff without jitter
+      why: A thousand clients fail together and each waits exactly one second, so a thousand retries arrive together. Doubling the delay moves the spike; it never shrinks it.
+      fix: full jitter — `random(0, min(cap, base × 2ⁿ))`. In Polly set `UseJitter = true`; in Tenacity use `wait_random_exponential`.
+    - mistake: Retrying at every layer
+      why: Client, gateway and service each retry three times, so one user action becomes twenty-seven calls at a dependency that is already failing.
+      fix: retry at exactly one layer, and audit the ones you did not write — SDK defaults, mesh policies and database drivers all retry silently.
+    - mistake: Retrying non-idempotent operations
+      why: "A timeout is ambiguous: the work may have completed and only the response been lost. Retrying a payment on a timeout is how customers get charged twice."
+      fix: attach an idempotency key so the server recognises the repeat, or restrict retries to genuinely idempotent operations.
+    - mistake: No retry budget
+      why: An attempt limit bounds one request. When <em>everything</em> is failing, a limit of three still triples the load on the thing that is already on fire.
+      fix: add a budget — retries capped at around 10% of successful traffic. When successes stop, the budget empties and retries stop with it.
+    - mistake: Ignoring the deadline
+      why: Three attempts at a two-second timeout, plus backoff, is a seven-second wait. The user gave up at two and pressed refresh, creating a second request.
+      fix: propagate a deadline and check it before each attempt. Size per-attempt timeouts so attempts plus waits fit inside it.
+    - mistake: Retrying 4xx
+      why: "400, 404 and 422 are deterministic: the same request will fail identically forever. A retry loop on them is indistinguishable from an attack at the receiving end."
+      fix: an explicit allow-list of retryable outcomes. Treat 401 specially — refresh the token once, then give up.
+    - mistake: Invisible retries
+      why: When attempts are not counted separately from requests, a degrading dependency looks like a traffic spike — and the team scales up, feeding the amplification.
+      fix: export the attempt multiplier and alert when it rises above about 1.1. Record the attempt number on trace spans too.
+    - mistake: Retry as a substitute for fixing it
+      why: A dependency that needs three attempts to succeed is broken. Retries hide it until the day they stop being enough.
+      fix: alert on `retries_exhausted` and on a sustained multiplier. A retry policy is a shock absorber, not a repair.
+alternatives:
+  columns:
+    - Approach
+    - Best for
+    - Complexity
+    - Cost / license
+    - Key difference vs retry
+  rows:
+    - self: true
+      cells: [ "**Retry + backoff + jitter**", transient faults, Low, free, — ]
+    - cells:
+        - "**Circuit breaker**"
+        - a dependency that is down, not flaky
+        - Low
+        - free
+        - Stops calling entirely; retry assumes the next attempt may work
+    - cells:
+        - "**Idempotency keys**"
+        - making retries safe at all
+        - Medium
+        - free
+        - A prerequisite rather than an alternative for anything that writes
+    - cells:
+        - "**Queue it**"
+        - work with no user waiting
+        - Medium
+        - a broker
+        - Redelivery is a retry with durability and no user-facing latency
+    - cells:
+        - "**Hedged requests**"
+        - tail latency, not errors
+        - Medium
+        - a few % extra load
+        - Fires on slowness rather than failure; same budget concerns
+    - cells:
+        - "**Failover to a replica**"
+        - one bad instance
+        - Medium
+        - redundancy
+        - Tries somewhere else rather than again; needs health signals
+    - cells:
+        - "**Fail fast and degrade**"
+        - optional dependencies
+        - Low
+        - free
+        - Gives up immediately and serves less; often the kindest option for a user
+  notes:
+    - "**Pick a circuit breaker** once \"transient\" has lasted more than a few seconds — retries past that point are pure harm."
+    - "**Pick idempotency keys** before retrying anything that writes; they are what makes the retry legal."
+    - "**Pick a queue** when nobody is waiting — durable redelivery beats in-process retries every time."
+    - "**Pick failover** when the problem is one instance; retrying the same bad host just wastes the budget."
+    - "**Pick graceful degradation** for optional work: a page without recommendations beats a page that took seven seconds to fail."
+resources:
+  - url: https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
+    title: AWS — Exponential Backoff and Jitter
+    why: the simulations that settled the argument, including decorrelated jitter.
+  - url: https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/
+    title: Amazon Builders' Library — Timeouts, retries and backoff
+    why: how the three fit together in production, with retry budgets.
+  - url: https://sre.google/sre-book/handling-overload/
+    title: Google SRE — Handling Overload
+    why: retry budgets, and why a retrying client is indistinguishable from an attacker.
+  - url: https://www.pollydocs.org/strategies/retry.html
+    title: Polly — Retry strategy
+    why: .NET configuration, including how strategies nest in a pipeline.
+  - url: https://tenacity.readthedocs.io/
+    title: Tenacity
+    why: the Python library, with every wait strategy including full jitter.
+  - url: https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/router_filter#config-http-filters-router-x-envoy-retry-on
+    title: Envoy — retry policies and budgets
+    why: doing it at the proxy, with a fleet-wide budget.

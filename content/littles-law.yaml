@@ -1,0 +1,772 @@
+title: Little's Law
+slug: littles-law
+tagline: How many are inside = how fast they arrive × how long they stay. That's the whole thing.
+asof: Nov 2026 · proved in 1961 and not going to change; the examples are .NET 10 (LTS), PostgreSQL and Prometheus
+description: "Little's Law cheatsheet: L = lambda x W animated from a real queue, the three ways to rearrange it, what it does not tell you about utilisation, and the boundary mistake that makes it look wrong."
+aliases: [ Little's Law, Littles Law, Little law, L = λW ]
+keywords:
+  - littles law
+  - queueing theory
+  - capacity planning
+  - concurrency
+  - throughput
+  - latency
+  - pool sizing
+  - utilisation
+  - performance
+related: [ back-of-the-envelope, percentiles, rate-limiting ]
+overview:
+  - "Three quantities describe any system that things flow through: **L**, how many are inside at once; **λ**, how fast they arrive; and **W**, how long each one stays. Little's Law says they are not independent — `L = λW` — so knowing any two determines the third, always."
+  - "What makes it unusual is how few assumptions it needs. It does not care whether arrivals are smooth or bursty, whether service is fast or slow, whether the queue is FIFO or LIFO or random, or how many servers there are. It is not a model or an approximation: it is an <em>identity</em>, true of any system in steady state. John Little proved it in 1961, and the proof is essentially an accounting argument."
+  - In practice it is the formula behind connection pool sizing, thread pool exhaustion, queue depth alarms, capacity estimates and most "why is this slow?" conversations. It is also one of the most misapplied results in our field — almost always because the person using it has not said <em>which boundary</em> they drew around the system, which is the subject of the fourth animation below.
+architecture:
+  svg: littles-law/architecture.svg
+  alt: Items arriving at rate lambda, spending time W inside a system, leaving at the same rate, with L items inside at any instant
+  caption: The box is yours to draw. Move it and all three numbers change together — which is where almost every misuse of the law begins.
+howItWorks:
+  - md: The first animation shows the identity appearing on its own. The second is the only thing you actually do with it. The third is what it refuses to tell you, and the fourth is the mistake that makes people think it is wrong.
+  - note: it's an identity, not a model — there's nothing to calibrate and nothing to assume
+  - anim:
+      id: anim-law
+      title: 1 · Where `L = λW` comes from
+      svg: littles-law/anim-law.svg
+      alt: Animated queue showing the number in the system settling at arrival rate times time in system
+      steps:
+        - say: "Requests arrive at **100 per second** and each one spends **50 milliseconds** inside. The question Little’s Law answers: how many are in there at any given instant?"
+          hl: [ ll-sys ]
+        - say: Follow one request. It arrives, occupies a slot, and leaves 50 ms later. On its own it tells you nothing about the population.
+          show: [ ll-i1 ]
+          unhl: [ ll-sys ]
+          text:
+            ll-count: L = 1 inside
+            ll-sub: one request, 50 ms from door to door
+        - say: But during those same 50 ms, more keep arriving — at 100 per second, that is one every 10 ms. By the time the first one leaves, four more have joined it.
+          show: [ ll-i2, ll-i3, ll-i4, ll-i5 ]
+          text:
+            ll-count: L = 5 inside
+            ll-dep: 100 / s
+        - say: "And that is the steady state. The first request leaves exactly as a sixth arrives, so the population stops changing: **five**, continuously, with different occupants."
+          text:
+            ll-eq: L = λ × W = 100 × 0.05 = 5
+            ll-sub: one leaves, one arrives — the count holds
+        - say: Now change one thing. The dependency slows down, so each request spends **100 ms** inside instead of 50. Same traffic, nobody sent more.
+          show: [ ll-i6, ll-i7, ll-i8, ll-i9, ll-i10 ]
+          text:
+            ll-w: W = 100 ms
+            ll-count: L = 10 inside
+            ll-eq: L = λ × W = 100 × 0.10 = 10
+            ll-sub: twice the time inside → twice the occupancy
+        - say: Concurrency doubled without the arrival rate moving at all. This is why a service with plenty of CPU still runs out of threads or connections when a dependency gets slow — and it is the whole of animation 2.
+          hl: [ ll-sys ]
+        - say: "Halve the traffic instead and you get the mirror image: 50 per second at 50 ms is 2.5 inside on average. A fractional answer is fine — it is an average over time, not a count you could photograph."
+          hide: [ ll-i4, ll-i5, ll-i6, ll-i7, ll-i8, ll-i9, ll-i10 ]
+          unhl: [ ll-sys ]
+          text:
+            ll-lam: λ = 50 / s
+            ll-w: W = 50 ms
+            ll-dep: 50 / s
+            ll-count: L = 2.5 inside
+            ll-eq: L = λ × W = 50 × 0.05 = 2.5
+        - say: "Notice what we never needed: how arrivals are distributed, how long any individual request took, whether the queue is FIFO or LIFO, or how many servers there are. `L = λW` is an **identity** — true of any system where what goes in comes out. That is why there is nothing to calibrate."
+          show: [ ll-note ]
+          text:
+            ll-sub: true for any stable system, with no assumptions at all
+  - anim:
+      id: anim-solve
+      title: 2 · Three unknowns, one formula
+      svg: littles-law/anim-solve.svg
+      alt: Animated walk-through of solving Little's Law for concurrency, for throughput and for latency
+      steps:
+        - say: One formula, three letters. In practice you always know two of them and want the third — and which one is missing tells you what job you are doing.
+          hl: [ sv-b1, sv-b2, sv-b3 ]
+        - say: "**Solve for L.** You are about to launch: 2,000 queries a second at peak, each taking 40 ms. How many connections do you need?"
+          unhl: [ sv-b2, sv-b3 ]
+          text:
+            sv-t1: λ = 2,000 /s
+            sv-t1b: W = 40 ms
+            sv-r1: L = 80
+            sv-say: pool of 80 minimum — set 100 and leave headroom
+        - say: "That is the most common use of the law, and the reason default pool sizes cause so much trouble: a framework default of 20 would have capped this service at 500 queries a second, discovered live."
+          unhl: [ sv-b1 ]
+        - say: "**Solve for λ.** Now invert it. The pool is fixed at 100 and queries take 20 ms — what can this service actually sustain?"
+          hl: [ sv-b2 ]
+          text:
+            sv-t2: L = 100
+            sv-t2b: W = 20 ms
+            sv-r2: λ = 5,000 /s
+            sv-say: 5,000 queries/s is the ceiling — not a target
+        - say: "Then the dependency degrades to 500 ms. L is still 100, because that is configuration. So λ has nowhere to go but down: **200 a second**. Capacity fell 96% and nothing in your code changed."
+          text:
+            sv-t2b: W = 500 ms (degraded)
+            sv-r2: λ = 200 /s
+            sv-say: same pool, 25× the latency → 96% less throughput
+          fill:
+            sv-b2: "#f9e3df"
+        - say: "**Solve for W.** The form people forget. Your handler’s own timer says 8 ms, but the in-flight gauge reads 200 while you complete 1,000 a second."
+          hl: [ sv-b3 ]
+          unhl: [ sv-b2 ]
+          text:
+            sv-t3: L = 200
+            sv-t3b: λ = 1,000 /s
+            sv-r3: W = 200 ms
+            sv-say: the handler says 8 ms — the law says 200 ms
+          fill:
+            sv-b2: "#fbfcf8"
+        - say: Both numbers are correct. The handler measured <em>service time</em>; the law measured <em>residence time</em>. The 192 ms between them is queueing you are not instrumenting — and it is where the fix is.
+          text:
+            sv-say: 192 ms unaccounted → that is the bug, go and find it
+        - say: So the identity is a constraint, not three independent dials. Halve W and L halves with it. Pin L with a pool and λ becomes whatever W allows. You cannot move one without moving another.
+          show: [ sv-note ]
+          unhl: [ sv-b3 ]
+  - anim:
+      id: anim-saturation
+      title: 3 · What it refuses to tell you
+      svg: littles-law/anim-saturation.svg
+      alt: Animated utilisation curve showing waiting time exploding as utilisation approaches one
+      steps:
+        - say: Here is what Little’s Law will never tell you. It takes W as an <em>input</em> — it has no opinion about where W comes from, or whether the number you fed it is about to change.
+          hl: [ sa-dot ]
+        - say: At **50% utilisation** the server is idle half the time, so an arriving request usually finds it free. Residence time is about twice the service time, and most of that is the service itself.
+          unhl: [ sa-dot ]
+          text:
+            sa-read: ρ = 50% · W = 2 × service time
+            sa-say: the queue is mostly empty
+            sa-l: at λ = 500/s, S = 10 ms → L = 10
+        - say: "At **80%** arrivals start finding the server busy. Waiting begins to dominate: W is now five times the service time, and Little’s Law dutifully reports that you need two and a half times the concurrency you did before."
+          move:
+            sa-dot: [ 207, -46 ]
+          text:
+            sa-read: ρ = 80% · W = 5 × service time
+            sa-say: queueing now dominates the wait
+            sa-l: at λ = 800/s, S = 10 ms → L = 40
+        - say: At **95%** it is twenty times the service time. Nothing got slower — the server is doing exactly the same work per request. There is simply nowhere for arrivals to wait but behind each other.
+          move:
+            sa-dot: [ 327, -136 ]
+          text:
+            sa-read: ρ = 95% · W = 20 × service time
+            sa-say: same service time, twenty times the wait
+            sa-l: W = S / (1 - ρ) — the denominator is the whole story
+        - say: Past **100%** there is no steady state at all. Arrivals exceed departures, the queue grows without bound, W grows with it — and Little’s Law has nothing finite left to describe.
+          show: [ sa-wall ]
+          move:
+            sa-dot: [ 379, -164 ]
+          text:
+            sa-read: ρ ≥ 100% · unstable
+            sa-say: L grows forever; retries make λ worse
+            sa-l: no steady state → no average to compute
+        - say: "Read the curve’s shape rather than its numbers: flat for two thirds of the range, then vertical. That is why a system feels fine at 70% and falls over at 90% — and why \"the CPU is only at 85%\" is not reassuring."
+          show: [ sa-note ]
+        - say: "So the two tools do different jobs. **Little’s Law sizes things**: it will happily tell you that 500/s at 2 s needs 1,000 slots. **The utilisation curve tells you where to stand**: somewhere in the flat part, 50–70%, with more headroom if your traffic is bursty."
+          text:
+            sa-read: size with L = λW · operate on the flat part
+            sa-say: target ρ = 50–70%, lower when traffic is bursty
+            sa-l:  
+  - anim:
+      id: anim-boundary
+      title: 4 · The boundary you forgot to state
+      svg: littles-law/anim-boundary.svg
+      alt: Animated nested boundaries showing different values of L and W for the same system
+      steps:
+        - say: One service, 500 requests a second. Watch what happens to L and W as we move the box — because every one of these answers is correct, and they are all different.
+          hl: [ bd-whole ]
+          text:
+            bd-read: λ = 500 /s through every boundary
+            bd-sub: the rate is shared; nothing else is
+        - say: Draw the box around **the whole request**. W is end-to-end latency, 40 ms, so there are 20 requests in flight at any instant.
+          text:
+            bd-read: "whole request: W = 40 ms → L = 20"
+            bd-sub: this is the number your in-flight gauge reports
+        - say: Now shrink the box to **the pool wait** only. Same 500 a second flowing through, but W is just the 12 ms spent waiting for a connection — so L is 6.
+          hl: [ bd-queue ]
+          unhl: [ bd-whole ]
+          text:
+            bd-read: "pool wait: W = 12 ms → L = 6"
+            bd-sub: 6 requests are queued for a connection right now
+          fill:
+            bd-queue: "#f9e3df"
+        - say: Shrink it again to **the query itself**. W is 8 ms, so L is 4 — four connections are genuinely busy. Note that this L is also just utilisation × pool size, which is a useful cross-check.
+          hl: [ bd-srv ]
+          unhl: [ bd-queue ]
+          text:
+            bd-read: "the query: W = 8 ms → L = 4"
+            bd-sub: 4 connections busy — out of a pool of, say, 20
+          fill:
+            bd-srv: "#e3eedc"
+            bd-queue: "#fbfcf8"
+        - say: "Three boxes, three correct answers: **20, 6 and 4**. The same λ runs through all of them, because everything entering the outer box passes through the inner ones."
+          hl: [ bd-whole, bd-queue, bd-srv ]
+          unhl: [ bd-srv ]
+          text:
+            bd-read: L = 20 · 6 · 4 — all correct, different boxes
+            bd-sub: 12 ms + 8 ms + 20 ms elsewhere = the 40 ms end to end
+        - say: "Here is the mistake, and it is everywhere. Take W from the <em>handler</em> (8 ms, service time) and L from the <em>whole system</em> (20 in flight). Multiply and nothing reconciles: 500 × 0.008 = 4, not 20. The law looks broken."
+          unhl: [ bd-whole, bd-queue ]
+          text:
+            bd-read: "mixing boxes: 500 × 0.008 = 4, but L = 20 ✖"
+            bd-sub: two different boundaries multiplied together
+          fill:
+            bd-whole: "#f9e3df"
+        - say: "It is not broken. The gap <em>is</em> the information: 20 in flight against 4 being served means 16 are waiting, and the 32 ms difference between residence and service time is where your latency lives."
+          hl: [ bd-queue ]
+          text:
+            bd-read: 20 in flight, 4 being served → 16 waiting
+            bd-sub: the discrepancy is the diagnosis, not an error
+          fill:
+            bd-whole: "#fbfcf8"
+        - say: "So: state the boundary, every time. \"100 in flight\" is not a fact until somebody says in flight **where** — and once you say it, the law works at every layer at once and your latency budget adds up."
+          show: [ bd-note ]
+          unhl: [ bd-queue ]
+  - heading: The three forms, side by side
+    id: compare-forms
+  - md: Same identity, rearranged. The middle column is what you are actually asking.
+  - table:
+      columns: [ Form, The question, You measure, Typical use, Where it bites ]
+      rows:
+        - cells:
+            - "`L = λW`"
+            - how many will be in flight?
+            - rate and latency
+            - sizing a connection or thread pool, setting a queue-depth alarm
+            - W must be the <em>full</em> time in your boundary, not service time
+        - cells:
+            - "`λ = L / W`"
+            - what can this sustain?
+            - concurrency limit and latency
+            - capacity from a fixed pool, deciding if a tier needs scaling
+            - gives a ceiling, not a safe operating point — see animation 3
+        - self: true
+          cells:
+            - "`W = L / λ`"
+            - why is it slow?
+            - in-flight count and throughput
+            - finding where time goes when your traces disagree with your dashboards
+            - the one people forget exists
+  - md: |-
+      Three things worth keeping:
+
+      - **The third form is the diagnostic one.** If 200 requests are in flight and you are completing 1,000 a second, then the average request is spending 200 ms inside — no matter what your service's own timer reports. When that number disagrees with your latency dashboard, the gap <em>is</em> the queueing you are not measuring.
+      - **You cannot improve one number in isolation.** Halving latency at constant traffic halves concurrency; holding concurrency while traffic doubles means latency halves or the system is not stable. The identity is a constraint, not a dial.
+      - **Little's Law sizes things; it does not tell you where to stop.** It will happily tell you that 500 req/s at 2 s latency needs 1,000 concurrent slots. Whether you should ever operate there is the question animation 3 answers, and the answer is no.
+concepts:
+  - term: L, lambda, W
+    short: "The three quantities: items inside, arrival rate, time inside. Fix any two and the third is determined."
+    see: [ the boundary, steady state, units ]
+    detail: |-
+      Everything on this page is about these three letters and the fact that they are not free to move independently.
+
+      | Symbol | Is | Measured in | In your system |
+      | --- | --- | --- | --- |
+      | **L** | average number in the system | items (dimensionless) | in-flight requests, busy connections, queue depth |
+      | **λ** | average arrival rate | items per second | requests/s, queries/s, messages/s |
+      | **W** | average time an item spends inside | seconds | latency, residence time, time-in-queue |
+
+      All three are **averages over the same window**. That sounds pedantic and is the source of most arithmetic that does not reconcile: a λ taken over five minutes and a W taken over the last ten seconds will not multiply to the L you measured at this instant.
+
+      And all three are **means**, which is why this page and the percentiles page pull in opposite directions. Little's Law is exact about averages and says nothing whatsoever about your p99. A system can satisfy `L = λW` perfectly while a tenth of its users are having an unacceptable time.
+  - term: steady state
+    short: "The one precondition: over the window you measure, as many items leave as arrive. Without it there is no stable L to talk about."
+    see: [ L, lambda, W, instability, measurement window ]
+    detail: |-
+      Little's Law needs remarkably little, but it does need this. If arrivals exceed departures the population grows without bound, and an "average number in the system" over a growing quantity is not a meaningful number.
+
+      | Condition | Status |
+      | --- | --- |
+      | Arrivals ≈ departures over the window | the law applies exactly |
+      | Arrivals > departures | unstable — L grows, W grows, no steady state |
+      | Arrivals < departures | draining; fine once it settles |
+      | Bursty but balanced over the window | **applies** — burstiness is irrelevant to the identity |
+
+      Note what is <em>not</em> required: no assumption about the arrival distribution, the service time distribution, the number of servers, or the queue discipline. FIFO, LIFO, priority, random — the law does not care. That is what makes it an identity rather than a model, and why it needs no calibration.
+
+      In practice "steady state" means: pick a window long enough that start-up and drain effects wash out. For a web service a few minutes is usually plenty; for a batch pipeline it may be a whole run.
+  - term: the boundary
+    short: The box you draw around "the system". Move it and all three numbers change — which is why an unstated boundary makes the law look broken.
+    see: [ L, lambda, W, nesting, service time vs residence time ]
+    detail: |-
+      The law holds for <em>any</em> boundary you care to draw, and it holds separately for each one. The mistake is mixing numbers from different boxes.
+
+      | Boundary | L is | W is |
+      | --- | --- | --- |
+      | The whole request | in-flight requests | end-to-end latency |
+      | Just the queue | queue depth | waiting time only |
+      | Just the servers | busy servers | service time only |
+      | The connection pool | checked-out connections | checkout-to-return time |
+      | A downstream call | outstanding calls | that call's latency |
+
+      One quantity is shared: in steady state **λ is the same through every nested boundary**, because everything that enters the outer box also passes through the inner ones. That is what lets you chain the law across layers.
+
+      So the discipline is one sentence long: say which box you mean, every time. "We have 100 in flight" is not a fact until somebody says in flight <em>where</em>.
+  - term: service time vs residence time
+    short: W is the whole time inside the boundary — waiting plus being served. Substituting service time is the most common error.
+    see: [ the boundary, utilisation, pool sizing ]
+    detail: |-
+      Your service's own stopwatch usually starts when a handler begins and stops when it returns. That is **service time**. The request was in your system before that: in the accept queue, waiting for a thread, waiting for a connection.
+
+      ```
+      residence time W  =  waiting time Wq  +  service time S
+      ```
+
+      | If you use | You get |
+      | --- | --- |
+      | S, but L from the whole system | numbers that do not reconcile; you conclude the law is wrong |
+      | S, consistently, with servers-only L | correct — and L is then just utilisation × servers |
+      | W end to end, with in-flight L | correct, and the one you usually want |
+
+      The gap between the two is the single most useful diagnostic on this page. If end-to-end W is 200 ms and your handler reports 8 ms, then 192 ms is queueing somewhere you are not instrumenting — and that is where the fix is.
+  - term: utilisation
+    short: ρ = λ/μ, the fraction of capacity in use. Little's Law does not mention it, and that omission is the point.
+    see: [ the latency wall, steady state, headroom ]
+    detail: |-
+      μ is the service rate — how many items a server could finish per second if never idle. ρ is how much of that you are using.
+
+      | ρ | What it feels like |
+      | --- | --- |
+      | < 50% | queue mostly empty, W ≈ service time |
+      | 70% | queueing becomes visible in the tail |
+      | 85% | W is several times service time; p99 is much worse |
+      | 95% | W is around 20× service time for a simple queue |
+      | ≥ 100% | unstable: the queue grows until something sheds it |
+
+      For a single-server queue with exponential service, `W = S / (1 − ρ)`. That denominator is the whole story: it is why the last 10% of capacity costs more than the first 70%.
+
+      Little's Law is perfectly happy at ρ = 0.99 — it will multiply your enormous W by your λ and hand you an enormous L. It is an identity, so it cannot warn you. The warning has to come from the utilisation curve.
+  - term: the latency wall
+    short: As utilisation approaches 1, waiting time rises hyperbolically. Nothing got slower; there is simply nowhere for arrivals to go.
+    see: [ utilisation, variability, headroom ]
+    detail: |-
+      The shape matters more than the formula. Latency is nearly flat for most of the range and then goes vertical, which is why systems feel fine right up until they do not.
+
+      | ρ | W as a multiple of service time | Add 10% traffic and W becomes |
+      | --- | --- | --- |
+      | 0.5 | 2× | 2.2× |
+      | 0.7 | 3.3× | 4.2× |
+      | 0.8 | 5× | 7.7× |
+      | 0.9 | 10× | 50× |
+      | 0.95 | 20× | unstable |
+
+      Read the last column. At 50% utilisation a traffic bump is a rounding error; at 90% the same bump is an incident. This is the real argument for the headroom numbers on the back-of-the-envelope page, and it is why "the CPU is only at 85%" is not the reassurance it sounds like.
+
+      It is also why autoscaling thresholds belong in the flat part of the curve. By the time a metric shows you are on the steep part, the queue has already grown and the new capacity arrives late.
+  - term: variability
+    short: Bursty arrivals or uneven service times move the wall closer. Kingman's formula puts a number on it.
+    see: [ the latency wall, utilisation, measurement window ]
+    detail: |-
+      Little's Law ignores variability entirely — correctly, because it is an identity. But what <em>causes</em> W is extremely sensitive to it.
+
+      ```
+      Wq  ≈  (ρ / (1 - ρ))  ×  ((ca² + cs²) / 2)  ×  S
+      ```
+
+      The middle term is the variability penalty: `ca` and `cs` are the coefficients of variation of arrivals and of service time. With perfectly regular arrivals and constant service both are 0 and there is no queueing at all below ρ = 1. With exponential arrivals and service both are 1, the term is 1, and you get the familiar curve.
+
+      | Situation | Effect |
+      | --- | --- |
+      | Bursty traffic (ca > 1) | queueing at much lower utilisation |
+      | Mixed cheap and expensive requests (cs > 1) | same — one slow request parks the server |
+      | Smoothing arrivals (a leaky bucket) | lowers ca, buys back utilisation |
+      | Splitting slow work onto its own pool | lowers cs for the fast path |
+
+      This is the theory behind two practices that otherwise look unrelated: rate limiting with a leaky bucket, and giving expensive endpoints their own thread pool. Both are attacks on variability rather than on load.
+  - term: pool sizing
+    short: "The main thing people use the law for: how many connections, threads or permits you need to carry a given rate at a given latency."
+    see: [ L, lambda, W, thread starvation, headroom ]
+    detail: |-
+      The arithmetic is one line; the judgement is in what you put in it.
+
+      ```
+      connections = queries_per_second × seconds_per_query
+                  = 2000 × 0.040
+                  = 80          → a pool of 100 leaves headroom
+      ```
+
+      | Rate | Query time | Minimum pool |
+      | --- | --- | --- |
+      | 500 /s | 10 ms | 5 |
+      | 2,000 /s | 40 ms | 80 |
+      | 2,000 /s | 200 ms | 400 — and now the database is the problem |
+      | 10,000 /s | 5 ms | 50 |
+
+      Two refinements that matter. Size for **peak** λ, not average — a 3× daily peak means a 3× pool or a queue at the peak. And use the latency you expect <em>under load</em>, not the one you measured on an idle box, or you will size the pool for a world that only exists at 3am.
+
+      Bigger is not safer. An oversized pool lets your service push more concurrent work at a database that cannot take it, converting a polite queue in your application into a slow one in the database. The pool is a **concurrency limit**, and that is a feature.
+  - term: thread starvation
+    short: "What happens when W grows and the pool is fixed: the pool fills, arrivals queue outside it, and the whole service stalls on one slow dependency."
+    see: [ pool sizing, the latency wall, the boundary ]
+    detail: |-
+      This is Little's Law as a failure mode. The pool size L is fixed by configuration, so when W rises, λ must fall — the identity has no other option.
+
+      ```
+      pool = 100 connections
+      normal:    λ = 100 / 0.020 =  5,000 req/s
+      degraded:  λ = 100 / 0.500 =    200 req/s     ← the dependency slowed 25×
+      ```
+
+      Nothing about your service changed. Its capacity fell by 96% because a downstream call went from 20 ms to 500 ms, and your pool arithmetic followed the identity down.
+
+      | Symptom | What it means |
+      | --- | --- |
+      | Pool at 100% checked out, CPU low | you are waiting, not working |
+      | Throughput collapses, latency climbs | classic L-fixed, W-rising |
+      | Timeouts cluster at the pool-wait timeout | the queue outside the pool is the bottleneck |
+
+      The defences are all about not letting W run away: aggressive timeouts, circuit breakers, bulkheads so one dependency cannot consume the whole pool, and shedding load rather than queueing it.
+  - term: nesting
+    short: The law applies at every layer at once, and λ is shared between them. That is what makes a latency budget add up.
+    see: [ the boundary, pool sizing, service time vs residence time ]
+    detail: |-
+      Because every request that enters the outer boundary passes through the inner ones, the same λ flows through all of them — so the L values add up in a way you can budget with.
+
+      | Layer | W | L at λ = 500 /s |
+      | --- | --- | --- |
+      | Whole request | 40 ms | 20 |
+      | — pool wait | 12 ms | 6 |
+      | — the query | 8 ms | 4 |
+      | — everything else (CPU, serialisation) | 20 ms | 10 |
+
+      The inner W values sum to the outer W, and so the inner L values sum to the outer L. That gives you a direct way to find where the in-flight work actually sits: instrument each layer, multiply by the shared λ, and the layer with the largest L is where your concurrency is going.
+
+      It also explains fan-out. If one request makes three parallel downstream calls, the downstream boundary sees λ = 1,500 /s even though your service sees 500 /s — the rates differ because the <em>boundary</em> differs, not because something is wrong.
+  - term: measurement window
+    short: All three quantities must come from the same interval, long enough for start-up and drain to wash out.
+    see: [ steady state, L, lambda, W ]
+    detail: |-
+      Most "Little's Law doesn't work here" reports are a window problem.
+
+      | Mistake | Effect |
+      | --- | --- |
+      | Instantaneous L, 5-minute λ | L jumps around; the product never matches |
+      | Window shorter than W | most items neither arrive nor leave inside it |
+      | Window spanning a deploy or a scale-out | two different systems averaged together |
+      | Window including a drain | departures exceed arrivals; not steady state |
+
+      Rule of thumb: the window should be at least ten times W, and should not contain a change in the system. For a 40 ms service that means anything from a few seconds up; for a batch job with a 2-hour residence time it means days.
+
+      Prometheus makes this easy to get right by accident and easy to get wrong on purpose: use the same `rate()` interval for λ and for the histogram you derive W from, and take L from a gauge averaged over the same interval.
+  - term: WIP limits
+    short: "The same identity outside software: cap work in progress and cycle time falls, because λ is fixed by demand."
+    see: [ pool sizing, the latency wall, L, lambda, W ]
+    detail: |-
+      Kanban's central claim is Little's Law rearranged. With throughput set by how fast the team actually finishes things, `W = L / λ` says the only lever you control directly is L.
+
+      | WIP (L) | Throughput (λ) | Cycle time (W) |
+      | --- | --- | --- |
+      | 30 items | 5 / week | 6 weeks |
+      | 15 items | 5 / week | 3 weeks |
+      | 5 items | 5 / week | 1 week |
+
+      Starting more work does not make the team finish faster; it just increases L, and W rises to match. The counter-intuitive consequence — that limiting WIP shortens delivery time without anyone working harder — is the identity, not a management theory.
+
+      The same argument applies to an incident queue, a code review backlog, or a support rota. If you want things to come out faster and λ is fixed by capacity, the only honest move is to put fewer in.
+  - term: units
+    short: Carry the units through. If they do not cancel to "items", you have mixed two boundaries or two windows.
+    see: [ L, lambda, W, measurement window ]
+    detail: |-
+      The cheapest error check on this page, and it catches the boundary mistakes too.
+
+      ```
+      L  =  λ            ×  W
+            [items/s]       [s]        =  [items]          ✓
+
+            [items/min]     [s]        =  nonsense         ✗  mixed units
+            [items/s]       [ms]       =  1000× too big    ✗  classic
+      ```
+
+      | Common slip | Fix |
+      | --- | --- |
+      | λ per minute, W in seconds | convert λ to per-second first |
+      | W in milliseconds | divide by 1,000 — or expect a 1000× answer |
+      | λ counted per <em>user</em> rather than per request | pick one item type and stay with it |
+
+      The "one item type" rule is worth stating explicitly. If λ is page views and W is the time of an API call, the product is not anything. The item flowing in must be the same kind of item whose residence time you measured.
+  - term: instability
+    short: When arrivals exceed departures there is no steady state, L grows without bound, and the law has nothing to describe.
+    see: [ steady state, the latency wall, headroom ]
+    detail: |-
+      The identity does not break — it simply has no finite average to be about. What happens instead is mechanical and always the same.
+
+      | Stage | What you see |
+      | --- | --- |
+      | λ creeps above μ | queue depth starts climbing and never comes back down |
+      | L grows linearly with time | memory for queued work grows too |
+      | W grows linearly | timeouts begin firing for the oldest items |
+      | Clients retry | λ <em>increases</em> — the feedback loop that turns a blip into an outage |
+
+      The important detail is the last row: retries make an overloaded system more overloaded, which is why the rate limiting page insists on backoff with jitter and on shedding rather than queueing.
+
+      The only cures are the three that reduce λ or raise μ: shed load, add capacity, or make the work cheaper. A bigger queue is not a cure — it just converts a fast failure into a slow one, with the same ending.
+  - term: headroom
+    short: The gap between λ and μ. Little's Law tells you what you need; headroom is what keeps W off the wall.
+    see: [ the latency wall, utilisation, pool sizing ]
+    detail: |-
+      Having sized a pool or a fleet with the law, the follow-up question is where on the utilisation curve you intend to sit.
+
+      | Target ρ | Suitable for |
+      | --- | --- |
+      | 30–50% | bursty traffic, slow-scaling tiers, anything where a failover doubles a neighbour's load |
+      | 50–70% | ordinary stateless services — the usual default |
+      | 70–80% | smooth, well-understood, fast-autoscaling workloads |
+      | > 85% | batch work that can wait, and nothing a user is waiting for |
+
+      These are the same numbers as on the back-of-the-envelope page, and now you can see where they come from: they are the region where `1/(1−ρ)` is still small enough that a traffic bump costs you a little latency rather than an incident.
+
+      Lower the target when variability is high. Kingman's middle term scales the whole curve, so bursty arrivals mean the wall arrives at a utilisation you would otherwise have considered comfortable.
+  - term: measurement
+    short: How to actually get λ, W and L out of a running system, and how to use the law to check your instrumentation.
+    see: [ measurement window, units, the boundary ]
+    detail: |-
+      Two of the three are usually easy; the third is the one worth deriving as a cross-check.
+
+      | Quantity | Where it comes from |
+      | --- | --- |
+      | λ | a request counter, `rate(requests_total[5m])` |
+      | W | a duration histogram — but use the **mean**, not p99 |
+      | L | an in-flight gauge, or a pool's active-connection metric |
+
+      The trick: measure all three, then check that `L = λW`. If it does not hold, one of your three metrics is lying, and the law has just found a bug in your instrumentation. Common culprits are an in-flight gauge that is not decremented on the error path, a histogram that excludes queue time, and a counter that misses rejected requests.
+
+      The one that catches people out: a duration histogram's **mean** is `rate(sum) / rate(count)`, not `histogram_quantile(0.5, …)`. Little's Law wants the mean. The percentiles page explains why those two numbers are usually far apart.
+commands:
+  heading: Essential formulas & numbers
+  tocLabel: Formulas
+  groups:
+    - group: The law, and the two things it does not say
+      items:
+        - code: |-
+            L = λ × W                      # items inside = arrival rate × time inside
+            λ = L / W                      # the sustainable rate from a fixed pool
+            W = L / λ                      # where the time is actually going
+          what: "One identity, three rearrangements. Carry the units: per-second with seconds, never with milliseconds."
+        - code: |-
+            ρ = λ / μ                      # utilisation: arrival rate over service rate
+            W = S / (1 - ρ)                # simple queue: residence time vs service time S
+          what: Little's Law never mentions ρ. This is what tells you where W comes from and why the last 10% of capacity is so expensive.
+        - code: Wq ≈ (ρ / (1 - ρ)) × ((ca² + cs²) / 2) × S
+          what: "Kingman: the middle term is the variability penalty. Bursty arrivals move the wall to a lower utilisation."
+    - group: Sizing things
+      items:
+        - code: |-
+            connections = peak_qps × seconds_per_query
+                        = 2000 × 0.040 = 80        → pool of 100
+          what: Use peak rate and the latency you see <em>under load</em>, not the one from an idle box.
+        - code: |-
+            threads = peak_rps × seconds_per_request
+                    = 500 × 0.200 = 100            → and ask why W is 200 ms
+          what: A large answer here is usually a signal to fix W rather than to raise the limit.
+        - code: |-
+            max_sustainable_rps = pool_size / seconds_per_request
+                                = 100 / 0.020 = 5000     # and 100 / 0.5 = 200 when it degrades
+          what: The ceiling a fixed pool imposes. Watch what a 25× latency regression does to it.
+        - code: workers = backlog / (throughput_per_worker × target_seconds)
+          what: The same identity for draining a queue by a deadline, rather than holding a steady state.
+    - group: Measuring it with Prometheus
+      items:
+        - lang: promql
+          code: sum(rate(http_requests_total[5m]))
+          what: λ. Count everything that entered the boundary, including requests that ended in an error.
+        - lang: promql
+          code: |-
+            sum(rate(http_request_duration_seconds_sum[5m]))
+              / sum(rate(http_request_duration_seconds_count[5m]))
+          what: W, as the <em>mean</em>. Not `histogram_quantile` — Little's Law is about averages.
+        - lang: promql
+          code: avg_over_time(http_requests_in_flight[5m])
+          what: L. Same window as the other two, or the arithmetic will not reconcile.
+        - lang: promql
+          code: |-
+            # the instrumentation check: this should sit very close to 1
+            sum(rate(http_requests_total[5m]))
+              * (sum(rate(http_request_duration_seconds_sum[5m])) / sum(rate(http_request_duration_seconds_count[5m])))
+              / avg_over_time(http_requests_in_flight[5m])
+          what: If λW / L drifts from 1, one of the three metrics is wrong. The law makes a decent unit test for your telemetry.
+    - group: In .NET
+      items:
+        - code: |-
+            // the pool is a concurrency limit, and that is the point
+            "ConnectionStrings:Default": "Host=db;Maximum Pool Size=100;Timeout=3"
+          what: L is capped here. When W rises, λ falls — the identity has no other option.
+        - lang: csharp
+          code: |-
+            static readonly UpDownCounter<int> InFlight =
+                Meter.CreateUpDownCounter<int>("http.server.active_requests");
+
+            InFlight.Add(1);
+            try { await next(ctx); } finally { InFlight.Add(-1); }   // the finally is the whole point
+          what: Measuring L. A gauge that is not decremented on the error path is the most common reason the law "fails".
+        - lang: python
+          code: |-
+            from prometheus_client import Gauge
+
+            IN_FLIGHT = Gauge("http_requests_in_flight", "L — requests inside the system")
+
+            @IN_FLIGHT.track_inprogress()        # increments on entry, decrements on exit
+            async def handle(request):
+                return await do_work(request)
+
+            # then, from your own telemetry:
+            concurrency = qps * seconds_per_request        # L = λW
+            pool_size   = ceil(peak_qps * p99_seconds)     # size for the peak, not the mean
+            max_rps     = pool_size / seconds_per_request  # what that pool can actually sustain
+          what: L is the term people forget to measure. `track_inprogress` gives it to you directly, and the three sizing lines follow from it.
+        - lang: csharp
+          code: |-
+            builder.Services.AddRateLimiter(o => o.AddConcurrencyLimiter("db", opt =>
+            {
+                opt.PermitLimit = 80;          // L, chosen with the law
+                opt.QueueLimit  = 20;          // a bounded queue, so W cannot run away
+            }));
+          what: Capping L deliberately instead of discovering it by exhausting a pool.
+    - group: Numbers worth remembering
+      items:
+        - code: |-
+            ρ = 0.5  → W ≈ 2 × S          ρ = 0.9  → W ≈ 10 × S
+            ρ = 0.8  → W ≈ 5 × S          ρ = 0.95 → W ≈ 20 × S
+          what: The shape of the wall. Flat for most of the range, then vertical.
+        - code: 1 request in flight  = 1 req/s × 1 s  = 1000 req/s × 1 ms
+          what: "The sanity anchor: one unit of concurrency buys a thousand requests per second only if each takes a millisecond."
+prosCons:
+  good:
+    heading: What it gives you
+    items:
+      - An exact relationship, not an approximation — no distribution to assume and nothing to calibrate.
+      - Pool and thread sizing in one multiplication, from numbers you already have.
+      - A way to find queueing you are not instrumenting, by comparing end-to-end W with service time.
+      - "A unit test for your telemetry: if `λW ≠ L`, one of the three metrics is wrong."
+      - It explains thread starvation and WIP limits with the same line of arithmetic.
+      - It works at every layer at once, so latency budgets actually add up.
+  bad:
+    heading: What it will not do
+    items:
+      - It says nothing about utilisation, so it cannot tell you where to stop.
+      - It is about means only — your p99 is invisible to it.
+      - It needs steady state, so it describes nothing during an overload.
+      - "It predicts no latency: W is an input, never an output."
+      - Mixing boundaries or windows produces confident nonsense.
+      - It cannot tell you <em>why</em> W is what it is; that needs queueing theory or a profiler.
+when:
+  note: If you know two of the three, you already know the third — whether or not you've measured it.
+  good:
+    heading: Reach for it when…
+    items:
+      - You need to size a connection pool, thread pool or concurrency limit.
+      - Your in-flight count and your latency dashboard disagree.
+      - Throughput collapsed and nothing in the service changed.
+      - You want to know where in-flight work is actually sitting, layer by layer.
+      - You need to sanity-check latency, throughput and concurrency metrics against each other.
+      - You are arguing about work in progress, queue depth or batch size.
+  bad:
+    heading: Don't lean on it when…
+    items:
+      - The system is overloaded. There is no steady state — use **load shedding**, then measure.
+      - You care about the tail. It is an average; use **percentiles**.
+      - You want to predict latency from load. W is an input — use **queueing theory** or a load test.
+      - You need the effect of variability. Use **Kingman's formula**.
+      - The workload is a mix of very different items. Split it and apply the law per class.
+      - You cannot state the boundary. Fix that first, or the arithmetic is meaningless.
+useCases:
+  - title: Sizing a connection pool before launch
+    body: A service expects 2,000 queries/s at peak with 40 ms queries. The law gives 80 concurrent connections, so the pool is set to 100. Without it the team would have copied the framework default of 20 and discovered the ceiling — 500 queries/s — during the launch, as timeouts.
+  - title: Diagnosing a latency mystery
+    body: Dashboards show a handler averaging 8 ms, yet users report slow pages. The in-flight gauge reads 200 and throughput is 1,000/s, so `W = 200/1000 = 200 ms`. The 192 ms gap is connection-pool wait that nothing was measuring, and the fix is the pool, not the query.
+  - title: Explaining a capacity collapse
+    body: A downstream dependency degrades from 20 ms to 500 ms. The pool of 100 is fixed, so sustainable throughput falls from 5,000/s to 200/s — a 96% loss with no change to the service itself. The law turns an inexplicable outage into one line of arithmetic, and points at timeouts and bulkheads as the fix.
+  - title: Draining a backlog by a deadline
+    body: Four million queued messages must clear in two hours. One worker handles 50/s, so one worker clears 360,000 in that window and twelve are needed. The law sizes the fleet; the utilisation curve then says to provision fifteen so the workers are not running at 100%.
+  - title: Setting a WIP limit on a team board
+    body: A team finishes five stories a week with thirty in progress, so cycle time is six weeks. Capping WIP at ten changes nothing about how fast anyone works, but cycle time falls to two weeks — and the argument for the cap is an identity rather than an opinion.
+gotchas:
+  items:
+    - mistake: Using service time as W
+      why: The handler reports 8 ms, so 8 ms goes into the formula — but L was measured across the whole system, including everything waiting for a thread or a connection. The numbers do not reconcile and the law gets blamed.
+      fix: W is the <em>entire</em> time inside the boundary you drew, waiting included. If you want to use service time, measure L at the servers only — and then L is just utilisation × server count.
+    - mistake: Not stating the boundary at all
+      why: "\"We have 100 in flight\" — in the service, in the pool, in the database, or across all three? Each is a different L with a different W, and mixing two of them produces a confident wrong answer."
+      fix: name the box every time, and remember λ is the only quantity shared between nested boundaries. Write the boundary down next to the number on the dashboard.
+    - mistake: Mixing units
+      why: λ in requests per second and W in milliseconds gives an L that is a thousand times too large, and it looks plausible enough to act on.
+      fix: convert everything to seconds first and carry the units through the multiplication. If they do not cancel to plain items, stop.
+    - mistake: Applying it during an overload
+      why: The system is unstable, the queue is growing, and somebody divides the current L by the current λ to get a W that describes nothing. Both numbers are moving and there is no steady state.
+      fix: establish stability first — shed load, add capacity or slow the arrivals. Then measure over a window where arrivals and departures balance.
+    - mistake: Using a percentile for W
+      why: p99 latency goes into the formula because that is what the dashboard shows. The result overstates concurrency badly, because the mean and the p99 of a long-tailed distribution are nowhere near each other.
+      fix: use the mean — `rate(duration_sum) / rate(duration_count)`. If you want to size for the tail, that is a different and harder question than this identity answers.
+    - mistake: Sizing a pool with idle-box latency
+      why: The query takes 8 ms on a quiet machine, so the pool is sized for 8 ms. Under real load it takes 40 ms, the pool is five times too small, and the service hits its ceiling at a fifth of the expected throughput.
+      fix: measure W at the load you are sizing for, from a load test or production. Latency and utilisation move together, which is exactly what animation 3 is about.
+    - mistake: Treating a big L as the answer
+      why: The arithmetic says 400 concurrent connections, so the pool is set to 400. The application now pushes 400 concurrent queries at a database that was already the bottleneck, turning a queue in the app into a slower one in the database.
+      fix: when L comes out large, treat it as a signal to reduce W. A pool is a concurrency limit protecting the thing behind it, and raising it rarely creates capacity that was not there.
+    - mistake: Forgetting the `finally` on the in-flight gauge
+      why: L is incremented on entry and decremented on the happy path only. Every error leaks a count, the gauge drifts upward forever, and the law appears to break a few hours after deploy.
+      fix: decrement in a `finally`, and alert when `λW / L` drifts away from 1 — it is a cheap, continuous check on your instrumentation.
+alternatives:
+  columns: [ Tool, Answers, Needs, Effort, Key difference vs Little's Law ]
+  rows:
+    - self: true
+      cells:
+        - "**Little's Law**"
+        - how L, λ and W constrain each other
+        - any two of the three
+        - Seconds
+        - —
+    - cells:
+        - "**Utilisation curve** (M/M/1)"
+        - how W grows with load
+        - service rate and arrival rate
+        - Minutes
+        - Predicts W instead of taking it as input; assumes a distribution
+    - cells:
+        - "**Kingman's formula**"
+        - how variability moves the wall
+        - also the coefficients of variation
+        - Minutes
+        - Adds the burstiness term the simple curve ignores
+    - cells:
+        - "**Erlang C**"
+        - how many servers for a wait target
+        - arrival rate, service time, target
+        - Minutes
+        - Sizes multi-server systems against a service-level goal
+    - cells:
+        - "**Universal Scalability Law**"
+        - why throughput stops scaling with capacity
+        - measurements at several sizes
+        - Hours
+        - Models contention and coherency; about scaling, not about flow
+    - cells:
+        - "**Load testing**"
+        - what actually happens
+        - a realistic test harness
+        - Days
+        - Measures rather than derives; catches what no formula models
+    - cells:
+        - "**Discrete-event simulation**"
+        - complex, interacting queues
+        - a model and its parameters
+        - Weeks
+        - Handles systems no closed form covers; as good as the model
+  notes:
+    - "**Start with Little's Law** for anything about pools, concurrency or in-flight work. It is one multiplication and needs no assumptions."
+    - "**Add the utilisation curve** the moment the question becomes \"how hard can we push this\", because the law will not warn you."
+    - "**Reach for Kingman** when traffic is bursty or request costs vary wildly — the simple curve will be optimistic."
+    - "**Use Erlang C** when the goal is a wait-time target across many servers, as in a worker fleet or a support rota."
+    - "**Load test** before committing. Every formula here assumes something; a test is the only thing that measures."
+resources:
+  - url: https://www.jstor.org/stable/167570
+    title: Little (1961) — A Proof for the Queuing Formula L = λW
+    why: the original paper, and shorter than you expect.
+  - url: https://web.mit.edu/sgraves/www/papers/Little's%20Law-Published.pdf
+    title: Little & Graves — Little's Law
+    why: the authors' own retrospective chapter, with the assumptions stated plainly and worked examples.
+  - url: https://aws.amazon.com/builders-library/using-load-shedding-to-avoid-overload/
+    title: AWS Builders' Library — Using load shedding to avoid overload
+    why: what to do when the steady-state assumption fails.
+  - url: https://www.infoq.com/presentations/latency-pitfalls/
+    title: Gil Tene — How NOT to measure latency
+    why: why the mean that Little's Law needs is not the latency you should report to users.
+  - url: https://github.com/brendangregg/perf-tools
+    title: Brendan Gregg — the USE method and performance tools
+    why: utilisation, saturation and errors as the practical companion to this arithmetic.
+  - url: https://www.goodreads.com/book/show/17255186-the-phoenix-project
+    title: WIP limits in practice
+    why: the Kanban framing of the same identity, for the non-software half of the idea.

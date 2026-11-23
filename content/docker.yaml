@@ -1,0 +1,594 @@
+title: Docker
+slug: docker
+tagline: Package an app with everything it needs, then run it the same way on any machine.
+asof: Nov 2026 · Docker Engine 29.x
+description: "Docker cheatsheet: architecture, animated docker run and build-cache walk-throughs, key concepts, commands, trade-offs and alternatives."
+aliases: [ Docker ]
+keywords:
+  - containers
+  - container runtime
+  - images
+  - dockerfile
+  - devops
+  - docker compose
+  - oci
+  - podman
+related: [ kubernetes ]
+overview:
+  - "\"It works on my machine\" happens because apps depend on things outside their code: a language runtime, system libraries, config files, environment variables. Docker packages all of that into an **image**, a read-only snapshot of a filesystem plus the command to start. The same image runs identically on a laptop, a CI runner and a production server."
+  - "A **container** is a running instance of an image. It is not a virtual machine: it is an ordinary Linux process that the kernel isolates with namespaces (its own process tree, network and filesystem view) and limits with cgroups (CPU and memory). Containers share the host kernel, so they start in milliseconds and use far less memory than VMs."
+  - Docker popularised containers in 2013 and today the image format and runtime are open standards (OCI). Developers use Docker Engine on Linux or Docker Desktop on Windows and macOS, push images to registries like Docker Hub, and run them in production on orchestrators such as Kubernetes. Docker Engine is open source (Apache 2.0); Docker Desktop is free for personal use and small businesses, and paid for larger companies.
+architecture:
+  svg: docker/architecture.svg
+  alt: Clients talk to the Docker daemon, which uses containerd and runc to run containers from local images pulled from a registry
+  caption: The CLI is only a remote control. The daemon stores images, and each container is just an isolated process running from an image plus a thin writable layer.
+howItWorks:
+  - anim:
+      id: anim-run
+      title: What happens on `docker run -p 8080:80 nginx`
+      svg: docker/anim-run.svg
+      alt: Animated walk-through of docker run
+      steps:
+        - say: "You type `docker run -p 8080:80 nginx`. The CLI does almost nothing itself: it sends the request to the Docker daemon over its REST API."
+          show: [ d-cmd ]
+          hl: [ d-cli ]
+        - say: "`dockerd` receives it. First question: is the image `nginx:latest` already on this machine?"
+          hl: [ d-daemon ]
+          unhl: [ d-cli ]
+          move:
+            d-cmd: [ 180, 0 ]
+          text:
+            d-daemon-l: need nginx:latest
+        - say: It checks the local image store. Not found, so it has to download it.
+          hl: [ d-img ]
+          text:
+            d-img-t: nginx? not found
+        - say: The daemon pulls the image from Docker Hub. An image is a stack of read-only **layers**; any layer already present locally (from another image) is skipped.
+          show: [ d-layers ]
+          hl: [ d-reg ]
+          unhl: [ d-img ]
+          text:
+            d-daemon-l: pulling 3 layers
+        - say: The layers are unpacked into the local store. The next `docker run nginx` starts instantly, with no download.
+          unhl: [ d-reg ]
+          move:
+            d-layers: [ 0, 80 ]
+          text:
+            d-img-t: nginx:latest ✓
+        - say: "containerd and runc create the container: the image layers, read-only, plus a thin **writable layer** on top. Files the app changes go there, and vanish when the container is removed."
+          show: [ d-ctr, d-ctr-title, d-img-l, d-rw ]
+          hide: [ d-layers ]
+          unhl: [ d-daemon ]
+          text:
+            d-daemon-l: creating container
+            d-img-t: nginx, python, redis
+        - say: "The kernel isolates it with **namespaces** (own process tree, network and mounts) and limits it with **cgroups**. There is no VM and no guest kernel: it's a fenced-off process on the host."
+          show: [ d-ns, d-cg ]
+        - say: nginx starts as **PID 1** inside the container, and Docker forwards host port 8080 to container port 80. The whole thing took well under a second.
+          show: [ d-proc, d-port ]
+          text:
+            d-daemon-l: running ✓
+        - say: Open `http://localhost:8080` and nginx answers. `docker stop` ends the process; `docker rm` deletes the writable layer, so use volumes for data you want to keep.
+          show: [ d-note ]
+  - anim:
+      id: anim-build
+      title: How layers and the build cache work
+      svg: docker/anim-build.svg
+      alt: Animated walk-through of Dockerfile instructions becoming cached image layers
+      steps:
+        - say: "`docker build` runs the Dockerfile top to bottom. `FROM` starts from the base image's layers."
+          show: [ b-g1 ]
+          hl: [ b-l1 ]
+        - say: "`WORKDIR` creates a tiny layer that sets the working directory."
+          show: [ b-g2 ]
+          hl: [ b-l2 ]
+          unhl: [ b-l1 ]
+        - say: Copy **only the dependency list** first. This layer changes only when `requirements.txt` changes.
+          show: [ b-g3 ]
+          hl: [ b-l3 ]
+          unhl: [ b-l2 ]
+        - say: "`pip install` is the slow, heavy step: minutes of downloads and a 180 MB layer."
+          show: [ b-g4 ]
+          hl: [ b-l4 ]
+          unhl: [ b-l3 ]
+        - say: Now copy the source code. It is small but changes on every commit.
+          show: [ b-g5 ]
+          hl: [ b-l5 ]
+          unhl: [ b-l4 ]
+        - say: "`CMD` only records metadata (the start command). The first build is done."
+          show: [ b-g6 ]
+          hl: [ b-l6 ]
+          unhl: [ b-l5 ]
+        - say: "You edit `app.py` and build again. Docker compares each instruction and its input files with the cache: lines 1–4 are unchanged, so their layers are **reused instantly**."
+          show: [ b-edit ]
+          unhl: [ b-l6 ]
+          text:
+            b-s1: cached ✓
+            b-s2: cached ✓
+            b-s3: cached ✓
+            b-s4: cached ✓ (0 s)
+          fill:
+            b-l5: "#fbf3c4"
+            b-L1: "#e3eedc"
+            b-L2: "#e3eedc"
+            b-L3: "#e3eedc"
+            b-L4: "#e3eedc"
+        - say: "`COPY . .` sees changed files, so that layer **and every layer after it** is rebuilt. The rebuild takes seconds, not minutes."
+          text:
+            b-s5: rebuilt
+            b-s6: rebuilt
+          fill:
+            b-L5: "#f9e3df"
+            b-L6: "#f9e3df"
+        - say: "That is why instruction order matters: put what changes least at the top and what changes most at the bottom."
+          show: [ b-note ]
+concepts:
+  - term: image
+    short: "A read-only template: a stack of filesystem layers plus metadata (start command, env vars, exposed ports). Built once, run anywhere."
+    see: [ layer, Dockerfile, registry, tag / digest, container ]
+    detail: |-
+      An image is a list of layer tarballs plus a JSON config (entrypoint, env vars, working dir, exposed ports, user). It is immutable and identified by a content hash (digest).
+
+      #### Typical base image sizes
+
+      | Base | Size | Notes |
+      | --- | --- | --- |
+      | `alpine` | ~8 MB | musl libc: some Python wheels must compile |
+      | `python:3.13-slim` | ~45 MB compressed | Debian minimal, good default |
+      | `python:3.13` | ~400 MB | full toolchain, use as build stage |
+      | distroless / chiseled | ~20–50 MB | no shell, smallest attack surface |
+
+      One image can target several CPU architectures (`linux/amd64`, `linux/arm64`) under the same tag: a multi-platform image.
+  - term: container
+    short: "A running (or stopped) instance of an image: an isolated process with its own writable layer. Many containers can run from one image."
+    see: [ image, namespaces / cgroups, volume, port mapping ]
+    detail: |-
+      A container = image layers (read-only) + its own writable layer + runtime settings (env, ports, mounts, limits) + an isolated process.
+
+      #### Lifecycle
+
+      `created` → `running` → `paused` / `exited` → removed. A stopped container still exists (and keeps its writable layer) until `docker rm`.
+
+      - PID 1 inside the container is your app; when it exits, the container stops.
+      - Restart policies: `--restart unless-stopped` keeps services up across crashes and host reboots.
+      - Limit resources: `--memory 512m --cpus 1.5`.
+  - term: layer
+    short: The filesystem changes made by one Dockerfile instruction. Layers are content-addressed, cached and shared between images.
+    see: [ image, build cache, Dockerfile ]
+    detail: |-
+      Each filesystem-changing instruction (`RUN`, `COPY`, `ADD`) creates a layer containing only the files it added, changed or deleted. Layers are stacked with a union filesystem (overlayfs).
+
+      - Deleting a file in a later layer **hides** it but doesn't shrink the image: the bytes are still in the earlier layer. Clean up in the same `RUN` that created the files.
+      - Layers are shared: ten images on `python:3.13-slim` store the base once.
+      - Inspect with `docker history myapp:1.0` or the `dive` tool.
+  - term: Dockerfile
+    short: A text file of instructions (`FROM`, `COPY`, `RUN`, `CMD`…) that describes how to build an image.
+    see: [ layer, build cache, multi-stage build, .dockerignore ]
+    detail: |-
+      | Instruction | Does |
+      | --- | --- |
+      | `FROM` | base image (one per stage) |
+      | `WORKDIR` | set and create the working directory |
+      | `COPY` / `ADD` | add files from the build context (prefer COPY) |
+      | `RUN` | run a command at build time, creating a layer |
+      | `ENV` / `ARG` | runtime env var / build-time variable |
+      | `EXPOSE` | document the port (doesn't publish it) |
+      | `USER` | run as this user from here on |
+      | `CMD` / `ENTRYPOINT` | default command / fixed executable |
+      | `HEALTHCHECK` | command Docker runs to report health |
+
+      Order instructions from least to most frequently changing so the build cache helps you.
+  - term: build cache
+    short: Docker reuses a layer when its instruction and inputs are unchanged. Once one step changes, every later step is rebuilt.
+    see: [ layer, Dockerfile, .dockerignore ]
+    detail: |-
+      For each instruction, BuildKit checks whether it already built the same instruction on the same parent layer with the same inputs (for `COPY`, a checksum of the copied files). If yes, it reuses the layer.
+
+      - The first cache miss invalidates **every later step**.
+      - `RUN apt-get update` is cached too, so combine it with `install` in one `RUN`.
+      - Cache mounts keep package caches between builds: `RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.txt`.
+      - CI runners start empty; export the cache to a registry (`--cache-to type=registry`) or use the GitHub Actions cache.
+
+      Force a clean build with `--no-cache`.
+  - term: registry
+    short: "A server that stores and distributes images: Docker Hub, GitHub Container Registry, ECR, ACR, or a private one."
+    see: [ image, tag / digest ]
+    detail: |-
+      A registry stores images in **repositories** (`ghcr.io/acme/web`), each with many tags. Pull and push use the OCI distribution API; only missing layers are transferred.
+
+      | Registry | Notes |
+      | --- | --- |
+      | Docker Hub | default for unqualified names; pull rate limits for anonymous users |
+      | GitHub Container Registry | `ghcr.io`, permissions tied to the repo |
+      | Azure ACR / AWS ECR / Google Artifact Registry | close to your cloud workloads, private networking |
+      | Harbor | self-hosted, with scanning and replication |
+
+      Scan images for known vulnerabilities (Docker Scout, Trivy) as part of CI.
+  - term: tag / digest
+    short: "`nginx:1.27` is a movable tag; `nginx@sha256:…` is an immutable digest. Pin digests (or exact tags) in production."
+    see: [ image, registry ]
+    detail: |-
+      `nginx:1.27` is a **tag**: a human-friendly pointer that can be moved to a new image at any time. `nginx@sha256:3b2f…` is a **digest**: the hash of the image manifest, which can never change.
+
+      - `latest` is just the default tag name, not "the newest".
+      - Tag your builds with something unique: version (`1.4.2`) and/or git SHA (`sha-9f3c2a1`).
+      - Pin base images by digest in production Dockerfiles for fully reproducible builds; let a bot (Dependabot, Renovate) update the pin.
+  - term: volume
+    short: Storage managed by Docker that lives outside the container's writable layer, so data survives when the container is removed.
+    see: [ bind mount, container ]
+    detail: |-
+      ```bash
+      docker volume create pgdata
+      docker run -d -v pgdata:/var/lib/postgresql/data postgres:17
+      ```
+
+      A named volume lives in Docker's storage area (`/var/lib/docker/volumes`), independent of any container. Remove and recreate the container and the data is still there.
+
+      - Faster than bind mounts on Docker Desktop (stays inside the Linux VM).
+      - Back up by running a throwaway container: `docker run --rm -v pgdata:/d -v .:/b alpine tar czf /b/pg.tgz -C /d .`.
+      - `docker compose down -v` deletes the project's volumes. Careful.
+  - term: bind mount
+    short: Maps a host folder into a container (`-v ./src:/app`). Handy for live code reloading in development.
+    see: [ volume, container ]
+    detail: |-
+      `-v ./src:/app/src` (or `--mount type=bind,…`) maps a host path into the container. Changes appear on both sides instantly, which is ideal for hot-reloading code in development.
+
+      - File ownership follows host UIDs, which can cause permission errors with non-root containers.
+      - On Windows and macOS, file I/O crosses the VM boundary and can be slow for large trees (`node_modules`). Keep the repo inside WSL 2 on Windows.
+      - Add `:ro` to mount read-only.
+
+      Use volumes for data, bind mounts for source code and config you edit.
+  - term: network
+    short: Virtual network for containers. On a user-defined bridge network, containers reach each other by name (`http://api:8000`).
+    see: [ port mapping, Docker Compose, container ]
+    detail: |-
+      | Driver | What it does |
+      | --- | --- |
+      | `bridge` (default) | private network on the host; NAT to the outside |
+      | user-defined bridge | same, plus DNS: containers reach each other by name |
+      | `host` | container shares the host network stack (Linux only) |
+      | `none` | no networking |
+
+      Compose creates a user-defined network per project, so `api` can call `http://cache:6379`. On the default bridge network, name resolution doesn't work: always create your own network.
+  - term: port mapping
+    short: "`-p 8080:80` forwards host port 8080 to port 80 inside the container. Without it the service is unreachable from outside."
+    see: [ network, container ]
+    figure:
+      svg: docker/figure-port-mapping.svg
+      alt: Diagram of host port 8080 forwarded through NAT to container port 80 on the docker bridge network
+    detail: |-
+      `-p 8080:80` = **host** port 8080 → **container** port 80. Docker adds NAT rules on the host so traffic reaching 8080 is forwarded to the container's private IP.
+
+      ::figure::
+
+      - `-p 127.0.0.1:8080:80` binds only to localhost; plain `-p 8080:80` listens on **all** interfaces, so it's reachable from your network.
+      - `EXPOSE` in a Dockerfile only documents a port; `-P` publishes all exposed ports to random host ports.
+      - Containers on the same network don't need port mapping to talk to each other.
+  - term: Docker Compose
+    short: Defines a multi-container app (services, networks, volumes) in `compose.yaml` and starts it with one command.
+    see: [ network, volume, container ]
+    detail: |-
+      One `compose.yaml` describes services (image or build, ports, env, volumes, dependencies), networks and volumes. `docker compose up` creates them all, in dependency order, on a private network.
+
+      - `depends_on` with `condition: service_healthy` waits for a healthcheck, not just a started container.
+      - `.env` files and `${VAR}` substitution keep secrets and per-machine settings out of the file.
+      - **Profiles** enable optional services (`docker compose --profile debug up`).
+      - `docker compose watch` syncs code changes into containers as you edit.
+
+      Great for development, CI and small single-host production. For many hosts, the same services move to Kubernetes manifests or Helm charts.
+  - term: multi-stage build
+    short: "Several `FROM` stages in one Dockerfile: compile in a big image, copy only the result into a small final image."
+    see: [ Dockerfile, image, layer ]
+    detail: |-
+      ```docker
+      FROM python:3.13 AS build
+      WORKDIR /src
+      COPY requirements.txt .
+      RUN pip wheel --wheel-dir /wheels -r requirements.txt
+
+      FROM python:3.13-slim
+      COPY --from=build /wheels /wheels
+      RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
+      COPY . /app
+      USER 1000
+      CMD ["python", "/app/app.py"]
+      ```
+
+      Compilers, headers and caches stay in the `build` stage; only the result is copied into the final stage. For Go or .NET apps the final image can be tens of MB instead of a GB.
+
+      Build a specific stage with `docker build --target build .` (e.g. for running tests).
+  - term: .dockerignore
+    short: Lists files not sent to the build (`.git`, `node_modules`, `.env`). Faster builds and no leaked secrets.
+    see: [ build cache, Dockerfile ]
+    detail: |-
+      ```
+      .git
+      .venv
+      __pycache__/
+      node_modules/
+      .env
+      *.log
+      dist/
+      ```
+
+      Before building, Docker sends the **build context** (the folder) to the builder. Without a .dockerignore that includes `.git` history, virtual envs and secrets.
+
+      - Builds start faster (smaller context).
+      - `COPY . .` doesn't break the cache when irrelevant files change.
+      - Secrets like `.env` never end up in an image layer.
+  - term: dockerd
+    short: The Docker daemon. It exposes the API that the CLI and Compose call, and manages images, networks and volumes.
+    see: [ containerd / runc, image, network, volume ]
+    detail: |-
+      The Docker daemon runs as a background service (root by default) and exposes a REST API on `/var/run/docker.sock` (Linux) or a named pipe (Windows).
+
+      - Manages images, containers, networks, volumes and builds (via BuildKit).
+      - Delegates running containers to containerd.
+      - **Access to the socket = root on the host.** Never mount `docker.sock` into untrusted containers or expose the API over TCP without TLS.
+
+      **Rootless mode** runs the daemon as a normal user for better security; Podman avoids a daemon entirely.
+  - term: containerd / runc
+    short: "The lower-level runtimes Docker uses: containerd manages container lifecycles, runc creates the process following the OCI spec."
+    see: [ dockerd, namespaces / cgroups ]
+    detail: |-
+      The container stack in layers:
+
+      | Layer | Role |
+      | --- | --- |
+      | docker CLI / Compose | user interface |
+      | dockerd | high-level API: builds, networks, volumes |
+      | containerd | image pulling, storage, container lifecycle (CNCF project) |
+      | runc | low-level OCI runtime: sets up namespaces and cgroups, starts the process, exits |
+
+      Kubernetes talks to containerd directly through the CRI, skipping dockerd. That's why images built with Docker run unchanged on Kubernetes: they're standard OCI images. Alternative low-level runtimes: crun (faster), gVisor and Kata (stronger isolation).
+  - term: namespaces / cgroups
+    short: "Linux kernel features behind containers: namespaces isolate what a process can see, cgroups limit what it can use."
+    see: [ container, containerd / runc ]
+    detail: |-
+      | Namespace | Isolates |
+      | --- | --- |
+      | pid | process tree: the app sees itself as PID 1 |
+      | net | network interfaces, IPs, ports |
+      | mnt | filesystem mounts: the image's root filesystem |
+      | uts | hostname |
+      | ipc | shared memory, semaphores |
+      | user | UID mapping: root inside, unprivileged outside (rootless) |
+
+      **cgroups** limit and account resources: `--memory 512m` (exceed it and the kernel OOM-kills the process), `--cpus 1.5` (throttled above it), PIDs and disk I/O.
+
+      Seeing it yourself: `docker run --rm alpine ps` lists a single process, and `docker stats` shows each container's cgroup usage. Kubernetes requests and limits are translated into these same cgroup settings.
+commands:
+  heading: Essential commands & syntax
+  tocLabel: Commands
+  groups:
+    - group: Run & inspect
+      items:
+        - lang: bash
+          code: docker run -d --name web -p 8080:80 nginx:1.27
+          what: Start a container in the background with a name and a port mapping.
+        - lang: bash
+          code: docker run --rm -it python:3.13 bash
+          what: Throwaway interactive container, deleted on exit (`--rm`).
+        - lang: bash
+          code: docker ps -a
+          what: List containers, including stopped ones.
+        - lang: bash
+          code: docker logs -f web
+          what: Follow a container's stdout and stderr.
+        - lang: bash
+          code: docker exec -it web sh
+          what: Open a shell inside a running container.
+        - lang: bash
+          code: docker stop web && docker rm web
+          what: Stop (SIGTERM, then SIGKILL after 10 s) and remove a container.
+        - lang: bash
+          code: docker stats · docker inspect web
+          what: Live CPU and memory per container; full JSON configuration of one.
+    - group: Build & ship
+      items:
+        - lang: docker
+          code: |-
+            FROM python:3.13-slim AS base
+            WORKDIR /app
+            COPY requirements.txt .
+            RUN pip install --no-cache-dir -r requirements.txt
+            COPY . .
+            USER 1000
+            CMD ["python", "app.py"]
+          what: "A cache-friendly Python Dockerfile: dependencies before code, non-root user, exec-form `CMD`."
+        - lang: bash
+          code: docker build -t myapp:1.0 .
+          what: Build an image from the Dockerfile in the current folder.
+        - lang: bash
+          code: |-
+            docker tag myapp:1.0 ghcr.io/acme/myapp:1.0
+            docker push ghcr.io/acme/myapp:1.0
+          what: Name the image for a registry and upload it (`docker login ghcr.io` first).
+        - lang: bash
+          code: docker image ls · docker history myapp:1.0
+          what: List local images; show the layers of one with their sizes.
+    - group: Compose & data
+      items:
+        - lang: yaml
+          code: |-
+            services:
+              api:
+                build: .
+                ports: ["8000:8000"]
+                environment: [REDIS_URL=redis://cache:6379]
+                depends_on: [cache]
+              cache:
+                image: redis:8
+                volumes: [cache-data:/data]
+            volumes:
+              cache-data:
+          what: "`compose.yaml`: an API plus a Redis cache, reachable by service name, with a named volume."
+        - lang: bash
+          code: |-
+            docker compose up -d --build
+            docker compose logs -f api
+            docker compose down
+          what: Build and start everything, follow one service's logs, stop and remove the containers.
+        - lang: bash
+          code: docker volume ls · docker system prune
+          what: List volumes; free disk space from stopped containers, dangling images and unused networks.
+        - lang: csharp
+          code: |-
+            // dotnet add package Docker.DotNet
+            using var client = new DockerClientConfiguration().CreateClient();
+
+            await client.Containers.CreateContainerAsync(new CreateContainerParameters
+            {
+                Image = "redis:8",
+                HostConfig = new HostConfig
+                {
+                    PortBindings = new() { ["6379/tcp"] = [new PortBinding { HostPort = "6379" }] },
+                },
+            });
+
+            var running = await client.Containers.ListContainersAsync(new ContainersListParameters());
+          what: Docker.DotNet speaks to the same daemon socket as the CLI. For integration tests, Testcontainers wraps it in a much friendlier API.
+        - lang: python
+          code: |-
+            import docker
+            client = docker.from_env()
+            c = client.containers.run("redis:8", detach=True, ports={"6379/tcp": 6379})
+            print(c.name, c.status)
+          what: "Python SDK (`pip install docker`): the same API the CLI uses, handy for test fixtures."
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - "Same artifact from laptop to production: no more \"works on my machine\"."
+      - Starts in milliseconds and uses MBs, not GBs, because there is no guest OS.
+      - "Dependencies are isolated per app: two services can need different Python or library versions."
+      - Huge catalog of ready images (databases, brokers, runtimes) for local development.
+      - Images are versioned and immutable, so rollbacks are just "run the previous tag".
+      - Standard format (OCI) understood by every cloud and orchestrator.
+  bad:
+    heading: Cons
+    items:
+      - "Weaker isolation than VMs: all containers share the host kernel."
+      - Container filesystems are ephemeral; persistent data needs volumes and care.
+      - On Windows and macOS containers run inside a hidden Linux VM, so file sharing can be slow.
+      - Images grow large and slow to ship without multi-stage builds and slim bases.
+      - "One host only: scheduling, self-healing and scaling across machines need an orchestrator."
+      - Docker Desktop requires a paid subscription for larger companies.
+when:
+  note: "Rule of thumb: one process per container, and no data you can't lose inside it."
+  good:
+    heading: Use it when…
+    items:
+      - An app has non-trivial dependencies that must be identical everywhere.
+      - You want a one-command local environment for a team.
+      - You deploy to Kubernetes, ECS, Cloud Run or any container platform.
+      - You need disposable, clean environments for tests and CI.
+      - Several apps on one server need different runtime versions.
+  bad:
+    heading: Avoid it when…
+    items:
+      - You need strong isolation for untrusted code. Use **VMs** or **gVisor/Firecracker**.
+      - The app is a desktop GUI or needs deep hardware access. Install it natively.
+      - You need to schedule containers across many machines. Add an orchestrator such as **Kubernetes**.
+      - A tiny script or static site with no dependencies. Plain hosting is simpler.
+      - Your organisation can't license Docker Desktop. Use **Podman** or Docker Engine inside WSL.
+useCases:
+  - title: Local development stack
+    body: A new developer clones the repo and runs `docker compose up`. PostgreSQL, Redis and the API start with the right versions in a minute, without installing anything else.
+  - title: Reproducible CI builds
+    body: GitHub Actions builds and tests inside the same image used in production. The pipeline publishes a tagged image only if tests pass.
+  - title: Packaging microservices
+    body: Each team ships its service as an image with its own runtime (Python 3.13, Node 22, .NET 9). The platform only needs to know how to run containers.
+  - title: Integration tests with real dependencies
+    body: Testcontainers starts a throwaway Kafka or database container per test run, so tests hit real software instead of mocks.
+  - title: Running tools without installing them
+    body: Run a specific CLI version, such as `docker run --rm -v .:/w -w /w node:22 npm test`, and leave the host untouched.
+gotchas:
+  note: Number 1 makes builds take minutes instead of seconds.
+  items:
+    - mistake: Copying source code before installing dependencies
+      why: Any code change invalidates the cache from that line on, so every build reinstalls all packages.
+      fix: copy the dependency manifest, install, then `COPY . .` last.
+    - mistake: Storing data in the container filesystem
+      why: "`docker rm` or a recreate wipes the writable layer, and with it your database."
+      fix: use named volumes for anything that must persist.
+    - mistake: Using `:latest` in production
+      why: The tag moves, so two servers can run different code and rollbacks become guesswork.
+      fix: deploy immutable tags (version or git SHA) or digests.
+    - mistake: Secrets baked into images
+      why: "`COPY .env` or `ARG TOKEN` stays in a layer even if a later step deletes it, and anyone with the image can read it."
+      fix: add `.dockerignore`, use build secrets (`--secret`) and inject runtime secrets as env vars or mounted files.
+    - mistake: Running as root
+      why: Containers run as root by default; a breakout or a bad mount gives root access to the host files.
+      fix: add a non-root `USER` in the Dockerfile and drop capabilities you don't need.
+    - mistake: Shell-form `CMD` ignores stop signals
+      why: "`CMD python app.py` runs under `/bin/sh`, which doesn't forward SIGTERM; the app is killed after 10 s instead of shutting down cleanly."
+      fix: use exec form `CMD ["python", "app.py"]`.
+    - mistake: "\"localhost\" inside a container"
+      why: It means the container itself, not your machine or another container.
+      fix: use the service name on a shared network (`redis://cache:6379`), or `host.docker.internal` for the host.
+    - mistake: Disk filling up silently
+      why: Old images, stopped containers and build cache pile up to tens of GB.
+      fix: "`docker system df` to see usage, `docker system prune` regularly."
+alternatives:
+  columns: [ Tool, Best for, Complexity, Cost / license, Key difference vs Docker ]
+  rows:
+    - self: true
+      cells:
+        - "**Docker**"
+        - Building and running containers on one host
+        - Low
+        - "Engine: Apache 2.0 · Desktop: paid above small-business limits"
+        - —
+    - cells:
+        - "**Podman**"
+        - Drop-in Docker CLI replacement
+        - Low
+        - Apache 2.0, free Podman Desktop
+        - No daemon, rootless by default, can run pods and generate Kubernetes YAML
+    - cells:
+        - "**containerd + nerdctl**"
+        - Minimal runtime on servers
+        - Medium
+        - Apache 2.0 (CNCF)
+        - The runtime under Docker and Kubernetes, without Docker's extra tooling
+    - cells:
+        - "**Virtual machines**"
+        - Strong isolation, other OSes
+        - Medium
+        - Hyper-V, KVM free; VMware paid
+        - "Full guest OS and kernel: heavier and slower to start, but isolated"
+    - cells:
+        - "**LXC / Incus**"
+        - Long-lived "system" containers
+        - Medium
+        - Apache 2.0 / LGPL
+        - Containers that behave like small VMs with init and multiple services
+    - cells:
+        - "**Buildpacks**"
+        - Images without writing a Dockerfile
+        - Low
+        - Apache 2.0 (CNCF)
+        - Detects the language and builds an OCI image automatically
+  notes:
+    - "**Pick Podman** if you need rootless containers or can't use Docker Desktop's license."
+    - "**Pick containerd** if you run servers or Kubernetes nodes and don't need the Docker CLI."
+    - "**Pick VMs** if you run untrusted workloads or need a different kernel or OS."
+    - "**Pick LXC/Incus** if you want lightweight machines rather than single-process apps."
+    - "**Pick Buildpacks** if teams shouldn't maintain Dockerfiles at all."
+resources:
+  - url: https://docs.docker.com/
+    title: Docker documentation
+    why: guides, Dockerfile reference and CLI reference.
+  - url: https://docs.docker.com/build/building/best-practices/
+    title: Dockerfile best practices
+    why: caching, multi-stage builds, small and secure images.
+  - url: https://docs.docker.com/compose/
+    title: Docker Compose
+    why: the compose file reference and examples.
+  - url: https://labs.play-with-docker.com/
+    title: Play with Docker
+    why: a free browser playground with real Docker hosts.
+  - url: https://podman.io/
+    title: Podman
+    why: the daemonless alternative, useful for comparing.

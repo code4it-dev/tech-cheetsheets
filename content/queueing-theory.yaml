@@ -1,0 +1,793 @@
+title: Queueing theory
+slug: queueing-theory
+tagline: Waiting is not caused by being out of capacity. It is caused by being nearly out of capacity, at random moments.
+asof: Nov 2026 · Erlang 1909, Kendall 1953, Kingman 1961 · the maths behind every capacity decision you make
+description: "Queueing theory cheatsheet: why waiting time explodes near full utilisation, how variability multiplies it, Kendall notation, M/M/1 versus M/M/c, and why pooling beats dedicated queues."
+aliases:
+  - Queueing theory
+  - queuing theory
+  - M/M/1
+  - M/M/c
+  - Kendall notation
+  - Kingman's formula
+  - Erlang C
+  - utilisation
+  - queue discipline
+keywords:
+  - queueing theory
+  - queuing
+  - utilisation
+  - mm1
+  - mmc
+  - kingman
+  - erlang
+  - latency
+  - capacity planning
+  - performance
+related:
+  - littles-law
+  - backpressure
+  - load-shedding
+  - percentiles
+  - database-performance
+  - back-of-the-envelope
+overview:
+  - "Little's Law tells you that `L = λW` — and refuses to say anything about why W is what it is. Queueing theory answers that question, and the answer is uncomfortable: waiting time is governed by **utilisation** and **variability**, not by average capacity. A server with 20% headroom is not 20% away from trouble; by the time it is 90% utilised, requests already wait ten times longer than they take to serve."
+  - "The central result for a single server is `W = S / (1 − ρ)`. At 50% utilisation you wait twice the service time. At 90%, ten times. At 99%, a hundred times. Nothing breaks on the way: the server is doing exactly the work it always did at exactly the rate it always did, while latency goes vertical. This is why \"CPU is at 85%, we're fine\" is one of the most expensive sentences in operations."
+  - "The second result is **Kingman's formula**, which says the wait is multiplied by variability: two systems with identical utilisation and identical average service times can differ by a factor of ten because one has a predictable workload and the other does not. And the third — **pooling** — says that one queue feeding three servers beats three queues each feeding one, with no extra hardware at all."
+architecture:
+  svg: queueing-theory/architecture.svg
+  alt: The anatomy of a queueing system with arrival rate, queue discipline, servers and utilisation, beside the utilisation curve
+  caption: Utilisation and variability are the two dials. Neither of them appears on a CPU graph in a form that warns you in time.
+howItWorks:
+  - md: "The first animation is the utilisation curve, walked point by point. The second is the free improvement: the same servers, arranged differently."
+  - note: queues do not form because you ran out of capacity — they form because arrivals and work are random
+  - anim:
+      id: anim-curve
+      title: 1 · Why 95% utilisation is not 15% worse than 80%
+      svg: queueing-theory/anim-curve.svg
+      alt: The M/M/1 waiting time curve rising vertically as utilisation approaches one
+      steps:
+        - say: "One server, one queue, and 20 ms of actual work per request. The question queueing theory exists to answer: given how busy the server is, how long does a request actually take?"
+          text:
+            qc-read: ρ = 0 · W = S = 20 ms · nothing is ever waiting
+        - say: Little's Law cannot answer this. `L = λW` is an identity — always true, for any system — and it is deliberately silent about what <em>sets</em> W. That is the gap these models fill.
+          text:
+            qc-read: L = λW tells you how L, λ and W relate — not what W will be
+        - say: "For an M/M/1 queue the answer is `W = S / (1 − ρ)`. At 50% utilisation the multiplier is 2: half your hardware is sitting idle and you have already doubled latency."
+          show: [ qc-s1, qc-m1 ]
+          text:
+            qc-read: ρ = 0.50 · W = 2.0 × S = 40 ms · half the capacity unused
+        - say: The reason is randomness, not capacity. Work does not arrive on a schedule, so sometimes two requests land together and one waits — even though, on average, there was plenty of room.
+          text:
+            qc-read: queues form from variability, not from running out of capacity
+        - say: At 80% the multiplier is 5. That 20 ms of work now takes 100 ms. This is where most capacity planning stops, because 80% sounds like a responsible target.
+          show: [ qc-s2, qc-m2 ]
+          text:
+            qc-read: ρ = 0.80 · W = 5.0 × S = 100 ms · "80% is healthy"
+        - say: At 90% it is 10×. You added ten points of utilisation and doubled latency again — the same ten points that took you from 50% to 60% cost almost nothing.
+          show: [ qc-s3, qc-m3 ]
+          text:
+            qc-read: ρ = 0.90 · W = 10 × S = 200 ms · ten points cost a doubling
+        - say: "At 95% it is 20× and the curve is effectively vertical. 20 ms of work takes 400 ms, and nothing is broken: the server is doing exactly the work it always did, at exactly the rate it always did."
+          show: [ qc-s4, qc-m4 ]
+          text:
+            qc-read: ρ = 0.95 · W = 20 × S = 400 ms · nothing is broken
+        - say: At 99% it is 100× — two full seconds — and far off the top of this chart. There is no warning in any resource graph, because no resource is exhausted.
+          show: [ qc-off, qc-off2 ]
+          text:
+            qc-read: ρ = 0.99 · W = 100 × S = 2,000 ms · and still no alert has fired
+        - say: "That shape is the thing to memorise. Utilisation is not a linear resource: the last 10% of capacity costs more latency than the first 80% combined."
+          text:
+            qc-phase: the last 10% of capacity costs more than the first 80%
+            qc-read: this is why high utilisation is a target for batch work and a trap for interactive work
+        - say: Two consequences. Run interactive services at 60–75% and treat the rest as latency headroom rather than waste. And autoscale on concurrency or queue latency, never on CPU — CPU looks perfectly healthy right up to the cliff.
+          text:
+            qc-phase: target 60–75% · scale on concurrency or sojourn time, not CPU
+            qc-read: the "wasted" 25% is what keeps you off the vertical part of the curve
+  - anim:
+      id: anim-pool
+      title: 2 · Three queues, or one queue and three servers
+      svg: queueing-theory/anim-pool.svg
+      alt: Three dedicated queues each with one server, compared with a single pooled queue feeding three servers
+      steps:
+        - say: Three servers, 300 requests a second, 8 ms of work each. Every server runs at ρ = 0.8 — a respectable, deliberately chosen target.
+          hl: [ qp-left ]
+        - say: "First arrangement: each server has its own queue, fed by round-robin or by hashing the request. Very common — per-worker inboxes, sticky sessions, consistent-hash routing."
+          unhl: [ qp-left ]
+        - say: And here is what randomness does to it. Queue A has four people waiting, B has two, and C is completely empty — with its server idle.
+          hl: [ qp-q1, qp-s3 ]
+          text:
+            qp-o: six requests waiting, and a server doing nothing about it
+        - say: That idle server cannot help. There is work waiting and capacity free, separated by nothing but the arrangement. Each queue is its own M/M/1, so each waits 4× the service time.
+          unhl: [ qp-q1, qp-s3 ]
+          text:
+            qp-lt: M/M/1 each · Wq = 4.00 × S = 32 ms
+            qp-o: the waste is structural — it happens at every moment, at random
+          fill:
+            qp-lt: "#c53b3b"
+        - say: "Second arrangement: one queue, three servers, next free server takes the next request. Same hardware, same arrival rate, same 0.8 utilisation."
+          show: [ qp-pq, qp-ps, qp-rt, qp-rt2 ]
+          hl: [ qp-right ]
+          text:
+            qp-rt: M/M/3 · Wq = ?
+        - say: Now no server can be idle while anyone is waiting — the arrangement makes it impossible rather than merely unlikely.
+          unhl: [ qp-right ]
+          text:
+            qp-o: the improvement comes from removing an impossibility, not from adding capacity
+        - say: "The numbers: 4.00×S becomes 1.08×S. Nearly four times better, from the same three servers running at the same utilisation."
+          text:
+            qp-rt: M/M/3 · Wq = 1.08 × S = 8.6 ms
+            qp-o: 32 ms of queueing becomes 8.6 ms — for free
+          fill:
+            qp-rt: "#2f6b3f"
+        - say: The reason is probability. Waiting requires <em>every</em> server to be busy at once, which is far less likely than one particular server being busy. With ten pooled servers at ρ = 0.8 the wait drops to 0.18×S.
+          text:
+            qp-o: waiting needs ALL servers busy — much rarer than one server busy
+        - say: This is why supermarkets moved to a single snake, why a shared thread pool beats a thread per connection with its own inbox, and why least-connections beats round-robin.
+          text:
+            qp-phase: one queue, many servers — the cheapest latency win in queueing
+            qp-o: shared work queue · least-connections · one connection pool
+        - say: The catch is that pooling needs interchangeable servers. If requests must reach a specific shard, a warm cache or a sticky session, you cannot pool — and this gap is exactly what that constraint costs you. Now you can price it.
+          text:
+            qp-phase: sharding, affinity and cache locality all forfeit this gain
+            qp-o: the cost of "it has to go to that node" is 4.00×S instead of 1.08×S
+concepts:
+  - term: Utilisation
+    short: "ρ = λ / (cμ): the fraction of capacity in use, and the single number that drives waiting time."
+    see: [ Arrival rate, Service rate, Instability, Kingman's formula ]
+    detail: |-
+      The trap is that it feels linear and is not. Going from 50% to 80% utilisation adds 30 points and multiplies the wait by 2.5. Going from 80% to 95% adds 15 points and multiplies it by four. The resource you are consuming as you approach 100% is not capacity — it is latency headroom, and it runs out much faster than the capacity does.
+
+      It also explains why high utilisation is a target in batch systems and a mistake in interactive ones: nobody is waiting for a batch job, so you may as well run the machine flat out.
+
+      #### W / S for M/M/1
+
+      | ρ | Multiplier | 20 ms of work takes |
+      | --- | --- | --- |
+      | 0.50 | 2× | 40 ms |
+      | 0.80 | 5× | 100 ms |
+      | 0.90 | 10× | 200 ms |
+      | 0.95 | 20× | 400 ms |
+      | 0.99 | 100× | 2 s |
+
+      #### How it relates
+
+      - Autoscale on latency or concurrency rather than CPU: CPU looks fine right up to the cliff.
+  - term: Arrival rate
+    short: λ — how often work arrives, and, just as importantly, how evenly.
+    see: [ Utilisation, Coefficient of variation, Poisson arrivals ]
+    detail: |-
+      The average alone is not enough. 100 requests a second arriving one every 10 ms is a completely different system from 100 arriving in a single burst at the top of each second, even though λ is identical. The second queues; the first does not.
+
+      Real traffic is usually burstier than Poisson, because of client retries, cron schedules aligned to the minute, and humans acting on the same notification.
+
+      #### Sources of burstiness
+
+      | Source | Effect |
+      | --- | --- |
+      | Cron at :00 | synchronised spike |
+      | Retry storms | correlated arrivals |
+      | Push notification | thundering herd |
+      | Batch producers | arrivals in clumps |
+
+      #### How it relates
+
+      - Jitter is burstiness reduction: it lowers cₐ and therefore the wait, at no cost.
+  - term: Service rate
+    short: μ — how fast one server completes work; S = 1/μ is the service time.
+    see: [ Utilisation, Coefficient of variation, Pooling ]
+    detail: |-
+      Service time is what the work actually costs with no queueing at all: the latency you would measure on an idle system. Everything above that figure in production is queueing somewhere, which is why the gap between "it takes 20 ms in a benchmark" and "p99 is 400 ms" is a queueing question and not a code question.
+
+      Its variability matters as much as its mean — see the coefficient of variation.
+
+      #### How it relates
+
+      - Reducing S helps twice: directly, and by lowering ρ for the same λ.
+  - term: Kendall notation
+    short: "A/S/c — the shorthand that names a queueing model: arrival process, service distribution, number of servers."
+    see: [ M/M/1, M/M/c, Coefficient of variation ]
+    detail: |-
+      M means memoryless (Poisson arrivals, exponential service), D means deterministic, G means a general distribution. So M/M/1 is Poisson arrivals, exponential service, one server; M/D/1 has perfectly constant service times; M/G/c is the realistic and much harder case.
+
+      You will mostly use it as a label for which formula applies — and to notice when the model you are quoting does not match the system you are describing.
+
+      #### Common models
+
+      | Model | Means | Use for |
+      | --- | --- | --- |
+      | M/M/1 | random in, random service, 1 server | the default mental model |
+      | M/M/c | c interchangeable servers | thread pools, replicas |
+      | M/D/1 | constant service time | fixed-cost work |
+      | M/G/1 | any service distribution | real systems; use Kingman |
+      | M/M/c/K | bounded queue of size K | anything with backpressure |
+
+      #### How it relates
+
+      - Real software is almost always M/G/c, which has no tidy closed form — hence approximations.
+  - term: M/M/1
+    short: The single-server model, and the source of W = S / (1 − ρ).
+    see: [ Utilisation, M/M/c, Kendall notation ]
+    detail: |-
+      One queue, one server, random arrivals, random service times. It is the simplest model that produces the hockey-stick curve, and its formulas are worth memorising because they give you the right order of magnitude in seconds.
+
+      Its practical relevance is higher than it looks: a single-threaded event loop, one database connection, a lock, a partition consumer and a leader replica are all M/M/1-ish.
+
+      #### The formulas
+
+      | Quantity | Formula |
+      | --- | --- |
+      | Utilisation | ρ = λ/μ |
+      | Time in system | W = S / (1 − ρ) |
+      | Time queueing | Wₔ = Sρ / (1 − ρ) |
+      | Number in system | L = ρ / (1 − ρ) |
+      | Number queueing | Lₔ = ρ² / (1 − ρ) |
+
+      #### How it relates
+
+      - `L = λW` connects these: Little's Law holds for every row in that table.
+  - term: M/M/c
+    short: Several interchangeable servers sharing one queue — and dramatically better than the same servers with separate queues.
+    see: [ Pooling, M/M/1, Erlang C ]
+    detail: |-
+      With c servers and the same per-server utilisation, waiting time falls sharply, because the probability that <em>every</em> server is busy is much lower than the probability that <em>one</em> is. At ρ = 0.8, a single server makes you wait 4× its service time; three pooled servers make you wait about 1.08×.
+
+      This is the formal version of why a supermarket snake beats one line per till, and why a shared thread pool beats a thread with its own inbox.
+
+      #### Queueing time at ρ = 0.8
+
+      | Servers | Wₔ / S |
+      | --- | --- |
+      | 1 | 4.00 |
+      | 2 | 1.78 |
+      | 3 | 1.08 |
+      | 5 | 0.55 |
+      | 10 | 0.18 |
+
+      #### How it relates
+
+      - The gain is free unless the servers are not interchangeable — which is what sharding and session affinity cost you.
+  - term: Pooling
+    short: Sharing one queue across many servers instead of giving each its own — the cheapest latency improvement in queueing.
+    see: [ M/M/c, Head-of-line blocking, Utilisation ]
+    detail: |-
+      Dedicated queues waste capacity at random moments: because arrivals are uneven, one line will be empty while another has four people in it, and the idle server cannot help. Pooling removes that waste entirely, with no extra hardware.
+
+      The engineering version: prefer a shared work queue over per-worker inboxes, least-connections over round-robin, and a shared connection pool over per-caller pools — unless something genuinely prevents it.
+
+      #### When you cannot pool
+
+      | Constraint | Why |
+      | --- | --- |
+      | Sharded state | only one node has the data |
+      | Session affinity | state lives in one process |
+      | Cache locality | pooling destroys hit rate |
+      | Ordering per key | parallel servers reorder |
+
+      #### How it relates
+
+      - Each of those constraints has a measurable cost, and this is the formula that prices it.
+  - term: Coefficient of variation
+    short: c = σ/mean — how irregular arrivals or service times are, and the second dial on waiting time.
+    see: [ Kingman's formula, Arrival rate, Heavy tail ]
+    anim:
+      key: cv
+      title: Same utilisation, same average, 90 ms apart
+      svg: queueing-theory/cv.svg
+      alt: A deterministic queue with no waiting compared with an exponential queue at the same utilisation waiting nine times the service time
+      steps:
+        - say: Two queues. Both run at ρ = 0.9, both average 10 ms of service time. On every dashboard you own they are indistinguishable.
+          hl: [ cv-d, cv-m ]
+        - say: "The first is clockwork: a request arrives exactly every 11.1 ms, and each takes exactly 10 ms. The server is always finished before the next one turns up."
+          hl: [ cv-d ]
+          unhl: [ cv-d, cv-m ]
+          text:
+            cv-dw: wait = 0 ms
+          fill:
+            cv-dw: "#2f6b3f"
+        - say: No queue ever forms — at 90% utilisation. The capacity was always sufficient; it is irregularity that makes people wait, not scarcity.
+          unhl: [ cv-d ]
+          text:
+            cv-msg: ρ = 0.9 and nobody waits, because nothing varies
+        - say: "The second has the same averages, but both the arrivals and the service times vary. The wait is nine times the service time: 90 ms."
+          hl: [ cv-m ]
+          text:
+            cv-mw: wait = 90 ms
+          fill:
+            cv-mw: "#c53b3b"
+        - say: Same utilisation, same mean service time, 90 ms apart. Kingman's middle term did all of it — which is why reducing variability (jitter, caps on outliers, pagination, consistent batch sizes) buys latency that no amount of hardware would.
+          unhl: [ cv-m ]
+          text:
+            cv-msg: variability is a lever — and usually a free one
+    detail: |-
+      Zero means perfectly regular; 1 is exponential (the "random" baseline); above 1 is bursty or heavy-tailed. Most real service-time distributions sit well above 1, because a small fraction of requests cost far more than the median — a cache miss, a large customer, a cold start.
+
+      It matters because Kingman's formula multiplies the wait by the average of the squared coefficients. Halving variability halves the queue, without buying anything.
+
+      ::anim cv::
+
+      #### How it relates
+
+      - Percentiles are what variability looks like once it reaches your monitoring.
+  - term: Kingman's formula
+    short: "The practical approximation for a realistic queue: wait = utilisation factor × variability factor × service time."
+    see: [ Coefficient of variation, Utilisation, M/M/1 ]
+    detail: |-
+      `Wₔ ≈ (ρ/(1−ρ)) × ((cₐ²+cₛ²)/2) × S`. Sometimes called the VUT equation — Variability, Utilisation, Time — and it is the most useful single formula in applied queueing, because it tells you there are exactly three levers and lets you compare them.
+
+      Check it against M/M/1: with cₐ = cₛ = 1 the middle term is 1 and you recover `ρ/(1−ρ) × S`. With deterministic everything, the middle term is 0 and there is no queue at all.
+
+      #### Three levers
+
+      | Lever | How | Typical gain |
+      | --- | --- | --- |
+      | Lower ρ | add capacity, shed load | large, costs money |
+      | Lower variability | jitter, batching, caps on outliers | large, often free |
+      | Lower S | make the work faster | helps twice over |
+
+      #### How it relates
+
+      - The variability lever is the one teams forget, and it rarely requires new hardware.
+  - term: Instability
+    short: "At ρ ≥ 1 there is no steady state: the queue grows without bound and no formula applies."
+    see: [ Utilisation, Backpressure, Load shedding ]
+    detail: |-
+      Every result on this page assumes a steady state, which requires arrivals to be slower than service. Once ρ reaches 1 the queue grows linearly forever, latency grows linearly forever, and the only question is which runs out first — memory, patience or the client's timeout.
+
+      This is why an overloaded system does not settle at a worse-but-stable latency: there is no such equilibrium to settle into. It needs the arrival rate reduced, which is what shedding does.
+
+      #### Regimes
+
+      | ρ | Behaviour |
+      | --- | --- |
+      | < 0.7 | comfortable; queue mostly empty |
+      | 0.7–0.85 | sensitive; bursts hurt |
+      | 0.85–1 | the cliff |
+      | ≥ 1 | unbounded; shed or fail |
+
+      #### How it relates
+
+      - Load shedding is the operational way to force ρ back below 1.
+  - term: Queue discipline
+    short: The order work is taken in — which changes nothing about the average and everything about who suffers.
+    see: [ Utilisation, Head-of-line blocking, Load shedding ]
+    detail: |-
+      FIFO is fair and has a cruel property under overload: everybody waits the maximum, so everybody times out. LIFO serves the freshest request first, so under overload some requests succeed while old ones are abandoned — usually a better outcome, if an unfair-sounding one.
+
+      Shortest-job-first minimises average wait but starves long jobs. Priority queues implement business criticality directly.
+
+      #### Disciplines
+
+      | Discipline | Good for | Cost |
+      | --- | --- | --- |
+      | FIFO | fairness, ordering | under overload, everyone fails |
+      | LIFO | overload survival | old requests starve |
+      | Shortest job first | minimising mean wait | starves big jobs |
+      | Priority | criticality classes | needs classification |
+
+      #### How it relates
+
+      - Little's Law is indifferent to discipline — the average is the same; the distribution is not.
+  - term: Erlang C
+    short: The formula for "what fraction of arrivals have to wait at all" with c servers — the basis of staffing maths.
+    see: [ M/M/c, Pooling, Service rate ]
+    detail: |-
+      Developed by Agner Erlang for Copenhagen's telephone exchange in 1917, and still what call centres use to decide how many agents to roster. It gives the probability that all c servers are busy, from which the average wait follows directly.
+
+      In software it answers the same question for thread pools, connection pools and replica counts: how many do I need so that the probability of queueing is acceptably small?
+
+      #### What it is used for
+
+      | Domain | Question |
+      | --- | --- |
+      | Call centres | agents for an 80/20 service level |
+      | Thread pools | threads before requests queue |
+      | Connection pools | connections for a latency target |
+      | Replicas | instances for a p99 target |
+
+      #### How it relates
+
+      - Erlang B is the lossy variant: calls are dropped rather than queued, which is load shedding in 1917.
+  - term: Heavy tail
+    short: A service-time distribution where rare, very expensive requests dominate the average — and break the tidy formulas.
+    see: [ Coefficient of variation, Kingman's formula, Percentiles ]
+    detail: |-
+      Software workloads are rarely exponential. A handful of requests cost a hundred times the median: the customer with 50,000 orders, the cold cache, the regex that backtracks. With a heavy tail the coefficient of variation is large, so Kingman's variability term dominates and the queue is far worse than an M/M/1 estimate suggests.
+
+      The practical response is to cap the tail rather than chase the mean: timeouts, pagination limits, separate pools for expensive work.
+
+      #### Taming a tail
+
+      | Technique | Effect |
+      | --- | --- |
+      | Timeouts | truncates the tail directly |
+      | Pagination / result caps | bounds the worst case |
+      | Separate pool for heavy work | stops it blocking cheap work |
+      | Hedged requests | sidesteps a slow server |
+
+      #### How it relates
+
+      - This is why the percentiles page insists you never reason about latency from a mean.
+  - term: Little's Law
+    short: L = λW — the identity that connects every quantity here, and the one result that needs no assumptions.
+    see: [ Utilisation, M/M/1, Arrival rate ]
+    detail: |-
+      Queueing theory's models tell you what W <em>is</em> for a given ρ and variability. Little's Law then converts freely between W, L and λ, for any discipline and any distribution. They are complementary: one is an identity, the other a set of models.
+
+      In practice you use Little's Law to measure (queue depth gives you latency) and queueing theory to predict (utilisation gives you latency).
+
+      #### Division of labour
+
+      | Question | Tool |
+      | --- | --- |
+      | Queue is 200 deep — how slow? | Little's Law |
+      | If I run at 90%, how slow? | queueing theory |
+      | How many servers for 50 ms? | both |
+
+      #### How it relates
+
+      - Little's Law holds even at ρ ≥ 1; the queueing formulas do not.
+  - term: Waiting vs sojourn time
+    short: Wq is time queueing; W is time in the system, including service. Mixing them up changes answers by a lot.
+    see: [ M/M/1, Utilisation, Little's Law ]
+    detail: |-
+      `W = Wₔ + S`. At low utilisation they differ hugely in relative terms (Wq near zero, W near S); at high utilisation they converge, because queueing dominates. Published formulas use both, often without saying which, so check before you compare numbers.
+
+      Your monitoring almost always measures W — the client sees the whole thing — while the interesting engineering quantity is usually Wq, because that is the part you can remove.
+
+      #### At S = 20 ms
+
+      | ρ | Wₔ | W |
+      | --- | --- | --- |
+      | 0.5 | 20 ms | 40 ms |
+      | 0.8 | 80 ms | 100 ms |
+      | 0.9 | 180 ms | 200 ms |
+
+      #### How it relates
+
+      - The gap between an idle-system benchmark and production p99 is almost entirely Wₔ.
+  - term: Bounded queues
+    short: "Real systems are M/M/c/K: the queue has a maximum, and arrivals beyond it are rejected rather than queued."
+    see: [ Instability, Backpressure, Load shedding ]
+    detail: |-
+      The textbook models assume an infinite queue, which no real system has or should have. Adding a bound K changes the question from "how long is the wait?" to "what fraction is rejected, and how long do the rest wait?" — which is a far better question.
+
+      Bounding the queue is what makes latency predictable under overload: by Little's Law, maximum wait is K/(cμ), a number you can choose.
+
+      #### Choosing K
+
+      | Goal | K |
+      | --- | --- |
+      | Max wait 25 ms at 800/s | 20 |
+      | Absorb a 2 s burst at +200/s | 400 |
+      | "Whatever fits in memory" | wrong question |
+
+      #### How it relates
+
+      - Backpressure is the engineering name for choosing K and deciding what happens at the boundary.
+  - term: Measuring it
+    short: Which numbers to collect so that the theory becomes usable rather than decorative.
+    see: [ Utilisation, Coefficient of variation, Little's Law ]
+    detail: |-
+      You need four: arrival rate, service time on an unloaded system, concurrency in flight, and queue sojourn time. From those you get ρ, you can compute the coefficient of variation, and you can check Little's Law as a sanity test — if L ≠ λW your instrumentation is wrong somewhere.
+
+      Note what is <em>not</em> on the list: CPU. It is a poor proxy for ρ in anything that waits on I/O, and it gives no warning before the cliff.
+
+      #### The four measurements
+
+      | Measure | Gives you |
+      | --- | --- |
+      | Arrival rate λ | load |
+      | Service time S (unloaded) | μ, and ρ with λ |
+      | Concurrency in flight | L, and ρ against the limit |
+      | Queue sojourn p50/p99 | Wₔ and its variability |
+
+      #### How it relates
+
+      - These are the same signals load shedding triggers on, which is not a coincidence.
+commands:
+  heading: Essential formulas
+  tocLabel: Formulas
+  groups:
+    - group: Single server (M/M/1)
+      items:
+        - lang: csharp
+          code: |-
+            static double W (double lam, double mu) => 1 / mu / (1 - lam / mu);  // time in system
+            static double Wq(double lam, double mu) => W(lam, mu) - 1 / mu;      // queueing only
+
+            foreach (var rho in new[] { 0.5, 0.8, 0.9, 0.95, 0.99 })
+                Console.WriteLine($"{rho,5}  {20 / (1 - rho),7:F1} ms");         // S = 20 ms
+
+            // 0.50     40.0 ms        0.95    400.0 ms
+            // 0.80    100.0 ms        0.99  2,000.0 ms   <- same work, 100x the latency
+          what: The single-server model in two expressions. Check `rho < 1` before trusting any of it.
+        - code: |-
+            rho = lam / mu                 # utilisation; must be < 1 or nothing below applies
+            W   = (1/mu) / (1 - rho)       # time in system  (service + queueing)
+            Wq  = W - 1/mu                 # time queueing only
+            L   = rho / (1 - rho)          # requests in the system
+            Lq  = rho**2 / (1 - rho)       # requests waiting
+
+            # sanity: L == lam * W   (Little's Law — if this fails, your inputs are wrong)
+          what: Five lines that give the right order of magnitude in seconds. Worth knowing by heart.
+        - code: |-
+            >>> for rho in (0.5, 0.8, 0.9, 0.95, 0.99):
+            ...     print(rho, round(20 / (1 - rho), 1), "ms")
+            0.5   40.0 ms
+            0.8  100.0 ms
+            0.9  200.0 ms
+            0.95 400.0 ms
+            0.99 2000.0 ms      # same 20 ms of work, 100x the latency
+          what: The whole argument against running interactive systems hot, in five lines of output.
+    - group: Many servers (M/M/c) and Erlang C
+      items:
+        - lang: csharp
+          code: |-
+            static double Factorial(int n) => Enumerable.Range(1, n).Aggregate(1.0, (a, b) => a * b);
+
+            // Probability an arrival has to wait. a = lam/mu, the offered load in erlangs.
+            static double ErlangC(int c, double a)
+            {
+                var top = Math.Pow(a, c) / Factorial(c) * (c / (c - a));
+                var bot = Enumerable.Range(0, c).Sum(k => Math.Pow(a, k) / Factorial(k)) + top;
+                return top / bot;
+            }
+
+            static double WqMmc(double lam, double mu, int c)
+            {
+                if (lam / mu >= c) throw new ArgumentException("unstable: rho >= 1");
+                return ErlangC(c, lam / mu) / (c * mu - lam);
+            }
+
+            Console.WriteLine(WqMmc(lam: 2.4, mu: 1.0, c: 3));   // 1.0787 — vs 4.0 for one server
+          what: "The pooling gain, computed: three servers at the same utilisation wait roughly a quarter as long as one."
+        - lang: python
+          code: |-
+            from math import factorial
+
+            def erlang_c(c: int, a: float) -> float:
+                """Probability an arrival has to wait. a = lam/mu (offered load in erlangs)."""
+                top = (a**c / factorial(c)) * (c / (c - a))
+                bot = sum(a**k / factorial(k) for k in range(c)) + top
+                return top / bot
+
+            def wq_mmc(lam: float, mu: float, c: int) -> float:
+                a = lam / mu
+                assert a < c, "unstable: rho >= 1"
+                return erlang_c(c, a) / (c * mu - lam)
+
+            # three servers at rho = 0.8, service time 1.0
+            >>> wq_mmc(lam=2.4, mu=1.0, c=3)
+            1.0787...                      # vs 4.0 for a single server at the same rho
+          what: The pooling gain, computed. Same utilisation per server, roughly a quarter of the wait.
+        - lang: python
+          code: |-
+            # how many servers to keep queueing under 50 ms?
+            def servers_needed(lam, mu, target_wq):
+                c = int(lam / mu) + 1
+                while wq_mmc(lam, mu, c) > target_wq:
+                    c += 1
+                return c
+
+            >>> servers_needed(lam=300, mu=125, target_wq=0.05)   # 300/s, 8 ms each
+            3
+          what: Capacity planning that answers a latency question rather than a utilisation question.
+    - group: "Realistic queues: Kingman"
+      items:
+        - lang: csharp
+          code: |-
+            // VUT: variability x utilisation x time. Works for any distribution.
+            static double KingmanWq(double rho, double ca, double cs, double s) =>
+                rho / (1 - rho) * ((ca * ca + cs * cs) / 2) * s;
+
+            KingmanWq(rho: 0.8, ca: 1,   cs: 1,   s: 0.020);   // 0.080 — M/M/1 baseline
+            KingmanWq(rho: 0.8, ca: 1,   cs: 3,   s: 0.020);   // 0.400 — heavy-tailed service
+            KingmanWq(rho: 0.8, ca: 0.3, cs: 0.3, s: 0.020);   // 0.007 — smoothed, no new hardware
+          what: The variability lever, priced. Dropping c<sub>s</sub> from 3 to 0.3 beats any capacity you could reasonably buy.
+        - lang: python
+          code: |-
+            def kingman_wq(rho: float, ca: float, cs: float, S: float) -> float:
+                """VUT: variability x utilisation x time. Works for any distribution."""
+                return (rho / (1 - rho)) * ((ca**2 + cs**2) / 2) * S
+
+            >>> kingman_wq(rho=0.8, ca=1, cs=1, S=0.020)      # M/M/1 baseline
+            0.080                                              # 80 ms
+            >>> kingman_wq(rho=0.8, ca=1, cs=3, S=0.020)      # heavy-tailed service
+            0.400                                              # 400 ms — same rho, 5x the wait
+            >>> kingman_wq(rho=0.8, ca=0.3, cs=0.3, S=0.020)  # smoothed arrivals and work
+            0.0072                                             # 7 ms — no new hardware
+          what: The variability lever, priced. Reducing c<sub>s</sub> from 3 to 0.3 beats any amount of capacity you could reasonably buy.
+        - lang: python
+          code: |-
+            # estimate the coefficient of variation from your own data
+            import statistics as st
+            cs = st.pstdev(service_times) / st.mean(service_times)
+
+            # cs ≈ 0    perfectly regular      (fixed-cost work)
+            # cs ≈ 1    exponential            (the "random" baseline)
+            # cs > 2    heavy tailed           (expect queueing far worse than M/M/1)
+          what: Compute this once for your hottest endpoint. If it is above 2, variability — not capacity — is your latency problem.
+    - group: Sizing a bounded queue
+      items:
+        - code: |-
+            # real queues have a maximum. Little's Law turns a latency budget into a size.
+            K = service_rate * max_wait_seconds       # 800/s × 0.025 s = 20 slots
+            max_wait = K / service_rate               # and back again
+
+            # then decide what happens at the boundary: block, drop, or reject upstream
+          what: Choosing K is choosing your worst-case queueing latency. Everything else about backpressure follows from that number.
+    - group: When the formulas stop applying
+      items:
+        - lang: python
+          code: |-
+            # simulate instead — 30 lines beats a wrong closed form
+            import random, heapq
+
+            def simulate(lam, service_sampler, c, n=200_000):
+                clock, free = 0.0, [0.0] * c          # when each server is next free
+                heapq.heapify(free)
+                waits = []
+                for _ in range(n):
+                    clock += random.expovariate(lam)   # arrival
+                    earliest = heapq.heappop(free)
+                    start = max(clock, earliest)
+                    waits.append(start - clock)        # queueing time
+                    heapq.heappush(free, start + service_sampler())
+                waits.sort()
+                return waits[len(waits)//2], waits[int(len(waits)*0.99)]   # p50, p99
+
+            >>> simulate(lam=2.4, service_sampler=lambda: random.expovariate(1.0), c=3)
+            (0.44, 5.6)      # the p99 is what users feel — and no formula gave you it
+          what: Closed forms give means. Simulation gives distributions, handles priorities, retries and heavy tails, and is usually the honest answer.
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - Explains why latency explodes before capacity runs out — the single most useful performance insight there is.
+      - Turns capacity planning into a latency question rather than a utilisation target.
+      - Identifies three distinct levers (utilisation, variability, service time) so you can compare their cost.
+      - Predicts the effect of a change before you build it, in a few lines of arithmetic.
+      - Quantifies pooling, which is usually a free improvement.
+      - Prices architectural constraints like sharding and session affinity honestly.
+  bad:
+    heading: Cons
+    items:
+      - The tidy formulas assume Poisson arrivals and exponential service; real traffic is neither.
+      - Closed forms give averages, and users experience the tail.
+      - Everything assumes a steady state, so nothing applies during the overload you most care about.
+      - Real systems have feedback — retries, autoscaling, clients backing off — which the models ignore.
+      - Multi-stage systems need queueing networks, which get complicated quickly.
+      - Easy to compute a precise number from inputs you guessed.
+when:
+  note: use it for the order of magnitude and the shape of the curve — never for three significant figures
+  good:
+    heading: Use it when…
+    items:
+      - You are choosing a utilisation target, a pool size or a replica count.
+      - Latency got worse without any code change, and you need to know why.
+      - You want to compare adding capacity against reducing variability before spending money.
+      - You are deciding between shared and dedicated resources — pooling has a number.
+      - You need to explain to someone why 95% utilisation is not a good thing.
+  bad:
+    heading: Avoid it when…
+    items:
+      - You need the tail rather than the mean. Use **simulation or measured percentiles**.
+      - The system is already overloaded. Use **load shedding** — no steady state exists to model.
+      - Arrivals are strongly correlated (retry storms, cron spikes). Use **simulation with your real trace**.
+      - The path crosses many stages with feedback. Use **load testing**; queueing networks get hard fast.
+      - You do not have measured service times. Use **back-of-the-envelope estimates** first, and label them as such.
+useCases:
+  - title: "\"CPU is only at 85%\""
+    body: "A service is at 85% utilisation and p99 latency has tripled, with no code change. Nothing is broken: W = S/(1−ρ) says 85% is already a 6.7× multiplier, up from 5× at 80%. The fix is to target 70%, and the graph that would have warned you is concurrency, not CPU."
+  - title: Sizing a connection pool for a latency target
+    body: Rather than guessing, measure service time and arrival rate, then solve M/M/c for the number of connections that keeps queueing under 10 ms. Usually it is far smaller than the configured value, and the smaller number is faster because it bounds the queue.
+  - title: Pricing session affinity
+    body: "A team wants sticky sessions for cache locality. Queueing maths puts a number on it: at ρ = 0.8, pinning requests to one of ten servers takes queueing from 0.18×S to 4×S. The cache hit rate has to be worth that, and now the argument can be had with numbers."
+  - title: Finding that variability, not capacity, is the problem
+    body: p99 is terrible at a comfortable 60% utilisation. The coefficient of variation of service time turns out to be 4 — a few enormous customers. Kingman says the wait is dominated by that term, so paginating the expensive endpoint fixes what doubling the fleet would not have.
+  - title: Explaining why the restart did not help
+    body: After an overload the service stays slow even though traffic is back to normal. At ρ ≥ 1 the queue grew without bound, and the backlog is still being drained. The model says there was never a stable worse-state to settle into — only shedding or draining ends it.
+gotchas:
+  items:
+    - mistake: Treating utilisation as linear
+      why: "\"We're at 80%, so we have 20% headroom\" is false. That last 20% of capacity carries four times the latency cost of everything before it, and the curve is vertical by 95%."
+      fix: target 60–75% for interactive work and treat the remainder as latency headroom. Reserve high utilisation for batch jobs, where nobody is waiting.
+    - mistake: Using CPU as ρ
+      why: CPU is a poor proxy for utilisation in anything that waits on I/O, and it stays unremarkable until the moment the queue explodes — which is far too late to be a useful signal.
+      fix: measure concurrency in flight against your concurrency limit, or queue sojourn time. Both are proportional to what users feel.
+    - mistake: Ignoring variability
+      why: Two systems at identical utilisation with identical mean service times can differ tenfold in waiting time. Capacity planning that uses only averages will be wrong in exactly the cases that matter.
+      fix: compute the coefficient of variation of your service times. Above 2, attack variability — caps, pagination, separate pools — before buying hardware.
+    - mistake: Dedicated queues per worker
+      why: Per-worker inboxes, round-robin routing and sticky sessions all leave servers idle while other queues have work. At ρ = 0.8 across three servers that is roughly four times the queueing delay for free.
+      fix: pool wherever the servers are interchangeable — shared work queue, least-connections balancing, one shared pool. Where you cannot, know what it costs.
+    - mistake: Applying the formulas above ρ = 1
+      why: Every result here assumes a steady state. At ρ ≥ 1 there is no equilibrium, the queue grows linearly forever, and a computed "average wait" is meaningless.
+      fix: check ρ < 1 first. Above it, the only questions are how fast the backlog grows and how you reduce arrivals.
+    - mistake: Quoting the mean to users
+      why: The formulas give average waiting time. Your SLO is about p99, and with a heavy tail the p99 can be twenty times the mean.
+      fix: use the formulas for direction and the simulator or real measurements for the tail. Never promise a percentile derived from a mean.
+    - mistake: Forgetting that retries change λ
+      why: The model assumes arrivals are independent of the system's state. Retries make them depend on it, so latency rises, retries arrive, λ rises, latency rises further — a loop the equations cannot see.
+      fix: model the retry multiplier explicitly, or simulate. And cap retries with a budget so the feedback loop stays bounded.
+    - mistake: Precision from guessed inputs
+      why: Computing a wait of 47.3 ms from an arrival rate somebody estimated in a meeting gives a number with three significant figures and no information.
+      fix: treat outputs as orders of magnitude. The valuable result is the <em>shape</em> — that 90% costs twice what 80% does — not the decimal places.
+alternatives:
+  columns:
+    - Approach
+    - Best for
+    - Complexity
+    - Cost / license
+    - Key difference vs queueing theory
+  rows:
+    - self: true
+      cells:
+        - "**Queueing theory**"
+        - predicting latency from utilisation
+        - Medium
+        - free
+        - —
+    - cells:
+        - "**Little's Law**"
+        - converting between L, λ and W
+        - Very low
+        - free
+        - An identity with no assumptions; says nothing about what sets W
+    - cells:
+        - "**Simulation**"
+        - tails, priorities, retries, real traces
+        - Medium
+        - free
+        - Gives distributions rather than means, and handles what closed forms cannot
+    - cells:
+        - "**Load testing**"
+        - validating the real system
+        - Medium
+        - an environment
+        - Measures reality including the bits you forgot to model; slow to iterate
+    - cells:
+        - "**Measured percentiles**"
+        - knowing what users experience now
+        - Low
+        - telemetry
+        - Describes the present; cannot predict a configuration you have not tried
+    - cells:
+        - "**Universal Scalability Law**"
+        - how throughput scales with concurrency
+        - Medium
+        - free
+        - Models contention and coherency costs; answers "will more nodes help?"
+    - cells:
+        - "**Back-of-the-envelope**"
+        - a first estimate in five minutes
+        - Very low
+        - free
+        - Order-of-magnitude sizing; queueing theory adds the latency-under-load part
+  notes:
+    - "**Pick Little's Law** when you have two of L, λ, W and want the third — it always holds, even where these models do not."
+    - "**Pick simulation** as soon as you need a percentile, a priority scheme or anything with retries in it."
+    - "**Pick load testing** to validate — the model tells you where to look, the test tells you whether you were right."
+    - "**Pick the USL** when the question is about scaling out rather than about waiting in line."
+    - "**Pick back-of-the-envelope** first; reach for queueing theory the moment the answer depends on how loaded the system is."
+resources:
+  - url: https://www.vanderbilt.edu/AnS/psychology/cogsci/chaos/workshop/QT.html
+    title: Queueing theory basics
+    why: Kendall notation and the standard M/M/1 and M/M/c results, compactly.
+  - url: https://www.cs.cmu.edu/~harchol/PerformanceModeling/book.html
+    title: Performance Modeling and Design of Computer Systems (Harchol-Balter)
+    why: the best book on this for software people; several chapters are free online.
+  - url: https://queue.acm.org/detail.cfm?id=2209336
+    title: Controlling Queue Delay (CoDel)
+    why: queueing theory applied to real buffers, and why sojourn time is the signal to watch.
+  - url: https://sre.google/sre-book/addressing-cascading-failures/
+    title: Google SRE — Addressing Cascading Failures
+    why: what happens past ρ = 1, where the formulas stop and the outage starts.
+  - url: https://www.perfdynamics.com/Manifesto/USLscalability.html
+    title: Universal Scalability Law (Gunther)
+    why: the companion model for how throughput scales with concurrency.
+  - url: https://simpy.readthedocs.io/en/latest/
+    title: SimPy
+    why: discrete-event simulation in Python, for when the closed forms run out.

@@ -1,0 +1,747 @@
+title: CQRS
+slug: cqrs
+tagline: Writes and reads want opposite things from a schema. Stop making one model do both jobs badly.
+asof: Nov 2026 · named by Greg Young, 2010; examples in C#, SQL and Python
+description: "CQRS cheatsheet: separate write and read models, projections, the eventual consistency window and the read-your-own-writes problem — animated, with the levels you can stop at."
+aliases:
+  - CQRS
+  - Command Query Responsibility Segregation
+  - command query responsibility segregation
+  - read model
+  - write model
+  - projection
+keywords:
+  - cqrs
+  - architecture
+  - read model
+  - write model
+  - projection
+  - eventual consistency
+  - event sourcing
+  - ddd
+  - scalability
+  - patterns
+related:
+  - cqs
+  - domain-driven-design
+  - caching-strategies
+  - kafka
+  - modular-monolith
+overview:
+  - Command Query Responsibility Segregation says that the model you use to <em>change</em> state and the model you use to <em>read</em> state do not have to be the same object, the same schema, or even the same database. Writes want normalisation, invariants and small transactions; reads want pre-joined, denormalised rows that a screen can render without thinking. One model forced to serve both ends up compromising on each.
+  - The pattern is a spectrum, not a switch. At the cheapest level it is just two sets of classes against one database — commands going through aggregates, queries going through plain SQL or a thin DTO projection. One step further, the read side gets its own denormalised tables or materialised views in the same store. At the far end it gets its own database, fed asynchronously by projections from the write side's events, and the two scale independently.
+  - "Two things CQRS is <em>not</em>: it is not event sourcing (they are often used together and are entirely separable), and it is not an architecture for a whole system. It is applied per bounded context, usually to the one or two contexts where the read and write shapes genuinely diverge, while the rest of the application stays plain CRUD."
+architecture:
+  svg: cqrs/architecture.svg
+  alt: Commands flowing through a write model to a normalised store, events projected into a denormalised read store serving queries
+  caption: Same data, two shapes. The projector is the only bridge, and it runs after the write has already committed.
+howItWorks:
+  - md: "The first animation follows one write and one read down their separate paths. The second is the bill that arrives with them: a user who cannot see what they just did."
+  - note: CQRS does not require two databases — it requires two models. Start there.
+  - anim:
+      id: anim-path
+      title: 1 · A write and a read take different paths
+      svg: cqrs/anim-path.svg
+      alt: A command travelling through the write model to a normalised store, projected into a denormalised read store that a query then reads
+      steps:
+        - say: One client, two jobs. Changing an order and listing orders look similar from the outside and want completely different things from a schema.
+          hl: [ cq-cmd ]
+        - say: The command `PlaceOrder` goes to its handler, which loads the aggregate, checks invariants and decides. This path cares about correctness and nothing else.
+          hl: [ cq-ch ]
+          unhl: [ cq-cmd ]
+          move:
+            cq-cmd: [ 190, 0 ]
+          text:
+            cq-msg: "write path: intention → aggregate → invariants"
+        - say: "It commits to the write store: normalised across three tables. Perfect for enforcing rules, poor for rendering a list — the list screen needs all three joined every time."
+          hl: [ cq-wdb ]
+          unhl: [ cq-ch ]
+          move:
+            cq-cmd: [ 400, 0 ]
+          text:
+            cq-cmdt: "commit: 1 order, 2 lines"
+            cq-wdbt: orders +1 · order_lines +2
+        - say: The write emits `OrderPlaced`. In an event-sourced system this is the stored fact; in an ordinary system it is an outbox row or a change-data-capture record. Either works.
+          show: [ cq-evt, cq-a1 ]
+          hide: [ cq-cmd ]
+          unhl: [ cq-wdb ]
+          text:
+            cq-msg: the only bridge between the two sides
+        - say: The projector consumes it, advances its checkpoint, and does the joins <em>once</em>, now, instead of on every page load.
+          show: [ cq-a2 ]
+          hl: [ cq-proj ]
+          text:
+            cq-projt: projecting · offset 42
+        - say: "It writes a single denormalised row into `order_list_view`: customer name, total, status — everything the screen shows, already flattened."
+          show: [ cq-a3 ]
+          hl: [ cq-rdb ]
+          unhl: [ cq-proj ]
+          text:
+            cq-rdbt: 4 rows · +1 pre-joined
+        - say: Later the client asks for the list. The query handler goes straight to the read store — no aggregate, no ORM graph, no domain model anywhere on this path.
+          show: [ cq-q, cq-hand ]
+          hl: [ cq-qh ]
+          unhl: [ cq-rdb ]
+          text:
+            cq-msg: "read path: one indexed lookup, DTO out"
+        - say: One indexed read returns exactly the screen's shape. The two sides can now be indexed, cached, scaled and even stored differently, because neither constrains the other.
+          unhl: [ cq-qh ]
+          move:
+            cq-q: [ 0, 0 ]
+          text:
+            cq-qt: 20 rows · 3 ms
+        - say: "And here is the bill: the read store is updated <em>after</em> the write commits, so for a short window it is behind. That window is the whole cost of CQRS — the next animation is what it feels like."
+          hl: [ cq-rdb ]
+          text:
+            cq-msg: "eventual consistency window: ms to seconds — state it, measure it"
+  - anim:
+      id: anim-lag
+      title: 2 · Read-your-own-writes, and four ways to survive it
+      svg: cqrs/anim-lag.svg
+      alt: A user placing an order then being redirected to a list served by a read model that has not caught up yet
+      steps:
+        - say: "A user with two items in the cart hits \"Place order\". Write and read stores are in sync: 41 orders on both sides."
+          hl: [ lg-br ]
+        - say: The command commits to the write store immediately and strongly. From the domain's point of view the order exists and the request succeeded.
+          hl: [ lg-w ]
+          unhl: [ lg-br ]
+          text:
+            lg-wt: 42 orders
+            lg-t: t = 0 ms · write committed
+          fill:
+            lg-wt: "#c53b3b"
+        - say: Forty milliseconds later the app redirects to "my orders". The projector has not run yet.
+          hl: [ lg-r ]
+          unhl: [ lg-w ]
+          text:
+            lg-b1: "cart: 2 items"
+            lg-b2: → redirect to /orders
+            lg-t: t = 40 ms · query issued
+        - say: The query is served by the read store, which still holds 41 rows. The user sees a list without the order they just placed — so they place it again. A duplicate, caused entirely by architecture.
+          text:
+            lg-b3: list shows 41 orders
+            lg-b4: where is my order?!
+            lg-rt: 41 rows · 1 behind
+            lg-t: t = 45 ms · stale read
+          fill:
+            lg-rt: "#c53b3b"
+        - say: "Mitigation 1, the cheapest: have the command return the created order and render it directly. No query, no lag, and it covers most \"submit then see the thing\" flows."
+          show: [ lg-f1 ]
+          unhl: [ lg-r ]
+          text:
+            lg-t: fix 1 · command returns the data
+        - say: "Mitigation 2: the command returns a version token; the query sends it back and the read side waits (briefly) until its checkpoint reaches that version. Correct for lists, at the cost of some latency."
+          show: [ lg-f2 ]
+          text:
+            lg-t: fix 2 · read-your-writes via version token
+        - say: "Mitigation 3: serve a user's <em>own</em> data from the write store and everyone else's from the read store. Two code paths, but it matches how staleness is actually perceived — you only notice your own changes missing."
+          show: [ lg-f3 ]
+          text:
+            lg-t: fix 3 · own data from the write side
+        - say: "Mitigation 4: change the product. A clear \"processing…\" state or an async confirmation makes the delay honest instead of broken, and costs no engineering at all."
+          show: [ lg-f4, lg-hand ]
+          text:
+            lg-t: fix 4 · make the delay part of the UX
+        - say: Meanwhile the projector catches up and the two stores converge. Nothing was lost — the read model was only ever behind, never wrong.
+          hl: [ lg-r ]
+          text:
+            lg-rt: 42 rows · caught up
+            lg-b3: list shows 42 orders
+            lg-b4: " "
+            lg-t: t = 240 ms · converged
+          fill:
+            lg-rt: "#2f6b3f"
+            lg-wt: "#5f6f66"
+        - say: "The real rule: choose a mitigation per screen, not per system. A dashboard can be thirty seconds stale; the page a user lands on after submitting a form usually cannot be stale at all."
+          show: [ lg-f5 ]
+          unhl: [ lg-r ]
+          text:
+            lg-t: state the window, measure it, alert on it
+concepts:
+  - term: Command
+    short: A request to change state, named as an imperative, that can be rejected and returns no business data.
+    see: [ Query, Command handler, Write model ]
+    detail: |-
+      `PlaceOrder`, `CancelReservation`, `ApproveInvoice`. A command is an intention, not a fact: the handler is allowed to refuse it. It is named in the business language, carries exactly the data needed to decide, and ideally carries a client-generated id so retries are idempotent.
+
+      Commands should not return the new state. Returning an id (or nothing but success) is what keeps the write path from quietly becoming a query path with side effects.
+
+      #### Shape
+
+      | Property | Convention |
+      | --- | --- |
+      | Name | imperative, present tense |
+      | Returns | void, or the new identity |
+      | Can fail | yes — validation and invariants |
+      | Idempotency | client-supplied command id |
+
+      #### How it relates
+
+      - CQS is the one-object version of this rule; CQRS applies it to whole models.
+      - A command typically ends with one or more domain events.
+  - term: Query
+    short: A request for data that changes nothing and returns a shape built for a specific screen or caller.
+    see: [ Command, Read model, Query handler ]
+    detail: |-
+      A query returns a DTO, not a domain object. That is the point: the caller gets exactly the fields the screen needs, already joined and formatted, and nothing in the domain model constrains it. Two screens wanting different shapes get two queries, not one flexible one.
+
+      Because queries never mutate, they are trivially cacheable, safe to retry, safe to run against a replica, and safe to fan out.
+
+      #### Query or repository?
+
+      | Need | Path |
+      | --- | --- |
+      | Load order 42 to change it | repository, write side |
+      | Order list with customer names | query, read side |
+      | Dashboard totals by month | query, read side |
+
+      #### How it relates
+
+      - The read side is where caching strategies belong — the write side rarely benefits.
+  - term: Command handler
+    short: "The single entry point that executes one command: load the aggregate, call one method, save, publish."
+    see: [ Command, Write model, Outbox ]
+    detail: |-
+      One handler per command keeps the write side flat and testable: no service class accumulating twelve unrelated methods, and a one-to-one map from business intentions to code. Cross-cutting concerns — validation, authorisation, transactions, retries, logging — are added as a pipeline around the handler rather than inside it.
+
+      Keep it thin. Any `if` about business meaning belongs in the aggregate.
+
+      #### Pipeline order that works
+
+      | Step | Concern |
+      | --- | --- |
+      | 1 | authorisation |
+      | 2 | structural validation |
+      | 3 | idempotency check |
+      | 4 | transaction |
+      | 5 | handler |
+      | 6 | publish events from the outbox |
+
+      #### How it relates
+
+      - In a DDD context, the handler <em>is</em> the application service.
+  - term: Write model
+    short: "The model optimised for change: aggregates, invariants, small transactions and a normalised schema."
+    see: [ Read model, Command handler, Projection ]
+    detail: |-
+      The write model exists to make illegal states impossible. It is normalised because duplication is a correctness risk when you are writing, it is loaded by identity because that is all a command needs, and it has no idea what any screen looks like.
+
+      A good test: if adding a column for a report changes the write model, the separation has not happened yet.
+
+      #### Optimised for
+
+      | Write side | Read side |
+      | --- | --- |
+      | correctness | latency |
+      | normalised | denormalised |
+      | few, small transactions | no transactions |
+      | loaded by id | indexed by whatever the screen filters on |
+
+      #### How it relates
+
+      - Aggregates and repositories live here; queries are forbidden here.
+  - term: Read model
+    short: A denormalised, screen-shaped store of the same data, built from the write side and treated as disposable.
+    see: [ Projection, Query, Rebuild ]
+    detail: |-
+      A read model is a cache with a schema: one table (or document, or index) per view, with every join already done and every computed field already computed. Rendering a page becomes a single indexed lookup instead of a six-table join plus mapping.
+
+      The liberating property is that it holds no authoritative state. You can drop it, change its shape, add a column, and rebuild it from the write side — which means read-side schema changes stop being migrations and become replays.
+
+      #### Where read models live
+
+      | Store | Good for |
+      | --- | --- |
+      | Same SQL DB, extra tables | most cases; cheapest step |
+      | Materialised view | no projector code to maintain |
+      | Redis / key-value | single-key lookups, very hot screens |
+      | Elasticsearch | search, facets, full text |
+      | Columnar / warehouse | analytics and aggregation |
+
+      #### How it relates
+
+      - Read models are populated by a **projection** and can always be **rebuilt**.
+  - term: Projection
+    short: The code that turns write-side events into read-model rows, and the process that runs it.
+    see: [ Read model, Checkpoint, Rebuild, Idempotency ]
+    anim:
+      key: rb
+      title: Rebuilding a broken projection
+      svg: cqrs/rb.svg
+      alt: A projector replaying an event log from offset zero to rebuild a read table
+      steps:
+        - say: The read model has processed five events and its checkpoint says 4. It is a derived view of the log, holding no authoritative state of its own.
+          hl: [ rb-tbl ]
+        - say: A bug in the projector has been computing totals wrong for a week. In a normal system this would be a data migration with a careful backfill script.
+          unhl: [ rb-tbl ]
+          text:
+            rb-notet: broken
+          fill:
+            rb-notet: "#c53b3b"
+        - say: Fix the projector code, then throw the table away and reset the checkpoint to zero. Nothing of value is lost, because everything here is derived.
+          text:
+            rb-cp: checkpoint = 0
+            rb-tblt: 0 rows · truncated
+            rb-notet: rebuilding
+          fill:
+            rb-notet: "#5f6f66"
+        - say: Replay from the beginning. Each event is applied by the corrected projector, in order, as fast as the store allows.
+          hl: [ rb-e0, rb-e1, rb-e2 ]
+          text:
+            rb-cp: checkpoint = 2
+            rb-tblt: 3 rows · replaying
+        - say: Caught up at offset 4 and back on live events, with correct totals. In practice you build the new table beside the old one and switch the queries over, so there is no downtime and rollback is free.
+          hl: [ rb-e3, rb-e4 ]
+          unhl: [ rb-e0, rb-e1, rb-e2 ]
+          text:
+            rb-cp: checkpoint = 4
+            rb-tblt: 5 rows · totals correct
+            rb-notet: live
+          fill:
+            rb-notet: "#2f6b3f"
+    detail: |-
+      A projection is a fold: for each event, update the rows that event affects. `OrderPlaced` inserts a row into `order_list_view`; `OrderShipped` updates its status; `CustomerRenamed` updates the denormalised name on every row that carries it.
+
+      Two properties make projections operationally safe: they must be **idempotent** (the same event applied twice leaves the same state) and they must track a **checkpoint**, so a restart resumes rather than replays everything.
+
+      ::anim rb::
+
+      #### How it relates
+
+      - Projections are where the **eventual consistency** window actually comes from.
+  - term: Checkpoint
+    short: The position in the event stream a projection has processed up to, stored alongside the read model.
+    see: [ Projection, Rebuild, Eventual consistency ]
+    detail: |-
+      Without a checkpoint a restarting projector either replays everything or skips events. Storing the offset in the <em>same transaction</em> as the rows it produced makes the pair atomic, which is what turns at-least-once delivery into a correct read model.
+
+      The gap between the writer's latest offset and the projection's checkpoint is the measurable version of "how stale is the read side" — the single most useful metric on the read path.
+
+      #### What to monitor
+
+      | Metric | Healthy |
+      | --- | --- |
+      | Lag in events | near zero, bounded |
+      | Lag in seconds | under your stated window |
+      | Projection errors | zero; one poison event stalls everything |
+
+      #### How it relates
+
+      - Resetting the checkpoint to zero is how a **rebuild** starts.
+  - term: Eventual consistency
+    short: The read model trails the write model by a short, bounded delay instead of being updated in the same transaction.
+    see: [ Read-your-writes, Projection, Checkpoint ]
+    detail: |-
+      Once the projection is asynchronous, there is a window — usually milliseconds, occasionally seconds under load — in which a committed change is invisible to queries. This is a design decision, not a defect, but it is only acceptable if the window is stated, measured and alerted on.
+
+      Note the choice is per read model. A dashboard can tolerate thirty seconds; the screen the user lands on after submitting a form usually cannot, and that one may need a synchronous projection or a different mitigation.
+
+      #### Typical windows
+
+      | Setup | Typical lag |
+      | --- | --- |
+      | Same transaction (synchronous) | 0 |
+      | In-process after commit | 1–20 ms |
+      | Via a broker | 20–500 ms |
+      | Batch rebuild | minutes |
+
+      #### How it relates
+
+      - The second animation is this window being felt by a real user.
+  - term: Read-your-writes
+    short: The guarantee that a user immediately sees the effect of their own change — the first thing CQRS breaks.
+    see: [ Eventual consistency, Projection, Query ]
+    detail: |-
+      The user submits a form, gets redirected to a list, and their item is not there. They submit again. You now have a duplicate caused purely by an architectural choice. Every CQRS system needs an answer to this, chosen per screen.
+
+      The four workable answers, cheapest first: return the created data from the command so the UI can render it without a query; carry a version token and have the query wait for the projection to reach it; serve the user's own data from the write model; or change the interaction so immediacy is not expected.
+
+      #### Mitigations
+
+      | Approach | Cost | Good when |
+      | --- | --- | --- |
+      | Command returns the data | none | single-item views |
+      | Version token / wait | some latency | lists after a write |
+      | Read own data from write side | two code paths | "my orders" screens |
+      | UI says "processing" | product decision | genuinely async work |
+
+      #### How it relates
+
+      - This is why "CQRS everywhere" is a bad default — apply it where the asymmetry pays.
+  - term: Levels of CQRS
+    short: The spectrum from two sets of classes over one table to two separate databases — you can stop anywhere.
+    see: [ Read model, Write model, Eventual consistency ]
+    detail: |-
+      Almost all of the benefit arrives at level 1, and almost all of the cost arrives at level 3. Most teams should stop at level 1 or 2: commands through the domain model, queries as plain SQL returning DTOs, both hitting the same database inside one transaction. No lag, no projector, no new infrastructure — and the read side is already free of the ORM.
+
+      Go further only when a specific measurement forces it: reads outgrowing writes, a search requirement SQL cannot serve, or a reporting load that disturbs the transactional store.
+
+      #### The ladder
+
+      | Level | Shape | Consistency |
+      | --- | --- | --- |
+      | 0 | one model, one repository | strong |
+      | 1 | two models, one schema | strong |
+      | 2 | denormalised tables / views, same DB | strong or near |
+      | 3 | separate read store, async projection | eventual |
+      | 4 | level 3 plus event sourcing | eventual |
+
+      #### How it relates
+
+      - Each step up buys scalability and costs a consistency guarantee.
+  - term: Event sourcing
+    short: Storing state as an append-only log of events rather than as current rows — frequently paired with CQRS, and independent of it.
+    see: [ Projection, Rebuild, Write model ]
+    detail: |-
+      Event sourcing changes how the <em>write</em> side persists: instead of updating a row, you append `OrderPlaced`, `ItemAdded`, `OrderShipped` and rebuild current state by replaying them. CQRS changes how you <em>read</em>. They fit together neatly, because an event log is the perfect input for projections, but either works without the other.
+
+      Treat them as separate decisions with separate costs. Event sourcing brings full history and audit for free, and brings schema versioning of events, snapshotting and a genuinely different debugging experience as the bill.
+
+      #### Pick independently
+
+      | You want | You need |
+      | --- | --- |
+      | Fast, screen-shaped reads | CQRS |
+      | Full history, temporal queries, audit | event sourcing |
+      | Both | both — and a plan for event versioning |
+
+      #### How it relates
+
+      - Most CQRS systems in production are <em>not</em> event sourced; they project from change events emitted by an ordinary database write.
+  - term: Outbox
+    short: Writing outgoing events into a table inside the same transaction as the state change, then publishing them from there.
+    see: [ Projection, Command handler, Eventual consistency ]
+    detail: |-
+      Committing to the database and publishing to a broker are two separate systems, so doing both "atomically" is impossible without a protocol. The outbox makes it one transaction: the event row is written next to the state change, and a separate relay reads the table and publishes, marking rows as sent.
+
+      Without it you get the two classic failures: the write commits and the event is lost (read model permanently stale), or the event is published and the write rolls back (read model shows something that never happened).
+
+      #### Guarantees
+
+      | Property | Result |
+      | --- | --- |
+      | Delivery | at least once |
+      | Ordering | per aggregate, if you keep a sequence |
+      | Consumer requirement | must be idempotent |
+
+      #### How it relates
+
+      - Change data capture (Debezium and friends) is the other common way to get the same guarantee.
+  - term: Idempotency
+    short: Applying the same event twice must leave the read model in the same state as applying it once.
+    see: [ Projection, Outbox, Checkpoint ]
+    detail: |-
+      Every realistic delivery mechanism is at-least-once, so a projector <em>will</em> see duplicates after a restart, a rebalance or a retry. Idempotency is what makes that harmless: use upserts keyed by the aggregate id, store the last applied sequence number per row and ignore anything not greater than it, and avoid blind increments like `total = total + x`.
+
+      #### Safe and unsafe projection writes
+
+      | Write | Safe? |
+      | --- | --- |
+      | `UPSERT … SET status = 'shipped'` | yes — absolute value |
+      | `SET count = count + 1` | no — duplicates accumulate |
+      | `… WHERE seq < @seq` | yes — guarded by sequence |
+      | `INSERT` without a key | no — duplicate rows |
+
+      #### How it relates
+
+      - Idempotency is what makes a **rebuild** safe to run against a live read model.
+  - term: Rebuild
+    short: Dropping a read model and replaying the event history to recreate it — the operational superpower of CQRS.
+    see: [ Projection, Checkpoint, Read model ]
+    detail: |-
+      Because the read model is derived, a bug in a projector or a new column on a screen does not need a data migration: reset the checkpoint, truncate the table and replay. In practice you build the new version alongside the old one, let it catch up, then switch the queries over — zero downtime, and the old table is still there if you need to go back.
+
+      Plan for it from the start. Rebuild time grows with history, so measure it early and add snapshots or partial replays before it becomes hours.
+
+      #### Rebuild checklist
+
+      | Step | Note |
+      | --- | --- |
+      | Build the new table alongside | no downtime |
+      | Replay from offset 0 | needs retained history |
+      | Verify row counts and spot checks | before switching |
+      | Switch queries, keep the old table | cheap rollback |
+
+      #### How it relates
+
+      - The animation inside **projection** walks one rebuild end to end.
+  - term: Query handler
+    short: "The read-side counterpart to a command handler: one per query, returning a DTO, with no domain model in sight."
+    see: [ Query, Read model, Write model ]
+    detail: |-
+      Query handlers are allowed to be boring. Plain SQL, Dapper, a stored procedure, a search client — whatever gets the shape the screen needs in one round trip. Using the ORM's object graph here is the most common way the two sides silently merge back into one.
+
+      Because they are pure, they are also where caching, pagination and rate limiting naturally belong.
+
+      #### Rules of thumb
+
+      | Rule | Reason |
+      | --- | --- |
+      | Return a DTO, never an entity | stops the domain leaking into the API |
+      | One handler per screen shape | avoids a generic query nobody can optimise |
+      | No writes, ever | makes caching and replicas safe |
+
+      #### How it relates
+
+      - This is CQS applied at the architecture level rather than the method level.
+commands:
+  heading: Essential code patterns
+  tocLabel: Code patterns
+  groups:
+    - group: The two sides (C#)
+      items:
+        - lang: csharp
+          code: |-
+            public sealed record PlaceOrder(Guid CommandId, Guid CartId, Guid CustomerId);
+
+            public sealed class PlaceOrderHandler(IOrderRepository repo, IOutbox outbox)
+            {
+                public async Task<Guid> Handle(PlaceOrder cmd, CancellationToken ct)
+                {
+                    var order = Order.Place(cmd.CartId, cmd.CustomerId);   // invariants here
+                    await repo.Add(order, ct);
+                    await outbox.Enqueue(order.ReleaseEvents(), ct);       // same transaction
+                    return order.Id;                                        // id only, not state
+                }
+            }
+          what: "Write side: domain model, invariants, events into the outbox in the same transaction. Returns an identity, never a view."
+        - lang: sql
+          code: |-
+            public sealed record OrderListItem(
+                Guid OrderId, string CustomerName, decimal Total, string Status, DateTime PlacedAt);
+
+            public sealed class OrderListQuery(IDbConnection db)
+            {
+                public Task<IEnumerable<OrderListItem>> Handle(Guid customerId, int page) =>
+                    db.QueryAsync<OrderListItem>(
+                        """
+                        SELECT order_id, customer_name, total, status, placed_at
+                        FROM   order_list_view
+                        WHERE  customer_id = @customerId
+                        ORDER  BY placed_at DESC
+                        LIMIT 20 OFFSET @offset
+                        """,
+                        new { customerId, offset = page * 20 });
+            }
+          what: "Read side: one flat SQL statement against a pre-joined table. No ORM, no aggregates, no mapping layers."
+    - group: The read model and its projection
+      items:
+        - lang: sql
+          code: |-
+            CREATE TABLE order_list_view (
+                order_id       uuid PRIMARY KEY,
+                customer_id    uuid NOT NULL,
+                customer_name  text NOT NULL,      -- denormalised on purpose
+                total          numeric(12,2) NOT NULL,
+                status         text NOT NULL,
+                placed_at      timestamptz NOT NULL,
+                last_seq       bigint NOT NULL     -- guards against duplicate events
+            );
+
+            CREATE INDEX ix_olv_customer ON order_list_view (customer_id, placed_at DESC);
+          what: One table per screen, every join already done, indexed by exactly what the screen filters and sorts on.
+        - lang: sql
+          code: |-
+            INSERT INTO order_list_view
+                (order_id, customer_id, customer_name, total, status, placed_at, last_seq)
+            VALUES (@id, @cust, @name, @total, 'placed', @at, @seq)
+            ON CONFLICT (order_id) DO UPDATE
+               SET status = EXCLUDED.status,
+                   total  = EXCLUDED.total,
+                   last_seq = EXCLUDED.last_seq
+             WHERE order_list_view.last_seq < EXCLUDED.last_seq;
+          what: "An idempotent projection write: upsert by key, guarded by a sequence number, so a replayed event changes nothing."
+        - lang: sql
+          code: |-
+            -- level 2 without a projector at all
+            CREATE MATERIALIZED VIEW order_list_view AS
+            SELECT o.id AS order_id, c.name AS customer_name, SUM(l.price * l.qty) AS total, ...
+            FROM orders o JOIN customers c ON ... JOIN order_lines l ON ...
+            GROUP BY o.id, c.name;
+
+            REFRESH MATERIALIZED VIEW CONCURRENTLY order_list_view;
+          what: "The cheapest read model: the database maintains it. No projector code, no checkpoint, refresh lag instead of event lag."
+    - group: Outbox and projector (Python)
+      items:
+        - code: |-
+            with conn.transaction():                       # one transaction
+                conn.execute("INSERT INTO orders ...", order_row)
+                conn.execute(
+                    "INSERT INTO outbox (id, type, payload, seq) VALUES (%s,%s,%s,%s)",
+                    (event.id, "OrderPlaced", json.dumps(event.payload), event.seq),
+                )
+            # a separate relay publishes rows from `outbox` and marks them sent
+          what: "State and event committed together: the read model can never miss a change or see one that rolled back."
+        - lang: python
+          code: |-
+            def project(batch):
+                with conn.transaction():
+                    for event in batch:
+                        HANDLERS[event.type](conn, event)
+                    conn.execute(
+                        "UPDATE projection_checkpoint SET offset = %s WHERE name = 'order_list'",
+                        (batch[-1].offset,),
+                    )                                   # checkpoint in the SAME transaction
+          what: Rows and checkpoint committed atomically — the difference between at-least-once delivery and a correct read model.
+        - lang: sql
+          code: |-
+            -- rebuild, with no downtime
+            CREATE TABLE order_list_view_v2 (LIKE order_list_view INCLUDING ALL);
+            UPDATE projection_checkpoint SET offset = 0 WHERE name = 'order_list_v2';
+            -- let it catch up, verify, then point the queries at v2 and keep v1 for rollback
+          what: Read-side schema changes become replays instead of migrations.
+    - group: Observability
+      items:
+        - code: |-
+            # the only read-path metric that really matters
+            projection_lag_seconds{projection="order_list"}
+            # alert when the read model is staler than the window you promised
+          what: Publish the lag, alert on it, and put the promised window in the API docs — an unstated window is the real bug.
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - Reads get exactly the shape the screen needs, usually one indexed lookup instead of a multi-table join.
+      - "The write model stays clean: no fields or relations added just to make a report work."
+      - Read and write sides scale, cache and fail independently — a reporting spike cannot slow down checkout.
+      - Read models are disposable, so read-side schema changes become replays rather than migrations.
+      - "Each read model can use the right store: SQL, Redis, a search index, a columnar warehouse."
+      - "Clear seams make the code easy to navigate: one class per intention, one query per screen."
+  bad:
+    heading: Cons
+    items:
+      - Eventual consistency arrives at level 3 and immediately breaks read-your-own-writes.
+      - "More moving parts: projectors, checkpoints, an outbox, lag monitoring, rebuild tooling."
+      - The same data exists in several shapes, so a projector bug produces visibly wrong numbers.
+      - Rebuild time grows with history and becomes an operational constraint if ignored.
+      - Easy to over-apply — most CRUD screens are worse off with two models.
+      - Debugging spans two stores and an asynchronous hop, which raises the bar for tracing.
+when:
+  note: start at level 1 and only climb when a measurement makes you — most systems never need level 3
+  good:
+    heading: Use it when…
+    items:
+      - The read shape and the write shape genuinely differ, and the joins are visible in your latency numbers.
+      - Read and write loads differ by an order of magnitude or more.
+      - One domain model is being distorted by screens and reports.
+      - You need several different views of the same data, possibly in different stores.
+      - You are already inside a bounded context with aggregates, and repositories are sprouting query methods.
+  bad:
+    heading: Avoid it when…
+    items:
+      - The application is simple CRUD and the screens mirror the tables. Use **a single model with an ORM**.
+      - Every screen must reflect writes instantly and you cannot change the UX. Use **level 1 CQRS at most**, or a materialised view refreshed in-transaction.
+      - The team has no appetite for projectors, lag monitoring and rebuilds. Use **read replicas and better indexing**.
+      - The real problem is one slow query. Use **an index, a denormalised column or a cache** first.
+      - You are applying it to the whole system rather than one context. Use **it per bounded context**, where it pays.
+useCases:
+  - title: A list screen that joins seven tables
+    body: The orders page takes 1.8 seconds because it joins orders, lines, products, customers, addresses, shipments and payments. A single `order_list_view` table, maintained by a projection, turns it into one indexed read of a few milliseconds — without touching the write model at all.
+  - title: Reporting load crushing the transactional database
+    body: Analysts run heavy aggregations against the same tables that take checkout writes, and lock contention shows up as checkout latency. A separate read store fed by projections isolates the two completely, and the analysts get a schema designed for their queries.
+  - title: Search that SQL cannot do
+    body: Users want faceted, typo-tolerant search over the catalogue. A projection into Elasticsearch gives that without turning the product aggregate into a search document, and the index can be rebuilt whenever the analyser configuration changes.
+  - title: Reads enormously outnumbering writes
+    body: A public timetable gets thousands of reads per write. The read model is a denormalised key-value store behind a CDN, refreshed by projection; the write model stays a small, strongly consistent relational schema that a handful of editors use.
+  - title: Several consumers, several shapes
+    body: The mobile app, the call-centre screen and the partner API all want different views of the same orders. Three read models projected from one write model beats one API trying to satisfy all three with nested includes and sparse fieldsets.
+gotchas:
+  items:
+    - mistake: Assuming CQRS means event sourcing
+      why: Teams adopt an event store, snapshots and event versioning when all they wanted was a fast list screen, and the project stalls on accidental complexity.
+      fix: decide them separately. A projection fed by ordinary change events from a relational write is a complete, common and much cheaper CQRS.
+    - mistake: Applying it to the whole system
+      why: Every CRUD screen gets a command, a handler, a projection and a read table, and the codebase triples in size for no benefit.
+      fix: apply it per bounded context, usually to one or two. Plain CRUD alongside CQRS in the same application is a correct design, not an inconsistency.
+    - mistake: No answer for read-your-own-writes
+      why: The user submits, lands on a list that has not caught up, and submits again. Duplicates created by architecture.
+      fix: pick a mitigation per screen — return the data from the command, wait on a version token, read own data from the write side, or make the UI explicitly asynchronous.
+    - mistake: Non-idempotent projections
+      why: Delivery is at-least-once, so `total = total + x` double-counts after any restart, rebalance or retry, and the numbers drift quietly.
+      fix: upsert by key, write absolute values, and guard with a per-row sequence number. Test by replaying the same batch twice.
+    - mistake: Publishing events outside the transaction
+      why: The write commits and the broker call fails, so the read model is permanently stale; or the event is published and the write rolls back, so the read model shows a lie.
+      fix: use an outbox table written in the same transaction, or change data capture. Never call the broker from inside the handler.
+    - mistake: No lag metric
+      why: "\"It's eventually consistent\" becomes an excuse rather than a specification, and nobody notices when a stalled projector leaves the read model hours behind."
+      fix: export projection lag in seconds and in events, alert on it, and publish the promised window in your API documentation.
+    - mistake: Querying through the write model
+      why: Someone adds `GetAllOrdersWithLines` to the repository because it was convenient, and the separation quietly disappears.
+      fix: keep repositories to get/add/save by identity, and put every screen query on the read side — enforced by an architecture test if necessary.
+    - mistake: Never rehearsing a rebuild
+      why: Three years in, the projector has a bug and the first full replay turns out to take eleven hours against retained history nobody checked.
+      fix: rebuild in CI regularly, measure the time, and add snapshots or partial replays before it matters. Build the new read model alongside the old one.
+alternatives:
+  columns:
+    - Approach
+    - Best for
+    - Complexity
+    - Cost / license
+    - Key difference vs CQRS
+  rows:
+    - self: true
+      cells:
+        - "**CQRS**"
+        - diverging read and write shapes
+        - Medium–High
+        - free; cost is operational
+        - —
+    - cells:
+        - "**CQS**"
+        - any codebase
+        - Very low
+        - free
+        - The same rule at method level; no separate models, no lag, no infrastructure
+    - cells:
+        - "**Single model + ORM**"
+        - CRUD applications
+        - Low
+        - free
+        - One model for both jobs; simplest until the joins hurt
+    - cells:
+        - "**Materialised views**"
+        - denormalised reads, same DB
+        - Low
+        - free with the DB
+        - The database maintains the read model; refresh lag, but no projector to write
+    - cells:
+        - "**Read replicas**"
+        - read scaling, same schema
+        - Low
+        - extra instances
+        - More capacity for the <em>same</em> queries; does not change the shape
+    - cells:
+        - "**Caching**"
+        - hot, repeated reads
+        - Low
+        - a cache node
+        - Stores answers rather than a model; invalidation instead of projection
+    - cells:
+        - "**Event sourcing**"
+        - audit, history, temporal queries
+        - High
+        - free; operational cost real
+        - Changes how writes are stored, not how reads are shaped — orthogonal
+  notes:
+    - "**Pick CQS** first — it costs nothing and gets most of the clarity benefit."
+    - "**Pick a single model** if the screens mirror the tables and the joins are cheap."
+    - "**Pick materialised views** when you want a denormalised read model without owning a projector."
+    - "**Pick read replicas** when the queries are fine but there are too many of them."
+    - "**Pick caching** when a handful of hot answers dominate; reach for CQRS when the <em>shape</em>, not the volume, is the problem."
+    - "**Pick event sourcing** only if history itself is a requirement — then CQRS comes along almost for free."
+resources:
+  - url: https://martinfowler.com/bliki/CQRS.html
+    title: Martin Fowler — CQRS
+    why: the short definition, including the warning about where it does not belong.
+  - url: https://learn.microsoft.com/en-us/azure/architecture/patterns/cqrs
+    title: Azure Architecture Center — CQRS pattern
+    why: diagrams, trade-offs and when not to use it.
+  - url: https://learn.microsoft.com/en-us/azure/architecture/best-practices/transactional-outbox-cosmos
+    title: Transactional outbox pattern
+    why: how to publish events without losing or inventing them.
+  - url: https://microservices.io/patterns/data/cqrs.html
+    title: microservices.io — CQRS
+    why: the pattern in the context of service boundaries, with related patterns linked.
+  - url: https://debezium.io/documentation/reference/stable/tutorial.html
+    title: Debezium tutorial
+    why: change data capture as a way to feed projections from an existing database.
