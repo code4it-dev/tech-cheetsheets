@@ -1,0 +1,32 @@
+name: Check
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Render pages and rebuild the index
+        run: npm run build
+
+      - name: Fail if the committed output is out of date
+        run: |
+          if git diff --quiet -- cheatsheets search-index.json index.html; then
+            echo "Generated files match the content files."
+            exit 0
+          fi
+          echo "::error::Generated files are out of date. Run 'npm run build' and commit the result."
+          git diff --stat -- cheatsheets search-index.json index.html
+          git diff -- cheatsheets search-index.json index.html | head -300
+          exit 1
