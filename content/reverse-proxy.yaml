@@ -1,0 +1,924 @@
+title: Reverse proxy
+slug: reverse-proxy
+tagline: One public door in front of many private rooms — and the only place where "every request" is a thing you can say.
+asof: Nov 2026 · examples use nginx, Envoy, Caddy, Traefik and YARP
+description: "Reverse proxy cheatsheet: TLS termination, routing, header rewriting, upstream keepalive, buffering, timeouts and the X-Forwarded-For trust chain."
+aliases:
+  - Reverse proxy
+  - reverse proxies
+  - edge proxy
+  - forward proxy
+  - TLS termination
+  - X-Forwarded-For
+  - ingress controller
+  - nginx
+  - Caddy
+  - Traefik
+  - YARP
+keywords:
+  - reverse proxy
+  - nginx
+  - envoy
+  - haproxy
+  - traefik
+  - yarp
+  - tls termination
+  - ingress
+  - edge
+  - x-forwarded-for
+related:
+  - load-balancing
+  - azure-api-management
+  - sidecar-pattern
+  - kubernetes
+  - backend-for-frontend
+  - rate-limiting
+overview:
+  - "A **forward proxy** sits in front of clients and hides them from the internet. A **reverse proxy** sits in front of servers and hides <em>them</em>: clients connect to it, believing it is the application, and it decides which backend actually handles the request. Same machinery, opposite direction, completely different job."
+  - What it buys you is a single place where cross-cutting work happens. TLS is terminated once, so certificates live in one process instead of in every service. Routing by host and path means one domain can front twenty services. Headers are normalised, request size is capped, timeouts are enforced, responses are compressed and cached, and the client never learns an internal address or port.
+  - "Every serious HTTP deployment has one, usually without calling it that: an nginx container, a Kubernetes ingress controller, an Envoy sidecar, an API gateway, a CDN edge. They differ in features and configuration language, not in concept — and the concepts that bite (trusted header chains, buffering, upstream keepalive, timeout stacking) are the same everywhere."
+architecture:
+  svg: reverse-proxy/architecture.svg
+  alt: A reverse proxy terminating TLS and routing by host and path to several internal services, contrasted with a forward proxy
+  caption: One public endpoint, many private ones — plus a single place to put everything that is not business logic.
+howItWorks:
+  - md: The first animation follows one HTTPS request through a proxy and back. The second is the header-trust problem, which is where reverse proxies turn into security bugs.
+  - note: two connections, not one. almost every surprise comes from forgetting that.
+  - anim:
+      id: anim-request
+      title: 1 · One request, through and back
+      svg: reverse-proxy/anim-request.svg
+      alt: A request arriving at a reverse proxy, terminating TLS, matching a route, being rewritten and forwarded over a pooled connection to an upstream, then the response travelling back
+      steps:
+        - say: A browser resolves `shop.example` to the proxy’s address — not to any backend — and opens a TLS connection to port 443. Call this **connection A**.
+          show: [ rp-msg ]
+          hl: [ rp-client ]
+          text:
+            rp-proxyt3: accepting connection A
+        - say: The ClientHello carries the hostname in clear text as SNI, which is how the proxy knows which certificate to present before it can decrypt anything.
+          hl: [ rp-proxy ]
+          unhl: [ rp-client ]
+          move:
+            rp-msg: [ 309, 0 ]
+          text:
+            rp-msgt: "SNI: shop.example"
+            rp-i1: SNI → certificate for shop.example
+            rp-i2: TLS 1.3 handshake, 1 round trip
+            rp-proxyt3: TLS terminated
+        - say: TLS is terminated here. Only now does an HTTP request exist as readable text — everything that follows is impossible without this step.
+          text:
+            rp-msgt: GET /api/orders/77
+            rp-i3: request line and headers now readable
+            rp-i4: this is where L7 becomes possible
+          fill:
+            rp-i4: "#2f6b3f"
+        - say: "The Host header selects the server block, then the longest matching path prefix selects the route: `/api/` belongs to the orders pool, not to web or assets."
+          hl: [ rp-u2 ]
+          text:
+            rp-it: inside the proxy — routing
+            rp-i1: "host: shop.example → server block"
+            rp-i2: path /api/orders/77 → longest prefix /api/
+            rp-i3: route → upstream pool "orders" (2 members)
+            rp-i4: "policy: least-request, both healthy"
+        - say: Before forwarding, the headers are rewritten. The client’s address is recorded, the original scheme is preserved, a request id is minted, and `/api` is stripped from the path.
+          text:
+            rp-h1: GET /orders/77 HTTP/1.1
+            rp-h2: "Host: shop.example"
+            rp-h3: "X-Forwarded-For: 203.0.113.9"
+            rp-h4: "X-Forwarded-Proto: https"
+            rp-h5: "X-Request-Id: 01JF3Q…"
+        - say: "Now **connection B**: a second, entirely separate TCP connection to `10.0.2.11:8080`. It was already open and idle in the keepalive pool, so there is no handshake at all."
+          hl: [ rp-u2 ]
+          unhl: [ rp-proxy ]
+          move:
+            rp-msg: [ 469, 0 ]
+          text:
+            rp-msgt: GET /orders/77
+            rp-proxyt3: reusing pooled connection
+            rp-i1: "connection B: reused from pool (64 idle kept)"
+            rp-i2: no TCP handshake, no TLS handshake
+            rp-i3: connect timeout 2s · read timeout 15s
+            rp-i4: a fresh connection here would add ~3 ms every request
+          fill:
+            rp-i2: "#2f6b3f"
+        - say: The backend sees a plain HTTP request from `10.0.0.5`. It has no idea the user is on a phone in Milan over HTTP/2 — everything it knows about the client comes from those headers.
+          unhl: [ rp-u2 ]
+          text:
+            rp-ht: what the upstream receives — and all it knows
+            rp-v: the backend trusts the headers because it trusts the proxy that set them
+          fill:
+            rp-v: "#c53b3b"
+        - say: The response comes back and the proxy buffers it. The backend connection is released immediately and returned to the pool, even though the client has not received a byte yet.
+          hl: [ rp-proxy ]
+          text:
+            rp-phase: the response path
+            rp-msgt: 200 OK · 48 KB JSON
+            rp-it: inside the proxy — response
+            rp-i1: read 48 KB into buffer
+            rp-i2: connection B released back to the pool at once
+            rp-i3: "compress: gzip (text/json, over 1 KB)"
+            rp-i4: add security headers · write access log line
+        - say: That buffering is a real protection. The client is on a slow mobile link and takes 400 ms to drain the response; none of that time occupies an application thread.
+          hl: [ rp-client ]
+          unhl: [ rp-proxy ]
+          move:
+            rp-msg: [ 0, 0 ]
+          text:
+            rp-msgt: 200 OK · gzipped · 11 KB
+            rp-i1: client drains at 230 kbit/s → 400 ms
+            rp-i2: backend thread was free after 12 ms
+            rp-i3: this is why buffering defaults to ON
+            rp-i4: and why SSE and token streams must turn it OFF
+          fill:
+            rp-i3: "#2f6b3f"
+            rp-i4: "#c53b3b"
+        - say: Two connections, two sets of timeouts, two keepalive policies. Nearly every reverse-proxy surprise — 502s under load, sockets dropping after a minute, streams arriving late — is one of those pairs disagreeing.
+          unhl: [ rp-client ]
+          text:
+            rp-phase: one request, two connections, two sets of rules
+            rp-v: client ↔ proxy and proxy ↔ upstream are independent. tune them as a pair.
+          fill:
+            rp-v: "#23362e"
+            rp-verd: "#e3eedc"
+  - anim:
+      id: anim-xff
+      title: 2 · Who is the client, really?
+      svg: reverse-proxy/anim-xff.svg
+      alt: X-Forwarded-For growing as a request passes through a CDN and a reverse proxy, including a spoofed value sent by the client
+      steps:
+        - say: The application wants to rate limit per client. Its socket, though, only ever shows `10.0.0.5` — the proxy — for every request on earth.
+          hl: [ rx-app ]
+          text:
+            rx-p1: "socket peer address at the app: 10.0.0.5 (the proxy, always)"
+        - say: So the real address travels in a header. Each hop appends the address it received the connection from, left to right.
+          hl: [ rx-c ]
+          unhl: [ rx-app ]
+          text:
+            rx-p2: "the CDN sees 203.0.113.9 and sets: X-Forwarded-For: 203.0.113.9"
+        - say: Your proxy receives the connection from the CDN, so it appends the CDN’s address. The header now has two entries and reads oldest-first.
+          hl: [ rx-lb ]
+          unhl: [ rx-c ]
+          text:
+            rx-p3: "your proxy appends: X-Forwarded-For: 203.0.113.9, 198.51.100.4"
+        - say: That is the honest case. Now the attacker sends the header themselves, pre-filled, before any proxy has touched it.
+          hl: [ rx-c ]
+          unhl: [ rx-lb ]
+          text:
+            rx-phase: the attacker sends their own X-Forwarded-For
+            rx-p1: "attacker sends: X-Forwarded-For: 1.2.3.4"
+            rx-p2: "the CDN appends:  1.2.3.4, 203.0.113.9"
+            rx-p3: "your proxy appends: 1.2.3.4, 203.0.113.9, 198.51.100.4"
+          fill:
+            rx-p1: "#c53b3b"
+        - say: The header is still well-formed. Nothing is malformed, nothing is logged as suspicious — the list simply has one extra entry on the left that the attacker wrote.
+          hl: [ rx-panel ]
+          unhl: [ rx-c ]
+          text:
+            rx-p4: a valid-looking header, with an attacker-controlled first element
+          fill:
+            rx-p4: "#c53b3b"
+        - say: And naive code takes the leftmost entry, because that is documented as “the original client”. The rate limiter now counts against `1.2.3.4` — a fresh bucket on every request if the attacker varies it.
+          hl: [ rx-dec ]
+          unhl: [ rx-panel ]
+          text:
+            rx-d2: xff.split(",")[0] → 1.2.3.4 → every limit, ban and geo-rule bypassed
+          fill:
+            rx-d2: "#c53b3b"
+            rx-dec: "#f9e3df"
+        - say: "The correct rule works from the **right**: discard entries that are addresses of proxies you operate, and take the first one that is not."
+          text:
+            rx-d1: count from the right, trusting exactly the hops you run
+            rx-d2: drop 198.51.100.4 (your proxy) → drop … → first untrusted = 203.0.113.9
+          fill:
+            rx-d2: "#2f6b3f"
+            rx-dec: "#fbfcf8"
+        - say: You must know the number. Two trusted hops here — the CDN and your proxy — so two entries are stripped from the right and the third from the right is the client. Get the count wrong and you are back to trusting the attacker.
+          text:
+            rx-d2: trusted hops = 2 → client = 203.0.113.9 ✓ · trusted hops = 3 → client = 1.2.3.4 ✗
+        - say: "The belt-and-braces version: the outermost proxy you control <em>strips</em> any inbound header and sets it fresh from the socket. Then nothing downstream can be lied to."
+          hl: [ rx-lb ]
+          unhl: [ rx-dec ]
+          text:
+            rx-phase: strip, then set — the version that cannot be got wrong
+            rx-p1: "edge: delete every inbound X-Forwarded-For"
+            rx-p2: "edge: set X-Forwarded-For from the socket address only"
+            rx-p3: everything behind the edge now reads a trustworthy value
+            rx-p4: and the trusted-hop count stops being a config detail that can drift
+          fill:
+            rx-p1: "#2f6b3f"
+            rx-p2: "#2f6b3f"
+            rx-p4: "#2f6b3f"
+        - say: Where there is no HTTP to put a header in — an L4 balancer, TLS passthrough — the PROXY protocol carries the same information in a preamble before the stream, and must be enabled on both ends.
+          unhl: [ rx-lb ]
+          text:
+            rx-p1: "no HTTP layer? PROXY protocol: \"PROXY TCP4 203.0.113.9 10.0.0.5 51882 443\""
+            rx-p2: must be enabled on sender AND receiver, and accepted only from known peers
+            rx-p3: "unauthenticated: an untrusted peer speaking it can forge an address too"
+            rx-p4: "&nbsp;"
+        - say: "The rule to remember: the socket address is a fact, and every forwarded header is an assertion. It becomes a fact only at the first proxy you actually control."
+          text:
+            rx-phase: the socket is evidence. the header is testimony.
+            rx-v: configure your framework’s known-proxy list explicitly — the default is never right
+          fill:
+            rx-verd: "#e3eedc"
+concepts:
+  - term: Reverse vs forward proxy
+    short: A forward proxy represents clients to the internet; a reverse proxy represents servers to clients.
+    see: [ TLS termination, Virtual host routing, Ingress controller ]
+    detail: |-
+      The code is nearly identical — accept a connection, open another, copy bytes with some rewriting — but the trust direction inverts. A forward proxy is configured by the client and is trusted by the client; a reverse proxy is configured by the server operator, chosen by DNS, and the client usually does not know it exists.
+
+      That inversion decides everything else. A forward proxy filters outbound requests and can be bypassed by a client that stops using it. A reverse proxy cannot be bypassed — it owns the public address — which is exactly why it is the right place for TLS, authentication, rate limiting and logging.
+
+      #### Side by side
+
+      |  | Forward | Reverse |
+      | --- | --- | --- |
+      | Configured by | the client | the server operator |
+      | Hides | the client | the servers |
+      | Typical use | corporate egress, filtering | TLS, routing, edge policy |
+      | Examples | Squid, corporate proxies | nginx, Envoy, Traefik, CDNs |
+
+      #### How it relates
+
+      - A **service mesh sidecar** is both at once: a reverse proxy for inbound traffic and a forward proxy for outbound.
+  - term: TLS termination
+    short: Decrypting HTTPS at the proxy so everything behind it can be plain HTTP — or re-encrypted.
+    see: [ SNI, Reverse vs forward proxy, X-Forwarded headers ]
+    detail: |-
+      Terminating TLS at the edge is what makes a proxy useful: nothing can be routed by path, cached, compressed or rate limited while it is still encrypted. It also centralises certificates — one place to renew, one place to configure ciphers and protocol versions, one place to enable HTTP/2 and HTTP/3.
+
+      What happens on the second hop is a separate decision. <em>Termination</em> leaves it plain inside the network, <em>re-encryption</em> opens a fresh TLS session to the upstream, and <em>passthrough</em> forwards the encrypted stream untouched — which keeps the proxy blind and therefore unable to do its job at layer 7.
+
+      #### Common values
+
+      | Setting | Typical |
+      | --- | --- |
+      | Protocol floor | TLS 1.2, prefer 1.3 |
+      | Certificate source | ACME / Let's Encrypt, auto-renew |
+      | HSTS | `max-age=31536000` once you are sure |
+      | Upstream leg | plain inside a trusted network, mTLS in a mesh |
+      | Session tickets | on, rotated — cuts handshake cost |
+
+      #### How it relates
+
+      - Terminating means the proxy sees your traffic in clear text. That is a trust and compliance decision as much as a technical one.
+  - term: SNI
+    short: The hostname the client announces in the TLS handshake, before any HTTP exists.
+    see: [ TLS termination, Virtual host routing ]
+    detail: |-
+      Server Name Indication solves a chicken-and-egg problem: the proxy must pick a certificate before it can decrypt anything, but the hostname lives in the encrypted HTTP request. SNI puts the hostname in the <em>clear</em> part of the ClientHello, so one IP address can serve hundreds of certificates.
+
+      It is also the only routing signal available to a proxy doing TLS passthrough — which is how "route by domain without decrypting" works. And because it is in clear text, it is visible to the network, which is what Encrypted Client Hello is designed to fix.
+
+      #### How it relates
+
+      - An SNI that disagrees with the HTTP `Host` header is a classic request-smuggling and domain-fronting vector; strict proxies reject the mismatch.
+  - term: Upstream pool
+    short: The named set of backend addresses a route forwards to, with a balancing policy and health checks.
+    see: [ Health checks, Keepalive, Retries and timeouts ]
+    detail: |-
+      Routes do not point at servers, they point at pools. A pool holds addresses (static, DNS-resolved or discovered), a balancing policy, health-check configuration, connection limits and a slow-start ramp. Splitting routing from pooling is what makes canaries, blue/green and scale-out a configuration change.
+
+      How the pool learns its members matters more than the policy. Static lists go stale; DNS needs re-resolution on a timer (and many proxies resolve once at startup unless told otherwise); service discovery or the Kubernetes API is the usual answer in dynamic environments.
+
+      #### Common values
+
+      | Setting | Typical |
+      | --- | --- |
+      | Policy | least-request, or power of two choices |
+      | DNS re-resolve | every 5–30 s, not once at boot |
+      | Max connections per upstream | bounded, to protect the backend |
+      | Slow start | 30–60 s ramp for cold instances |
+
+      #### How it relates
+
+      - The policies themselves are the subject of **L4 vs L7 load balancing**; this page is about everything else the proxy does.
+  - term: Virtual host routing
+    short: Choosing a route from the Host header, the path, and sometimes a method or header.
+    see: [ Path rewriting, Upstream pool, SNI ]
+    detail: |-
+      One proxy, one address, many sites: the `Host` header selects a server block, then the longest matching path prefix selects a route. This is what lets `shop.example` and `admin.example` live on the same machine, and `/api/` and `/static/` go to entirely different services.
+
+      Match ordering is the usual source of confusion. nginx prefers exact matches, then the longest prefix, then regular expressions in file order — which is <em>not</em> "first rule wins". Envoy and the Gateway API evaluate in declared order with explicit precedence rules. Read your proxy's rules once; guessing produces a route that works in staging and shadows another in production.
+
+      #### Common matchers
+
+      | Matcher | Use |
+      | --- | --- |
+      | Host | multi-tenant domains, environments |
+      | Path prefix | service boundaries |
+      | Header | canary (`x-canary: 1`), API version |
+      | Method | splitting reads from writes |
+      | Weight | percentage-based canary rollouts |
+
+      #### How it relates
+
+      - Routing by header is how canary releases become a config change instead of a deployment.
+  - term: Path rewriting
+    short: Changing the request path between the public URL and the one the backend expects.
+    see: [ Virtual host routing, X-Forwarded headers ]
+    detail: |-
+      The public surface rarely matches the internal one: `/api/orders/77` must arrive at the orders service as `/orders/77`. Rewriting is simple to write and easy to get subtly wrong — trailing slashes, double slashes, URL-encoded segments and the difference between a redirect and a rewrite.
+
+      The trailing slash is the classic. In nginx, `proxy_pass http://api;` and `proxy_pass http://api/;` behave differently: the second strips the matched location prefix, the first does not. Half of all "404 from the backend but the route looks right" tickets are this character.
+
+      #### Things that bite
+
+      | Issue | Symptom |
+      | --- | --- |
+      | Trailing slash on `proxy_pass` | paths doubled or truncated |
+      | Backend generates absolute URLs | links point at internal hosts |
+      | Encoded slashes `%2F` | decoded, then routed somewhere unintended |
+      | Cookie `Path` attribute | cookies not sent after a rewrite |
+
+      #### How it relates
+
+      - Backends that build absolute URLs need `X-Forwarded-Prefix`, or they will emit links the public cannot follow.
+  - term: X-Forwarded headers
+    short: The hop-by-hop headers that tell the backend who the real client was and how they connected.
+    see: [ Trusted proxy chain, PROXY protocol, Path rewriting ]
+    detail: |-
+      Once a proxy is in the path, the backend's socket shows the proxy's address, and the scheme is `http` even though the user typed `https`. The `X-Forwarded-*` family carries the lost context: `-For` (client IP, appended at each hop), `-Proto` (original scheme), `-Host` (original Host) and `-Prefix` (the path segment that was stripped). RFC 7239's `Forwarded` header does the same in one line and is less widely used.
+
+      They are plain headers, so a client can send them. Everything about trusting them is covered in **Trusted proxy chain** — and skipping that is how rate limiters get bypassed.
+
+      #### The set
+
+      | Header | Carries |
+      | --- | --- |
+      | `X-Forwarded-For` | comma-separated client, then each proxy |
+      | `X-Forwarded-Proto` | `https` — needed for redirects and secure cookies |
+      | `X-Forwarded-Host` | the Host the client asked for |
+      | `X-Forwarded-Prefix` | the stripped path prefix |
+      | `X-Request-Id` | correlation across proxy and app logs |
+
+      #### How it relates
+
+      - Missing `X-Forwarded-Proto` is the cause of infinite redirect loops: the app sees HTTP, redirects to HTTPS, the proxy forwards again as HTTP.
+  - term: Trusted proxy chain
+    short: The rule that decides which forwarded addresses to believe and which to discard.
+    see: [ X-Forwarded headers, PROXY protocol, Rate limiting at the edge ]
+    detail: |-
+      `X-Forwarded-For` is appended to, never replaced, so after a CDN and your own proxy it reads `client, cdn, edge`. A client can pre-populate it with anything — `X-Forwarded-For: 1.2.3.4` — and that value will sit at the <em>left</em>, exactly where naive code looks for "the client".
+
+      The correct algorithm walks the list from the **right**, discarding addresses that belong to proxies you control, and takes the first one that does not. Equivalently: trust as many hops as you actually operate, no more. Frameworks implement this — ASP.NET Core's `ForwardedHeadersOptions.KnownProxies`, Express's `trust proxy`, Django's `USE_X_FORWARDED_HOST` — and all of them default to something you must change.
+
+      #### Worked example
+
+      | Hops you operate | Header | Client IP |
+      | --- | --- | --- |
+      | 2 (CDN + proxy) | `1.2.3.4, 203.0.113.9, 198.51.100.4` | `203.0.113.9` |
+      | 0 (naive, takes leftmost) | same | `1.2.3.4` — spoofed |
+
+      The belt-and-braces fix: have the outermost proxy you control <em>strip</em> any inbound `X-Forwarded-For` and set it fresh from the socket address.
+
+      #### How it relates
+
+      - Every rate limit, geo-rule, ban list and audit log built on an untrusted address is bypassable by setting a header.
+  - term: PROXY protocol
+    short: A small preamble that carries the real client address on connections where headers are not available.
+    see: [ Trusted proxy chain, TLS termination, X-Forwarded headers ]
+    detail: |-
+      When an L4 balancer or a TLS-passthrough proxy forwards a connection, there is no HTTP to add a header to. The PROXY protocol prepends a short line (v1, text) or binary block (v2) before the first byte of the real stream, carrying source and destination addresses and ports.
+
+      It must be enabled on both sides. Enabled on the sender only and the receiver treats the preamble as request data, producing bizarre parse errors; enabled on the receiver only and every normal connection fails. It is also unauthenticated, so the listener must only accept it from known addresses.
+
+      ```bash
+      PROXY TCP4 203.0.113.9 10.0.0.5 51882 443\r\n
+      GET /api/orders/77 HTTP/1.1
+      Host: shop.example
+      ```
+
+      #### How it relates
+
+      - This is how a Kubernetes `Service` of type LoadBalancer can preserve client IPs without an L7 hop.
+  - term: Keepalive
+    short: Reusing upstream connections across requests instead of dialling a new one every time.
+    see: [ Upstream pool, Buffering, Retries and timeouts ]
+    detail: |-
+      Each new upstream connection costs a TCP handshake, possibly a TLS handshake, and a slow-start window. At any real request rate, keepalive to the backend is the difference between a proxy that adds a millisecond and one that adds twenty. nginx notoriously does <em>not</em> keep upstream connections alive unless you add a `keepalive` directive and set `proxy_http_version 1.1` with an empty `Connection` header.
+
+      Pool sizes must be bounded, and the idle timeout on the proxy should be <em>shorter</em> than the backend's. If the backend closes first, the proxy can send a request into a connection that is already closing — which surfaces as rare, unexplained 502s under load.
+
+      #### Common values
+
+      | Setting | Typical |
+      | --- | --- |
+      | Idle connections per upstream | 32–128 |
+      | Proxy idle timeout | 60 s |
+      | Backend idle timeout | 75 s (longer than the proxy's) |
+      | Max requests per connection | 1,000–10,000, to rebalance |
+
+      #### How it relates
+
+      - Long-lived pooled connections are exactly what breaks connection-level balancing under HTTP/2 — see **L4 vs L7 load balancing**.
+  - term: Buffering
+    short: Whether the proxy holds the whole request or response in memory before passing it on.
+    see: [ Keepalive, Streaming and upgrades, Retries and timeouts ]
+    detail: |-
+      With buffering on, the proxy reads the complete response from the backend, frees the backend connection immediately, and then dribbles it out to a slow client at whatever rate the client can manage. This is a real protection: it stops slow mobile clients from occupying expensive application threads, and it is why buffering defaults to on.
+
+      It is also why streaming appears broken. Server-sent events, chunked progress output, long downloads and LLM token streams all arrive as one lump at the end, because the proxy is waiting for the response to finish. Those routes need buffering explicitly disabled.
+
+      #### Common values
+
+      | Setting | Typical | Note |
+      | --- | --- | --- |
+      | Response buffer | on | protects backends from slow clients |
+      | Buffer size | 8–64 KB in memory | spills to disk beyond that |
+      | SSE / streaming routes | `proxy_buffering off` | plus `X-Accel-Buffering: no` |
+      | Request body buffer | on | needed for retries; breaks uploads |
+
+      #### How it relates
+
+      - Request buffering is what makes a retry possible — you cannot replay a body you have already streamed away.
+  - term: Retries and timeouts
+    short: The proxy's own deadlines and second attempts, which stack with everyone else's.
+    see: [ Buffering, Upstream pool, Health checks ]
+    detail: |-
+      A proxy has at least four timeouts — connect, send, read, and total — and each one has a default that is almost certainly wrong for your workload. nginx's 60-second read timeout is an eternity for an API and far too short for a long export.
+
+      Retries are more dangerous. A proxy retrying an idempotent GET on a connection error is good. A proxy retrying a POST that the backend actually processed is a duplicate order. Retry only on connect errors and on explicit, safe conditions, cap attempts, and use a retry budget so a broad failure cannot multiply load.
+
+      #### Common values
+
+      | Timeout | Typical |
+      | --- | --- |
+      | Connect | 1–3 s |
+      | Read (API) | 5–30 s |
+      | Read (streaming / SSE) | hours, with keepalive frames |
+      | Total request | client timeout minus a margin |
+      | Retries | 1, on connect errors only |
+
+      #### How it relates
+
+      - Timeouts must <em>decrease</em> outward: client > proxy > backend. Inverted, the proxy keeps waiting on work the client abandoned.
+  - term: Health checks
+    short: How the proxy decides an upstream should stop receiving traffic.
+    see: [ Upstream pool, Retries and timeouts, Graceful reload ]
+    detail: |-
+      Active checks poll an endpoint on a schedule; passive checks (outlier detection) watch real traffic and eject an instance after N consecutive failures. Passive reacts faster and costs nothing, active notices recovery — most mature setups run both.
+
+      The classic mistake is a readiness endpoint that calls the database. When the database is slow, every instance fails its check at once and the proxy ejects the entire pool: the check causes the outage. Readiness should test only what <em>this</em> instance needs to serve, and shared-dependency failures should be handled with ejection limits.
+
+      #### Common values
+
+      | Setting | Typical |
+      | --- | --- |
+      | Interval | 2–10 s |
+      | Unhealthy after | 3 consecutive failures |
+      | Healthy after | 2 consecutive successes |
+      | Max ejected | ≤ 50% of the pool |
+
+      #### How it relates
+
+      - A deploy should fail readiness first, wait longer than the check interval, then drain. The wait is the step everyone omits.
+  - term: Streaming and upgrades
+    short: WebSockets, SSE and gRPC need the proxy to step out of the way rather than parse and buffer.
+    see: [ Buffering, Retries and timeouts, Keepalive ]
+    detail: |-
+      A WebSocket starts as HTTP and then stops being HTTP: the proxy must forward the `Upgrade` and `Connection` headers, switch to a byte pipe, and raise its read timeout to something measured in hours. Default configurations drop the connection after 60 seconds of silence, which is why "the socket disconnects every minute" is such a common first bug.
+
+      Server-sent events and token streams need buffering off. gRPC needs HTTP/2 end to end, including on the upstream leg, and separate handling of trailers.
+
+      #### What each needs
+
+      | Protocol | Requirements |
+      | --- | --- |
+      | WebSocket | upgrade headers forwarded, long read timeout |
+      | SSE | buffering off, long read timeout, no compression |
+      | gRPC | HTTP/2 upstream, trailers, no request buffering |
+      | Large uploads | request buffering off, body size limit raised |
+
+      #### How it relates
+
+      - Each of these conflicts with a protection the proxy provides by default. Scope the exception to the route, never globally.
+  - term: Edge policy
+    short: The cross-cutting rules — size limits, rate limits, compression, caching, security headers — applied in one place.
+    see: [ Rate limiting at the edge, Buffering, TLS termination ]
+    detail: |-
+      This is the real reason to run a reverse proxy. A request body cap stops a memory-exhaustion attack before any application code runs. Compression at the edge means no service implements gzip. A shared response cache for static assets removes most traffic from the backends entirely. Security headers get set once instead of in every framework.
+
+      The blast radius is the flip side: a bad regular expression, a wrong cache key or a mistyped limit at this layer is an outage for everything behind it. Treat proxy configuration as production code — reviewed, tested, versioned and rolled out gradually.
+
+      #### Sensible defaults
+
+      | Policy | Typical |
+      | --- | --- |
+      | Max request body | 1–10 MB, raised per upload route |
+      | Max header size | 8–16 KB |
+      | Compression | gzip/brotli over 1 KB, text types only |
+      | Static cache | `public, max-age=31536000, immutable` for hashed assets |
+      | Security headers | HSTS, `X-Content-Type-Options`, CSP |
+
+      #### How it relates
+
+      - Doing this in the proxy is why **Azure API Management** and other gateways exist — they are reverse proxies with a product around the policy layer.
+  - term: Rate limiting at the edge
+    short: Rejecting excess traffic before it reaches a backend that would have queued it.
+    see: [ Trusted proxy chain, Edge policy, Health checks ]
+    detail: |-
+      The cheapest request is one the proxy refuses. Edge limits protect against scrapers, retry storms and accidental loops, and they do it without consuming an application thread. nginx uses a leaky bucket (`limit_req` with a burst); Envoy supports local and global token buckets; gateways usually offer per-key quotas.
+
+      The key is the hard part. Limit by raw socket address and you throttle an entire corporate NAT or a mobile carrier; limit by `X-Forwarded-For` without a trusted chain and anyone can bypass it; limit by API key or authenticated user and you need the proxy to parse the token.
+
+      #### Common values
+
+      | Surface | Limit |
+      | --- | --- |
+      | Login / password reset | 5–10 per minute per IP |
+      | Public API, per key | 100–1,000 per minute |
+      | Expensive search | 10–60 per minute |
+      | Burst allowance | 2–5× the steady rate |
+
+      #### How it relates
+
+      - The algorithms, keys and headers are covered in depth on the **Rate limiting** page.
+  - term: Graceful reload
+    short: Applying new configuration without dropping the connections already in flight.
+    see: [ Health checks, Keepalive, Edge policy ]
+    detail: |-
+      Because the proxy owns every connection, restarting it is an outage. Mature proxies reload instead: nginx forks new workers with the new config, lets old workers finish their current requests, then retires them. Envoy performs hot restart with socket handover; Caddy and Traefik reload from a watched file or API.
+
+      Validate before reloading — `nginx -t` exists precisely so a typo fails at the gate rather than taking the site down. In Kubernetes the ingress controller does this for you on every `Ingress` change, which is also why a bad annotation can quietly break reloads for everyone in the cluster.
+
+      #### How it relates
+
+      - Validate in CI, roll out to one proxy instance first, and watch error rates before continuing — config is a deployment.
+  - term: Ingress controller
+    short: A reverse proxy whose configuration is generated from Kubernetes objects instead of a file.
+    see: [ Virtual host routing, Upstream pool, Graceful reload ]
+    detail: |-
+      An ingress controller watches the API server for `Ingress` or Gateway API resources and rewrites the proxy's configuration to match, with pod IPs as the upstream pool. The proxy underneath is usually nginx, Envoy, HAProxy or Traefik — the controller is the translation layer, not a new kind of proxy.
+
+      The Gateway API is the current direction: typed resources for listeners, routes and policies, with role separation between cluster operator and application team, replacing the annotation soup that `Ingress` accumulated.
+
+      #### How it relates
+
+      - A Kubernetes `Service` is L4; the ingress controller is the L7 reverse proxy in front of it. Knowing which layer you are looking at explains most routing surprises.
+commands:
+  heading: Essential config & code
+  tocLabel: Config & code
+  groups:
+    - group: nginx — the baseline everyone meets
+      items:
+        - code: |-
+            # a complete, defensible server block
+            upstream orders {
+                least_conn;
+                server 10.0.2.11:8080 max_fails=3 fail_timeout=10s;
+                server 10.0.2.12:8080 max_fails=3 fail_timeout=10s;
+                keepalive 64;                       # without this, a new TCP connection per request
+            }
+
+            server {
+                listen 443 ssl;
+                http2 on;
+                server_name shop.example;
+
+                ssl_certificate     /etc/ssl/shop.pem;
+                ssl_certificate_key /etc/ssl/shop.key;
+                ssl_protocols       TLSv1.2 TLSv1.3;
+
+                client_max_body_size 10m;           # reject huge bodies before the app sees them
+                add_header Strict-Transport-Security "max-age=31536000" always;
+
+                location /api/ {
+                    proxy_pass http://orders/;      # the trailing slash strips "/api" — it matters
+
+                    proxy_http_version 1.1;         # required for upstream keepalive
+                    proxy_set_header Connection "";
+
+                    proxy_set_header Host              $host;
+                    proxy_set_header X-Real-IP         $remote_addr;
+                    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_set_header X-Request-Id      $request_id;
+
+                    proxy_connect_timeout 2s;
+                    proxy_read_timeout    15s;
+                    proxy_next_upstream   error timeout;   # NOT on http_500 — that can duplicate writes
+                }
+            }
+          what: "Everything here earns its place: the keepalive pair, the forwarded headers, the body cap and timeouts that are not the defaults."
+        - code: |-
+            # the routes that need the defaults switched off
+            location /events {                      # server-sent events / token streams
+                proxy_pass http://ai;
+                proxy_buffering off;                # otherwise the whole stream arrives at the end
+                proxy_cache off;
+                proxy_read_timeout 1h;
+                add_header X-Accel-Buffering no;
+            }
+
+            location /ws {                          # websockets
+                proxy_pass http://realtime;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade    $http_upgrade;
+                proxy_set_header Connection "upgrade";
+                proxy_read_timeout 3600s;           # default 60s is why the socket "randomly" drops
+            }
+
+            location /uploads {
+                proxy_pass http://media;
+                proxy_request_buffering off;        # stream the body through; no retries possible
+                client_max_body_size 2g;
+            }
+          what: Three exceptions, each scoped to one location. Applying any of them globally removes a protection you want everywhere else.
+        - lang: bash
+          code: |-
+            nginx -t                       # validate before you reload. always.
+            nginx -s reload                # fork new workers, drain the old ones, no dropped connections
+            nginx -T | grep -A5 "location /api"   # dump the FULL effective config, includes resolved
+
+            curl -sI https://shop.example/api/orders/77 -H 'X-Forwarded-For: 1.2.3.4'   # try to spoof
+            curl -s --http2 -o /dev/null -w '%{http_version} %{time_total}\n' https://shop.example/
+          what: "`nginx -T` is the one to remember: it prints what is actually in effect, not what you think you wrote."
+    - group: Declarative alternatives
+      items:
+        - code: |-
+            # Caddy — automatic HTTPS, and the forwarded headers are set for you
+            shop.example {
+                encode gzip zstd
+                request_body { max_size 10MB }
+
+                handle_path /api/* {
+                    reverse_proxy 10.0.2.11:8080 10.0.2.12:8080 {
+                        lb_policy       least_conn
+                        health_uri      /healthz
+                        health_interval 5s
+                        transport http { read_timeout 15s }
+                    }
+                }
+
+                handle /events* {
+                    reverse_proxy 10.0.3.11:8080 { flush_interval -1 }   # -1 = stream, do not buffer
+                }
+
+                handle { reverse_proxy 10.0.1.11:8080 }
+            }
+          what: Certificates are obtained and renewed automatically, and `handle_path` strips the prefix without the trailing-slash trap.
+        - lang: yaml
+          code: |-
+            # Kubernetes Gateway API — the typed successor to Ingress annotations
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            metadata: { name: orders }
+            spec:
+              parentRefs: [{ name: public-gateway }]
+              hostnames: ["shop.example"]
+              rules:
+                - matches:
+                    - path: { type: PathPrefix, value: /api/ }
+                      headers: [{ name: x-canary, value: "1" }]      # header-based canary
+                  backendRefs: [{ name: orders-canary, port: 8080 }]
+                - matches: [{ path: { type: PathPrefix, value: /api/ } }]
+                  filters:
+                    - type: URLRewrite
+                      urlRewrite: { path: { type: ReplacePrefixMatch, replacePrefixMatch: / } }
+                  backendRefs:
+                    - { name: orders, port: 8080, weight: 90 }
+                    - { name: orders-next, port: 8080, weight: 10 }   # 10% weighted rollout
+                  timeouts: { request: 15s }
+          what: Same concepts — match, rewrite, pool, timeout — expressed as resources an operator can review and a controller can apply.
+    - group: A reverse proxy in your own process
+      items:
+        - lang: csharp
+          code: |-
+            // C# — YARP: a reverse proxy as ASP.NET Core middleware
+            var builder = WebApplication.CreateBuilder(args);
+
+            builder.Services.AddReverseProxy()
+                .LoadFromMemory(
+                    routes:
+                    [
+                        new RouteConfig
+                        {
+                            RouteId = "orders",
+                            ClusterId = "orders",
+                            Match = new RouteMatch { Hosts = ["shop.example"], Path = "/api/{**rest}" },
+                            Transforms =
+                            [
+                                new() { ["PathRemovePrefix"] = "/api" },
+                                new() { ["RequestHeader"] = "X-Forwarded-Proto", ["Set"] = "https" },
+                            ],
+                        },
+                    ],
+                    clusters:
+                    [
+                        new ClusterConfig
+                        {
+                            ClusterId = "orders",
+                            LoadBalancingPolicy = "PowerOfTwoChoices",
+                            HealthCheck = new() { Active = new() { Enabled = true, Path = "/healthz" } },
+                            Destinations = new Dictionary<string, DestinationConfig>
+                            {
+                                ["d1"] = new() { Address = "http://10.0.2.11:8080/" },
+                                ["d2"] = new() { Address = "http://10.0.2.12:8080/" },
+                            },
+                        },
+                    ]);
+
+            var app = builder.Build();
+            app.UseRateLimiter();            // edge policy, in C#, before the proxy runs
+            app.MapReverseProxy();
+            app.Run();
+          what: Worth it when routing depends on your own domain logic — tenant lookups, feature flags, custom auth — rather than on static rules.
+        - lang: python
+          code: |-
+            # Python — a minimal streaming proxy with Starlette + httpx
+            import httpx
+            from starlette.applications import Starlette
+            from starlette.background import BackgroundTask
+            from starlette.responses import StreamingResponse
+            from starlette.routing import Route
+
+            client = httpx.AsyncClient(
+                base_url="http://10.0.2.11:8080",
+                timeout=httpx.Timeout(connect=2.0, read=15.0, write=15.0, pool=5.0),
+                limits=httpx.Limits(max_keepalive_connections=64),   # keepalive, as in nginx
+            )
+
+            HOP_BY_HOP = {"connection", "keep-alive", "transfer-encoding", "upgrade", "te", "trailer"}
+
+            async def proxy(request):
+                headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
+                headers["x-forwarded-for"] = request.client.host        # set, not append: we are the edge
+                headers["x-forwarded-proto"] = request.url.scheme
+
+                upstream = client.build_request(
+                    request.method,
+                    request.url.path.removeprefix("/api"),
+                    headers=headers,
+                    params=request.query_params,
+                    content=request.stream(),                            # stream, do not buffer
+                )
+                response = await client.send(upstream, stream=True)
+                return StreamingResponse(
+                    response.aiter_raw(),
+                    status_code=response.status_code,
+                    headers={k: v for k, v in response.headers.items() if k.lower() not in HOP_BY_HOP},
+                    background=BackgroundTask(response.aclose),
+                )
+
+            app = Starlette(routes=[Route("/api/{path:path}", proxy, methods=["GET", "POST"])])
+          what: "The parts a real proxy also has to get right: hop-by-hop headers stripped, bodies streamed, the forwarded chain set at the edge, and the upstream response closed."
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - One public endpoint and one certificate store, however many services exist behind it.
+      - Cross-cutting policy — TLS, limits, compression, caching, security headers — implemented once.
+      - Backends are unreachable from the internet, with no ports, versions or topology exposed.
+      - Routing, canaries and blue/green become configuration rather than deployments.
+      - Buffering shields application threads from slow clients.
+      - Protocol modernisation (HTTP/2, HTTP/3, TLS 1.3) happens at the edge, not in every service.
+      - A single, consistent access log for every request in the system.
+  bad:
+    heading: Cons
+    items:
+      - A single point of failure and a single blast radius — one bad config is a total outage.
+      - Two connections where there was one, so every timeout, buffer and keepalive is now stacked.
+      - Client identity must be reconstructed from headers you have to decide whether to trust.
+      - "Adds a hop: a little latency, and another process to run, patch and tune."
+      - Terminating TLS means the proxy sees everything in clear text.
+      - Defaults optimised for ordinary HTTP quietly break WebSockets, SSE and large uploads.
+      - Configuration languages are quirky and under-tested compared with application code.
+when:
+  note: if you have more than one service and one domain, you already need one.
+  good:
+    heading: Use it when…
+    items:
+      - More than one service must live behind one hostname.
+      - TLS, compression, caching or rate limiting should be configured once rather than per service.
+      - Backends must not be directly reachable from the internet.
+      - You want routing changes — canaries, maintenance pages, blue/green — without deploying code.
+      - Clients are slow or hostile and application threads are expensive.
+      - You need one access log and one request id across everything.
+  bad:
+    heading: Avoid it when…
+    items:
+      - The protocol is not HTTP — a database, a broker, raw TCP. Use an **L4 load balancer**.
+      - End-to-end encryption must be preserved with no middlebox reading traffic. Use **TLS passthrough**.
+      - You need per-request balancing for internal gRPC and want no extra hop. Use **client-side balancing** or a **sidecar**.
+      - You are buying developer portals, quotas, API keys and monetisation. Use an **API gateway** such as **Azure API Management**.
+      - It is a single service on a single machine with a certificate already handled by the platform. Skip the hop.
+      - The need is client-side aggregation of several APIs. Use a **Backend-for-Frontend**.
+useCases:
+  - title: One domain, many services
+    body: A platform exposes `/`, `/api/` and `/static/` from three teams and three deployments. The proxy routes by prefix, so the public URL structure is decoupled from the internal topology and a service can be split or merged without the browser noticing.
+  - title: TLS and certificate consolidation
+    body: Twenty internal services, none of which should handle certificates. The proxy terminates TLS, renews via ACME automatically, and talks plain HTTP inside the network — so adding a service means adding a route, not a certificate workflow.
+  - title: Canary by header, then by weight
+    body: "A new version is deployed alongside the old. Requests with `x-canary: 1` go to it, then 10% of all traffic by weight, then 50%. The entire rollout is proxy configuration, instantly reversible, with no deployment involved."
+  - title: Protecting a legacy backend
+    body: An old application cannot handle large bodies, slow clients or HTTP/2. A proxy in front caps body size, buffers responses, speaks modern protocols to the internet and plain HTTP/1.1 to the application — which is left untouched.
+  - title: Static assets off the application
+    body: Hashed bundles are served from the proxy's cache with a one-year immutable TTL, and never reach the application at all. Backend request volume falls by most of its total and the origin only sees real work.
+gotchas:
+  items:
+    - mistake: Trusting X-Forwarded-For
+      why: "The app reads the leftmost entry and calls it the client. A request carrying `X-Forwarded-For: 1.2.3.4` bypasses every rate limit, ban list and geo-rule, and poisons the audit log."
+      fix: count hops from the right, trusting exactly the proxies you operate, and have the outermost one strip inbound copies. Configure your framework's known-proxy list explicitly — the default is never right.
+    - mistake: No upstream keepalive
+      why: nginx opens a fresh TCP connection to the backend for every request, because keepalive is off unless configured. Latency rises, ports exhaust under load, and the backend's accept queue does unnecessary work.
+      fix: add `keepalive 64;` to the upstream block, set `proxy_http_version 1.1` and clear the `Connection` header. Keep the proxy's idle timeout shorter than the backend's.
+    - mistake: Streaming routes behind default buffering
+      why: Server-sent events, progress output and LLM token streams arrive all at once when the response finishes. Everything "works" but feels broken, and nothing in the logs is unusual.
+      fix: "`proxy_buffering off` on those routes only, plus `X-Accel-Buffering: no` from the backend and a read timeout measured in hours."
+    - mistake: The trailing slash in proxy_pass
+      why: "`proxy_pass http://api;` keeps the matched prefix, `proxy_pass http://api/;` strips it. One character decides whether the backend receives `/api/orders` or `/orders`, and the error is a 404 that looks like a routing bug."
+      fix: pick the form deliberately and assert it in a smoke test. Caddy's `handle_path` and the Gateway API's `ReplacePrefixMatch` make the intent explicit instead.
+    - mistake: Missing X-Forwarded-Proto
+      why: The app sees plain HTTP, decides the request is insecure, and issues a redirect to HTTPS — which the proxy terminates and forwards as HTTP again. Infinite redirect loop, only in production.
+      fix: set `X-Forwarded-Proto $scheme` at the proxy and enable forwarded-header processing in the framework, so redirects and `Secure` cookies use the original scheme.
+    - mistake: Retrying non-idempotent requests
+      why: "`proxy_next_upstream` includes `http_500` or `non_idempotent`, so a POST the backend already processed is replayed on another instance. Duplicate orders, duplicate charges."
+      fix: retry only on connect errors and timeouts before any bytes were sent, cap attempts at one, and make write endpoints idempotent with an **idempotency key**.
+    - mistake: Timeouts that increase outward
+      why: The backend gives up after 30 s, the proxy after 60 s, the client after 10 s. The client has long gone, the proxy still waits, the backend still works, and the capacity is spent on a result nobody will read.
+      fix: deadlines must shrink as you go inward — client > proxy > backend — and the proxy should propagate the remaining budget rather than inventing its own.
+    - mistake: DNS resolved once at startup
+      why: The upstream is a DNS name. The backend scales or moves, the IP changes, and the proxy keeps sending traffic to an address nobody is listening on until someone restarts it.
+      fix: configure a resolver with a TTL (nginx needs a `resolver` directive and a variable in `proxy_pass`), or use service discovery rather than plain DNS.
+    - mistake: Config reloads nobody validates
+      why: A typo ships, the reload fails or applies a half-correct ruleset, and every service behind the proxy is affected at once. The proxy is the one component with no bulkhead.
+      fix: validate in CI (`nginx -t`, `envoy --mode validate`), review proxy config like application code, and roll it out to one instance before the fleet.
+alternatives:
+  columns: [ Option, Best for, Complexity, Cost / license, Key difference ]
+  rows:
+    - self: true
+      cells:
+        - "**Reverse proxy (nginx, Caddy)**"
+        - most HTTP deployments
+        - Low–Medium
+        - free, self-hosted
+        - —
+    - cells:
+        - "**Envoy**"
+        - dynamic config, gRPC, mesh
+        - Medium–High
+        - free
+        - API-driven configuration and far richer L7 policy; heavier to operate
+    - cells:
+        - "**Traefik**"
+        - container platforms
+        - Low
+        - free, paid tiers
+        - Discovers routes from Docker and Kubernetes labels automatically
+    - cells:
+        - "**API gateway**"
+        - external APIs, partners
+        - Medium–High
+        - per-call or per-unit
+        - Adds keys, quotas, developer portal, transformation and monetisation
+    - cells:
+        - "**CDN edge**"
+        - global static and cacheable traffic
+        - Low
+        - per-GB
+        - Runs in hundreds of locations, caches near users; limited custom logic
+    - cells:
+        - "**L4 load balancer**"
+        - non-HTTP, raw throughput
+        - Low
+        - cheap
+        - Forwards packets without parsing; cannot route, rewrite or cache
+    - cells:
+        - "**Service mesh sidecar**"
+        - east-west service traffic
+        - High
+        - per-pod resources
+        - A proxy per workload, configured centrally, with mTLS between services
+    - cells:
+        - "**YARP in-process**"
+        - routing that needs your domain logic
+        - Medium
+        - free
+        - Routing decisions in C#, with your own data and auth in scope
+  notes:
+    - "**Pick Caddy** for a small estate where automatic HTTPS and a short config file are worth more than tuning knobs."
+    - "**Pick Envoy** when configuration must change at runtime from an API, or when gRPC and advanced policy matter."
+    - "**Pick an API gateway** when the consumers are external and you need keys, quotas and a portal."
+    - "**Pick a CDN** as the outermost layer whenever traffic is global and cacheable — then a reverse proxy behind it."
+    - "**Pick YARP** when routing depends on data only your application has."
+resources:
+  - url: https://nginx.org/en/docs/http/ngx_http_proxy_module.html
+    title: nginx — ngx_http_proxy_module
+    why: the authoritative list of every `proxy_*` directive and its default.
+  - url: https://caddyserver.com/docs/caddyfile/directives/reverse_proxy
+    title: Caddy — reverse_proxy
+    why: a much shorter configuration surface, with sensible defaults documented.
+  - url: https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/http/http_connection_management
+    title: Envoy — HTTP connection management
+    why: precise definitions of routing, timeouts, retries and connection handling.
+  - url: https://gateway-api.sigs.k8s.io/
+    title: Kubernetes Gateway API
+    why: the typed replacement for Ingress annotations, with worked routing examples.
+  - url: https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt
+    title: The PROXY protocol specification
+    why: short, readable, and the definitive source for v1 and v2.
+  - url: https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/yarp/
+    title: YARP
+    why: building a reverse proxy inside ASP.NET Core, including transforms and health checks.

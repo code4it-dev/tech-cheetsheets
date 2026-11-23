@@ -1,0 +1,880 @@
+title: L4 vs L7 load balancing
+slug: load-balancing
+tagline: One reads the envelope, the other opens the letter. That single difference explains every trade-off between them.
+asof: Nov 2026 · examples use nginx, HAProxy, Envoy, YARP and Kubernetes Gateway API
+description: "Load balancing cheatsheet: what an L4 balancer can and cannot see, what L7 buys you, why HTTP/2 breaks connection-level balancing, and the power of two choices."
+aliases:
+  - Load balancing
+  - load balancer
+  - L4
+  - L7
+  - layer 4
+  - layer 7
+  - least connections
+  - round robin
+  - sticky sessions
+  - power of two choices
+keywords:
+  - load balancing
+  - l4
+  - l7
+  - reverse proxy
+  - nginx
+  - envoy
+  - haproxy
+  - health checks
+  - http2
+  - least connections
+related:
+  - sidecar-pattern
+  - queueing-theory
+  - backpressure
+  - kubernetes
+  - azure-api-management
+overview:
+  - "A **layer 4** balancer works on TCP and UDP. It sees the five-tuple — source address and port, destination address and port, protocol — picks a backend, and forwards packets. It never looks inside, which is exactly why it is fast: the decision is made once per connection, often in the kernel or on dedicated hardware, and it works for any protocol including ones that have not been invented yet."
+  - A **layer 7** balancer terminates the connection and the TLS session, parses the request, and only then chooses. Now it can route on host, path, method, header or cookie; retry a failed request somewhere else; add `X-Forwarded-For`; rate limit per user; and balance per <em>request</em> rather than per connection. The cost is CPU, latency, per-connection state and a protocol it has to understand.
+  - "The question is almost never \"which one\" — most real systems run both, with L4 at the edge absorbing volume and L7 behind it making decisions. The question worth asking is <em>where</em> the boundary sits, and the trap worth knowing is that HTTP/2 and gRPC quietly break connection-level balancing: one long-lived connection carries thousands of requests, so an L4 balancer that spreads connections perfectly can still send 90% of your traffic to one backend."
+architecture:
+  svg: load-balancing/architecture.svg
+  alt: A request shown as nested layers, with what an L4 balancer can see compared with an L7 balancer
+  caption: L4 is a decision about a connection. L7 is a decision about a request. Everything else follows from which unit you can see.
+howItWorks:
+  - md: The first animation follows one request through both kinds of balancer. The second is the failure mode that catches teams running gRPC behind an L4 balancer.
+  - note: L4 balances connections. if one connection carries 10,000 requests, that is not load balancing.
+  - anim:
+      id: anim-layers
+      title: 1 · The same request, seen two ways
+      svg: load-balancing/anim-layers.svg
+      alt: A request routed by an L4 balancer using the five-tuple, then by an L7 balancer using the path and headers
+      steps:
+        - say: A browser requests `/api/orders` over TLS. On the wire that is a TCP connection, a TLS session inside it, and an HTTP request inside that.
+          hl: [ ll-req ]
+        - say: "An L4 balancer sees only the outermost layer: source and destination addresses and ports, and the protocol. Thirteen bytes of information, and the rest is opaque."
+          hl: [ ll-lb ]
+          unhl: [ ll-req ]
+          text:
+            ll-r3: TLS · encrypted — invisible to L4
+            ll-r4: HTTP · invisible to L4
+          fill:
+            ll-r3: "#c53b3b"
+            ll-r4: "#c53b3b"
+        - say: It hashes that tuple, picks a backend, and forwards every packet of the connection there. The decision is made once and never revisited.
+          hl: [ ll-b1 ]
+          unhl: [ ll-lb ]
+          text:
+            ll-lb3: hash → api pool
+            ll-b1t: api pool ← all packets
+        - say: "Fast — kernel or hardware, millions of packets a second — and it works for any protocol. But look at what it cannot do: it does not know this was a request for `/api/orders`, or that there was a request at all."
+          unhl: [ ll-b1 ]
+          text:
+            ll-c2: forward packets, very fast, for any protocol
+            ll-c3: "cannot: route by path · retry · read a cookie · add a header"
+        - say: Now the same request through an L7 balancer. The first thing it does is terminate the TCP connection and the TLS session.
+          hl: [ ll-lb ]
+          text:
+            ll-phase: the same request, through an L7 balancer
+            ll-lbt: L7 balancer
+            ll-lb1: terminates TCP + TLS
+            ll-lb2: then parses HTTP
+            ll-lb3: decrypting…
+            ll-r3: TLS · terminated here
+            ll-r4: HTTP · now readable
+          fill:
+            ll-lb: "#fbf3c4"
+            ll-r3: "#5f6f66"
+            ll-r4: "#2f6b3f"
+        - say: "Now it can read everything: method, path, host, headers, cookies. The unit it is reasoning about has changed from a connection to a request."
+          text:
+            ll-r1: GET /api/orders HTTP/2
+            ll-r2: "host: shop.example · cookie: sid=…"
+            ll-r3: "x-canary: 1"
+            ll-r4: "authorization: Bearer …"
+            ll-lb3: "matched route: /api/* + x-canary"
+        - say: So it can route by path — `/api` here, `/static` elsewhere — and, because the canary header is present, send this one to the canary pool instead.
+          hl: [ ll-b3 ]
+          unhl: [ ll-lb ]
+          text:
+            ll-b1t: api pool
+            ll-b3t: canary pool ← this request
+            ll-lb3: route by path, then by header
+        - say: "It can also do everything that needs a request to exist: add `X-Forwarded-For`, attach a request id, retry on another backend if this one fails, rate limit this user, serve from cache."
+          unhl: [ ll-b3 ]
+          text:
+            ll-c1: what this balancer can do
+            ll-c2: route by path, host, header, cookie · canary and A/B
+            ll-c3: retry · rate limit · cache · rewrite · add headers
+            ll-c4: "and crucially: choose a backend per REQUEST"
+            ll-c5: not once per connection
+            ll-v: the unit of decision changed, and that is the whole difference
+          fill:
+            ll-c3: "#5f6f66"
+            ll-c4: "#2f6b3f"
+        - say: "The bill: it decrypts your traffic, holds state per connection and per request, burns CPU on TLS and parsing, and adds latency to every call."
+          text:
+            ll-v: "costs: TLS work, CPU, per-request state, added latency"
+          fill:
+            ll-v: "#c53b3b"
+            ll-verd: "#f9e3df"
+        - say: "Which is why production systems run both: L4 at the edge for volume and any protocol, L7 behind it for the decisions that need a parsed request."
+          text:
+            ll-phase: not a choice — a stack
+            ll-v: DNS/anycast → L4 (volume, DDoS) → L7 (routing, retries) → your service
+          fill:
+            ll-v: "#2f6b3f"
+            ll-verd: "#e3eedc"
+  - anim:
+      id: anim-h2
+      title: 2 · HTTP/2 breaks connection-level balancing
+      svg: load-balancing/anim-h2.svg
+      alt: An L4 balancer distributing connections evenly but requests unevenly because HTTP/2 multiplexes many requests onto one connection
+      steps:
+        - say: Three gateway instances call a service with twelve—here three—backends, through an L4 balancer. Each gateway opens one connection.
+          hl: [ lh-c1, lh-c2, lh-c3 ]
+        - say: "The balancer does its job perfectly: three connections, three backends, one each. Any dashboard showing connections per backend looks ideal."
+          hl: [ lh-lb ]
+          unhl: [ lh-c1, lh-c2, lh-c3 ]
+          text:
+            lh-b1t: 1 conn
+            lh-b2t: 1 conn
+            lh-b3t: 1 conn
+            lh-p1: "connections: 1 / 1 / 1 — perfectly balanced"
+        - say: Under HTTP/1.1 that would be fine, because a connection carries one request at a time — so balancing connections roughly balances requests.
+          unhl: [ lh-lb ]
+          text:
+            lh-p2: "requests per second: 300 / 300 / 300 (HTTP/1.1)"
+        - say: But this is HTTP/2. One connection multiplexes thousands of concurrent streams, and the gateways are long-lived — they dialled once at startup and will keep those connections for hours.
+          text:
+            lh-phase: "HTTP/2: one connection, thousands of multiplexed requests"
+            lh-c1t: 1 connection · 2,700 req/s
+            lh-c2t: 1 connection · 150 req/s
+            lh-c3t: 1 connection · 150 req/s
+        - say: Gateway A happens to serve most of the traffic, and every one of its requests follows the connection to backend 1. The balancer cannot see any of this — it sees one connection.
+          hl: [ lh-b1 ]
+          text:
+            lh-b1t: 1 conn · 2,700 req/s
+            lh-b2t: 1 conn · 150 req/s
+            lh-b3t: 1 conn · 150 req/s
+            lh-p2: "requests per second: 2,700 / 150 / 150"
+            lh-p3: connections even, requests 90/5/5 — and the connection graph looks fine
+          fill:
+            lh-b1t: "#c53b3b"
+            lh-p3: "#c53b3b"
+        - say: It gets worse. Scale out to six backends and the three new ones receive nothing at all, because no new connections are being made. Autoscaling appears to do nothing.
+          unhl: [ lh-b1 ]
+          text:
+            lh-lbt3: 3 conns → 3 backends ✓
+            lh-p3: new backends get zero traffic until someone dials a new connection
+        - say: This is the classic "gRPC behind a Kubernetes Service" problem, and the reason it survives so long is that every connection-based metric says everything is fine.
+          text:
+            lh-p3: every connection metric looks healthy — check requests per backend instead
+        - say: The fix is to balance the right unit. An L7 proxy or a sidecar parses each HTTP/2 stream and picks a backend per request.
+          hl: [ lh-lb ]
+          text:
+            lh-phase: "L7: a backend chosen per request, not per connection"
+            lh-lbt: L7 balancer
+            lh-lbt2: balances requests
+            lh-lbt3: 3,000 req/s → 3 backends
+            lh-b1t: 1,000 req/s
+            lh-b2t: 1,000 req/s
+            lh-b3t: 1,000 req/s
+            lh-p2: "requests per second: 1,000 / 1,000 / 1,000"
+            lh-p3: and a scaled-out backend starts receiving traffic immediately
+          fill:
+            lh-b1t: "#2f6b3f"
+            lh-p3: "#2f6b3f"
+            lh-lb: "#fbf3c4"
+        - say: "If an L7 hop is not an option, the mitigations all work by forcing clients to re-dial: a maximum connection age, a maximum number of requests per connection, or client-side balancing that opens a connection to every backend."
+          unhl: [ lh-lb ]
+          text:
+            lh-phase: mitigations when you must stay on L4
+            lh-p3: max connection age · max requests per connection · client-side balancing
+        - say: "And the underlying reason is the pooling result from queueing theory: pinning requests to a connection is a dedicated queue per server, which is strictly worse than one shared queue — here, catastrophically so."
+          text:
+            lh-phase: per-connection pinning is dedicated queues; per-request is pooling
+            lh-p1: "connections: 1 / 1 / 1 — and that was never the number to watch"
+concepts:
+  - term: L4 load balancing
+    short: Choosing a backend from the TCP/UDP five-tuple, then forwarding packets without inspecting them.
+    see: [ L7 load balancing, Five-tuple hashing, Direct server return ]
+    detail: |-
+      The decision is made once, when the connection is established, and every subsequent packet follows the same path. Because nothing is parsed, it runs at line rate — in the kernel with IPVS or eBPF, or on dedicated hardware — and it works for any protocol: HTTP, gRPC, Postgres, SMTP, a custom binary protocol.
+
+      Its blindness is the whole trade. It cannot route by path, cannot retry a failed request elsewhere, and cannot tell the difference between a connection carrying one request and one carrying ten thousand.
+
+      #### Where you meet it
+
+      | Product | Notes |
+      | --- | --- |
+      | Kubernetes `Service` | kube-proxy / IPVS — L4 |
+      | AWS NLB, Azure Load Balancer | L4, very high throughput |
+      | HAProxy in `mode tcp` | L4 |
+      | IPVS, eBPF, Maglev | kernel-level L4 |
+
+      #### How it relates
+
+      - A Kubernetes Service is L4; an Ingress or Gateway is L7. Knowing which you have explains a lot of behaviour.
+  - term: L7 load balancing
+    short: Terminating the connection, parsing the request, and choosing a backend per request.
+    see: [ L4 load balancing, TLS termination, Request-level balancing ]
+    detail: |-
+      Once the request is parsed, everything becomes possible: route `/api` and `/static` to different pools, send 5% of traffic to a canary, retry an idempotent request on another backend, inject headers, enforce per-user rate limits, serve from cache.
+
+      It also balances the right unit. An L7 balancer picks a backend for each request, which is what keeps distribution even when one connection carries thousands of them.
+
+      #### What it unlocks
+
+      | Capability | Needs L7? |
+      | --- | --- |
+      | Route by path or host | yes |
+      | Retry on another backend | yes |
+      | Canary by header or percentage | yes |
+      | Per-request balancing | yes |
+      | Rate limit per user | yes |
+      | Raw TCP throughput | no — use L4 |
+
+      #### How it relates
+
+      - A service mesh sidecar is an L7 balancer placed next to every workload.
+  - term: Five-tuple hashing
+    short: "How an L4 balancer picks: hash the connection's identity and map it onto a backend."
+    see: [ L4 load balancing, Consistent hashing, Session affinity ]
+    detail: |-
+      Source IP, source port, destination IP, destination port, protocol. The source port varies per connection, so a single client spreads naturally across backends — unless the balancer hashes on source IP alone, which is sometimes done deliberately to pin a client.
+
+      With plain modulo hashing, adding or removing a backend reshuffles nearly every connection. Production balancers use consistent hashing or Maglev hashing so a change moves only a small fraction.
+
+      #### Hash inputs
+
+      | Input | Effect |
+      | --- | --- |
+      | Full 5-tuple | even spread, new connection may move |
+      | Source IP only | pins a client; uneven behind NAT |
+      | Consistent hash | minimal disruption when the pool changes |
+
+      #### How it relates
+
+      - Source-IP hashing behind a corporate NAT sends an entire office to one backend.
+  - term: Request-level balancing
+    short: Choosing per request rather than per connection — the thing HTTP/2 makes essential.
+    see: [ HTTP/2 imbalance, L7 load balancing, Connection pooling ]
+    detail: |-
+      Under HTTP/1.1 a connection carries one request at a time, so balancing connections approximately balances requests. Under HTTP/2 and gRPC, a single long-lived connection multiplexes thousands of concurrent streams — and an L4 balancer still sees one connection.
+
+      The result is that connections can be perfectly distributed while requests are not distributed at all. Only something that parses the protocol can pick a backend per request.
+
+      #### How it relates
+
+      - The second animation is this failure, with numbers.
+  - term: HTTP/2 imbalance
+    short: "The classic gRPC-behind-an-L4-balancer problem: even connections, wildly uneven load."
+    see: [ Request-level balancing, Connection age, Client-side balancing ]
+    detail: |-
+      A handful of long-lived clients — a gateway, a mesh, a batch worker — each open one connection and keep it for hours. Every request on that connection lands on the backend chosen at connection time, so one backend can take the overwhelming majority of traffic while others idle.
+
+      It is worse than uneven: it also defeats scaling out, because new backends receive no traffic until someone dials a new connection.
+
+      #### Fixes, best first
+
+      | Fix | Note |
+      | --- | --- |
+      | L7 balancer or sidecar | per-request; the real answer |
+      | Client-side balancing | gRPC name resolver + picker |
+      | Max connection age | forces periodic re-dial |
+      | Max requests per connection | same idea, request-based |
+
+      #### How it relates
+
+      - Queueing theory names the underlying problem: per-connection pinning is dedicated queues, and pooling beats them.
+  - term: TLS termination
+    short: Where encryption ends — and the thing that decides whether L7 features are available at all.
+    see: [ L7 load balancing, SNI routing, Direct server return ]
+    detail: |-
+      Three arrangements. **Termination** decrypts at the balancer, enabling every L7 feature and leaving the last hop in plaintext. **Passthrough** forwards encrypted bytes, so only L4 decisions are possible — though SNI can still be read for routing. **Re-encryption** decrypts, inspects and re-encrypts to the backend, which is the usual answer when the internal network is not trusted.
+
+      #### The three
+
+      | Mode | L7 features | Backend hop |
+      | --- | --- | --- |
+      | Termination | all | plaintext |
+      | Re-encryption | all | encrypted |
+      | Passthrough | none (SNI only) | end-to-end TLS |
+
+      #### How it relates
+
+      - SNI routing is the useful middle ground: route by hostname without decrypting anything.
+  - term: Balancing algorithms
+    short: Round robin, least connections, least response time — and why the obvious one is rarely best.
+    see: [ Power of two choices, Health checks, Slow start ]
+    anim:
+      key: p2c
+      title: Power of two choices
+      svg: load-balancing/p2c.svg
+      alt: Random selection, least-connections and power-of-two-choices compared across backends
+      steps:
+        - say: Eight backends with roughly even load. A request arrives and the balancer has to choose one.
+          hl: [ pc-row ]
+          text:
+            pc-msg: "strategy: —"
+        - say: Pure random is cheap and stateless, but it will cheerfully hand work to an already-busy backend — so the maximum load drifts well above the average.
+          hl: [ pc-b6 ]
+          unhl: [ pc-row ]
+          text:
+            pc-msg: "strategy: random"
+            pc-msg2: no state needed · max load ≈ log n / log log n above average
+          fill:
+            pc-b6: "#f9e3df"
+        - say: Least connections picks the genuinely lightest one. Accurate — until you remember there are twenty balancer instances, and all of them see the same idle backend at the same moment.
+          hl: [ pc-b3 ]
+          unhl: [ pc-b6 ]
+          text:
+            pc-msg: "strategy: least connections"
+            pc-msg2: needs a global view · and every balancer picks the same one at once
+          fill:
+            pc-b6: "#e8ece2"
+            pc-b3: "#f9e3df"
+        - say: "Power of two choices: sample two at random, send to the lighter of the pair. Purely local information, and no two balancers make the same choice."
+          hl: [ pc-b2, pc-b7 ]
+          unhl: [ pc-b3 ]
+          text:
+            pc-msg: "strategy: two random choices"
+            pc-msg2: sample two, take the lighter — no global state, no herding
+          fill:
+            pc-b3: "#e8ece2"
+        - say: "And it is nearly as good as perfect knowledge: maximum load drops from `log n / log log n` to `log log n`. One extra sample, an exponential improvement — which is why Envoy, Finagle and YARP default to it."
+          hl: [ pc-b7 ]
+          unhl: [ pc-b2, pc-b7 ]
+          text:
+            pc-msg: two samples ≈ perfect information, without the stampede
+            pc-msg2: "max load: log log n — the default in Envoy, Finagle and YARP"
+          fill:
+            pc-b7: "#e3eedc"
+    detail: |-
+      Round robin ignores load entirely, so one slow backend keeps receiving its full share. Least connections approximates load well and is a good default. Least response time (or a latency EWMA) reacts fastest to a degrading instance.
+
+      The subtlety is that "send to the least loaded" behaves badly across many independent balancers: they all observe the same idle backend and all send to it at once, producing a herd.
+
+      ::anim p2c::
+
+      #### How it relates
+
+      - Envoy's default is weighted least-request using two random choices, for exactly this reason.
+  - term: Power of two choices
+    short: Sample two backends at random and take the less loaded one — nearly optimal, with no global state.
+    see: [ Balancing algorithms, Health checks ]
+    detail: |-
+      The surprising result from randomised load balancing: picking the better of two random samples reduces the maximum load from roughly `log n / log log n` to `log log n`. One extra sample buys an exponential improvement.
+
+      Practically, it gets you most of least-connections' quality without needing a consistent global view, and without several balancers stampeding the same idle backend.
+
+      #### Comparison
+
+      | Strategy | State needed | Herding |
+      | --- | --- | --- |
+      | Random | none | none, but uneven |
+      | Round robin | a counter | none; ignores load |
+      | Least connections | global view | yes, across balancers |
+      | Two choices | local only | no |
+
+      #### How it relates
+
+      - It is the default in Envoy, Finagle and several meshes; worth knowing why before changing it.
+  - term: Health checks
+    short: How a balancer learns a backend is unfit — actively by probing, or passively by watching real traffic.
+    see: [ Outlier detection, Connection draining, Slow start ]
+    detail: |-
+      Active checks probe an endpoint on a schedule. They are predictable and catch a dead instance even with no traffic, but a shallow check (TCP connect, or a handler that returns 200 unconditionally) tells you only that the process is running.
+
+      Passive checks observe real responses and eject a backend that starts failing. They catch problems a synthetic probe misses, and they are what the sidecar page calls outlier detection.
+
+      #### Designing the probe
+
+      | Check | Catches |
+      | --- | --- |
+      | TCP connect | process is dead |
+      | HTTP 200 on `/healthz` | app is running |
+      | Readiness incl. dependencies | cannot serve — careful, cascades |
+      | Passive 5xx ejection | partial, real failures |
+
+      #### How it relates
+
+      - A readiness check that fails when a shared dependency is slow removes every backend at once — the check becomes the outage.
+  - term: Connection draining
+    short: "Removing a backend gently: stop sending new work, let in-flight requests finish."
+    see: [ Health checks, Slow start, L7 load balancing ]
+    detail: |-
+      Without it, every deploy produces a burst of errors: the instance disappears while requests are still being served. With it, the balancer stops routing new requests, waits for the existing ones, and only then lets the instance go.
+
+      The drain timeout must exceed your slowest normal request, and the application must fail its readiness check <em>before</em> it stops accepting connections, so the balancer learns first.
+
+      #### Shutdown order
+
+      | # | Step |
+      | --- | --- |
+      | 1 | fail readiness — balancer stops sending |
+      | 2 | wait for the balancer to notice |
+      | 3 | finish in-flight requests |
+      | 4 | close and exit |
+
+      #### How it relates
+
+      - Step 2 is the one teams omit, and it is why "we drain properly" still produces 502s.
+  - term: Slow start
+    short: Ramping traffic to a new backend instead of giving it a full share immediately.
+    see: [ Health checks, Balancing algorithms, Connection draining ]
+    detail: |-
+      A freshly started instance has a cold cache, an unJITted runtime and empty connection pools. Sending it an equal share immediately makes it slow, which with a least-connections algorithm can even attract <em>more</em> traffic — because it has few open connections.
+
+      Slow start gives it a linearly increasing weight over a warm-up window, typically 30 to 60 seconds, so it has time to become as fast as its peers.
+
+      #### How it relates
+
+      - Without it, scaling out during an incident can briefly make latency worse.
+  - term: Session affinity
+    short: Pinning a client to a backend — useful, and a constraint you pay for in every other dimension.
+    see: [ Five-tuple hashing, Consistent hashing, L7 load balancing ]
+    detail: |-
+      L4 does it by hashing the source IP; L7 does it properly with a cookie, which survives NAT and mobile network changes. Either way it trades away even distribution, easy scaling and graceful draining.
+
+      Prefer removing the need: put session state in Redis or a signed cookie, and any instance can serve any request. Keep affinity for genuine cases — in-memory caches with high hit rates, stateful connections like WebSockets.
+
+      #### Cost of affinity
+
+      | You lose | Because |
+      | --- | --- |
+      | Even load | clients are not equal |
+      | Easy scale-out | existing clients stay put |
+      | Clean draining | pinned sessions must move |
+      | Pooling gains | dedicated queues, by definition |
+
+      #### How it relates
+
+      - Queueing theory prices this exactly: at ρ = 0.8, pinning costs about four times the queueing delay.
+  - term: Consistent hashing
+    short: Mapping keys to backends so that adding or removing one moves only a small fraction of them.
+    see: [ Five-tuple hashing, Session affinity, Health checks ]
+    detail: |-
+      With plain modulo, changing the pool size reshuffles nearly everything — disastrous when the hash is choosing a cache node or a sticky session. Consistent hashing with virtual nodes moves roughly `1/n` of keys instead.
+
+      Google's Maglev adds near-perfect evenness with minimal disruption, which is why it is the scheme in several cloud L4 balancers.
+
+      #### How it relates
+
+      - Use it whenever the hash picks something stateful: a cache shard, a session, a partition owner.
+  - term: Preserving the client IP
+    short: Behind a balancer every request appears to come from the balancer — unless you arrange otherwise.
+    see: [ L7 load balancing, Direct server return, Rate limiting ]
+    detail: |-
+      L7 balancers add `X-Forwarded-For`; L4 balancers can use the PROXY protocol to prepend the original addresses. Without one of these, rate limiting, geo-rules and audit logs all see a handful of balancer addresses.
+
+      And `X-Forwarded-For` is client-supplied until you prove otherwise: trust only the hops you control, counting from the right, or an attacker simply sets whatever address they like.
+
+      #### Mechanisms
+
+      | Mechanism | Layer |
+      | --- | --- |
+      | `X-Forwarded-For` | L7, trust-boundary aware |
+      | `Forwarded` (RFC 7239) | L7, standardised |
+      | PROXY protocol | L4, prepends a header to the stream |
+      | Direct server return | backend sees the real client |
+
+      #### How it relates
+
+      - Rate limiting on an untrusted `X-Forwarded-For` is trivially bypassed.
+  - term: Direct server return
+    short: An L4 technique where responses bypass the balancer and go straight to the client.
+    see: [ L4 load balancing, Five-tuple hashing ]
+    detail: |-
+      Requests go through the balancer, responses do not. Since most traffic is outbound — a small request, a large response — this removes the balancer from the expensive direction and lets modest hardware front enormous bandwidth.
+
+      The cost is sophistication: it needs layer-2 adjacency or tunnelling, backends configured with the virtual IP, and it rules out anything requiring the balancer to see the response.
+
+      #### How it relates
+
+      - Common in large CDN and video deployments; rarely needed below that scale.
+  - term: Global load balancing
+    short: Choosing a region or a point of presence before any connection is made — DNS or anycast.
+    see: [ L4 load balancing, Health checks ]
+    detail: |-
+      DNS-based steering returns different addresses per client, which is flexible but slow to change because of caching and resolvers that ignore TTLs. Anycast advertises the same address from many locations and lets BGP pick, which fails over in seconds but gives coarse control.
+
+      Either way this is a separate tier above your L4 and L7 balancers, with its own failure modes and its own health signals.
+
+      #### Comparison
+
+      |  | DNS | Anycast |
+      | --- | --- | --- |
+      | Granularity | per client | per network path |
+      | Failover speed | minutes (TTL) | seconds |
+      | Control | fine | coarse |
+
+      #### How it relates
+
+      - DNS TTLs are advisory; plan for clients that cache far longer than you asked.
+  - term: Retries at the balancer
+    short: An L7 balancer can resend a failed request to another backend — which is powerful and easy to misconfigure.
+    see: [ L7 load balancing, Health checks, Retry ]
+    detail: |-
+      Because it sees the request, it can retry on a connection failure or a 503 without the client knowing. The dangers are the usual ones: retrying non-idempotent requests, and adding another layer to an already-retrying stack.
+
+      Restrict retries to safe methods and connection-level failures, cap them, and set a retry budget so a broad failure does not multiply load.
+
+      #### Safe defaults
+
+      | Setting | Value |
+      | --- | --- |
+      | Retry on | connect failure, reset, 503 |
+      | Methods | idempotent only, unless keyed |
+      | Attempts | 1–2 |
+      | Budget | 10–20% of active requests |
+
+      #### How it relates
+
+      - Count the balancer's retries when auditing your total amplification — they are easy to forget.
+  - term: Where it runs
+    short: Hardware, cloud service, software proxy or sidecar — the same decisions at different places.
+    see: [ L4 load balancing, L7 load balancing, Sidecar ]
+    detail: |-
+      Cloud L4 and L7 services cover most needs with no operations. A software proxy — nginx, HAProxy, Envoy, YARP — gives full control at the cost of running it. A sidecar puts an L7 balancer next to every workload, which is how a mesh does per-request balancing for east-west traffic.
+
+      North-south (internet to you) and east-west (service to service) have different requirements, and it is common to use different tools for each.
+
+      #### Typical stack
+
+      | Tier | Usually |
+      | --- | --- |
+      | Global | DNS or anycast |
+      | Edge | cloud L4 — volume, DDoS |
+      | Ingress | L7 — routing, TLS, canary |
+      | East-west | sidecar or client-side L7 |
+
+      #### How it relates
+
+      - The sidecar page covers the per-workload case, including what it costs per pod.
+commands:
+  heading: Essential config & code
+  tocLabel: Config & code
+  groups:
+    - group: "L4: forward, do not look"
+      items:
+        - code: |-
+            # HAProxy in TCP mode — works for Postgres, Redis, gRPC, anything
+            frontend pg_in
+                bind *:5432
+                mode tcp                      # no parsing, no HTTP features
+                default_backend pg_pool
+
+            backend pg_pool
+                mode tcp
+                balance leastconn
+                option tcp-check              # the only health check available here
+                server pg1 10.0.0.11:5432 check inter 2s
+                server pg2 10.0.0.12:5432 check inter 2s backup
+          what: In `mode tcp` there is no path, no header and no retry — only a connection and a destination.
+        - lang: yaml
+          code: |-
+            # Kubernetes: a Service is L4. This is kube-proxy/IPVS, not an HTTP proxy.
+            apiVersion: v1
+            kind: Service
+            spec:
+              type: ClusterIP
+              sessionAffinity: ClientIP        # L4 affinity: hashes the source address
+              ports: [{ port: 80, targetPort: 8080 }]
+
+            # Which is why gRPC between pods via a Service load balances badly:
+            # one connection, one backend, for its whole lifetime.
+          what: The most common surprise in Kubernetes networking. A Service balances connections; your gRPC client opens one.
+    - group: "L7: parse, then decide"
+      items:
+        - code: |-
+            # nginx — routing by path, with per-request balancing over HTTP/1.1 keepalives
+            upstream api     { least_conn; server 10.0.1.11:8080; server 10.0.1.12:8080;
+                               keepalive 32; }
+            upstream static  { server 10.0.2.11:8080; server 10.0.2.12:8080; }
+
+            server {
+                listen 443 ssl http2;
+                ssl_certificate /etc/ssl/site.pem;
+
+                location /api/   { proxy_pass http://api;
+                                   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                                   proxy_next_upstream error timeout http_503; }   # retry elsewhere
+                location /static/ { proxy_pass http://static; proxy_cache static_cache; }
+            }
+          what: "Everything here needs the request parsed: the path match, the header, the cache and the retry."
+        - lang: yaml
+          code: |-
+            # Envoy — per-request balancing for HTTP/2, plus passive health checking
+            clusters:
+              - name: orders
+                type: STRICT_DNS
+                lb_policy: LEAST_REQUEST          # two random choices under the hood
+                typed_extension_protocol_options:
+                  envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+                    explicit_http_config: { http2_protocol_options: {} }
+                outlier_detection:                # eject a backend that starts failing
+                  consecutive_5xx: 5
+                  base_ejection_time: 30s
+                  max_ejection_percent: 50
+                common_lb_config:
+                  healthy_panic_threshold: { value: 50 }   # below 50% healthy, ignore health and spray
+          what: Envoy balances each HTTP/2 stream separately, which is the fix for the imbalance in the second animation.
+    - group: An L7 balancer in C#
+      items:
+        - lang: csharp
+          code: |-
+            // YARP — a reverse proxy you configure in code or JSON
+            builder.Services.AddReverseProxy().LoadFromMemory(
+                routes:
+                [
+                    new RouteConfig { RouteId = "api",    ClusterId = "api",
+                                      Match = new RouteMatch { Path = "/api/{**catch-all}" } },
+                    new RouteConfig { RouteId = "canary", ClusterId = "canary", Order = -1,
+                                      Match = new RouteMatch { Path = "/api/{**catch-all}",
+                                                               Headers = [new RouteHeader {
+                                                                   Name = "x-canary", Values = ["1"] }] } },
+                ],
+                clusters:
+                [
+                    new ClusterConfig
+                    {
+                        ClusterId = "api",
+                        LoadBalancingPolicy = LoadBalancingPolicies.PowerOfTwoChoices,
+                        HealthCheck = new HealthCheckConfig
+                        {
+                            Active = new ActiveHealthCheckConfig
+                            { Enabled = true, Interval = TimeSpan.FromSeconds(5), Path = "/healthz" },
+                        },
+                        Destinations = new Dictionary<string, DestinationConfig>
+                        {
+                            ["d1"] = new() { Address = "http://10.0.1.11:8080/" },
+                            ["d2"] = new() { Address = "http://10.0.1.12:8080/" },
+                        },
+                    },
+                ]);
+
+            app.MapReverseProxy();
+          what: Header-based canary routing and per-request balancing, both of which need the request parsed — the definition of L7.
+    - group: The picker, in both languages
+      items:
+        - lang: csharp
+          code: |-
+            // power of two choices: sample two at random, take the lighter one
+            sealed class P2CPicker(IReadOnlyList<Backend> backends)
+            {
+                public Backend Pick()
+                {
+                    if (backends.Count == 1) return backends[0];
+
+                    var a = backends[Random.Shared.Next(backends.Count)];
+                    var b = backends[Random.Shared.Next(backends.Count)];
+
+                    // InFlight is a local counter — no global view, so no herding
+                    return a.InFlight <= b.InFlight ? a : b;
+                }
+            }
+          what: Six lines. It gets most of least-connections' quality with purely local state, which is why Envoy and Finagle default to it.
+        - lang: python
+          code: |-
+            import random
+
+            def pick_p2c(backends):
+                """Two random samples, take the less loaded. O(log log n) max load."""
+                if len(backends) == 1:
+                    return backends[0]
+                a, b = random.sample(backends, 2)
+                return a if a.in_flight <= b.in_flight else b
+
+            def pick_least_conn(backends):
+                """Accurate — and every balancer picks the SAME idle backend at once."""
+                return min(backends, key=lambda x: x.in_flight)     # herding across replicas
+          what: "The contrast is the point: perfect information produces a stampede when many balancers act on it simultaneously."
+    - group: Draining, in the right order
+      items:
+        - lang: csharp
+          code: |-
+            // 1. fail readiness so the balancer stops sending   2. wait   3. then drain
+            app.MapGet("/healthz/ready", () => _shuttingDown ? Results.StatusCode(503) : Results.Ok());
+
+            lifetime.ApplicationStopping.Register(() =>
+            {
+                _shuttingDown = true;                  // balancer notices on its next probe
+                Thread.Sleep(TimeSpan.FromSeconds(10)); // give it time — this is the step people skip
+            });                                         // then the host drains in-flight requests
+          what: Without the wait, the instance disappears before the balancer has noticed, and every deploy emits a burst of 502s.
+    - group: Diagnosing an imbalance
+      items:
+        - lang: bash
+          code: |-
+            # requests per backend, not connections per backend — the distinction that matters
+            kubectl exec deploy/envoy -- curl -s localhost:15000/stats \
+              | grep 'cluster.orders.*upstream_rq_total'
+
+            # if one backend has most of the requests while connections look even,
+            # you are balancing connections under HTTP/2
+            kubectl exec deploy/envoy -- curl -s localhost:15000/clusters | grep -E 'cx_active|rq_active'
+          what: Connection counts look healthy in exactly the case that matters. Always check request counts per backend.
+prosCons:
+  pairs:
+    - good:
+        heading: L4 — strengths
+        items:
+          - "Extremely fast: decisions in the kernel or in hardware, at line rate."
+          - Protocol-agnostic — databases, custom binary protocols, UDP, anything.
+          - End-to-end TLS stays intact; the balancer never holds a certificate.
+          - Very low latency added, and little per-connection state.
+          - Absorbs volumetric attacks well, which is why it belongs at the edge.
+          - Direct server return lets modest hardware front enormous bandwidth.
+      bad:
+        heading: L4 — limits
+        items:
+          - Balances connections, so HTTP/2 and gRPC distribute badly.
+          - No routing by path, host, header or cookie.
+          - Cannot retry a request elsewhere — it never saw a request.
+          - "Health checks are shallow: a port is open, or it is not."
+          - Client IP needs the PROXY protocol or DSR to survive.
+          - No per-user rate limiting, caching or header manipulation.
+    - good:
+        heading: L7 — strengths
+        items:
+          - Balances per request, which is correct under HTTP/2 and gRPC.
+          - Routes on host, path, method, header or cookie — canaries and A/B included.
+          - Retries, timeouts, circuit breaking and rate limiting at the edge.
+          - Rich health signals, including passive ejection of failing instances.
+          - Terminates TLS centrally, so certificates live in one place.
+          - Adds `X-Forwarded-For` and request ids for free.
+      bad:
+        heading: L7 — costs
+        items:
+          - CPU and latency per request, plus TLS termination work.
+          - Per-connection and per-request state, so memory scales with load.
+          - Must understand the protocol — useless for arbitrary TCP.
+          - Decrypts your traffic, which is a trust and compliance decision.
+          - Another process to run, tune, upgrade and debug.
+          - A bad config change at this tier is a site-wide outage.
+when:
+  note: "ask what unit you need to balance: a connection, or a request?"
+  good:
+    heading: Use L4 when…
+    items:
+      - The protocol is not HTTP — databases, message brokers, custom binaries, UDP.
+      - Throughput and latency matter more than routing intelligence.
+      - TLS must stay end-to-end and the balancer should hold no keys.
+      - You are absorbing volume or an attack at the edge.
+      - Connections are short-lived, so connection balancing approximates request balancing.
+  bad:
+    heading: Use L7 when…
+    items:
+      - Traffic is HTTP/2 or gRPC — connection balancing will not distribute it.
+      - You need routing by path, host or header, or canary releases.
+      - You want retries, timeouts or rate limiting applied centrally.
+      - Backends differ in capability, so requests must go to the right pool.
+      - You need real client identity, request ids and useful access logs.
+useCases:
+  - title: gRPC that will not spread
+    body: Three gateway replicas talk to twelve backends through a Kubernetes Service, and one backend sits at 90% CPU while others idle. Each gateway holds one HTTP/2 connection, and the L4 Service pinned it. A sidecar or an L7 proxy balancing per request fixes it immediately.
+  - title: Fronting a database
+    body: Postgres replicas need a single endpoint. There is no HTTP to parse, so an L4 balancer in TCP mode with a `leastconn` policy and a TCP health check is exactly right — and an L7 proxy would be both useless and slower.
+  - title: Canary by header
+    body: "Route requests carrying `x-canary: 1` to the new version and everything else to the stable pool. This requires reading the header, so it is only possible at L7 — and it makes a canary a config change rather than a deployment."
+  - title: Absorbing an attack
+    body: A volumetric flood arrives. The L4 tier soaks it at line rate with no per-request parsing, while the L7 tier behind it continues doing path routing for legitimate traffic at a far lower volume.
+  - title: 502s on every deploy
+    body: Each rollout produces a burst of errors because instances vanish while requests are in flight. Failing readiness first, waiting for the balancer to notice, and only then draining removes them entirely — the missing step was the wait.
+gotchas:
+  items:
+    - mistake: Balancing HTTP/2 at L4
+      why: Connections distribute perfectly while requests do not distribute at all. One backend takes most of the traffic, and newly scaled instances receive none until someone opens a new connection.
+      fix: balance per request with an L7 proxy or a sidecar. If you cannot, set a max connection age or max requests per connection so clients re-dial periodically.
+    - mistake: Health checks that are too shallow or too deep
+      why: A TCP connect says only that a port is open. A readiness check that calls a shared database fails every instance at once when that database is slow — the check becomes the outage.
+      fix: liveness stays shallow, readiness covers only what <em>this</em> instance needs, and dependency problems are handled with outlier detection rather than mass ejection.
+    - mistake: No wait before draining
+      why: The instance stops accepting connections before the balancer has noticed it is unhealthy, so in-flight and newly routed requests fail. Every deploy emits 502s.
+      fix: fail readiness first, wait longer than the probe interval, then drain. The wait is the step almost everyone omits.
+    - mistake: Trusting X-Forwarded-For
+      why: It is a client-supplied header. Rate limits, geo-rules and audit logs built on an untrusted value are bypassed by setting the header.
+      fix: count hops from the right, trusting only the proxies you control, and strip inbound copies at the edge. Use the PROXY protocol for L4.
+    - mistake: Sticky sessions by default
+      why: Affinity gives up even distribution, easy scale-out and clean draining — usually to avoid moving session state that could have lived in Redis.
+      fix: make instances stateless and drop affinity. Keep it only for genuinely stateful connections, and use cookie-based affinity rather than source IP.
+    - mistake: Least-connections across many balancers
+      why: Each balancer independently sees the same idle backend and sends to it, so the "least loaded" instance is instantly the most loaded. Perfect information, herd behaviour.
+      fix: power of two choices. Two random samples, take the lighter — nearly as good, with no global view and no stampede.
+    - mistake: No slow start
+      why: A cold instance gets a full share immediately, runs slowly, and with least-connections attracts even more traffic because it has few open connections.
+      fix: enable slow start with a 30–60 second ramp, and make sure readiness only passes once caches and pools are warm.
+    - mistake: Retries at the balancer and in the client
+      why: The proxy retries twice, the client retries three times, and the service retries as well. The multiplier is the product, and nobody owns the number.
+      fix: pick one layer. If the balancer retries, make clients fail fast, and set a retry budget at the proxy so a broad failure cannot multiply load.
+alternatives:
+  columns: [ Approach, Best for, Complexity, Cost / license, Key difference ]
+  rows:
+    - self: true
+      cells:
+        - "**L4 + L7 in layers**"
+        - most production systems
+        - Medium
+        - cloud services or proxies
+        - —
+    - cells:
+        - "**L4 only**"
+        - non-HTTP protocols, raw throughput
+        - Low
+        - cheapest
+        - "No request awareness: no routing, no retries, poor HTTP/2 distribution"
+    - cells:
+        - "**L7 only**"
+        - smaller HTTP-only systems
+        - Low
+        - a proxy to run
+        - Simpler stack; the proxy tier must scale with all your traffic
+    - cells:
+        - "**Client-side balancing**"
+        - gRPC, internal service calls
+        - Medium
+        - free
+        - "No hop at all: the client picks a backend. Needs discovery and per-language libraries"
+    - cells:
+        - "**Service mesh sidecar**"
+        - east-west traffic at scale
+        - Medium–High
+        - per-pod resources
+        - An L7 balancer per workload, configured centrally — and a proxy next to every pod
+    - cells:
+        - "**DNS round robin**"
+        - very simple setups
+        - Very low
+        - free
+        - No health awareness and client-side caching; a dead address stays in rotation
+    - cells:
+        - "**Anycast**"
+        - global entry points
+        - High
+        - network infrastructure
+        - Routes by network path, failing over in seconds with little per-client control
+  notes:
+    - "**Pick L4 only** when there is no HTTP to parse — a database, a broker, a custom protocol."
+    - "**Pick L7 only** for a small HTTP estate where one proxy tier comfortably handles the volume."
+    - "**Pick client-side balancing** for gRPC between your own services; it removes a hop and balances per request."
+    - "**Pick a sidecar** when you want per-request balancing everywhere without touching application code."
+    - "**Pick anycast** for the global tier, with L4 and L7 behind it doing the actual work."
+resources:
+  - url: https://blog.envoyproxy.io/introduction-to-modern-network-load-balancing-and-proxying-3a3f73d5b4d9
+    title: Matt Klein — Introduction to modern network load balancing and proxying
+    why: the clearest single explanation of L4 versus L7 and where each belongs.
+  - url: https://research.google/pubs/maglev-a-fast-and-reliable-software-network-load-balancer/
+    title: Maglev (Google)
+    why: software L4 at scale, including the consistent hashing scheme.
+  - url: https://www.nginx.com/blog/nginx-power-of-two-choices-load-balancing-algorithm/
+    title: The power of two choices
+    why: why two random samples beat both random and least-connections in practice.
+  - url: https://kubernetes.io/docs/concepts/services-networking/gateway/
+    title: Kubernetes Gateway API
+    why: the L7 successor to Ingress, and how it differs from a Service.
+  - url: https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/upstream/load_balancing/load_balancing
+    title: Envoy — load balancing
+    why: policies, panic thresholds, slow start and outlier detection, documented precisely.
+  - url: https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/yarp/
+    title: YARP
+    why: building an L7 reverse proxy in .NET, with pluggable balancing policies.

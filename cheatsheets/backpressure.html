@@ -39,9 +39,9 @@
       <h1>Backpressure</h1>
       <p class="tagline">When a fast producer meets a slow consumer, the queue between them is not a solution. It is where the outage is hiding.</p>
       <span class="meta">As of Nov 2026 · examples in C#, Go, Java and Python; the idea is as old as TCP</span>
-      <p>A producer sends 1,000 requests a second to a consumer that can handle 800. That mismatch does not go away because you put a queue in the middle &mdash; the queue just absorbs it, growing by 200 items every second, converting a throughput problem into a latency problem and eventually into an out-of-memory crash. Backpressure is the mechanism that makes the mismatch <em>visible at the producer</em> instead of hiding it in RAM.</p>
-      <p>Mechanically it is almost always the same thing: <b>bound the queue</b>, then decide what happens when it is full. The consumer stops accepting, the producer's <code>send</code> blocks or fails, and that signal propagates upstream until it reaches somebody who can actually do something &mdash; slow down, buy more capacity, or refuse the work. Sophisticated versions make the signal explicit rather than implicit: TCP's receive window, Reactive Streams' <code>request(n)</code>, gRPC flow control and Kafka's fetch limits are all the consumer telling the producer exactly how much it may send.</p>
-      <p>It is worth being precise about what backpressure is <em>not</em>. It does not create capacity, and on its own it does not decide what to drop &mdash; it only moves the problem to where a decision can be made. Deciding to refuse work is <b>load shedding</b>; protecting a caller from a failing dependency is a <b>circuit breaker</b>; limiting one client's share is <b>rate limiting</b>. Backpressure is the plumbing that makes all three possible.</p>
+      <p>A producer sends 1,000 requests a second to a consumer that can handle 800. That mismatch does not go away because you put a queue in the middle — the queue just absorbs it, growing by 200 items every second, converting a throughput problem into a latency problem and eventually into an out-of-memory crash. Backpressure is the mechanism that makes the mismatch <em>visible at the producer</em> instead of hiding it in RAM.</p>
+      <p>Mechanically it is almost always the same thing: <b>bound the queue</b>, then decide what happens when it is full. The consumer stops accepting, the producer's <code>send</code> blocks or fails, and that signal propagates upstream until it reaches somebody who can actually do something — slow down, buy more capacity, or refuse the work. Sophisticated versions make the signal explicit rather than implicit: TCP's receive window, Reactive Streams' <code>request(n)</code>, gRPC flow control and Kafka's fetch limits are all the consumer telling the producer exactly how much it may send.</p>
+      <p>It is worth being precise about what backpressure is <em>not</em>. It does not create capacity, and on its own it does not decide what to drop — it only moves the problem to where a decision can be made. Deciding to refuse work is <b>load shedding</b>; protecting a caller from a failing dependency is a <b>circuit breaker</b>; limiting one client's share is <b>rate limiting</b>. Backpressure is the plumbing that makes all three possible.</p>
     </header>
 
     <section id="architecture">
@@ -102,16 +102,15 @@
           <text x="20" y="326" font-size="11" fill="#5f6f66">Little's Law decides the rest: with queue depth L and service rate &lambda;, the wait is W = L / &lambda;. Bound L and you have bounded your latency.</text>
         </svg>
       </div>
-      <p class="caption">The queue is where the mismatch goes. Bounding it does not create capacity &mdash; it forces somebody to decide, while the decision is still cheap.</p>
+      <p class="caption">The queue is where the mismatch goes. Bounding it does not create capacity — it forces somebody to decide, while the decision is still cheap.</p>
     </section>
 
     <section id="how-it-works">
       <h2>How it works</h2>
-      <p style="margin:0 0 18px">The first animation is what an unbounded queue actually does to you, second by second. The second follows the signal through a four-layer system, with and without it.</p>
-      <span class="note" style="margin:-8px 0 18px">every queue in your system has a bound. the only question is whether you chose it.</span>
-
+      <p>The first animation is what an unbounded queue actually does to you, second by second. The second follows the signal through a four-layer system, with and without it.</p>
+      <span class="note" style="margin:-6px 0 14px">every queue in your system has a bound. the only question is whether you chose it.</span>
       <div class="anim" id="anim-queue">
-        <h3>1 &middot; The queue that quietly becomes an outage</h3>
+        <h3>1 · The queue that quietly becomes an outage</h3>
         <div class="stage">
           <svg viewBox="0 0 800 320" role="img" aria-label="A producer outpacing a consumer, an unbounded queue growing until memory runs out, then a bounded queue applying backpressure">
             <defs>
@@ -161,9 +160,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-chain">
-        <h3>2 &middot; Propagating the signal, or collapsing without it</h3>
+        <h3>2 · Propagating the signal, or collapsing without it</h3>
         <div class="stage">
           <svg viewBox="0 0 800 320" role="img" aria-label="A four layer request chain where a slow database causes queues at every layer, then the same chain applying backpressure to the edge">
             <defs>
@@ -219,264 +217,254 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>Backpressure</b><span>The signal that a consumer cannot keep up, propagated upstream so the producer slows down instead of the queue growing.</span><template class="term-detail" data-see="Bounded queue, Demand signalling, Load shedding">
-          <p>It is a <em>flow control</em> mechanism, not a capacity mechanism. It does not make the consumer faster and it does not decide which work to abandon &mdash; it only ensures that the mismatch between arrival and service rates becomes visible at a point where somebody can act on it.</p>
-          <p>Almost every implementation reduces to the same two steps: bound the buffer, then choose what happens when the bound is reached. Everything else is a refinement of how politely that is communicated.</p>
-          <h4>What it is and is not</h4>
-          <table>
-            <tr><th>Mechanism</th><th>Question it answers</th></tr>
-            <tr><td>Backpressure</td><td>how do I tell upstream to slow down?</td></tr>
-            <tr><td>Load shedding</td><td>which work do I refuse?</td></tr>
-            <tr><td>Rate limiting</td><td>how much is this client entitled to?</td></tr>
-            <tr><td>Circuit breaker</td><td>should I stop calling a broken dependency?</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Backpressure gets the signal to the edge; load shedding is what the edge then does with it.</li></ul>
+        <p>It is a <em>flow control</em> mechanism, not a capacity mechanism. It does not make the consumer faster and it does not decide which work to abandon — it only ensures that the mismatch between arrival and service rates becomes visible at a point where somebody can act on it.</p>
+        <p>Almost every implementation reduces to the same two steps: bound the buffer, then choose what happens when the bound is reached. Everything else is a refinement of how politely that is communicated.</p>
+        <h4>What it is and is not</h4>
+        <table><tr><th>Mechanism</th><th>Question it answers</th></tr>
+        <tr><td>Backpressure</td><td>how do I tell upstream to slow down?</td></tr>
+        <tr><td>Load shedding</td><td>which work do I refuse?</td></tr>
+        <tr><td>Rate limiting</td><td>how much is this client entitled to?</td></tr>
+        <tr><td>Circuit breaker</td><td>should I stop calling a broken dependency?</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Backpressure gets the signal to the edge; load shedding is what the edge then does with it.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Bounded queue</b><span>A buffer with a maximum size, which is what turns "the queue grows" into an actual signal.</span><template class="term-detail" data-see="Unbounded queue, Little's Law, Queue latency">
-          <p>The bound is the entire mechanism. Once a queue cannot grow, something must happen at the boundary: the producer blocks, the item is dropped, or an error is returned. All three are honest; growing forever is not.</p>
-          <p>Size it from latency, not from memory. If the consumer handles 800 items a second and you are willing to add 25 ms of queueing delay, the queue should hold about 20 items &mdash; not the 100,000 that happens to fit in RAM.</p>
-          <h4>Sizing by Little's Law</h4>
-          <table>
-            <tr><th>Service rate</th><th>Latency budget</th><th>Queue size</th></tr>
-            <tr><td>800 / s</td><td>25 ms</td><td>20</td></tr>
-            <tr><td>800 / s</td><td>250 ms</td><td>200</td></tr>
-            <tr><td>100 / s</td><td>1 s</td><td>100</td></tr>
-            <tr><td>any</td><td>"as much as fits"</td><td>wrong question</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>A connection pool, a thread pool and a semaphore are all bounded queues wearing different names.</li></ul>
+        <p>The bound is the entire mechanism. Once a queue cannot grow, something must happen at the boundary: the producer blocks, the item is dropped, or an error is returned. All three are honest; growing forever is not.</p>
+        <p>Size it from latency, not from memory. If the consumer handles 800 items a second and you are willing to add 25 ms of queueing delay, the queue should hold about 20 items — not the 100,000 that happens to fit in RAM.</p>
+        <h4>Sizing by Little's Law</h4>
+        <table><tr><th>Service rate</th><th>Latency budget</th><th>Queue size</th></tr>
+        <tr><td>800 / s</td><td>25 ms</td><td>20</td></tr>
+        <tr><td>800 / s</td><td>250 ms</td><td>200</td></tr>
+        <tr><td>100 / s</td><td>1 s</td><td>100</td></tr>
+        <tr><td>any</td><td>"as much as fits"</td><td>wrong question</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>A connection pool, a thread pool and a semaphore are all bounded queues wearing different names.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Unbounded queue</b><span>The default in most libraries, and a reliable way to turn a small overload into a crash.</span><template class="term-detail" data-see="Bounded queue, Queue latency, Dead work">
-          <p>An unbounded buffer does not prevent failure; it postpones and amplifies it. During the delay, latency climbs past every client timeout, so the consumer spends its capacity on work nobody is waiting for, and the process eventually dies from memory exhaustion rather than from the original 20% overload.</p>
-          <p>The danger is that it looks healthy. No errors are returned, no alerts fire, CPU may even be moderate &mdash; right up until the OOM kill.</p>
-          <h4>Unbounded by default</h4>
-          <table>
-            <tr><th>Thing</th><th>Default</th></tr>
-            <tr><td><code>new LinkedBlockingQueue&lt;&gt;()</code></td><td>unbounded</td></tr>
-            <tr><td><code>Channel.CreateUnbounded()</code></td><td>unbounded, by name</td></tr>
-            <tr><td><code>asyncio.Queue()</code></td><td>unbounded</td></tr>
-            <tr><td>Go <code>make(chan T)</code></td><td>unbuffered &mdash; blocks, which is correct</td></tr>
-            <tr><td>An in-memory list "just for buffering"</td><td>unbounded</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The first animation is one unbounded queue, second by second, to the crash.</li></ul>
+        <p>An unbounded buffer does not prevent failure; it postpones and amplifies it. During the delay, latency climbs past every client timeout, so the consumer spends its capacity on work nobody is waiting for, and the process eventually dies from memory exhaustion rather than from the original 20% overload.</p>
+        <p>The danger is that it looks healthy. No errors are returned, no alerts fire, CPU may even be moderate — right up until the OOM kill.</p>
+        <h4>Unbounded by default</h4>
+        <table><tr><th>Thing</th><th>Default</th></tr>
+        <tr><td><code>new LinkedBlockingQueue&lt;&gt;()</code></td><td>unbounded</td></tr>
+        <tr><td><code>Channel.CreateUnbounded()</code></td><td>unbounded, by name</td></tr>
+        <tr><td><code>asyncio.Queue()</code></td><td>unbounded</td></tr>
+        <tr><td>Go <code>make(chan T)</code></td><td>unbuffered — blocks, which is correct</td></tr>
+        <tr><td>An in-memory list "just for buffering"</td><td>unbounded</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The first animation is one unbounded queue, second by second, to the crash.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Little's Law</b><span>L = λW — the arithmetic that converts a queue depth into a latency, and therefore sizes every buffer you own.</span><template class="term-detail" data-see="Bounded queue, Queue latency, Concurrency limit">
-          <p>Rearranged as <code>W = L / λ</code> it says: with 2,000 items queued in front of a consumer doing 800 a second, the wait is 2.5 seconds &mdash; regardless of how fast any individual item is processed. That is why queue depth is a latency metric in disguise.</p>
-          <p>It also sizes concurrency limits: at 1,000 requests a second and 50 ms of service time, roughly 50 requests are in flight, so a limit of 60 has headroom and a limit of 500 is an unbounded queue with extra steps.</p>
-          <h4>The same law, three uses</h4>
-          <table>
-            <tr><th>Question</th><th>Form</th></tr>
-            <tr><td>How long will this queue delay me?</td><td>W = L / &lambda;</td></tr>
-            <tr><td>How big should the queue be?</td><td>L = &lambda; &times; W<sub>budget</sub></td></tr>
-            <tr><td>How many workers do I need?</td><td>L = &lambda; &times; W<sub>service</sub></td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The Little's Law page works through the identity itself and where it does not apply.</li></ul>
+        <p>Rearranged as <code>W = L / λ</code> it says: with 2,000 items queued in front of a consumer doing 800 a second, the wait is 2.5 seconds — regardless of how fast any individual item is processed. That is why queue depth is a latency metric in disguise.</p>
+        <p>It also sizes concurrency limits: at 1,000 requests a second and 50 ms of service time, roughly 50 requests are in flight, so a limit of 60 has headroom and a limit of 500 is an unbounded queue with extra steps.</p>
+        <h4>The same law, three uses</h4>
+        <table><tr><th>Question</th><th>Form</th></tr>
+        <tr><td>How long will this queue delay me?</td><td>W = L / λ</td></tr>
+        <tr><td>How big should the queue be?</td><td>L = λ × W<sub>budget</sub></td></tr>
+        <tr><td>How many workers do I need?</td><td>L = λ × W<sub>service</sub></td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The Little's Law page works through the identity itself and where it does not apply.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Demand signalling</b><span>Explicit backpressure: the consumer tells the producer exactly how many items it may send.</span><template class="term-detail" data-see="Credit-based flow control, Backpressure, Bounded queue">
-          <p>Instead of discovering fullness by blocking on a write, the consumer publishes its appetite. Reactive Streams calls it <code>request(n)</code>, TCP calls it the receive window, gRPC and HTTP/2 call it flow-control windows, Kafka expresses it as fetch sizes and poll limits.</p>
-          <p>The advantage over implicit blocking is that the producer learns the limit <em>before</em> producing, so it can avoid doing expensive work it would then have to throw away &mdash; reading fewer rows, rendering fewer items, pulling fewer messages.</p>
-          <div class="anim" id="credit-anim" data-steps="credit"><h4>Credit-based flow control</h4>
-            <div class="stage">
-              <svg viewBox="0 0 560 200" role="img" aria-label="A consumer granting credits to a producer, which may only send as many items as it has been granted">
-                <text x="280" y="24" font-size="11.5" text-anchor="middle" fill="#5f6f66">the producer may send exactly what it has been granted, and not one more</text>
-                <rect id="cr-prod" x="30" y="52" width="150" height="56" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
-                <text x="105" y="74" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">producer</text>
-                <text id="cr-prodt" x="105" y="94" font-size="10.5" text-anchor="middle" fill="#5f6f66">1,000 ready to send</text>
-                <rect id="cr-mid" x="205" y="52" width="150" height="56" rx="6" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
-                <text id="cr-credit" x="280" y="76" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700" font-family="Fira Code, monospace">credit = 0</text>
-                <text id="cr-sent" x="280" y="96" font-size="10.5" text-anchor="middle" fill="#5f6f66">in flight: 0</text>
-                <rect id="cr-cons" x="380" y="52" width="150" height="56" rx="6" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
-                <text x="455" y="74" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">consumer</text>
-                <text id="cr-const" x="455" y="94" font-size="10.5" text-anchor="middle" fill="#5f6f66">room for 4</text>
-                <text id="cr-msg" x="280" y="146" font-size="11.5" text-anchor="middle" fill="#5f6f66">the queue can never exceed what was asked for</text>
-                <text id="cr-msg2" x="280" y="170" font-size="10.5" text-anchor="middle" fill="#5f6f66">the bound is enforced by the protocol, not by hope</text>
-              </svg>
-            </div><div class="controls"></div><div class="narration"></div></div>
-          <h4>How it relates</h4>
-          <ul><li>TCP has worked this way since 1974; most application-level designs are reinventing it badly.</li></ul>
+        <p>Instead of discovering fullness by blocking on a write, the consumer publishes its appetite. Reactive Streams calls it <code>request(n)</code>, TCP calls it the receive window, gRPC and HTTP/2 call it flow-control windows, Kafka expresses it as fetch sizes and poll limits.</p>
+        <p>The advantage over implicit blocking is that the producer learns the limit <em>before</em> producing, so it can avoid doing expensive work it would then have to throw away — reading fewer rows, rendering fewer items, pulling fewer messages.</p>
+        <div class="anim" id="credit-anim" data-steps="credit">
+          <h4>Credit-based flow control</h4>
+          <div class="stage">
+            <svg viewBox="0 0 560 200" role="img" aria-label="A consumer granting credits to a producer, which may only send as many items as it has been granted">
+              <text x="280" y="24" font-size="11.5" text-anchor="middle" fill="#5f6f66">the producer may send exactly what it has been granted, and not one more</text>
+              <rect id="cr-prod" x="30" y="52" width="150" height="56" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="105" y="74" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">producer</text>
+              <text id="cr-prodt" x="105" y="94" font-size="10.5" text-anchor="middle" fill="#5f6f66">1,000 ready to send</text>
+              <rect id="cr-mid" x="205" y="52" width="150" height="56" rx="6" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+              <text id="cr-credit" x="280" y="76" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700" font-family="Fira Code, monospace">credit = 0</text>
+              <text id="cr-sent" x="280" y="96" font-size="10.5" text-anchor="middle" fill="#5f6f66">in flight: 0</text>
+              <rect id="cr-cons" x="380" y="52" width="150" height="56" rx="6" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+              <text x="455" y="74" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">consumer</text>
+              <text id="cr-const" x="455" y="94" font-size="10.5" text-anchor="middle" fill="#5f6f66">room for 4</text>
+              <text id="cr-msg" x="280" y="146" font-size="11.5" text-anchor="middle" fill="#5f6f66">the queue can never exceed what was asked for</text>
+              <text id="cr-msg2" x="280" y="170" font-size="10.5" text-anchor="middle" fill="#5f6f66">the bound is enforced by the protocol, not by hope</text>
+            </svg>
+          </div>
+          <div class="controls"></div>
+          <div class="narration"></div>
+        </div>
+        <h4>How it relates</h4>
+        <ul>
+        <li>TCP has worked this way since 1974; most application-level designs are reinventing it badly.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Credit-based flow control</b><span>The concrete protocol behind demand signalling: a window of permits that the consumer replenishes as it drains.</span><template class="term-detail" data-see="Demand signalling, Bounded queue, Backpressure">
-          <p>The consumer advertises a window; the producer decrements it as it sends and stops at zero; the consumer replenishes as it processes. Because the window is a number on the wire, both sides agree on the bound at all times and neither needs a timeout to discover it.</p>
-          <p>The tuning question is window size: too small and the link idles waiting for replenishment, too large and you have rebuilt an unbounded queue. Bandwidth-delay product is the classic sizing rule for networks; for application queues, Little's Law with a latency budget does the same job.</p>
-          <h4>Where you already use it</h4>
-          <table>
-            <tr><th>System</th><th>Mechanism</th></tr>
-            <tr><td>TCP</td><td>receive window</td></tr>
-            <tr><td>HTTP/2, gRPC</td><td>per-stream and connection windows</td></tr>
-            <tr><td>Reactive Streams</td><td><code>request(n)</code></td></tr>
-            <tr><td>Kafka consumer</td><td><code>max.poll.records</code>, <code>pause()</code></td></tr>
-            <tr><td>AMQP</td><td>prefetch count</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The animation in <b>demand signalling</b> walks one credit cycle.</li></ul>
+        <p>The consumer advertises a window; the producer decrements it as it sends and stops at zero; the consumer replenishes as it processes. Because the window is a number on the wire, both sides agree on the bound at all times and neither needs a timeout to discover it.</p>
+        <p>The tuning question is window size: too small and the link idles waiting for replenishment, too large and you have rebuilt an unbounded queue. Bandwidth-delay product is the classic sizing rule for networks; for application queues, Little's Law with a latency budget does the same job.</p>
+        <h4>Where you already use it</h4>
+        <table><tr><th>System</th><th>Mechanism</th></tr>
+        <tr><td>TCP</td><td>receive window</td></tr>
+        <tr><td>HTTP/2, gRPC</td><td>per-stream and connection windows</td></tr>
+        <tr><td>Reactive Streams</td><td><code>request(n)</code></td></tr>
+        <tr><td>Kafka consumer</td><td><code>max.poll.records</code>, <code>pause()</code></td></tr>
+        <tr><td>AMQP</td><td>prefetch count</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The animation in <b>demand signalling</b> walks one credit cycle.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Queue latency</b><span>How long an item waits, which matters far more than how many items are waiting.</span><template class="term-detail" data-see="Little's Law, Dead work, Bounded queue">
-          <p>Depth is a proxy; sojourn time is the thing. A queue of 10,000 drained at 100,000 a second is fine; a queue of 50 drained at 5 a second is a ten-second outage. Measuring the age of the oldest item &mdash; or timestamping on enqueue and measuring on dequeue &mdash; tells you directly whether you are in trouble.</p>
-          <p>It is also the better shedding signal: algorithms like CoDel drop based on how long items have been waiting rather than on how many there are, which adapts automatically to changes in capacity.</p>
-          <h4>What to measure</h4>
-          <table>
-            <tr><th>Metric</th><th>Tells you</th></tr>
-            <tr><td>Queue depth</td><td>memory pressure</td></tr>
-            <tr><td>Sojourn time (p99)</td><td>what users actually feel</td></tr>
-            <tr><td>Age of oldest item</td><td>whether you are falling behind now</td></tr>
-            <tr><td>Enqueue rejections</td><td>backpressure is engaging</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Alert on sojourn time; depth alone will either page too early or far too late.</li></ul>
+        <p>Depth is a proxy; sojourn time is the thing. A queue of 10,000 drained at 100,000 a second is fine; a queue of 50 drained at 5 a second is a ten-second outage. Measuring the age of the oldest item — or timestamping on enqueue and measuring on dequeue — tells you directly whether you are in trouble.</p>
+        <p>It is also the better shedding signal: algorithms like CoDel drop based on how long items have been waiting rather than on how many there are, which adapts automatically to changes in capacity.</p>
+        <h4>What to measure</h4>
+        <table><tr><th>Metric</th><th>Tells you</th></tr>
+        <tr><td>Queue depth</td><td>memory pressure</td></tr>
+        <tr><td>Sojourn time (p99)</td><td>what users actually feel</td></tr>
+        <tr><td>Age of oldest item</td><td>whether you are falling behind now</td></tr>
+        <tr><td>Enqueue rejections</td><td>backpressure is engaging</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Alert on sojourn time; depth alone will either page too early or far too late.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Dead work</b><span>Processing requests whose callers have already given up — the main reason an overloaded system never recovers.</span><template class="term-detail" data-see="Queue latency, Retry amplification, Load shedding">
-          <p>Once the queueing delay exceeds the client timeout, every item dequeued is for a client that has disconnected. The server is now at 100% utilisation with 0% goodput, and because it is busy doing useless work it cannot catch up &mdash; the definition of congestion collapse.</p>
-          <p>The fix is to make deadlines travel with the request and to check them on dequeue: if the deadline has passed, drop it without processing. One cheap check recovers the whole capacity.</p>
-          <h4>Defences</h4>
-          <table>
-            <tr><th>Defence</th><th>Effect</th></tr>
-            <tr><td>Deadline propagation</td><td>callee knows when to stop</td></tr>
-            <tr><td>Check deadline on dequeue</td><td>discard dead work for free</td></tr>
-            <tr><td>Queue timeout &lt; client timeout</td><td>never start doomed work</td></tr>
-            <tr><td>LIFO under overload</td><td>serve the freshest, not the stalest</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>LIFO sounds unfair and is kinder in practice: under overload, FIFO guarantees everyone gets a timeout.</li></ul>
+        <p>Once the queueing delay exceeds the client timeout, every item dequeued is for a client that has disconnected. The server is now at 100% utilisation with 0% goodput, and because it is busy doing useless work it cannot catch up — the definition of congestion collapse.</p>
+        <p>The fix is to make deadlines travel with the request and to check them on dequeue: if the deadline has passed, drop it without processing. One cheap check recovers the whole capacity.</p>
+        <h4>Defences</h4>
+        <table><tr><th>Defence</th><th>Effect</th></tr>
+        <tr><td>Deadline propagation</td><td>callee knows when to stop</td></tr>
+        <tr><td>Check deadline on dequeue</td><td>discard dead work for free</td></tr>
+        <tr><td>Queue timeout &lt; client timeout</td><td>never start doomed work</td></tr>
+        <tr><td>LIFO under overload</td><td>serve the freshest, not the stalest</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>LIFO sounds unfair and is kinder in practice: under overload, FIFO guarantees everyone gets a timeout.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Retry amplification</b><span>Clients retrying a slow system, multiplying the arrival rate exactly when it is least able to cope.</span><template class="term-detail" data-see="Dead work, Load shedding, Backpressure">
-          <p>The feedback loop that turns a degradation into an outage. Latency rises past the client timeout, clients retry, arrivals double, latency rises further, more retries. Three layers each retrying three times turns one request into twenty-seven.</p>
-          <p>Backpressure helps by failing <em>fast</em>: a request rejected in a millisecond costs almost nothing, while one that times out after two seconds has consumed two seconds of capacity first. Add jittered exponential backoff and a retry budget so clients cannot collectively exceed a few percent of normal traffic.</p>
-          <h4>Controls</h4>
-          <table>
-            <tr><th>Control</th><th>Why</th></tr>
-            <tr><td>Exponential backoff + jitter</td><td>breaks the synchronised wave</td></tr>
-            <tr><td>Retry budget (e.g. 10%)</td><td>caps total amplification</td></tr>
-            <tr><td>Never retry at every layer</td><td>retries multiply, not add</td></tr>
-            <tr><td>Fail fast when shedding</td><td>a cheap no beats an expensive timeout</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>A circuit breaker is the strongest form of this control: stop calling entirely for a while.</li></ul>
+        <p>The feedback loop that turns a degradation into an outage. Latency rises past the client timeout, clients retry, arrivals double, latency rises further, more retries. Three layers each retrying three times turns one request into twenty-seven.</p>
+        <p>Backpressure helps by failing <em>fast</em>: a request rejected in a millisecond costs almost nothing, while one that times out after two seconds has consumed two seconds of capacity first. Add jittered exponential backoff and a retry budget so clients cannot collectively exceed a few percent of normal traffic.</p>
+        <h4>Controls</h4>
+        <table><tr><th>Control</th><th>Why</th></tr>
+        <tr><td>Exponential backoff + jitter</td><td>breaks the synchronised wave</td></tr>
+        <tr><td>Retry budget (e.g. 10%)</td><td>caps total amplification</td></tr>
+        <tr><td>Never retry at every layer</td><td>retries multiply, not add</td></tr>
+        <tr><td>Fail fast when shedding</td><td>a cheap no beats an expensive timeout</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>A circuit breaker is the strongest form of this control: stop calling entirely for a while.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Concurrency limit</b><span>Capping how many requests are in flight at once — the most practical backpressure mechanism in a service.</span><template class="term-detail" data-see="Bounded queue, Little's Law, Adaptive concurrency">
-          <p>A semaphore, a thread pool, a connection pool or a worker count all do the same thing: they bound the work in progress, and therefore bound latency by Little's Law. When the limit is reached, new work waits briefly or is rejected &mdash; which is backpressure, implemented in one line.</p>
-          <p>It is more robust than a rate limit because it adapts to service time automatically: if each request gets slower, fewer get through, without anyone recalculating a requests-per-second number.</p>
-          <h4>Rate limit or concurrency limit?</h4>
-          <table>
-            <tr><th></th><th>Rate limit</th><th>Concurrency limit</th></tr>
-            <tr><td>Bounds</td><td>arrivals per second</td><td>work in progress</td></tr>
-            <tr><td>Adapts to slowdowns</td><td>no</td><td>yes</td></tr>
-            <tr><td>Good for</td><td>fairness, quotas, billing</td><td>protecting capacity</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The database page's "pool exhausted" animation is a concurrency limit doing its job and being blamed for it.</li></ul>
+        <p>A semaphore, a thread pool, a connection pool or a worker count all do the same thing: they bound the work in progress, and therefore bound latency by Little's Law. When the limit is reached, new work waits briefly or is rejected — which is backpressure, implemented in one line.</p>
+        <p>It is more robust than a rate limit because it adapts to service time automatically: if each request gets slower, fewer get through, without anyone recalculating a requests-per-second number.</p>
+        <h4>Rate limit or concurrency limit?</h4>
+        <table><tr><th></th><th>Rate limit</th><th>Concurrency limit</th></tr>
+        <tr><td>Bounds</td><td>arrivals per second</td><td>work in progress</td></tr>
+        <tr><td>Adapts to slowdowns</td><td>no</td><td>yes</td></tr>
+        <tr><td>Good for</td><td>fairness, quotas, billing</td><td>protecting capacity</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The database page's "pool exhausted" animation is a concurrency limit doing its job and being blamed for it.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Adaptive concurrency</b><span>Discovering the right limit at runtime by watching latency, instead of configuring a number that is wrong by next quarter.</span><template class="term-detail" data-see="Concurrency limit, Queue latency, Little's Law">
-          <p>Algorithms borrowed from TCP congestion control &mdash; Netflix's Gradient and Vegas limiters, and similar schemes in Envoy &mdash; track the ratio between current latency and the best latency observed. When latency rises, the limit shrinks; when it recovers, the limit grows. The system finds its own capacity.</p>
-          <p>This matters because static limits are wrong in both directions: too low wastes hardware during normal operation, too high lets the service fall over during a dependency slowdown.</p>
-          <h4>Signals used</h4>
-          <table>
-            <tr><th>Signal</th><th>Interpretation</th></tr>
-            <tr><td>Latency &gt; recent minimum</td><td>queueing has started &mdash; shrink</td></tr>
-            <tr><td>Latency at minimum</td><td>headroom exists &mdash; grow</td></tr>
-            <tr><td>Rejections / errors</td><td>shrink quickly</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Start with a static limit sized by Little's Law; adopt adaptive limits once that number is clearly wrong at different times of day.</li></ul>
+        <p>Algorithms borrowed from TCP congestion control — Netflix's Gradient and Vegas limiters, and similar schemes in Envoy — track the ratio between current latency and the best latency observed. When latency rises, the limit shrinks; when it recovers, the limit grows. The system finds its own capacity.</p>
+        <p>This matters because static limits are wrong in both directions: too low wastes hardware during normal operation, too high lets the service fall over during a dependency slowdown.</p>
+        <h4>Signals used</h4>
+        <table><tr><th>Signal</th><th>Interpretation</th></tr>
+        <tr><td>Latency &gt; recent minimum</td><td>queueing has started — shrink</td></tr>
+        <tr><td>Latency at minimum</td><td>headroom exists — grow</td></tr>
+        <tr><td>Rejections / errors</td><td>shrink quickly</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Start with a static limit sized by Little's Law; adopt adaptive limits once that number is clearly wrong at different times of day.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Head-of-line blocking</b><span>One slow item at the front of a queue delaying everything behind it, however fast those would have been.</span><template class="term-detail" data-see="Queue latency, Bulkhead, Dead work">
-          <p>A single FIFO shared by cheap and expensive work means the cheap work inherits the expensive work's latency. It appears in HTTP/1.1 pipelines, in a Kafka partition where one poisoned record stalls the rest, and in any thread pool where one slow endpoint occupies every worker.</p>
-          <p>The fix is separation rather than a bigger queue: separate queues or pools per class of work, so a slow class cannot starve a fast one.</p>
-          <h4>Separations that help</h4>
-          <table>
-            <tr><th>Split by</th><th>Example</th></tr>
-            <tr><td>Cost</td><td>fast reads vs heavy reports</td></tr>
-            <tr><td>Priority</td><td>checkout vs recommendations</td></tr>
-            <tr><td>Tenant</td><td>one customer cannot starve others</td></tr>
-            <tr><td>Dependency</td><td>a pool per downstream service</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Per-dependency pools are the bulkhead pattern, which is the other half of circuit breaking.</li></ul>
+        <p>A single FIFO shared by cheap and expensive work means the cheap work inherits the expensive work's latency. It appears in HTTP/1.1 pipelines, in a Kafka partition where one poisoned record stalls the rest, and in any thread pool where one slow endpoint occupies every worker.</p>
+        <p>The fix is separation rather than a bigger queue: separate queues or pools per class of work, so a slow class cannot starve a fast one.</p>
+        <h4>Separations that help</h4>
+        <table><tr><th>Split by</th><th>Example</th></tr>
+        <tr><td>Cost</td><td>fast reads vs heavy reports</td></tr>
+        <tr><td>Priority</td><td>checkout vs recommendations</td></tr>
+        <tr><td>Tenant</td><td>one customer cannot starve others</td></tr>
+        <tr><td>Dependency</td><td>a pool per downstream service</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Per-dependency pools are the bulkhead pattern, which is the other half of circuit breaking.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Bufferbloat</b><span>The networking name for the same mistake: oversized buffers destroying latency while preserving throughput.</span><template class="term-detail" data-see="Unbounded queue, Queue latency, Backpressure">
-          <p>Router vendors added large buffers to avoid dropping packets, and in doing so broke TCP's feedback loop: congestion signals arrived seconds late, so senders kept accelerating and interactive traffic became unusable. The cure &mdash; active queue management with CoDel &mdash; drops based on how long packets have been waiting.</p>
-          <p>It is worth knowing because the lesson transfers exactly: dropping early is kinder than queueing late, and a buffer's job is to absorb bursts, not to hide a persistent rate mismatch.</p>
-          <h4>The transferable lesson</h4>
-          <table>
-            <tr><th>Buffer absorbs</th><th>Verdict</th></tr>
-            <tr><td>A short burst</td><td>correct use</td></tr>
-            <tr><td>A persistent rate mismatch</td><td>a crash with a delay</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>CoDel-style shedding on sojourn time is the application-level version of this fix.</li></ul>
+        <p>Router vendors added large buffers to avoid dropping packets, and in doing so broke TCP's feedback loop: congestion signals arrived seconds late, so senders kept accelerating and interactive traffic became unusable. The cure — active queue management with CoDel — drops based on how long packets have been waiting.</p>
+        <p>It is worth knowing because the lesson transfers exactly: dropping early is kinder than queueing late, and a buffer's job is to absorb bursts, not to hide a persistent rate mismatch.</p>
+        <h4>The transferable lesson</h4>
+        <table><tr><th>Buffer absorbs</th><th>Verdict</th></tr>
+        <tr><td>A short burst</td><td>correct use</td></tr>
+        <tr><td>A persistent rate mismatch</td><td>a crash with a delay</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>CoDel-style shedding on sojourn time is the application-level version of this fix.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Non-blocking backpressure</b><span>Signalling fullness without parking a thread — essential in async and event-driven runtimes.</span><template class="term-detail" data-see="Bounded queue, Demand signalling, Concurrency limit">
-          <p>Blocking a thread on a full queue is fine when threads are cheap and plentiful, and catastrophic in an event loop, where blocking the loop stops everything. Async runtimes therefore return a signal instead: <code>TryWrite</code> returns false, <code>WaitToWriteAsync</code> yields, a Go select falls through to a default branch, a Node stream returns false from <code>write()</code> and emits <code>drain</code>.</p>
-          <p>The failure mode to avoid is the fake-async version: an unbounded in-memory list "so nothing blocks", which is an unbounded queue with better marketing.</p>
-          <h4>Idioms</h4>
-          <table>
-            <tr><th>Runtime</th><th>Signal</th></tr>
-            <tr><td>.NET Channels</td><td><code>WaitToWriteAsync</code> / <code>TryWrite</code></td></tr>
-            <tr><td>Go</td><td><code>select</code> with <code>default</code></td></tr>
-            <tr><td>Node streams</td><td><code>write()</code> false, then <code>drain</code></td></tr>
-            <tr><td>Project Reactor</td><td><code>onBackpressureBuffer/Drop/Latest</code></td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Whatever the idiom, the design question is identical: block, drop, or push the signal further upstream.</li></ul>
+        <p>Blocking a thread on a full queue is fine when threads are cheap and plentiful, and catastrophic in an event loop, where blocking the loop stops everything. Async runtimes therefore return a signal instead: <code>TryWrite</code> returns false, <code>WaitToWriteAsync</code> yields, a Go select falls through to a default branch, a Node stream returns false from <code>write()</code> and emits <code>drain</code>.</p>
+        <p>The failure mode to avoid is the fake-async version: an unbounded in-memory list "so nothing blocks", which is an unbounded queue with better marketing.</p>
+        <h4>Idioms</h4>
+        <table><tr><th>Runtime</th><th>Signal</th></tr>
+        <tr><td>.NET Channels</td><td><code>WaitToWriteAsync</code> / <code>TryWrite</code></td></tr>
+        <tr><td>Go</td><td><code>select</code> with <code>default</code></td></tr>
+        <tr><td>Node streams</td><td><code>write()</code> false, then <code>drain</code></td></tr>
+        <tr><td>Project Reactor</td><td><code>onBackpressureBuffer/Drop/Latest</code></td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Whatever the idiom, the design question is identical: block, drop, or push the signal further upstream.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Lossy backpressure</b><span>When you cannot slow the producer — sensors, market data, user events — so you drop deliberately instead.</span><template class="term-detail" data-see="Load shedding, Bounded queue, Backpressure">
-          <p>Some producers genuinely cannot be slowed: a sensor keeps sensing, a market keeps ticking, a user keeps clicking. The correct response is to choose the drop policy rather than let the buffer choose for you &mdash; keep the newest, keep a sample, or conflate several updates into one.</p>
-          <p>Conflation is often the best answer for state updates: if three price ticks arrive while you were busy, the consumer only needs the last one, and dropping the first two loses nothing.</p>
-          <h4>Drop policies</h4>
-          <table>
-            <tr><th>Policy</th><th>Use for</th></tr>
-            <tr><td>Drop oldest</td><td>state updates &mdash; latest wins</td></tr>
-            <tr><td>Drop newest</td><td>when order matters more than freshness</td></tr>
-            <tr><td>Conflate / coalesce</td><td>prices, positions, presence</td></tr>
-            <tr><td>Sample</td><td>metrics, telemetry</td></tr>
-            <tr><td>Spill to disk</td><td>when nothing may be lost</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>This is where backpressure and load shedding meet: a bounded buffer with a chosen drop policy is both.</li></ul>
+        <p>Some producers genuinely cannot be slowed: a sensor keeps sensing, a market keeps ticking, a user keeps clicking. The correct response is to choose the drop policy rather than let the buffer choose for you — keep the newest, keep a sample, or conflate several updates into one.</p>
+        <p>Conflation is often the best answer for state updates: if three price ticks arrive while you were busy, the consumer only needs the last one, and dropping the first two loses nothing.</p>
+        <h4>Drop policies</h4>
+        <table><tr><th>Policy</th><th>Use for</th></tr>
+        <tr><td>Drop oldest</td><td>state updates — latest wins</td></tr>
+        <tr><td>Drop newest</td><td>when order matters more than freshness</td></tr>
+        <tr><td>Conflate / coalesce</td><td>prices, positions, presence</td></tr>
+        <tr><td>Sample</td><td>metrics, telemetry</td></tr>
+        <tr><td>Spill to disk</td><td>when nothing may be lost</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>This is where backpressure and load shedding meet: a bounded buffer with a chosen drop policy is both.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>End-to-end backpressure</b><span>The signal is only useful if it reaches a component that can act — usually the edge, or the job scheduler.</span><template class="term-detail" data-see="Backpressure, Load shedding, Retry amplification">
-          <p>A bounded queue in the middle of a chain stops that queue growing, but if the layer above simply buffers instead, you have moved the bloat rather than removed it. The signal has to travel until it reaches something that can slow down (a batch job, a poller) or say no (the edge talking to a client).</p>
-          <p>The practical test: when the database slows down, does the user get a fast 503, or a two-second timeout? Only the first means your backpressure is connected end to end.</p>
-          <h4>Who can actually act</h4>
-          <table>
-            <tr><th>Component</th><th>Possible response</th></tr>
-            <tr><td>Edge / API gateway</td><td>return 429/503 with Retry-After</td></tr>
-            <tr><td>Batch job, poller</td><td>genuinely slow down</td></tr>
-            <tr><td>Queue consumer</td><td>stop fetching; lag builds safely</td></tr>
-            <tr><td>Middle-tier service</td><td>only propagate &mdash; it cannot decide</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The second animation is this signal travelling four layers to the one place it is useful.</li></ul>
+        <p>A bounded queue in the middle of a chain stops that queue growing, but if the layer above simply buffers instead, you have moved the bloat rather than removed it. The signal has to travel until it reaches something that can slow down (a batch job, a poller) or say no (the edge talking to a client).</p>
+        <p>The practical test: when the database slows down, does the user get a fast 503, or a two-second timeout? Only the first means your backpressure is connected end to end.</p>
+        <h4>Who can actually act</h4>
+        <table><tr><th>Component</th><th>Possible response</th></tr>
+        <tr><td>Edge / API gateway</td><td>return 429/503 with Retry-After</td></tr>
+        <tr><td>Batch job, poller</td><td>genuinely slow down</td></tr>
+        <tr><td>Queue consumer</td><td>stop fetching; lag builds safely</td></tr>
+        <tr><td>Middle-tier service</td><td>only propagate — it cannot decide</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The second animation is this signal travelling four layers to the one place it is useful.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Queue as a shock absorber</b><span>The legitimate use: absorbing short bursts, with a bound set by how long a burst can last.</span><template class="term-detail" data-see="Bounded queue, Little's Law, Unbounded queue">
-          <p>Queues are not the enemy. A consumer averaging 800 a second against traffic that peaks at 1,200 for two seconds needs somewhere to put 800 items, and a buffer is exactly right. The distinction is that a shock absorber is sized for a known burst and drains afterwards; a bloated buffer is absorbing a mismatch that never ends.</p>
-          <p>So size from the burst, then alert when the queue fails to drain &mdash; a queue that is never empty is not absorbing bursts, it is hiding a capacity problem.</p>
-          <h4>Healthy or hiding?</h4>
-          <table>
-            <tr><th>Observation</th><th>Meaning</th></tr>
-            <tr><td>Empties several times a minute</td><td>healthy shock absorber</td></tr>
-            <tr><td>Never empty</td><td>under-provisioned; bound it</td></tr>
-            <tr><td>Monotonically growing</td><td>outage in progress</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>"Does it drain?" is a better health check than any absolute depth threshold.</li></ul>
+        <p>Queues are not the enemy. A consumer averaging 800 a second against traffic that peaks at 1,200 for two seconds needs somewhere to put 800 items, and a buffer is exactly right. The distinction is that a shock absorber is sized for a known burst and drains afterwards; a bloated buffer is absorbing a mismatch that never ends.</p>
+        <p>So size from the burst, then alert when the queue fails to drain — a queue that is never empty is not absorbing bursts, it is hiding a capacity problem.</p>
+        <h4>Healthy or hiding?</h4>
+        <table><tr><th>Observation</th><th>Meaning</th></tr>
+        <tr><td>Empties several times a minute</td><td>healthy shock absorber</td></tr>
+        <tr><td>Never empty</td><td>under-provisioned; bound it</td></tr>
+        <tr><td>Monotonically growing</td><td>outage in progress</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>"Does it drain?" is a better health check than any absolute depth threshold.</li>
+        </ul>
         </template></div>
       </div>
     </section>
@@ -494,7 +482,7 @@ var ch = Channel.CreateBounded&lt;Job&gt;(new BoundedChannelOptions(capacity: 20
 
 // producer: yields instead of blocking a thread
 if (!ch.Writer.TryWrite(job))
-    await ch.Writer.WriteAsync(job, ct);      // completes when there is room</code></pre><div class="what">`CreateUnbounded` is the same API with the safety removed. Choosing a capacity forces you to choose a full-policy too.</div></div>
+    await ch.Writer.WriteAsync(job, ct);      // completes when there is room</code></pre><div class="what"><code>CreateUnbounded</code> is the same API with the safety removed. Choosing a capacity forces you to choose a full-policy too.</div></div>
         <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">// Go — a buffered channel IS the bounded queue; select gives you the policy
 jobs := make(chan Job, 20)
 
@@ -510,9 +498,8 @@ try:
     q.put_nowait(job)            # raises QueueFull instead of growing
 except asyncio.QueueFull:
     metrics.shed.inc()
-    raise HTTPException(503, headers={"Retry-After": "1"})</code></pre><div class="what">`asyncio.Queue()` with no maxsize is unbounded. The default is the bug.</div></div>
+    raise HTTPException(503, headers={"Retry-After": "1"})</code></pre><div class="what"><code>asyncio.Queue()</code> with no maxsize is unbounded. The default is the bug.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Limit concurrency instead of rate</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// a semaphore is backpressure in four lines
@@ -531,7 +518,6 @@ http_filters:
         concurrency_limit_params: { max_concurrency_limit: 200 }
         min_rtt_calc_params: { interval: 30s, request_count: 50 }</code></pre><div class="what">The proxy measures minimum round-trip time and shrinks the limit as latency rises — TCP congestion control applied to HTTP.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Discard dead work</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// deadline travels with the request; check it on dequeue
@@ -547,7 +533,6 @@ grpc-timeout: 800m                 // gRPC
 traceparent / X-Request-Deadline   // or your own convention
 // each hop passes the REMAINING budget, not a fresh one</code></pre><div class="what">A service that starts a fresh timeout on every hop guarantees total latency is the sum of all of them.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Message consumers</h3>
         <div class="cmd"><pre class="language-none line-numbers"><code class="language-none"># Kafka — fetch less, and pause when you fall behind
@@ -559,17 +544,15 @@ consumer.pause(assignment)      # lag grows in the broker, where it is safe
 consumer.resume(assignment)</code></pre><div class="what">Consumer lag is backpressure you can see. Letting it build in the broker is correct; buffering it in your heap is not.</div></div>
         <div class="cmd"><pre class="language-none"><code class="language-none"># RabbitMQ / AMQP — prefetch is the credit window
 channel.basic_qos(prefetch_count=20)   # at most 20 unacked per consumer
-# default is unlimited: the broker will happily push you into an OOM</code></pre><div class="what">`prefetch_count` is credit-based flow control under another name — and its default is the unbounded one.</div></div>
+# default is unlimited: the broker will happily push you into an OOM</code></pre><div class="what"><code>prefetch_count</code> is credit-based flow control under another name — and its default is the unbounded one.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Reactive streams</h3>
         <div class="cmd"><pre class="language-none"><code class="language-none">// Java / Reactor — the subscriber states its demand
 flux.limitRate(100)                         // request(100), then 75 more each time
     .onBackpressureDrop(job -&gt; shed(job))   // explicit policy, not a silent buffer
-    .concatMap(this::handle);               // one at a time; no hidden fan-out</code></pre><div class="what">`onBackpressureBuffer()` with no bound re-creates the original problem inside the stream library.</div></div>
+    .concatMap(this::handle);               // one at a time; no hidden fan-out</code></pre><div class="what"><code>onBackpressureBuffer()</code> with no bound re-creates the original problem inside the stream library.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>What to measure</h3>
         <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">queue_sojourn_seconds{quantile="0.99"}   # what users feel — alert on this
@@ -584,7 +567,7 @@ concurrency_limit / concurrency_in_use   # how close to the wall</code></pre><di
       <h2>Pros &amp; cons</h2>
       <div class="cols">
         <div class="col good"><h3>Pros</h3><ul>
-          <li>Bounds latency by bounding queue depth &mdash; Little's Law does the rest automatically.</li>
+          <li>Bounds latency by bounding queue depth — Little's Law does the rest automatically.</li>
           <li>Turns a silent, delayed memory crash into an immediate, visible, attributable signal.</li>
           <li>Makes overload fail fast, which removes most of the fuel for retry amplification.</li>
           <li>Adapts to dependency slowdowns on its own when expressed as a concurrency limit.</li>
@@ -592,7 +575,7 @@ concurrency_limit / concurrency_in_use   # how close to the wall</code></pre><di
           <li>Prevents wasted work by rejecting before expensive processing rather than after.</li>
         </ul></div>
         <div class="col bad"><h3>Cons</h3><ul>
-          <li>It does not create capacity &mdash; it only decides where the pain surfaces.</li>
+          <li>It does not create capacity — it only decides where the pain surfaces.</li>
           <li>A bound that is too small turns normal bursts into spurious rejections.</li>
           <li>Blocking producers can deadlock if the producer is also, indirectly, the consumer.</li>
           <li>The signal is useless unless it reaches a layer that can actually act on it.</li>
@@ -607,7 +590,7 @@ concurrency_limit / concurrency_in_use   # how close to the wall</code></pre><di
       <div class="cards">
         <div class="card"><h3>The service that dies an hour after the spike</h3><p>Traffic rises 20% at 09:00 and the service OOMs at 10:15 with no errors in between. An unbounded work queue had been absorbing the difference the whole time. Bounding it at 200 items turns the same event into a visible 3% rejection rate and no restart.</p></div>
         <div class="card"><h3>Consumer lag that became a heap problem</h3><p>A Kafka consumer prefetches aggressively and buffers in memory to "smooth things out". When the downstream API slows, the heap fills. Reducing <code>max.poll.records</code> and pausing the partitions lets the lag accumulate in the broker, where it is cheap, observable and recoverable.</p></div>
-        <div class="card"><h3>An ingestion pipeline faster than its sink</h3><p>A file importer reads 50,000 rows a second into a database that writes 8,000. A bounded channel between them makes the reader wait, so memory stays flat and the import takes exactly as long as the database allows &mdash; which it was always going to.</p></div>
+        <div class="card"><h3>An ingestion pipeline faster than its sink</h3><p>A file importer reads 50,000 rows a second into a database that writes 8,000. A bounded channel between them makes the reader wait, so memory stays flat and the import takes exactly as long as the database allows — which it was always going to.</p></div>
         <div class="card"><h3>Market data that must never queue</h3><p>Price ticks arrive faster than the UI can render. The producer cannot be slowed, so a one-slot conflating buffer keeps only the latest price per instrument: no backlog, no stale renders, and no loss that matters.</p></div>
         <div class="card"><h3>Fast failure at the edge</h3><p>During a database incident, requests used to time out after two seconds, so clients retried and tripled the load. A concurrency limit at the edge now returns 503 with <code>Retry-After</code> in under a millisecond; the database recovers because the stampede never forms.</p></div>
       </div>
@@ -615,10 +598,10 @@ concurrency_limit / concurrency_in_use   # how close to the wall</code></pre><di
 
     <section id="when">
       <h2>When to use / when not to</h2>
-      <span class="note" style="margin:-6px 0 14px">find every queue you own, write down its bound &mdash; the ones you cannot name are the dangerous ones</span>
+      <span class="note" style="margin:-6px 0 14px">find every queue you own, write down its bound — the ones you cannot name are the dangerous ones</span>
       <div class="cols">
         <div class="col good"><h3>Use it when…</h3><ul>
-          <li>A producer can outpace a consumer, even occasionally &mdash; which is nearly always.</li>
+          <li>A producer can outpace a consumer, even occasionally — which is nearly always.</li>
           <li>There is a queue, buffer, pool or channel anywhere in the path.</li>
           <li>Latency matters and you need a hard upper bound rather than a hopeful average.</li>
           <li>The system must survive a dependency becoming slow rather than failing outright.</li>
@@ -636,11 +619,11 @@ concurrency_limit / concurrency_in_use   # how close to the wall</code></pre><di
 
     <section id="gotchas">
       <h2>Common mistakes &amp; gotchas</h2>
-      <div class="gotcha"><b>The default is unbounded</b><span><code>new LinkedBlockingQueue&lt;&gt;()</code>, <code>asyncio.Queue()</code>, <code>Channel.CreateUnbounded()</code>, an executor's work queue, a list used "just as a buffer" &mdash; all grow until the process dies.</span><div class="fix">Fix: audit every queue, channel, pool and buffer, and give each an explicit capacity. If you cannot justify a number, you have not understood that part of the system.</div></div>
-      <div class="gotcha"><b>Sizing the queue by what fits in memory</b><span>A 100,000-item buffer on a consumer doing 800 a second is a 125-second queueing delay. Every client has timed out ninety times over before the last item is touched.</span><div class="fix">Fix: size from a latency budget &mdash; <code>L = λ × W</code>. A 25 ms budget at 800/s is 20 items, not 100,000.</div></div>
-      <div class="gotcha"><b>Moving the bloat instead of removing it</b><span>You bound the service's queue, and the gateway in front of it quietly buffers instead. Total latency is unchanged and now the problem is somebody else's dashboard.</span><div class="fix">Fix: propagate the signal to a layer that can act &mdash; return 503 at the edge, or slow a batch job down. Test it: when the database is slow, does the user get a fast error or a long timeout?</div></div>
-      <div class="gotcha"><b>Processing requests nobody is waiting for</b><span>Once queueing delay exceeds the client timeout, utilisation stays at 100% while goodput falls to zero, and the system cannot climb out.</span><div class="fix">Fix: propagate deadlines and check them on dequeue. Consider LIFO under overload &mdash; serving the freshest request first means some succeed instead of all failing.</div></div>
-      <div class="gotcha"><b>Blocking the event loop</b><span>Calling a blocking <code>put</code> on a full queue inside an async runtime stops every other task on that thread, converting local backpressure into a total stall.</span><div class="fix">Fix: use the non-blocking idiom &mdash; <code>TryWrite</code>, <code>select</code> with <code>default</code>, <code>WaitToWriteAsync</code>, the <code>drain</code> event &mdash; and shed when you cannot wait.</div></div>
+      <div class="gotcha"><b>The default is unbounded</b><span><code>new LinkedBlockingQueue&lt;&gt;()</code>, <code>asyncio.Queue()</code>, <code>Channel.CreateUnbounded()</code>, an executor's work queue, a list used "just as a buffer" — all grow until the process dies.</span><div class="fix">Fix: audit every queue, channel, pool and buffer, and give each an explicit capacity. If you cannot justify a number, you have not understood that part of the system.</div></div>
+      <div class="gotcha"><b>Sizing the queue by what fits in memory</b><span>A 100,000-item buffer on a consumer doing 800 a second is a 125-second queueing delay. Every client has timed out ninety times over before the last item is touched.</span><div class="fix">Fix: size from a latency budget — <code>L = λ × W</code>. A 25 ms budget at 800/s is 20 items, not 100,000.</div></div>
+      <div class="gotcha"><b>Moving the bloat instead of removing it</b><span>You bound the service's queue, and the gateway in front of it quietly buffers instead. Total latency is unchanged and now the problem is somebody else's dashboard.</span><div class="fix">Fix: propagate the signal to a layer that can act — return 503 at the edge, or slow a batch job down. Test it: when the database is slow, does the user get a fast error or a long timeout?</div></div>
+      <div class="gotcha"><b>Processing requests nobody is waiting for</b><span>Once queueing delay exceeds the client timeout, utilisation stays at 100% while goodput falls to zero, and the system cannot climb out.</span><div class="fix">Fix: propagate deadlines and check them on dequeue. Consider LIFO under overload — serving the freshest request first means some succeed instead of all failing.</div></div>
+      <div class="gotcha"><b>Blocking the event loop</b><span>Calling a blocking <code>put</code> on a full queue inside an async runtime stops every other task on that thread, converting local backpressure into a total stall.</span><div class="fix">Fix: use the non-blocking idiom — <code>TryWrite</code>, <code>select</code> with <code>default</code>, <code>WaitToWriteAsync</code>, the <code>drain</code> event — and shed when you cannot wait.</div></div>
       <div class="gotcha"><b>Backpressure deadlock</b><span>A blocks because B's queue is full; B is waiting on a response from A. Both stop forever, and no error is logged anywhere.</span><div class="fix">Fix: never block a producer that is in the same dependency cycle as its consumer. Use bounded-plus-reject, or separate pools so the cycle cannot close.</div></div>
       <div class="gotcha"><b>Retrying into an overloaded system</b><span>Fast rejections are a feature, but a client that retries them immediately converts your careful shedding into a tight loop.</span><div class="fix">Fix: send <code>Retry-After</code>, require jittered exponential backoff, and cap retries with a budget so they cannot exceed a few percent of normal traffic.</div></div>
       <div class="gotcha"><b>Alerting on depth instead of wait time</b><span>Depth thresholds are meaningless without a drain rate: 10,000 can be healthy and 50 can be an outage.</span><div class="fix">Fix: measure sojourn time and the age of the oldest item. Alert on those; keep depth for memory-pressure monitoring.</div></div>
@@ -652,22 +635,22 @@ concurrency_limit / concurrency_in_use   # how close to the wall</code></pre><di
         <table>
           <thead><tr><th>Mechanism</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs backpressure</th></tr></thead>
           <tbody>
-            <tr class="self"><td><b>Backpressure</b></td><td>making a rate mismatch visible and bounded</td><td>Low</td><td>free</td><td>&mdash;</td></tr>
+            <tr class="self"><td><b>Backpressure</b></td><td>making a rate mismatch visible and bounded</td><td>Low</td><td>free</td><td>—</td></tr>
             <tr><td><b>Load shedding</b></td><td>choosing what to sacrifice under overload</td><td>Medium</td><td>free</td><td>Decides <em>which</em> work to refuse; backpressure only says "full"</td></tr>
             <tr><td><b>Rate limiting</b></td><td>fairness, quotas, abuse control</td><td>Low</td><td>free</td><td>Per-client budget set in advance; blind to how loaded you actually are</td></tr>
             <tr><td><b>Circuit breaker</b></td><td>a dependency that is failing, not merely slow</td><td>Low</td><td>free</td><td>Protects the caller by stopping calls entirely; backpressure keeps flowing, slower</td></tr>
-            <tr><td><b>Autoscaling</b></td><td>sustained load growth</td><td>Medium</td><td>more instances</td><td>Adds real capacity, but minutes too late for a spike &mdash; complementary, not a substitute</td></tr>
+            <tr><td><b>Autoscaling</b></td><td>sustained load growth</td><td>Medium</td><td>more instances</td><td>Adds real capacity, but minutes too late for a spike — complementary, not a substitute</td></tr>
             <tr><td><b>Bigger buffer</b></td><td>genuinely short bursts</td><td>Very low</td><td>memory</td><td>Absorbs bursts; hides persistent mismatch until it becomes an OOM</td></tr>
             <tr><td><b>Batching</b></td><td>per-item overhead dominating</td><td>Low</td><td>free</td><td>Raises throughput so the mismatch may disappear; adds latency of its own</td></tr>
           </tbody>
         </table>
       </div>
       <ul style="margin-top:12px">
-        <li><b>Pick load shedding</b> for the decision that follows backpressure &mdash; the two are a pair, not alternatives.</li>
+        <li><b>Pick load shedding</b> for the decision that follows backpressure — the two are a pair, not alternatives.</li>
         <li><b>Pick rate limiting</b> when the question is "how much is this client entitled to?", not "am I full?".</li>
         <li><b>Pick a circuit breaker</b> when the downstream is erroring; backpressure assumes it still works, just slowly.</li>
         <li><b>Pick autoscaling</b> for load that persists for minutes; backpressure covers the seconds before it arrives.</li>
-        <li><b>Pick batching</b> if per-item overhead is the bottleneck &mdash; sometimes the mismatch is an efficiency problem, not a capacity one.</li>
+        <li><b>Pick batching</b> if per-item overhead is the bottleneck — sometimes the mismatch is an efficiency problem, not a capacity one.</li>
       </ul>
     </section>
 
@@ -675,10 +658,10 @@ concurrency_limit / concurrency_in_use   # how close to the wall</code></pre><di
       <h2>Resources</h2>
       <ul>
         <li><a href="https://www.reactive-streams.org/" target="_blank" rel="noopener">Reactive Streams</a>: the specification that made <code>request(n)</code> demand signalling a standard across JVM libraries.</li>
-        <li><a href="https://sre.google/sre-book/handling-overload/" target="_blank" rel="noopener">Google SRE &mdash; Handling Overload</a>: dead work, retry budgets and why fast rejection matters, with production numbers.</li>
+        <li><a href="https://sre.google/sre-book/handling-overload/" target="_blank" rel="noopener">Google SRE — Handling Overload</a>: dead work, retry budgets and why fast rejection matters, with production numbers.</li>
         <li><a href="https://queue.acm.org/detail.cfm?id=2209336" target="_blank" rel="noopener">Controlling Queue Delay (CoDel)</a>: Nichols and Jacobson on managing queues by sojourn time instead of length.</li>
-        <li><a href="https://netflixtechblog.medium.com/performance-under-load-3e6fa9a60581" target="_blank" rel="noopener">Netflix &mdash; Performance Under Load</a>: adaptive concurrency limits derived from TCP congestion control.</li>
-        <li><a href="https://www.awsarchitectureblog.com/2015/03/backoff.html" target="_blank" rel="noopener">AWS &mdash; Exponential Backoff and Jitter</a>: why jitter matters when every client retries at once.</li>
+        <li><a href="https://netflixtechblog.medium.com/performance-under-load-3e6fa9a60581" target="_blank" rel="noopener">Netflix — Performance Under Load</a>: adaptive concurrency limits derived from TCP congestion control.</li>
+        <li><a href="https://www.awsarchitectureblog.com/2015/03/backoff.html" target="_blank" rel="noopener">AWS — Exponential Backoff and Jitter</a>: why jitter matters when every client retries at once.</li>
         <li><a href="https://learn.microsoft.com/en-us/dotnet/core/extensions/channels" target="_blank" rel="noopener">.NET Channels</a>: bounded channels and full-mode policies, a clean model of the choices involved.</li>
       </ul>
     </section>
@@ -722,41 +705,42 @@ concurrency_limit / concurrency_in_use   # how close to the wall</code></pre><di
   </main>
 </div>
 
-<script src="../assets/player.js?v=3658cbc7"></script>
+<script src="../assets/player.js?v=e9bf1ea3"></script>
 <script>
 createAnimation('anim-queue', [
-  { say: 'A producer offers 1,000 items a second to a consumer that can handle 800. The queue between them is not solving that &mdash; it is only deciding where the extra 200 a second accumulate.', hl: ['bq-prod', 'bq-cons'] },
-  { say: 'After one second, 200 items are waiting. By Little\'s Law the wait is <code>L / λ = 200 / 800</code> = 250 ms. Still fine, and still invisible.', show: ['bq-s1', 'bq-s2'], unhl: ['bq-prod', 'bq-cons'], text: { 'bq-time': 't = 1 s', 'bq-l': 'queue depth L = 200', 'bq-w': 'wait W = 250 ms', 'bq-mem': 'heap: 44 MB' } },
-  { say: 'Ten seconds in: 2,000 queued, 2.5 seconds of wait. No errors have been returned, no alert has fired, and CPU looks unremarkable. The only symptom is latency quietly climbing.', show: ['bq-s3', 'bq-s4'], text: { 'bq-time': 't = 10 s', 'bq-l': 'queue depth L = 2,000', 'bq-w': 'wait W = 2.5 s', 'bq-mem': 'heap: 120 MB', 'bq-note': 'latency is climbing; nothing has failed yet' } },
-  { say: 'At sixty seconds the wait is 15 seconds. Every client timed out at 5 &mdash; so the consumer is now working on requests nobody is waiting for. Utilisation 100%, goodput zero.', show: ['bq-s5', 'bq-s6', 'bq-s7'], text: { 'bq-time': 't = 60 s', 'bq-l': 'queue depth L = 12,000', 'bq-w': 'wait W = 15 s', 'bq-mem': 'heap: 680 MB', 'bq-note': 'every item dequeued is for a client that has gone — 100% dead work', 'bq-const2': 'busy, achieving nothing' }, fill: { 'bq-note': '#c53b3b', 'bq-const2': '#c53b3b' } },
-  { say: 'And then the process dies. A 20% capacity shortfall became an out-of-memory crash, roughly ten minutes after everything looked fine.', show: ['bq-s8', 'bq-s9', 'bq-s10'], text: { 'bq-time': 't = 9 min', 'bq-l': 'queue depth L = 108,000', 'bq-w': 'wait W = 135 s', 'bq-mem': 'heap: OOM — process killed', 'bq-v': 'an unbounded queue converts a throughput problem into an outage', 'bq-v2': 'and it does so slowly enough that nothing warns you' }, fill: { 'bq-mem': '#c53b3b', 'bq-v': '#c53b3b', 'bq-verd': '#f9e3df' } },
-  { say: 'Now bound the queue at 10. Same producer, same consumer, same mismatch &mdash; one configuration value different.', hide: ['bq-s1','bq-s2','bq-s3','bq-s4','bq-s5','bq-s6','bq-s7','bq-s8','bq-s9','bq-s10'], text: { 'bq-phase': 'same mismatch, bounded queue of 10', 'bq-qt': 'queue — bounded at 10', 'bq-time': 't = 0 s', 'bq-l': 'queue depth L = 0', 'bq-w': 'wait W = 0 ms', 'bq-mem': 'heap: 40 MB', 'bq-note': 'watch how quickly the truth arrives this time', 'bq-v': 'bounding the queue does not add capacity', 'bq-v2': '—', 'bq-const2': ' ' }, fill: { 'bq-mem': '#5f6f66', 'bq-note': '#5f6f66', 'bq-v': '#2f6b3f', 'bq-verd': '#e3eedc', 'bq-const2': '#5f6f66' } },
-  { say: 'It fills in about 50 milliseconds and stays full. The consumer is still doing 800 a second &mdash; nothing has been made slower.', show: ['bq-s1','bq-s2','bq-s3','bq-s4','bq-s5','bq-s6','bq-s7','bq-s8','bq-s9','bq-s10'], text: { 'bq-time': 't = 0.05 s', 'bq-l': 'queue depth L = 10 (full)', 'bq-w': 'wait W = 12.5 ms', 'bq-mem': 'heap: 40 MB — flat' } },
-  { say: 'The producer\'s next write cannot complete. <em>That</em> is backpressure: the mismatch has moved out of the queue and into the producer, where somebody can see it.', hl: ['bq-prod'], text: { 'bq-prodt': 'write blocked / rejected', 'bq-prodt2': '200 / s cannot be placed', 'bq-note': 'the signal reached the producer in 50 ms instead of 9 minutes' }, fill: { 'bq-prodt': '#c53b3b' } },
-  { say: 'And latency is now bounded forever at <code>10 / 800</code> = 12.5 ms, no matter how long the overload lasts. Memory is flat. Throughput is unchanged at 800 a second.', unhl: ['bq-prod'], text: { 'bq-time': 't = 60 s', 'bq-l': 'queue depth L = 10 (full)', 'bq-w': 'wait W = 12.5 ms — constant', 'bq-mem': 'heap: 40 MB — flat', 'bq-note': 'bounded queue ⇒ bounded latency, by Little\'s Law' }, fill: { 'bq-note': '#2f6b3f' } },
-  { say: 'The producer now faces the decision the unbounded queue let it avoid: block and slow down, drop deliberately, or pass the signal further upstream. Backpressure did not answer that question &mdash; it made sure somebody has to.', text: { 'bq-v': 'slow down · drop · or propagate the signal upstream', 'bq-v2': 'backpressure moves the decision to where it can be made, while it is still cheap' } },
+  { say: "A producer offers 1,000 items a second to a consumer that can handle 800. The queue between them is not solving that — it is only deciding where the extra 200 a second accumulate.", hl: ["bq-prod","bq-cons"] },
+  { say: "After one second, 200 items are waiting. By Little's Law the wait is <code>L / λ = 200 / 800</code> = 250 ms. Still fine, and still invisible.", show: ["bq-s1","bq-s2"], unhl: ["bq-prod","bq-cons"], text: {"bq-time":"t = 1 s","bq-l":"queue depth L = 200","bq-w":"wait W = 250 ms","bq-mem":"heap: 44 MB"} },
+  { say: "Ten seconds in: 2,000 queued, 2.5 seconds of wait. No errors have been returned, no alert has fired, and CPU looks unremarkable. The only symptom is latency quietly climbing.", show: ["bq-s3","bq-s4"], text: {"bq-time":"t = 10 s","bq-l":"queue depth L = 2,000","bq-w":"wait W = 2.5 s","bq-mem":"heap: 120 MB","bq-note":"latency is climbing; nothing has failed yet"} },
+  { say: "At sixty seconds the wait is 15 seconds. Every client timed out at 5 — so the consumer is now working on requests nobody is waiting for. Utilisation 100%, goodput zero.", show: ["bq-s5","bq-s6","bq-s7"], text: {"bq-time":"t = 60 s","bq-l":"queue depth L = 12,000","bq-w":"wait W = 15 s","bq-mem":"heap: 680 MB","bq-note":"every item dequeued is for a client that has gone — 100% dead work","bq-const2":"busy, achieving nothing"}, fill: {"bq-note":"#c53b3b","bq-const2":"#c53b3b"} },
+  { say: "And then the process dies. A 20% capacity shortfall became an out-of-memory crash, roughly ten minutes after everything looked fine.", show: ["bq-s8","bq-s9","bq-s10"], text: {"bq-time":"t = 9 min","bq-l":"queue depth L = 108,000","bq-w":"wait W = 135 s","bq-mem":"heap: OOM — process killed","bq-v":"an unbounded queue converts a throughput problem into an outage","bq-v2":"and it does so slowly enough that nothing warns you"}, fill: {"bq-mem":"#c53b3b","bq-v":"#c53b3b","bq-verd":"#f9e3df"} },
+  { say: "Now bound the queue at 10. Same producer, same consumer, same mismatch — one configuration value different.", hide: ["bq-s1","bq-s2","bq-s3","bq-s4","bq-s5","bq-s6","bq-s7","bq-s8","bq-s9","bq-s10"], text: {"bq-phase":"same mismatch, bounded queue of 10","bq-qt":"queue — bounded at 10","bq-time":"t = 0 s","bq-l":"queue depth L = 0","bq-w":"wait W = 0 ms","bq-mem":"heap: 40 MB","bq-note":"watch how quickly the truth arrives this time","bq-v":"bounding the queue does not add capacity","bq-v2":"—","bq-const2":" "}, fill: {"bq-mem":"#5f6f66","bq-note":"#5f6f66","bq-v":"#2f6b3f","bq-verd":"#e3eedc","bq-const2":"#5f6f66"} },
+  { say: "It fills in about 50 milliseconds and stays full. The consumer is still doing 800 a second — nothing has been made slower.", show: ["bq-s1","bq-s2","bq-s3","bq-s4","bq-s5","bq-s6","bq-s7","bq-s8","bq-s9","bq-s10"], text: {"bq-time":"t = 0.05 s","bq-l":"queue depth L = 10 (full)","bq-w":"wait W = 12.5 ms","bq-mem":"heap: 40 MB — flat"} },
+  { say: "The producer's next write cannot complete. <em>That</em> is backpressure: the mismatch has moved out of the queue and into the producer, where somebody can see it.", hl: ["bq-prod"], text: {"bq-prodt":"write blocked / rejected","bq-prodt2":"200 / s cannot be placed","bq-note":"the signal reached the producer in 50 ms instead of 9 minutes"}, fill: {"bq-prodt":"#c53b3b"} },
+  { say: "And latency is now bounded forever at <code>10 / 800</code> = 12.5 ms, no matter how long the overload lasts. Memory is flat. Throughput is unchanged at 800 a second.", unhl: ["bq-prod"], text: {"bq-time":"t = 60 s","bq-l":"queue depth L = 10 (full)","bq-w":"wait W = 12.5 ms — constant","bq-mem":"heap: 40 MB — flat","bq-note":"bounded queue ⇒ bounded latency, by Little's Law"}, fill: {"bq-note":"#2f6b3f"} },
+  { say: "The producer now faces the decision the unbounded queue let it avoid: block and slow down, drop deliberately, or pass the signal further upstream. Backpressure did not answer that question — it made sure somebody has to.", text: {"bq-v":"slow down · drop · or propagate the signal upstream","bq-v2":"backpressure moves the decision to where it can be made, while it is still cheap"} },
 ]);
 
 createAnimation('anim-chain', [
-  { say: 'A normal request path: client, edge, service, database. Each hop has a queue, and at 20 ms per database call everything flows with no queueing at all.', hl: ['bc-b4'] },
-  { say: 'Now the database slows to 200 ms &mdash; a missing index, a lock, a noisy neighbour. Nothing has failed; it is simply ten times slower.', unhl: ['bc-b4'], text: { 'bc-t4': '200 ms', 'bc-q4': 'slow, not failing', 'bc-phase': 'the database slows down ten-fold' }, fill: { 'bc-t4': '#c53b3b', 'bc-q4': '#c53b3b' } },
-  { say: 'Without backpressure, each layer simply buffers. The service holds every in-flight call, the edge queues behind it, connections pile up. Nothing rejects anything.', hl: ['bc-b3', 'bc-b2'], text: { 'bc-t3': 'pool: 20 / 20 busy', 'bc-q3': 'queue: 1,400 waiting', 'bc-t2': 'queue: 2,600 waiting', 'bc-lat': 'client latency: 4.1 s', 'bc-note': 'every layer is absorbing, so nothing surfaces' }, fill: { 'bc-t3': '#c53b3b', 'bc-t2': '#c53b3b' } },
-  { say: 'Client latency is now the sum of every queue in the path: 4.1 seconds against a 2-second timeout. Clients start giving up.', unhl: ['bc-b3', 'bc-b2'], hl: ['bc-b1'], text: { 'bc-q1': 'timing out', 'bc-good': 'goodput: 180 / s' }, fill: { 'bc-q1': '#c53b3b', 'bc-good': '#c53b3b' } },
-  { say: 'And they retry. Arrivals double on a system that was already 10&times; short of capacity &mdash; retry amplification, the feedback loop that turns a slowdown into an outage.', text: { 'bc-rate': 'arrivals: 2,100 / s', 'bc-q1': 'retrying', 'bc-note': 'the retries arrive exactly when there is least capacity to absorb them' }, fill: { 'bc-rate': '#c53b3b' } },
-  { say: 'Now every layer is working on requests whose clients have gone. Utilisation 100%, goodput near zero, and the system cannot climb out because it is busy doing useless work. This is congestion collapse.', unhl: ['bc-b1'], text: { 'bc-good': 'goodput: 20 / s', 'bc-lat': 'client latency: timeout', 'bc-note': 'utilisation 100%, goodput ~0 — nothing here will recover on its own', 'bc-v': 'the database was never broken. the queues did this.' }, fill: { 'bc-v': '#c53b3b', 'bc-verd': '#f9e3df' } },
-  { say: 'Run it again with backpressure. The service\'s connection pool is bounded &mdash; that bound <em>is</em> backpressure &mdash; so once it is full the service stops accepting work rather than queueing it.', hl: ['bc-b3'], text: { 'bc-phase': 'the same slowdown, with bounded queues at every hop', 'bc-t3': 'pool: 20 / 20 — rejecting', 'bc-q3': 'queue bounded at 40', 'bc-rate': 'arrivals: 1,000 / s', 'bc-good': 'goodput: 100 / s', 'bc-lat': 'client latency: 250 ms', 'bc-note': 'bounded everywhere, so nothing can silently absorb the mismatch', 'bc-v': 'the signal has somewhere to go' }, fill: { 'bc-t3': '#23362e', 'bc-rate': '#5f6f66', 'bc-good': '#5f6f66', 'bc-v': '#2f6b3f', 'bc-verd': '#e3eedc', 'bc-q1': '#5f6f66' } },
-  { say: 'The rejection propagates to the edge in milliseconds, because a bounded queue fails fast instead of waiting for a timeout.', show: ['bc-sig'], unhl: ['bc-b3'], hl: ['bc-b2'], text: { 'bc-t2': 'queue bounded at 100 — full' } },
-  { say: 'The edge is the only component here that can talk to the client, so it is the only place a real decision can be made. It returns 503 with <code>Retry-After</code> in under a millisecond.', unhl: ['bc-b2'], text: { 'bc-t2': '503 + Retry-After, &lt; 1 ms', 'bc-q2': 'shedding 90%', 'bc-note': 'a cheap no, instead of an expensive timeout' }, fill: { 'bc-q2': '#2f6b3f' } },
-  { say: 'The result: 100 requests a second succeed in 250 ms, the rest are refused instantly, no retry storm forms and the database gets the quiet it needs to recover. Backpressure carried the signal; shedding made the decision.', unhl: ['bc-b2'], text: { 'bc-lat': 'client latency: 250 ms', 'bc-good': 'goodput: 100 / s — real', 'bc-q1': 'fast, honest errors', 'bc-note': 'degraded on purpose instead of collapsed by accident', 'bc-v': 'backpressure propagates the signal — load shedding decides what to drop' }, fill: { 'bc-good': '#2f6b3f' } },
+  { say: "A normal request path: client, edge, service, database. Each hop has a queue, and at 20 ms per database call everything flows with no queueing at all.", hl: ["bc-b4"] },
+  { say: "Now the database slows to 200 ms — a missing index, a lock, a noisy neighbour. Nothing has failed; it is simply ten times slower.", unhl: ["bc-b4"], text: {"bc-t4":"200 ms","bc-q4":"slow, not failing","bc-phase":"the database slows down ten-fold"}, fill: {"bc-t4":"#c53b3b","bc-q4":"#c53b3b"} },
+  { say: "Without backpressure, each layer simply buffers. The service holds every in-flight call, the edge queues behind it, connections pile up. Nothing rejects anything.", hl: ["bc-b3","bc-b2"], text: {"bc-t3":"pool: 20 / 20 busy","bc-q3":"queue: 1,400 waiting","bc-t2":"queue: 2,600 waiting","bc-lat":"client latency: 4.1 s","bc-note":"every layer is absorbing, so nothing surfaces"}, fill: {"bc-t3":"#c53b3b","bc-t2":"#c53b3b"} },
+  { say: "Client latency is now the sum of every queue in the path: 4.1 seconds against a 2-second timeout. Clients start giving up.", hl: ["bc-b1"], unhl: ["bc-b3","bc-b2"], text: {"bc-q1":"timing out","bc-good":"goodput: 180 / s"}, fill: {"bc-q1":"#c53b3b","bc-good":"#c53b3b"} },
+  { say: "And they retry. Arrivals double on a system that was already 10× short of capacity — retry amplification, the feedback loop that turns a slowdown into an outage.", text: {"bc-rate":"arrivals: 2,100 / s","bc-q1":"retrying","bc-note":"the retries arrive exactly when there is least capacity to absorb them"}, fill: {"bc-rate":"#c53b3b"} },
+  { say: "Now every layer is working on requests whose clients have gone. Utilisation 100%, goodput near zero, and the system cannot climb out because it is busy doing useless work. This is congestion collapse.", unhl: ["bc-b1"], text: {"bc-good":"goodput: 20 / s","bc-lat":"client latency: timeout","bc-note":"utilisation 100%, goodput ~0 — nothing here will recover on its own","bc-v":"the database was never broken. the queues did this."}, fill: {"bc-v":"#c53b3b","bc-verd":"#f9e3df"} },
+  { say: "Run it again with backpressure. The service's connection pool is bounded — that bound <em>is</em> backpressure — so once it is full the service stops accepting work rather than queueing it.", hl: ["bc-b3"], text: {"bc-phase":"the same slowdown, with bounded queues at every hop","bc-t3":"pool: 20 / 20 — rejecting","bc-q3":"queue bounded at 40","bc-rate":"arrivals: 1,000 / s","bc-good":"goodput: 100 / s","bc-lat":"client latency: 250 ms","bc-note":"bounded everywhere, so nothing can silently absorb the mismatch","bc-v":"the signal has somewhere to go"}, fill: {"bc-t3":"#23362e","bc-rate":"#5f6f66","bc-good":"#5f6f66","bc-v":"#2f6b3f","bc-verd":"#e3eedc","bc-q1":"#5f6f66"} },
+  { say: "The rejection propagates to the edge in milliseconds, because a bounded queue fails fast instead of waiting for a timeout.", show: ["bc-sig"], hl: ["bc-b2"], unhl: ["bc-b3"], text: {"bc-t2":"queue bounded at 100 — full"} },
+  { say: "The edge is the only component here that can talk to the client, so it is the only place a real decision can be made. It returns 503 with <code>Retry-After</code> in under a millisecond.", unhl: ["bc-b2"], text: {"bc-t2":"503 + Retry-After, &lt; 1 ms","bc-q2":"shedding 90%","bc-note":"a cheap no, instead of an expensive timeout"}, fill: {"bc-q2":"#2f6b3f"} },
+  { say: "The result: 100 requests a second succeed in 250 ms, the rest are refused instantly, no retry storm forms and the database gets the quiet it needs to recover. Backpressure carried the signal; shedding made the decision.", unhl: ["bc-b2"], text: {"bc-lat":"client latency: 250 ms","bc-good":"goodput: 100 / s — real","bc-q1":"fast, honest errors","bc-note":"degraded on purpose instead of collapsed by accident","bc-v":"backpressure propagates the signal — load shedding decides what to drop"}, fill: {"bc-good":"#2f6b3f"} },
 ]);
 
+/* Animations inside key-concept panels */
 window.TERM_ANIMS = {
   credit: [
-    { say: 'The producer has a thousand items ready. It may not send any of them: its credit is zero, so nothing moves until it is invited.', hl: ['cr-prod'] },
-    { say: 'The consumer has room for four, so it grants four credits. This is the whole protocol &mdash; the bound is stated by the side that knows its own capacity.', unhl: ['cr-prod'], hl: ['cr-cons'], text: { 'cr-credit': 'credit = 4' } },
-    { say: 'The producer sends four and stops. It still has 996 ready and cannot send a fifth &mdash; not because a buffer rejected it, but because it was never granted.', unhl: ['cr-cons'], hl: ['cr-mid'], text: { 'cr-credit': 'credit = 0', 'cr-sent': 'in flight: 4', 'cr-prodt': '996 still waiting' } },
-    { say: 'The consumer processes two and grants two more. Credit is replenished at exactly the rate work is completed, so the in-flight count can never exceed what the consumer asked for.', unhl: ['cr-mid'], hl: ['cr-cons'], text: { 'cr-credit': 'credit = 2', 'cr-sent': 'in flight: 2', 'cr-const': 'processed 2, room for 2' } },
-    { say: 'No buffer grows, no write blocks, and no timeout is needed to discover the limit &mdash; both sides always agree on it. TCP windows, HTTP/2 flow control, Reactive Streams and AMQP prefetch are all this same loop.', unhl: ['cr-cons'], text: { 'cr-msg': 'TCP · HTTP/2 · gRPC · Reactive Streams · AMQP prefetch', 'cr-msg2': 'all the same loop, under different names' } },
+    { say: "The producer has a thousand items ready. It may not send any of them: its credit is zero, so nothing moves until it is invited.", hl: ["cr-prod"] },
+    { say: "The consumer has room for four, so it grants four credits. This is the whole protocol — the bound is stated by the side that knows its own capacity.", hl: ["cr-cons"], unhl: ["cr-prod"], text: {"cr-credit":"credit = 4"} },
+    { say: "The producer sends four and stops. It still has 996 ready and cannot send a fifth — not because a buffer rejected it, but because it was never granted.", hl: ["cr-mid"], unhl: ["cr-cons"], text: {"cr-credit":"credit = 0","cr-sent":"in flight: 4","cr-prodt":"996 still waiting"} },
+    { say: "The consumer processes two and grants two more. Credit is replenished at exactly the rate work is completed, so the in-flight count can never exceed what the consumer asked for.", hl: ["cr-cons"], unhl: ["cr-mid"], text: {"cr-credit":"credit = 2","cr-sent":"in flight: 2","cr-const":"processed 2, room for 2"} },
+    { say: "No buffer grows, no write blocks, and no timeout is needed to discover the limit — both sides always agree on it. TCP windows, HTTP/2 flow control, Reactive Streams and AMQP prefetch are all this same loop.", unhl: ["cr-cons"], text: {"cr-msg":"TCP · HTTP/2 · gRPC · Reactive Streams · AMQP prefetch","cr-msg2":"all the same loop, under different names"} },
   ],
 };
 </script>

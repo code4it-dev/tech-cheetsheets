@@ -39,9 +39,9 @@
       <h1>Idempotency &amp; deduplication</h1>
       <p class="tagline">Exactly-once delivery does not exist. Exactly-once <em>effect</em> does, and this is how you build it.</p>
       <span class="meta">As of Nov 2026 · examples in C#, Python, SQL and Kafka · the impossibility result is the Two Generals Problem</span>
-      <p>A sender transmits a request, the receiver processes it, and the acknowledgement is lost. The sender now cannot tell "it never arrived" from "it arrived and the reply vanished" &mdash; and no protocol can tell it, because distinguishing those two states would require a message that is itself guaranteed to arrive. That is the Two Generals Problem, and it is why <b>exactly-once delivery is impossible</b> rather than merely difficult.</p>
+      <p>A sender transmits a request, the receiver processes it, and the acknowledgement is lost. The sender now cannot tell "it never arrived" from "it arrived and the reply vanished" — and no protocol can tell it, because distinguishing those two states would require a message that is itself guaranteed to arrive. That is the Two Generals Problem, and it is why <b>exactly-once delivery is impossible</b> rather than merely difficult.</p>
       <p>What you get instead is a choice between two failure modes. <b>At-most-once</b> never duplicates and sometimes loses. <b>At-least-once</b> never loses and sometimes duplicates. Almost every system should pick the second, for one reason: a duplicate is <em>detectable</em> and a loss is not. You can recognise a repeat and discard it; you cannot notice something that never arrived.</p>
-      <p>Doing that recognition is what the rest of this page is about. An <b>idempotency key</b> lets a server identify a repeated request and replay the original answer instead of doing the work twice. A <b>dedup window</b> decides how long it remembers. Together they give you <b>effectively-once processing</b> &mdash; at-least-once delivery whose duplicates have been made harmless, which is what everybody actually means when they say "exactly-once".</p>
+      <p>Doing that recognition is what the rest of this page is about. An <b>idempotency key</b> lets a server identify a repeated request and replay the original answer instead of doing the work twice. A <b>dedup window</b> decides how long it remembers. Together they give you <b>effectively-once processing</b> — at-least-once delivery whose duplicates have been made harmless, which is what everybody actually means when they say "exactly-once".</p>
     </header>
 
     <section id="architecture">
@@ -99,11 +99,10 @@
 
     <section id="how-it-works">
       <h2>How it works</h2>
-      <p style="margin:0 0 18px">The first animation is the impossibility, in four messages. The second is the machinery that makes it not matter.</p>
-      <span class="note" style="margin:-8px 0 18px">a duplicate you can detect beats a loss you cannot</span>
-
+      <p>The first animation is the impossibility, in four messages. The second is the machinery that makes it not matter.</p>
+      <span class="note" style="margin:-6px 0 14px">a duplicate you can detect beats a loss you cannot</span>
       <div class="anim" id="anim-ack">
-        <h3>1 &middot; The acknowledgement that never came back</h3>
+        <h3>1 · The acknowledgement that never came back</h3>
         <div class="stage">
           <svg viewBox="0 0 800 320" role="img" aria-label="A request processed by a receiver whose acknowledgement is lost, leaving the sender unable to distinguish loss from success">
             <defs>
@@ -138,9 +137,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-key">
-        <h3>2 &middot; An idempotency key, from first call to expiry</h3>
+        <h3>2 · An idempotency key, from first call to expiry</h3>
         <div class="stage">
           <svg viewBox="0 0 800 320" role="img" aria-label="A client sending an idempotency key, the server recording it, replaying a stored response on retry and blocking a concurrent duplicate">
             <defs>
@@ -189,264 +187,257 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>Idempotent operation</b><span>One whose repetition changes nothing beyond the first application — naturally safe to retry.</span><template class="term-detail" data-see="Idempotency key, At-least-once, Commutative updates">
-          <p>Setting a value is idempotent; adding to it is not. <code>status = 'shipped'</code> applied five times leaves the same state, while <code>balance = balance + 10</code> applied five times does not. The distinction is the first thing to check before adding any retry.</p>
-          <p>Where you have a choice, prefer absolute values to increments. Writing the new total rather than a delta turns an operation that needs deduplication into one that does not.</p>
-          <h4>Naturally idempotent or not</h4>
-          <table>
-            <tr><th>Operation</th><th>Idempotent?</th></tr>
-            <tr><td><code>SET status = 'shipped'</code></td><td>yes</td></tr>
-            <tr><td><code>UPSERT … SET total = 42</code></td><td>yes</td></tr>
-            <tr><td><code>DELETE WHERE id = 7</code></td><td>yes</td></tr>
-            <tr><td><code>balance = balance + 10</code></td><td>no</td></tr>
-            <tr><td><code>INSERT</code> with a generated id</td><td>no</td></tr>
-            <tr><td>Send an email, charge a card</td><td>no</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>HTTP already classifies this: PUT and DELETE are idempotent, POST is not.</li></ul>
+        <p>Setting a value is idempotent; adding to it is not. <code>status = 'shipped'</code> applied five times leaves the same state, while <code>balance = balance + 10</code> applied five times does not. The distinction is the first thing to check before adding any retry.</p>
+        <p>Where you have a choice, prefer absolute values to increments. Writing the new total rather than a delta turns an operation that needs deduplication into one that does not.</p>
+        <h4>Naturally idempotent or not</h4>
+        <table><tr><th>Operation</th><th>Idempotent?</th></tr>
+        <tr><td><code>SET status = 'shipped'</code></td><td>yes</td></tr>
+        <tr><td><code>UPSERT … SET total = 42</code></td><td>yes</td></tr>
+        <tr><td><code>DELETE WHERE id = 7</code></td><td>yes</td></tr>
+        <tr><td><code>balance = balance + 10</code></td><td>no</td></tr>
+        <tr><td><code>INSERT</code> with a generated id</td><td>no</td></tr>
+        <tr><td>Send an email, charge a card</td><td>no</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>HTTP already classifies this: PUT and DELETE are idempotent, POST is not.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Idempotency key</b><span>A client-generated identifier for one logical operation, stable across every retry of it.</span><template class="term-detail" data-see="Key scope, Response replay, Request fingerprint">
-          <p>It is what lets a server make a non-idempotent operation safe. The client generates a UUID once, <em>before</em> the first attempt, and sends the same value on every retry. The server records it and recognises the repeat.</p>
-          <p>The single most common implementation bug is generating the key inside the retry loop, so each attempt carries a fresh one and the server sees three unrelated requests. Generate it with the intent, not with the attempt.</p>
-          <h4>Properties</h4>
-          <table>
-            <tr><th>Property</th><th>Requirement</th></tr>
-            <tr><td>Generated by</td><td>the client, before attempt 1</td></tr>
-            <tr><td>Stable across</td><td>every retry of that operation</td></tr>
-            <tr><td>Unique across</td><td>different operations, always</td></tr>
-            <tr><td>Form</td><td>UUIDv4/v7, or a hash of the intent</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The second animation follows one key through a first call, a retry and a concurrent duplicate.</li></ul>
+        <p>It is what lets a server make a non-idempotent operation safe. The client generates a UUID once, <em>before</em> the first attempt, and sends the same value on every retry. The server records it and recognises the repeat.</p>
+        <p>The single most common implementation bug is generating the key inside the retry loop, so each attempt carries a fresh one and the server sees three unrelated requests. Generate it with the intent, not with the attempt.</p>
+        <h4>Properties</h4>
+        <table><tr><th>Property</th><th>Requirement</th></tr>
+        <tr><td>Generated by</td><td>the client, before attempt 1</td></tr>
+        <tr><td>Stable across</td><td>every retry of that operation</td></tr>
+        <tr><td>Unique across</td><td>different operations, always</td></tr>
+        <tr><td>Form</td><td>UUIDv4/v7, or a hash of the intent</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The second animation follows one key through a first call, a retry and a concurrent duplicate.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Key scope</b><span>What the key is unique within — and the thing that decides whether one tenant can affect another.</span><template class="term-detail" data-see="Idempotency key, Request fingerprint, Dedup store">
-          <p>Scope the key to the authenticated caller, not globally. A global namespace lets one client guess or collide with another's key and either read their response or suppress their request &mdash; a cross-tenant leak dressed as a correctness feature.</p>
-          <p>The usual key is <code>(client_or_tenant_id, endpoint, idempotency_key)</code>, which also stops the same key being reused accidentally across different operations.</p>
-          <h4>Scoping</h4>
-          <table>
-            <tr><th>Scope</th><th>Verdict</th></tr>
-            <tr><td>Global</td><td>unsafe &mdash; cross-tenant collisions</td></tr>
-            <tr><td>Per tenant</td><td>minimum acceptable</td></tr>
-            <tr><td>Per tenant + endpoint</td><td>the usual choice</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>In a multi-tenant system the tenant comes from the validated token, never from the request body.</li></ul>
+        <p>Scope the key to the authenticated caller, not globally. A global namespace lets one client guess or collide with another's key and either read their response or suppress their request — a cross-tenant leak dressed as a correctness feature.</p>
+        <p>The usual key is <code>(client_or_tenant_id, endpoint, idempotency_key)</code>, which also stops the same key being reused accidentally across different operations.</p>
+        <h4>Scoping</h4>
+        <table><tr><th>Scope</th><th>Verdict</th></tr>
+        <tr><td>Global</td><td>unsafe — cross-tenant collisions</td></tr>
+        <tr><td>Per tenant</td><td>minimum acceptable</td></tr>
+        <tr><td>Per tenant + endpoint</td><td>the usual choice</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>In a multi-tenant system the tenant comes from the validated token, never from the request body.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Request fingerprint</b><span>A hash of the request body stored with the key, so the same key with different content is rejected rather than silently answered.</span><template class="term-detail" data-see="Idempotency key, Response replay, Key scope">
-          <p>If a client sends key <code>K</code> with a &euro;40 charge and later sends <code>K</code> with a &euro;4,000 charge, replaying the first response would silently swallow the second request. That is a client bug, and the only safe behaviour is to say so.</p>
-          <p>Stripe returns a 422 in this case. Hash the canonical body at write time, compare on every repeat, and fail loudly when it differs.</p>
-          <h4>Responses</h4>
-          <table>
-            <tr><th>Situation</th><th>Return</th></tr>
-            <tr><td>New key</td><td>process; 200/201</td></tr>
-            <tr><td>Same key, same body, complete</td><td>replay the stored response</td></tr>
-            <tr><td>Same key, same body, in flight</td><td>409 or wait</td></tr>
-            <tr><td>Same key, <em>different</em> body</td><td>422 &mdash; never replay</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Canonicalise before hashing, or whitespace and key order produce false mismatches.</li></ul>
+        <p>If a client sends key <code>K</code> with a €40 charge and later sends <code>K</code> with a €4,000 charge, replaying the first response would silently swallow the second request. That is a client bug, and the only safe behaviour is to say so.</p>
+        <p>Stripe returns a 422 in this case. Hash the canonical body at write time, compare on every repeat, and fail loudly when it differs.</p>
+        <h4>Responses</h4>
+        <table><tr><th>Situation</th><th>Return</th></tr>
+        <tr><td>New key</td><td>process; 200/201</td></tr>
+        <tr><td>Same key, same body, complete</td><td>replay the stored response</td></tr>
+        <tr><td>Same key, same body, in flight</td><td>409 or wait</td></tr>
+        <tr><td>Same key, <em>different</em> body</td><td>422 — never replay</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Canonicalise before hashing, or whitespace and key order produce false mismatches.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Response replay</b><span>Returning the stored result of the first attempt, so a retry is indistinguishable from the original.</span><template class="term-detail" data-see="Idempotency key, Request fingerprint, Dedup store">
-          <p>Deduplication that returns a bare 409 is only half useful: the client still does not know whether the charge succeeded and still cannot show a result. Storing the status code and body against the key makes the retry transparent &mdash; the client receives exactly what it would have received the first time.</p>
-          <p>Store it in the same transaction as the effect, so there is never a moment where the charge exists and the recorded response does not.</p>
-          <h4>What to store</h4>
-          <table>
-            <tr><th>Field</th><th>Why</th></tr>
-            <tr><td>Status code + body</td><td>replay the exact answer</td></tr>
-            <tr><td>Request fingerprint</td><td>detect a changed body</td></tr>
-            <tr><td>State: in-flight / done</td><td>handle concurrency</td></tr>
-            <tr><td>Created-at</td><td>window expiry</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Replay the response for failures too &mdash; a stored 422 avoids re-running a doomed request.</li></ul>
+        <p>Deduplication that returns a bare 409 is only half useful: the client still does not know whether the charge succeeded and still cannot show a result. Storing the status code and body against the key makes the retry transparent — the client receives exactly what it would have received the first time.</p>
+        <p>Store it in the same transaction as the effect, so there is never a moment where the charge exists and the recorded response does not.</p>
+        <h4>What to store</h4>
+        <table><tr><th>Field</th><th>Why</th></tr>
+        <tr><td>Status code + body</td><td>replay the exact answer</td></tr>
+        <tr><td>Request fingerprint</td><td>detect a changed body</td></tr>
+        <tr><td>State: in-flight / done</td><td>handle concurrency</td></tr>
+        <tr><td>Created-at</td><td>window expiry</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Replay the response for failures too — a stored 422 avoids re-running a doomed request.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Concurrent duplicates</b><span>Two attempts in flight at once — the case a naive check-then-act misses entirely.</span><template class="term-detail" data-see="Idempotency key, Response replay, Dedup store">
-          <p>"Look up the key; if absent, process" has a race: both attempts look up, both find nothing, both process. Retries with low backoff make this likely rather than theoretical.</p>
-          <p>The fix is an atomic claim: insert the key first and let the unique constraint decide. Exactly one insert succeeds and does the work; the other sees the conflict and either waits briefly or returns 409.</p>
-          <h4>Approaches</h4>
-          <table>
-            <tr><th>Approach</th><th>Safe?</th></tr>
-            <tr><td>Check, then insert</td><td>no &mdash; a race</td></tr>
-            <tr><td><code>INSERT … ON CONFLICT DO NOTHING</code></td><td>yes</td></tr>
-            <tr><td><code>SET NX</code> in Redis</td><td>yes</td></tr>
-            <tr><td>A lock on the key</td><td>yes, with a timeout</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>An in-flight record also needs a timeout, or a crashed attempt blocks its own retry forever.</li></ul>
+        <p>"Look up the key; if absent, process" has a race: both attempts look up, both find nothing, both process. Retries with low backoff make this likely rather than theoretical.</p>
+        <p>The fix is an atomic claim: insert the key first and let the unique constraint decide. Exactly one insert succeeds and does the work; the other sees the conflict and either waits briefly or returns 409.</p>
+        <h4>Approaches</h4>
+        <table><tr><th>Approach</th><th>Safe?</th></tr>
+        <tr><td>Check, then insert</td><td>no — a race</td></tr>
+        <tr><td><code>INSERT … ON CONFLICT DO NOTHING</code></td><td>yes</td></tr>
+        <tr><td><code>SET NX</code> in Redis</td><td>yes</td></tr>
+        <tr><td>A lock on the key</td><td>yes, with a timeout</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>An in-flight record also needs a timeout, or a crashed attempt blocks its own retry forever.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>At-most-once</b><span>Never retry: no duplicates, and silent loss whenever something goes wrong.</span><template class="term-detail" data-see="At-least-once, Exactly-once, Idempotent operation">
-          <p>Fire and forget. It is the correct choice when a lost item is genuinely cheaper than a duplicate one and nobody will miss it: a metrics sample, a log line, a presence ping.</p>
-          <p>It is the wrong choice for anything a human or a ledger will notice, because the failure is invisible &mdash; there is no artefact to find, no alert to fire, and nothing to reconcile against.</p>
-          <h4>How it relates</h4>
-          <ul><li>Choosing it should be deliberate. Most at-most-once systems got there by forgetting to handle an error.</li></ul>
+        <p>Fire and forget. It is the correct choice when a lost item is genuinely cheaper than a duplicate one and nobody will miss it: a metrics sample, a log line, a presence ping.</p>
+        <p>It is the wrong choice for anything a human or a ledger will notice, because the failure is invisible — there is no artefact to find, no alert to fire, and nothing to reconcile against.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Choosing it should be deliberate. Most at-most-once systems got there by forgetting to handle an error.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>At-least-once</b><span>Retry until acknowledged: nothing is lost, and duplicates are guaranteed to happen eventually.</span><template class="term-detail" data-see="At-most-once, Effectively-once, Dedup store">
-          <p>The right default, for one asymmetry: duplicates are detectable and losses are not. A repeat carries an identifier you can match; a message that never arrived leaves no trace anywhere.</p>
-          <p>Accepting it means accepting an obligation: every consumer must tolerate repeats. That is not a caveat to note in a document &mdash; it is a requirement to test, by replaying the same message twice.</p>
-          <h4>Where duplicates come from</h4>
-          <table>
-            <tr><th>Source</th><th>Frequency</th></tr>
-            <tr><td>Client or library retry</td><td>routine</td></tr>
-            <tr><td>Broker redelivery after a restart</td><td>routine</td></tr>
-            <tr><td>Consumer group rebalance</td><td>routine</td></tr>
-            <tr><td>Outbox relay restart</td><td>routine</td></tr>
-            <tr><td>An operator replaying a queue</td><td>rare, and large</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The outbox pattern produces at-least-once by construction, which is why it mandates idempotent consumers.</li></ul>
+        <p>The right default, for one asymmetry: duplicates are detectable and losses are not. A repeat carries an identifier you can match; a message that never arrived leaves no trace anywhere.</p>
+        <p>Accepting it means accepting an obligation: every consumer must tolerate repeats. That is not a caveat to note in a document — it is a requirement to test, by replaying the same message twice.</p>
+        <h4>Where duplicates come from</h4>
+        <table><tr><th>Source</th><th>Frequency</th></tr>
+        <tr><td>Client or library retry</td><td>routine</td></tr>
+        <tr><td>Broker redelivery after a restart</td><td>routine</td></tr>
+        <tr><td>Consumer group rebalance</td><td>routine</td></tr>
+        <tr><td>Outbox relay restart</td><td>routine</td></tr>
+        <tr><td>An operator replaying a queue</td><td>rare, and large</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The outbox pattern produces at-least-once by construction, which is why it mandates idempotent consumers.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Exactly-once delivery</b><span>The thing that cannot be built — and the phrase to push back on in a design review.</span><template class="term-detail" data-see="At-least-once, Effectively-once, Two Generals">
-          <p>It would require the sender to distinguish "lost on the way there" from "processed, lost on the way back". Doing so needs a reliable acknowledgement, which needs a reliable acknowledgement of the acknowledgement, and so on. The regress is the proof.</p>
-          <p>When a product claims exactly-once, it almost always means at-least-once delivery plus deduplication inside its own boundary &mdash; which is genuinely useful and stops at the edge of that boundary.</p>
-          <h4>What the claims mean</h4>
-          <table>
-            <tr><th>Claim</th><th>Actually</th></tr>
-            <tr><td>Kafka "exactly-once"</td><td>idempotent producer + transactions, within Kafka</td></tr>
-            <tr><td>Flink "exactly-once"</td><td>checkpointing + transactional sinks</td></tr>
-            <tr><td>Queue "exactly-once"</td><td>at-least-once + a dedup window</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The moment an effect leaves the system &mdash; an email, a card charge &mdash; the guarantee ends.</li></ul>
+        <p>It would require the sender to distinguish "lost on the way there" from "processed, lost on the way back". Doing so needs a reliable acknowledgement, which needs a reliable acknowledgement of the acknowledgement, and so on. The regress is the proof.</p>
+        <p>When a product claims exactly-once, it almost always means at-least-once delivery plus deduplication inside its own boundary — which is genuinely useful and stops at the edge of that boundary.</p>
+        <h4>What the claims mean</h4>
+        <table><tr><th>Claim</th><th>Actually</th></tr>
+        <tr><td>Kafka "exactly-once"</td><td>idempotent producer + transactions, within Kafka</td></tr>
+        <tr><td>Flink "exactly-once"</td><td>checkpointing + transactional sinks</td></tr>
+        <tr><td>Queue "exactly-once"</td><td>at-least-once + a dedup window</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The moment an effect leaves the system — an email, a card charge — the guarantee ends.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Effectively-once</b><span>At-least-once delivery whose duplicates have been made harmless. What everyone means by exactly-once.</span><template class="term-detail" data-see="At-least-once, Idempotency key, Dedup store">
-          <p>Three parts: delivery that retries until acknowledged, a key that is stable across those retries, and a store that remembers which keys have been handled &mdash; written atomically with the effect itself.</p>
-          <p>The atomicity is the part that gets skipped. Recording the key in Redis and then writing to the database leaves a window where a crash loses one and keeps the other, which reintroduces exactly the problem.</p>
-          <h4>The three parts</h4>
-          <table>
-            <tr><th>Part</th><th>Supplied by</th></tr>
-            <tr><td>At-least-once delivery</td><td>retries, broker, outbox</td></tr>
-            <tr><td>A stable key</td><td>the client or the producer</td></tr>
-            <tr><td>Dedup, atomic with the effect</td><td>one transaction in your store</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>If the dedup record and the effect are in different stores, you need an outbox between them.</li></ul>
+        <p>Three parts: delivery that retries until acknowledged, a key that is stable across those retries, and a store that remembers which keys have been handled — written atomically with the effect itself.</p>
+        <p>The atomicity is the part that gets skipped. Recording the key in Redis and then writing to the database leaves a window where a crash loses one and keeps the other, which reintroduces exactly the problem.</p>
+        <h4>The three parts</h4>
+        <table><tr><th>Part</th><th>Supplied by</th></tr>
+        <tr><td>At-least-once delivery</td><td>retries, broker, outbox</td></tr>
+        <tr><td>A stable key</td><td>the client or the producer</td></tr>
+        <tr><td>Dedup, atomic with the effect</td><td>one transaction in your store</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>If the dedup record and the effect are in different stores, you need an outbox between them.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Dedup store</b><span>Where processed keys live — a table or a cache, read and written on the hot path.</span><template class="term-detail" data-see="Dedup window, Effectively-once, Concurrent duplicates">
-          <p>A relational table alongside the business data is the simplest correct answer, because the dedup record and the effect commit together. Redis is faster and introduces a second store, which means the atomicity has to be designed rather than inherited.</p>
-          <p>Whatever you choose, the key must be the primary key, and expiry must be automatic &mdash; a dedup table nobody prunes becomes the largest table you own.</p>
-          <h4>Options</h4>
-          <table>
-            <tr><th>Store</th><th>Trade-off</th></tr>
-            <tr><td>Same database</td><td>atomic with the effect; simplest</td></tr>
-            <tr><td>Redis with TTL</td><td>fast, self-expiring, not atomic with the DB</td></tr>
-            <tr><td>Broker-native dedup</td><td>free, but only within the broker</td></tr>
-            <tr><td>Bloom filter</td><td>tiny; false positives drop real work</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>A Bloom filter's false positives mean "silently discarded a genuine request" &mdash; rarely an acceptable trade.</li></ul>
+        <p>A relational table alongside the business data is the simplest correct answer, because the dedup record and the effect commit together. Redis is faster and introduces a second store, which means the atomicity has to be designed rather than inherited.</p>
+        <p>Whatever you choose, the key must be the primary key, and expiry must be automatic — a dedup table nobody prunes becomes the largest table you own.</p>
+        <h4>Options</h4>
+        <table><tr><th>Store</th><th>Trade-off</th></tr>
+        <tr><td>Same database</td><td>atomic with the effect; simplest</td></tr>
+        <tr><td>Redis with TTL</td><td>fast, self-expiring, not atomic with the DB</td></tr>
+        <tr><td>Broker-native dedup</td><td>free, but only within the broker</td></tr>
+        <tr><td>Bloom filter</td><td>tiny; false positives drop real work</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>A Bloom filter's false positives mean "silently discarded a genuine request" — rarely an acceptable trade.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Dedup window</b><span>How long a key is remembered. Too short and duplicates slip through; too long and you store everything forever.</span><template class="term-detail" data-see="Window sizing, Dedup store, At-least-once">
-          <p>Outside the window the same key looks new, and the operation runs a second time. The window is therefore not a storage decision dressed up as a correctness one &mdash; it <em>is</em> the correctness boundary.</p>
-          <p>Twenty-four hours is the common default (Stripe uses it) because it comfortably exceeds any plausible client retry horizon while keeping the table bounded.</p>
-          <div class="anim" id="win-anim" data-steps="win"><h4>What happens at the edge of the window</h4>
-            <div class="stage">
-              <svg viewBox="0 0 560 200" role="img" aria-label="A retry arriving inside the dedup window being deduplicated, and one arriving after it being processed again">
-                <text x="280" y="22" font-size="11.5" text-anchor="middle" fill="#5f6f66">the window is the correctness boundary, not a storage setting</text>
-                <line x1="40" y1="96" x2="520" y2="96" stroke="#a9b5a6" stroke-width="1.5"/>
-                <rect id="wn-win" x="40" y="86" width="260" height="20" rx="3" fill="#e3eedc" stroke="#2f6b3f"/>
-                <text id="wn-wint" x="170" y="100" font-size="9.5" text-anchor="middle" fill="#2f6b3f" font-weight="600">key remembered</text>
-                <text x="40" y="124" font-size="9.5" text-anchor="middle" fill="#5f6f66">t=0</text>
-                <text x="300" y="124" font-size="9.5" text-anchor="middle" fill="#5f6f66">window ends</text>
-                <g id="wn-r1" class="hidden"><circle cx="190" cy="96" r="6" fill="#2f6b3f"/><text x="190" y="76" font-size="9.5" text-anchor="middle" fill="#2f6b3f">retry</text></g>
-                <g id="wn-r2" class="hidden"><circle cx="400" cy="96" r="6" fill="#c53b3b"/><text x="400" y="76" font-size="9.5" text-anchor="middle" fill="#c53b3b">retry</text></g>
-                <text id="wn-msg" x="280" y="154" font-size="11" text-anchor="middle" fill="#5f6f66">one charge made at t=0, key stored</text>
-                <text id="wn-msg2" x="280" y="176" font-size="10.5" text-anchor="middle" fill="#5f6f66">&nbsp;</text>
-              </svg>
-            </div><div class="controls"></div><div class="narration"></div></div>
-          <h4>How it relates</h4>
-          <ul><li>Broker-side dedup windows are usually far shorter &mdash; check yours before relying on it.</li></ul>
+        <p>Outside the window the same key looks new, and the operation runs a second time. The window is therefore not a storage decision dressed up as a correctness one — it <em>is</em> the correctness boundary.</p>
+        <p>Twenty-four hours is the common default (Stripe uses it) because it comfortably exceeds any plausible client retry horizon while keeping the table bounded.</p>
+        <div class="anim" id="win-anim" data-steps="win">
+          <h4>What happens at the edge of the window</h4>
+          <div class="stage">
+            <svg viewBox="0 0 560 200" role="img" aria-label="A retry arriving inside the dedup window being deduplicated, and one arriving after it being processed again">
+              <text x="280" y="22" font-size="11.5" text-anchor="middle" fill="#5f6f66">the window is the correctness boundary, not a storage setting</text>
+              <line x1="40" y1="96" x2="520" y2="96" stroke="#a9b5a6" stroke-width="1.5"/>
+              <rect id="wn-win" x="40" y="86" width="260" height="20" rx="3" fill="#e3eedc" stroke="#2f6b3f"/>
+              <text id="wn-wint" x="170" y="100" font-size="9.5" text-anchor="middle" fill="#2f6b3f" font-weight="600">key remembered</text>
+              <text x="40" y="124" font-size="9.5" text-anchor="middle" fill="#5f6f66">t=0</text>
+              <text x="300" y="124" font-size="9.5" text-anchor="middle" fill="#5f6f66">window ends</text>
+              <g id="wn-r1" class="hidden"><circle cx="190" cy="96" r="6" fill="#2f6b3f"/><text x="190" y="76" font-size="9.5" text-anchor="middle" fill="#2f6b3f">retry</text></g>
+              <g id="wn-r2" class="hidden"><circle cx="400" cy="96" r="6" fill="#c53b3b"/><text x="400" y="76" font-size="9.5" text-anchor="middle" fill="#c53b3b">retry</text></g>
+              <text id="wn-msg" x="280" y="154" font-size="11" text-anchor="middle" fill="#5f6f66">one charge made at t=0, key stored</text>
+              <text id="wn-msg2" x="280" y="176" font-size="10.5" text-anchor="middle" fill="#5f6f66">&nbsp;</text>
+            </svg>
+          </div>
+          <div class="controls"></div>
+          <div class="narration"></div>
+        </div>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Broker-side dedup windows are usually far shorter — check yours before relying on it.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Window sizing</b><span>The window must outlast every mechanism that could redeliver — retries, broker redelivery, operator replays.</span><template class="term-detail" data-see="Dedup window, Dedup store, At-least-once">
-          <p>Add up the worst cases: the client's full retry schedule, the broker's maximum redelivery delay, any dead-letter replay you might perform, and a margin for clock skew. The window must exceed that sum, not the typical case.</p>
-          <p>Then check the cost: storage is roughly <code>rate &times; window &times; row size</code>. At 1,000 operations a second over 24 hours that is 86 million rows, which is why the row should be small and the index tight.</p>
-          <h4>Worked sizing</h4>
-          <table>
-            <tr><th>Input</th><th>Value</th></tr>
-            <tr><td>Client retry horizon</td><td>5 min</td></tr>
-            <tr><td>Broker max redelivery</td><td>1 h</td></tr>
-            <tr><td>Manual replay window</td><td>12 h</td></tr>
-            <tr><td>&rarr; dedup window</td><td>24 h, comfortably</td></tr>
-            <tr><td>&rarr; storage at 1k/s</td><td>~86M rows</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>If a replay older than the window is ever needed, dedup on a business key instead &mdash; it never expires.</li></ul>
+        <p>Add up the worst cases: the client's full retry schedule, the broker's maximum redelivery delay, any dead-letter replay you might perform, and a margin for clock skew. The window must exceed that sum, not the typical case.</p>
+        <p>Then check the cost: storage is roughly <code>rate × window × row size</code>. At 1,000 operations a second over 24 hours that is 86 million rows, which is why the row should be small and the index tight.</p>
+        <h4>Worked sizing</h4>
+        <table><tr><th>Input</th><th>Value</th></tr>
+        <tr><td>Client retry horizon</td><td>5 min</td></tr>
+        <tr><td>Broker max redelivery</td><td>1 h</td></tr>
+        <tr><td>Manual replay window</td><td>12 h</td></tr>
+        <tr><td>→ dedup window</td><td>24 h, comfortably</td></tr>
+        <tr><td>→ storage at 1k/s</td><td>~86M rows</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>If a replay older than the window is ever needed, dedup on a business key instead — it never expires.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Business key dedup</b><span>Deduplicating on something the domain already guarantees unique, instead of a separate key with a window.</span><template class="term-detail" data-see="Dedup window, Idempotent operation, Idempotency key">
-          <p>A unique constraint on <code>(order_id, line_no)</code> or on an invoice number does the job permanently, with no window to size and no table to prune. Where the domain offers such a key, it is strictly better than an idempotency key.</p>
-          <p>It also survives replays from any era, which is the one case a windowed dedup store cannot handle.</p>
-          <h4>Prefer a business key when</h4>
-          <table>
-            <tr><th>Situation</th><th>Key</th></tr>
-            <tr><td>Creating an order line</td><td><code>(order_id, line_no)</code></td></tr>
-            <tr><td>Recording a payment</td><td>provider's transaction id</td></tr>
-            <tr><td>Importing a row</td><td>source system's primary key</td></tr>
-            <tr><td>Arbitrary client command</td><td>idempotency key &mdash; no natural one exists</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>A unique index <em>is</em> deduplication; catching the conflict and returning success is the whole implementation.</li></ul>
+        <p>A unique constraint on <code>(order_id, line_no)</code> or on an invoice number does the job permanently, with no window to size and no table to prune. Where the domain offers such a key, it is strictly better than an idempotency key.</p>
+        <p>It also survives replays from any era, which is the one case a windowed dedup store cannot handle.</p>
+        <h4>Prefer a business key when</h4>
+        <table><tr><th>Situation</th><th>Key</th></tr>
+        <tr><td>Creating an order line</td><td><code>(order_id, line_no)</code></td></tr>
+        <tr><td>Recording a payment</td><td>provider's transaction id</td></tr>
+        <tr><td>Importing a row</td><td>source system's primary key</td></tr>
+        <tr><td>Arbitrary client command</td><td>idempotency key — no natural one exists</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>A unique index <em>is</em> deduplication; catching the conflict and returning success is the whole implementation.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Inbox pattern</b><span>The consumer-side table recording processed message ids, written in the same transaction as the work.</span><template class="term-detail" data-see="Effectively-once, Dedup store, At-least-once">
-          <p>The mirror of the outbox. On receipt, insert the message id; if the insert conflicts, this message has already been handled and you acknowledge without doing anything. Because the insert and the business change share a transaction, a crash cannot leave one without the other.</p>
-          <p>That atomicity is the entire value. Checking a cache and then writing to the database is the same pattern with the guarantee removed.</p>
-          <h4>How it relates</h4>
-          <ul><li>Outbox plus inbox is the complete transactional messaging pair.</li></ul>
+        <p>The mirror of the outbox. On receipt, insert the message id; if the insert conflicts, this message has already been handled and you acknowledge without doing anything. Because the insert and the business change share a transaction, a crash cannot leave one without the other.</p>
+        <p>That atomicity is the entire value. Checking a cache and then writing to the database is the same pattern with the guarantee removed.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Outbox plus inbox is the complete transactional messaging pair.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Broker-level dedup</b><span>What Kafka and friends provide — real, useful, and bounded to the broker.</span><template class="term-detail" data-see="Exactly-once, Effectively-once, Dedup window">
-          <p>Kafka's idempotent producer (<code>enable.idempotence=true</code>) stops a retried produce creating duplicate records, using a producer id and sequence numbers. Transactions extend that to atomic read-process-write across partitions.</p>
-          <p>Both guarantees end at the broker boundary. The moment your consumer charges a card or sends an email, you are back to needing your own idempotency &mdash; which is why "we use exactly-once Kafka" is not an answer to "can this charge twice?".</p>
-          <h4>What it covers</h4>
-          <table>
-            <tr><th>Scenario</th><th>Covered?</th></tr>
-            <tr><td>Producer retry duplicating a record</td><td>yes</td></tr>
-            <tr><td>Read &rarr; process &rarr; write, within Kafka</td><td>yes, with transactions</td></tr>
-            <tr><td>Consumer writing to your database</td><td>no &mdash; your inbox</td></tr>
-            <tr><td>Consumer calling an external API</td><td>no &mdash; idempotency key</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The Kafka page covers the producer and consumer settings in detail.</li></ul>
+        <p>Kafka's idempotent producer (<code>enable.idempotence=true</code>) stops a retried produce creating duplicate records, using a producer id and sequence numbers. Transactions extend that to atomic read-process-write across partitions.</p>
+        <p>Both guarantees end at the broker boundary. The moment your consumer charges a card or sends an email, you are back to needing your own idempotency — which is why "we use exactly-once Kafka" is not an answer to "can this charge twice?".</p>
+        <h4>What it covers</h4>
+        <table><tr><th>Scenario</th><th>Covered?</th></tr>
+        <tr><td>Producer retry duplicating a record</td><td>yes</td></tr>
+        <tr><td>Read → process → write, within Kafka</td><td>yes, with transactions</td></tr>
+        <tr><td>Consumer writing to your database</td><td>no — your inbox</td></tr>
+        <tr><td>Consumer calling an external API</td><td>no — idempotency key</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The Kafka page covers the producer and consumer settings in detail.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Out-of-order writes</b><span>Duplicates are not the only hazard — a redelivered older message can overwrite a newer state.</span><template class="term-detail" data-see="Idempotent operation, Inbox pattern, Effectively-once">
-          <p>A retry can arrive after a later update has already been applied. Blindly applying it reverts the record, which is a correctness bug deduplication alone does not catch.</p>
-          <p>Carry a monotonic version or sequence number and guard the write: apply only when the incoming version is greater than the stored one. That makes the operation both idempotent and order-insensitive.</p>
-          <h4>Guarded write</h4>
-          <table>
-            <tr><th>Write</th><th>Safe?</th></tr>
-            <tr><td><code>SET status=… WHERE seq &lt; @seq</code></td><td>yes</td></tr>
-            <tr><td><code>SET status=…</code> unconditionally</td><td>no &mdash; can revert</td></tr>
-            <tr><td><code>total = total + x</code></td><td>no &mdash; duplicates accumulate</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>CQRS projections need exactly this guard, for exactly this reason.</li></ul>
+        <p>A retry can arrive after a later update has already been applied. Blindly applying it reverts the record, which is a correctness bug deduplication alone does not catch.</p>
+        <p>Carry a monotonic version or sequence number and guard the write: apply only when the incoming version is greater than the stored one. That makes the operation both idempotent and order-insensitive.</p>
+        <h4>Guarded write</h4>
+        <table><tr><th>Write</th><th>Safe?</th></tr>
+        <tr><td><code>SET status=… WHERE seq &lt; @seq</code></td><td>yes</td></tr>
+        <tr><td><code>SET status=…</code> unconditionally</td><td>no — can revert</td></tr>
+        <tr><td><code>total = total + x</code></td><td>no — duplicates accumulate</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>CQRS projections need exactly this guard, for exactly this reason.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>External side effects</b><span>Emails, charges and webhooks leave your transaction boundary — and your guarantees with it.</span><template class="term-detail" data-see="Idempotency key, Effectively-once, Response replay">
-          <p>A database write can be made idempotent locally. Sending an email cannot: once it is gone, a duplicate is visible to a human. The only defence is to push the idempotency outward &mdash; use the provider's idempotency key, or record "sent" atomically with the send attempt and accept the small ambiguity that remains.</p>
-          <p>Order matters here. Do the local, reversible work first and the irreversible external call last, so a failure in between leaves less to explain.</p>
-          <h4>Making externals safer</h4>
-          <table>
-            <tr><th>Effect</th><th>Defence</th></tr>
-            <tr><td>Card charge</td><td>provider's idempotency key</td></tr>
-            <tr><td>Email / SMS</td><td>dedup on a message id you generate</td></tr>
-            <tr><td>Outbound webhook</td><td>send a delivery id; the receiver dedups</td></tr>
-            <tr><td>File write</td><td>write to a temp name, then rename</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>This is the pivot point in a saga: after it, you can only retry forwards.</li></ul>
+        <p>A database write can be made idempotent locally. Sending an email cannot: once it is gone, a duplicate is visible to a human. The only defence is to push the idempotency outward — use the provider's idempotency key, or record "sent" atomically with the send attempt and accept the small ambiguity that remains.</p>
+        <p>Order matters here. Do the local, reversible work first and the irreversible external call last, so a failure in between leaves less to explain.</p>
+        <h4>Making externals safer</h4>
+        <table><tr><th>Effect</th><th>Defence</th></tr>
+        <tr><td>Card charge</td><td>provider's idempotency key</td></tr>
+        <tr><td>Email / SMS</td><td>dedup on a message id you generate</td></tr>
+        <tr><td>Outbound webhook</td><td>send a delivery id; the receiver dedups</td></tr>
+        <tr><td>File write</td><td>write to a temp name, then rename</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>This is the pivot point in a saga: after it, you can only retry forwards.</li>
+        </ul>
         </template></div>
       </div>
     </section>
@@ -474,10 +465,9 @@ VALUES (@tenant, @endpoint, @key, @fingerprint, 'in_flight')
 ON CONFLICT (tenant_id, endpoint, key) DO NOTHING
 RETURNING 1;
 
--- 1 row  -> first attempt, go and do the work
--- 0 rows -> a duplicate: read the existing row and decide what to return</code></pre><div class="what">Check-then-act has a race that low-backoff retries hit regularly. Let the database arbitrate instead.</div></div>
+-- 1 row  -&gt; first attempt, go and do the work
+-- 0 rows -&gt; a duplicate: read the existing row and decide what to return</code></pre><div class="what">Check-then-act has a race that low-backoff retries hit regularly. Let the database arbitrate instead.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>The server side, in C#</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">app.MapPost("/charges", async (ChargeRequest req, HttpContext ctx, AppDb db) =&gt;
@@ -532,7 +522,6 @@ async def create_charge(req: ChargeRequest, request: Request, conn=Depends(db)):
         await complete(conn, tenant, "/charges", key, 201, charge)
         return charge</code></pre><div class="what">Note the key being passed on to the payment provider: your idempotency is only as good as the next hop's.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>The client side</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// generate ONCE per operation, outside the retry loop
@@ -560,7 +549,6 @@ async def charge_once():
     res.raise_for_status()
     return res.json()</code></pre><div class="what">Capturing the key in the closure keeps it stable across attempts, which is exactly the property the server relies on.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>The consumer side: an inbox</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// dedup and the business change in ONE transaction — that is the whole trick
@@ -581,11 +569,10 @@ UPDATE order_view
 
 # dedup alone would let a stale retry revert a newer state</code></pre><div class="what">Duplicates are only half the problem. A sequence guard makes the write both idempotent and order-insensitive.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Window and pruning</h3>
         <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">-- window = client retries + broker redelivery + replay margin, then round up
--- 5 min + 1 h + 12 h  ->  24 h
+-- 5 min + 1 h + 12 h  -&gt;  24 h
 
 DELETE FROM idempotency
  WHERE created_at &lt; now() - interval '24 hours'
@@ -601,7 +588,6 @@ if not ok:
 # NOTE: this is NOT atomic with your database write. If the process dies
 # between the SET and the commit, the key is claimed and the work never happened.</code></pre><div class="what">Fast and self-expiring, but a second store. Use it for read-mostly dedup, not where the effect must be transactional.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Kafka, and what it does not cover</h3>
         <div class="cmd"><pre class="language-none line-numbers"><code class="language-none"># producer: a retry no longer creates a duplicate record
@@ -621,7 +607,7 @@ isolation.level=read_committed   # on the consumer side</code></pre><div class="
         <div class="col good"><h3>Pros</h3><ul>
           <li>Makes retries safe, which makes every other resilience pattern usable.</li>
           <li>Turns an ambiguous timeout into a question the client can simply re-ask.</li>
-          <li>Response replay means a retry is transparent &mdash; the client gets the original answer.</li>
+          <li>Response replay means a retry is transparent — the client gets the original answer.</li>
           <li>A unique constraint does most of the work; the mechanism is small.</li>
           <li>Protects against operator replays and broker redelivery, not just client retries.</li>
           <li>Gives "exactly-once" semantics without pretending exactly-once delivery exists.</li>
@@ -630,7 +616,7 @@ isolation.level=read_committed   # on the consumer side</code></pre><div class="
           <li>A lookup and a write on the hot path of every mutating request.</li>
           <li>The dedup table grows with traffic and must be pruned deliberately.</li>
           <li>The window is a correctness boundary that is easy to size wrongly.</li>
-          <li>Only works if the dedup record is atomic with the effect &mdash; often it is not.</li>
+          <li>Only works if the dedup record is atomic with the effect — often it is not.</li>
           <li>External side effects escape the guarantee entirely.</li>
           <li>Clients must generate the key correctly, and the common bug is silent.</li>
         </ul></div>
@@ -642,8 +628,8 @@ isolation.level=read_committed   # on the consumer side</code></pre><div class="
       <div class="cards">
         <div class="card"><h3>The double charge</h3><p>A payment request times out after the charge succeeded. The client retries with the same idempotency key, the provider recognises it and returns the original charge object. One charge, and the client gets a definitive answer instead of a guess.</p></div>
         <div class="card"><h3>A consumer rebalance</h3><p>A Kafka consumer group rebalances and redelivers the last few messages. An inbox table keyed on message id means the shipments are not created twice, and the handler simply acknowledges and moves on.</p></div>
-        <div class="card"><h3>The impatient user</h3><p>Someone double-clicks "Place order". The browser sends two requests with the same key generated when the form was rendered, and the second gets the first's response &mdash; one order, no duplicate-detection logic in the UI.</p></div>
-        <div class="card"><h3>Replaying a dead-letter queue</h3><p>After a fix, 40,000 messages are replayed from the dead-letter queue. Those already processed are recognised and skipped; only the genuinely unhandled ones take effect &mdash; provided the dedup window covered the outage.</p></div>
+        <div class="card"><h3>The impatient user</h3><p>Someone double-clicks "Place order". The browser sends two requests with the same key generated when the form was rendered, and the second gets the first's response — one order, no duplicate-detection logic in the UI.</p></div>
+        <div class="card"><h3>Replaying a dead-letter queue</h3><p>After a fix, 40,000 messages are replayed from the dead-letter queue. Those already processed are recognised and skipped; only the genuinely unhandled ones take effect — provided the dedup window covered the outage.</p></div>
         <div class="card"><h3>An importer run twice</h3><p>A nightly import is accidentally started twice. A unique constraint on the source system's primary key makes the second run a no-op, with no window to size and no state to prune.</p></div>
       </div>
     </section>
@@ -655,15 +641,15 @@ isolation.level=read_committed   # on the consumer side</code></pre><div class="
         <div class="col good"><h3>Use it when…</h3><ul>
           <li>The operation is not naturally idempotent and something might retry it.</li>
           <li>A timeout would leave the caller unable to tell whether the work happened.</li>
-          <li>You consume from a broker &mdash; redelivery is a certainty, not a risk.</li>
+          <li>You consume from a broker — redelivery is a certainty, not a risk.</li>
           <li>Money, stock or anything a human would notice is involved.</li>
           <li>You might ever replay a queue or re-run an import.</li>
         </ul></div>
         <div class="col bad"><h3>Avoid it when…</h3><ul>
-          <li>The operation is already idempotent. Use <b>absolute values and upserts</b> &mdash; no key needed.</li>
+          <li>The operation is already idempotent. Use <b>absolute values and upserts</b> — no key needed.</li>
           <li>A natural unique key exists. Use <b>a unique constraint</b>; it never expires and needs no pruning.</li>
           <li>Losing an item is genuinely fine. Use <b>at-most-once</b> and skip all of this.</li>
-          <li>Nothing can ever retry &mdash; no client retries, no broker, no operator. Use <b>nothing</b>, and be sure.</li>
+          <li>Nothing can ever retry — no client retries, no broker, no operator. Use <b>nothing</b>, and be sure.</li>
           <li>You are tempted to track a key for every read. Use <b>it only on mutations</b>.</li>
         </ul></div>
       </div>
@@ -672,12 +658,12 @@ isolation.level=read_committed   # on the consumer side</code></pre><div class="
     <section id="gotchas">
       <h2>Common mistakes &amp; gotchas</h2>
       <div class="gotcha"><b>Generating the key inside the retry loop</b><span>Each attempt carries a fresh key, so the server sees three unrelated requests and performs the work three times. The mechanism is present, configured, and doing nothing.</span><div class="fix">Fix: generate the key once with the intent, before the first attempt, and capture it so every retry sends the same value. Test it by forcing a retry.</div></div>
-      <div class="gotcha"><b>Dedup record not atomic with the effect</b><span>Writing the key to Redis and the data to Postgres leaves a window where a crash keeps one and loses the other &mdash; either a duplicate or an operation that is recorded but never happened.</span><div class="fix">Fix: put the dedup row in the same database and the same transaction as the effect. If they must be separate stores, you need an outbox between them.</div></div>
-      <div class="gotcha"><b>Check-then-act</b><span>"Look up the key; if absent, process" races with itself. Two concurrent retries both find nothing and both do the work &mdash; and fast retries make this likely, not theoretical.</span><div class="fix">Fix: claim atomically with <code>INSERT … ON CONFLICT DO NOTHING</code> or Redis <code>SET NX</code>, and let the unique constraint decide which attempt proceeds.</div></div>
+      <div class="gotcha"><b>Dedup record not atomic with the effect</b><span>Writing the key to Redis and the data to Postgres leaves a window where a crash keeps one and loses the other — either a duplicate or an operation that is recorded but never happened.</span><div class="fix">Fix: put the dedup row in the same database and the same transaction as the effect. If they must be separate stores, you need an outbox between them.</div></div>
+      <div class="gotcha"><b>Check-then-act</b><span>"Look up the key; if absent, process" races with itself. Two concurrent retries both find nothing and both do the work — and fast retries make this likely, not theoretical.</span><div class="fix">Fix: claim atomically with <code>INSERT … ON CONFLICT DO NOTHING</code> or Redis <code>SET NX</code>, and let the unique constraint decide which attempt proceeds.</div></div>
       <div class="gotcha"><b>A window shorter than the retry horizon</b><span>A five-minute window with a broker that redelivers after an hour means the duplicate arrives looking brand new, and the work runs twice.</span><div class="fix">Fix: size the window from client retries + broker redelivery + any manual replay, then round up. Twenty-four hours is a good default.</div></div>
       <div class="gotcha"><b>Same key, different body, silently replayed</b><span>A client reuses a key with a changed amount. Replaying the old response hides the new request entirely, and the caller believes something happened that did not.</span><div class="fix">Fix: store a fingerprint of the canonical body and return 422 when it differs. Never replay a response for a request you did not actually receive before.</div></div>
       <div class="gotcha"><b>Assuming the broker's "exactly-once" covers you</b><span>Kafka's guarantees end at the broker. The moment a consumer charges a card or sends an email, you are back to at-least-once with no protection.</span><div class="fix">Fix: treat broker guarantees as covering broker-to-broker only. Every external effect needs its own idempotency key or dedup record.</div></div>
-      <div class="gotcha"><b>Deduplicating but ignoring order</b><span>A redelivered older message is not a duplicate of anything processed, so dedup lets it through &mdash; and it overwrites a newer state.</span><div class="fix">Fix: carry a sequence or version and guard the write with <code>WHERE seq &lt; @seq</code>, so stale redeliveries are no-ops.</div></div>
+      <div class="gotcha"><b>Deduplicating but ignoring order</b><span>A redelivered older message is not a duplicate of anything processed, so dedup lets it through — and it overwrites a newer state.</span><div class="fix">Fix: carry a sequence or version and guard the write with <code>WHERE seq &lt; @seq</code>, so stale redeliveries are no-ops.</div></div>
       <div class="gotcha"><b>A dedup table nobody prunes</b><span>At a thousand operations a second it reaches tens of millions of rows in a day, slows its own lookups and eventually becomes the largest table in the database.</span><div class="fix">Fix: prune in batches on a schedule, or partition by day and drop partitions. Decide this when you create the table, not when it is 400 GB.</div></div>
     </section>
 
@@ -687,9 +673,9 @@ isolation.level=read_committed   # on the consumer side</code></pre><div class="
         <table>
           <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs idempotency keys</th></tr></thead>
           <tbody>
-            <tr class="self"><td><b>Idempotency keys + window</b></td><td>arbitrary client-initiated mutations</td><td>Medium</td><td>free; a table to prune</td><td>&mdash;</td></tr>
-            <tr><td><b>Naturally idempotent design</b></td><td>state updates</td><td>Very low</td><td>free</td><td>Absolute values and upserts need no key at all &mdash; always prefer this where possible</td></tr>
-            <tr><td><b>Business key constraint</b></td><td>when the domain has a unique id</td><td>Low</td><td>free</td><td>Permanent, no window, no pruning &mdash; strictly better when one exists</td></tr>
+            <tr class="self"><td><b>Idempotency keys + window</b></td><td>arbitrary client-initiated mutations</td><td>Medium</td><td>free; a table to prune</td><td>—</td></tr>
+            <tr><td><b>Naturally idempotent design</b></td><td>state updates</td><td>Very low</td><td>free</td><td>Absolute values and upserts need no key at all — always prefer this where possible</td></tr>
+            <tr><td><b>Business key constraint</b></td><td>when the domain has a unique id</td><td>Low</td><td>free</td><td>Permanent, no window, no pruning — strictly better when one exists</td></tr>
             <tr><td><b>At-most-once</b></td><td>metrics, telemetry, presence</td><td>Very low</td><td>free</td><td>No dedup needed because loss is acceptable; silent when it fails</td></tr>
             <tr><td><b>Broker idempotence / transactions</b></td><td>read-process-write inside one broker</td><td>Medium</td><td>free</td><td>Strong within the broker, absent outside it</td></tr>
             <tr><td><b>Two-phase commit</b></td><td>legacy XA resources</td><td>High</td><td>free; heavy</td><td>True atomicity across systems, at the cost of locks and coupled availability</td></tr>
@@ -698,7 +684,7 @@ isolation.level=read_committed   # on the consumer side</code></pre><div class="
         </table>
       </div>
       <ul style="margin-top:12px">
-        <li><b>Pick naturally idempotent operations</b> wherever you can choose the shape of the write &mdash; it removes the problem instead of managing it.</li>
+        <li><b>Pick naturally idempotent operations</b> wherever you can choose the shape of the write — it removes the problem instead of managing it.</li>
         <li><b>Pick a business key</b> when the domain provides one; no window, no pruning, no expiry edge case.</li>
         <li><b>Pick at-most-once</b> deliberately for telemetry, and never by accident for anything else.</li>
         <li><b>Pick broker transactions</b> for pipelines that stay inside the broker, and add your own dedup at every exit.</li>
@@ -709,11 +695,11 @@ isolation.level=read_committed   # on the consumer side</code></pre><div class="
     <section id="resources">
       <h2>Resources</h2>
       <ul>
-        <li><a href="https://docs.stripe.com/api/idempotent_requests" target="_blank" rel="noopener">Stripe &mdash; Idempotent requests</a>: the reference implementation most APIs copy, including the 24-hour window and the changed-body behaviour.</li>
-        <li><a href="https://brooker.co.za/blog/2014/11/15/retry.html" target="_blank" rel="noopener">Marc Brooker &mdash; Exactly-once and retries</a>: why the guarantee people want is about effects, not delivery.</li>
+        <li><a href="https://docs.stripe.com/api/idempotent_requests" target="_blank" rel="noopener">Stripe — Idempotent requests</a>: the reference implementation most APIs copy, including the 24-hour window and the changed-body behaviour.</li>
+        <li><a href="https://brooker.co.za/blog/2014/11/15/retry.html" target="_blank" rel="noopener">Marc Brooker — Exactly-once and retries</a>: why the guarantee people want is about effects, not delivery.</li>
         <li><a href="https://en.wikipedia.org/wiki/Two_Generals%27_Problem" target="_blank" rel="noopener">The Two Generals Problem</a>: the impossibility result underneath all of this, in two paragraphs.</li>
-        <li><a href="https://www.confluent.io/blog/exactly-once-semantics-are-possible-heres-how-apache-kafka-does-it/" target="_blank" rel="noopener">Confluent &mdash; Exactly-once semantics in Kafka</a>: what the idempotent producer and transactions actually guarantee, and where they stop.</li>
-        <li><a href="https://microservices.io/patterns/communication-style/idempotent-consumer.html" target="_blank" rel="noopener">microservices.io &mdash; Idempotent consumer</a>: the inbox pattern, stated as a pattern.</li>
+        <li><a href="https://www.confluent.io/blog/exactly-once-semantics-are-possible-heres-how-apache-kafka-does-it/" target="_blank" rel="noopener">Confluent — Exactly-once semantics in Kafka</a>: what the idempotent producer and transactions actually guarantee, and where they stop.</li>
+        <li><a href="https://microservices.io/patterns/communication-style/idempotent-consumer.html" target="_blank" rel="noopener">microservices.io — Idempotent consumer</a>: the inbox pattern, stated as a pattern.</li>
         <li><a href="https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-idempotency-key-header" target="_blank" rel="noopener">The Idempotency-Key header draft</a>: an attempt to standardise what Stripe popularised.</li>
       </ul>
     </section>
@@ -757,41 +743,42 @@ isolation.level=read_committed   # on the consumer side</code></pre><div class="
   </main>
 </div>
 
-<script src="../assets/player.js?v=3658cbc7"></script>
+<script src="../assets/player.js?v=e9bf1ea3"></script>
 <script>
 createAnimation('anim-ack', [
-  { say: 'A sender asks a payment service to charge &euro;40. Ordinary request, ordinary network.', hl: ['ia-send'] },
-  { say: 'The request arrives and the receiver processes it. The card is charged. So far everything has worked.', unhl: ['ia-send'], hl: ['ia-recv'], text: { 'ia-nt': 'request delivered →', 'ia-rt': 'processed the charge', 'ia-rt2': 'charged: €40' }, fill: { 'ia-rt2': '#2f6b3f' } },
-  { say: 'The receiver sends back its acknowledgement &mdash; and the network drops it. A dropped packet, a load balancer restart, a connection reset.', unhl: ['ia-recv'], hl: ['ia-net'], text: { 'ia-nt': 'acknowledgement lost ✗', 'ia-nt2': 'and nobody is told that it was lost' }, fill: { 'ia-nt': '#c53b3b' } },
-  { say: 'Now look at what the sender knows. It sent a request and received nothing. Those are the only two facts it has.', unhl: ['ia-net'], hl: ['ia-send'], text: { 'ia-k1': 'it sent a request', 'ia-k2': 'it received no reply', 'ia-st': 'timed out', 'ia-v': 'and these two facts are consistent with two completely different worlds' } },
-  { say: 'World one: the request never arrived and no charge happened. World two: it arrived, the charge happened, and only the reply was lost. The sender cannot distinguish them &mdash; and no additional message helps, because that message could be lost too.', text: { 'ia-k1': 'world A: never arrived, no charge', 'ia-k2': 'world B: charged, reply lost', 'ia-v': 'this is the Two Generals Problem, and it has no solution' }, fill: { 'ia-v': '#c53b3b', 'ia-verd': '#f9e3df' } },
-  { say: 'So there are exactly two options. Do not resend &mdash; at-most-once &mdash; and if it really was lost, the customer was never charged and nobody finds out.', text: { 'ia-st2': 'option A: give up', 'ia-v': 'at-most-once: no duplicates, and silent loss' } },
-  { say: 'Or resend &mdash; at-least-once &mdash; and if it did arrive, the customer is charged twice.', text: { 'ia-st2': 'option B: resend', 'ia-nt': 'request delivered again →', 'ia-rt2': 'charged: €80', 'ia-v': 'at-least-once: nothing lost, and a duplicate charge' }, fill: { 'ia-rt2': '#c53b3b' } },
-  { say: 'There is no third option, and the asymmetry decides which to pick: a duplicate carries an identifier you can match, while a loss leaves no trace anywhere. Detectable beats invisible.', text: { 'ia-v': 'choose at-least-once — duplicates are detectable, losses are not' }, fill: { 'ia-v': '#23362e', 'ia-verd': '#e8ece2' } },
-  { say: 'So send the key with the request. The receiver recognises the repeat, skips the work and returns the original answer. The charge stays at &euro;40.', hl: ['ia-recv'], text: { 'ia-phase': 'same lost acknowledgement, with an idempotency key attached', 'ia-st2': 'resends with the same key', 'ia-nt': 'duplicate delivered →', 'ia-nt2': 'the network is just as unreliable as before', 'ia-rt': 'key already seen → replay', 'ia-rt2': 'charged: €40', 'ia-v': 'the duplicate still arrived — it simply had no effect' }, fill: { 'ia-rt2': '#2f6b3f', 'ia-v': '#2f6b3f', 'ia-verd': '#e3eedc', 'ia-nt': '#5f6f66' } },
-  { say: 'That is effectively-once: at-least-once delivery plus a receiver that recognises repeats. Note what did <em>not</em> change &mdash; the delivery is still at-least-once, and the duplicate was still sent. You only made it harmless.', unhl: ['ia-recv'], text: { 'ia-phase': 'effectively-once = at-least-once delivery + idempotent processing', 'ia-v': 'nobody eliminated the duplicate; they made it cost nothing' } },
+  { say: "A sender asks a payment service to charge €40. Ordinary request, ordinary network.", hl: ["ia-send"] },
+  { say: "The request arrives and the receiver processes it. The card is charged. So far everything has worked.", hl: ["ia-recv"], unhl: ["ia-send"], text: {"ia-nt":"request delivered →","ia-rt":"processed the charge","ia-rt2":"charged: €40"}, fill: {"ia-rt2":"#2f6b3f"} },
+  { say: "The receiver sends back its acknowledgement — and the network drops it. A dropped packet, a load balancer restart, a connection reset.", hl: ["ia-net"], unhl: ["ia-recv"], text: {"ia-nt":"acknowledgement lost ✗","ia-nt2":"and nobody is told that it was lost"}, fill: {"ia-nt":"#c53b3b"} },
+  { say: "Now look at what the sender knows. It sent a request and received nothing. Those are the only two facts it has.", hl: ["ia-send"], unhl: ["ia-net"], text: {"ia-k1":"it sent a request","ia-k2":"it received no reply","ia-st":"timed out","ia-v":"and these two facts are consistent with two completely different worlds"} },
+  { say: "World one: the request never arrived and no charge happened. World two: it arrived, the charge happened, and only the reply was lost. The sender cannot distinguish them — and no additional message helps, because that message could be lost too.", text: {"ia-k1":"world A: never arrived, no charge","ia-k2":"world B: charged, reply lost","ia-v":"this is the Two Generals Problem, and it has no solution"}, fill: {"ia-v":"#c53b3b","ia-verd":"#f9e3df"} },
+  { say: "So there are exactly two options. Do not resend — at-most-once — and if it really was lost, the customer was never charged and nobody finds out.", text: {"ia-st2":"option A: give up","ia-v":"at-most-once: no duplicates, and silent loss"} },
+  { say: "Or resend — at-least-once — and if it did arrive, the customer is charged twice.", text: {"ia-st2":"option B: resend","ia-nt":"request delivered again →","ia-rt2":"charged: €80","ia-v":"at-least-once: nothing lost, and a duplicate charge"}, fill: {"ia-rt2":"#c53b3b"} },
+  { say: "There is no third option, and the asymmetry decides which to pick: a duplicate carries an identifier you can match, while a loss leaves no trace anywhere. Detectable beats invisible.", text: {"ia-v":"choose at-least-once — duplicates are detectable, losses are not"}, fill: {"ia-v":"#23362e","ia-verd":"#e8ece2"} },
+  { say: "So send the key with the request. The receiver recognises the repeat, skips the work and returns the original answer. The charge stays at €40.", hl: ["ia-recv"], text: {"ia-phase":"same lost acknowledgement, with an idempotency key attached","ia-st2":"resends with the same key","ia-nt":"duplicate delivered →","ia-nt2":"the network is just as unreliable as before","ia-rt":"key already seen → replay","ia-rt2":"charged: €40","ia-v":"the duplicate still arrived — it simply had no effect"}, fill: {"ia-rt2":"#2f6b3f","ia-v":"#2f6b3f","ia-verd":"#e3eedc","ia-nt":"#5f6f66"} },
+  { say: "That is effectively-once: at-least-once delivery plus a receiver that recognises repeats. Note what did <em>not</em> change — the delivery is still at-least-once, and the duplicate was still sent. You only made it harmless.", unhl: ["ia-recv"], text: {"ia-phase":"effectively-once = at-least-once delivery + idempotent processing","ia-v":"nobody eliminated the duplicate; they made it cost nothing"} },
 ]);
 
 createAnimation('anim-key', [
-  { say: 'The client generates a key once, when the user presses the button &mdash; one key per <em>operation</em>, not per attempt. This is the step most implementations get wrong.', hl: ['ik-cli'], text: { 'ik-clit': 'generated a key', 'ik-clit2': 'Idempotency-Key: 9f1c7a2e' } },
-  { say: 'It sends the charge with that header. The API claims the key atomically &mdash; an insert that the unique constraint arbitrates, not a read followed by a write.', unhl: ['ik-cli'], hl: ['ik-api'], text: { 'ik-apit': 'INSERT … ON CONFLICT DO NOTHING', 'ik-apit2': '1 row → first attempt', 'ik-s1': '9f1c7a2e → in_flight', 'ik-p1': 'attempts received: 1' } },
-  { say: 'The insert succeeded, so this is genuinely the first time. The charge runs, and the response is stored against the key in the same transaction as the effect.', unhl: ['ik-api'], hl: ['ik-eff'], text: { 'ik-efft': 'charged: €40', 'ik-s1': '9f1c7a2e → done, 201, {id: ch_8…}', 'ik-p2': 'charges made: 1' }, fill: { 'ik-efft': '#2f6b3f' } },
-  { say: 'But the response is lost on the way back. The client times out knowing nothing &mdash; exactly the ambiguity from the first animation.', unhl: ['ik-eff'], text: { 'ik-clit': 'timed out', 'ik-clit2': 'did the charge happen?', 'ik-v': 'the client cannot tell, and does not have to' }, fill: { 'ik-clit': '#c53b3b' } },
-  { say: 'It retries with the <em>same</em> key. The claim fails this time: the row already exists.', hl: ['ik-api'], text: { 'ik-clit': 'retrying', 'ik-clit2': 'Idempotency-Key: 9f1c7a2e  (unchanged)', 'ik-apit': 'INSERT … → conflict', 'ik-apit2': '0 rows → duplicate', 'ik-p1': 'attempts received: 2' } },
-  { say: 'So the API compares the request fingerprint, finds it identical, reads the stored response and replays it. No second charge, and the client finally gets its answer.', unhl: ['ik-api'], text: { 'ik-apit': 'fingerprint matches ✓', 'ik-apit2': 'replaying 201 {id: ch_8…}', 'ik-efft': 'charged: €40', 'ik-p2': 'charges made: 1', 'ik-v': 'two attempts, one charge, and an identical response both times' }, fill: { 'ik-v': '#2f6b3f', 'ik-verd': '#e3eedc' } },
-  { say: 'Now the harder case: two attempts in flight at once, which fast retries make common. The second arrives while the first is still working.', hl: ['ik-api'], text: { 'ik-apit': 'second attempt arrives mid-flight', 'ik-apit2': 'row exists, state = in_flight', 'ik-p1': 'attempts received: 3', 'ik-v': 'a check-then-act implementation would charge twice here' }, fill: { 'ik-v': '#c53b3b', 'ik-verd': '#f9e3df' } },
-  { say: 'Because the claim was atomic, only one attempt ever owned the work. The other sees <code>in_flight</code> and returns 409 rather than starting a second charge.', text: { 'ik-apit2': '409 — in flight, do not duplicate', 'ik-efft': 'charged: €40', 'ik-p2': 'charges made: 1', 'ik-v': 'the unique constraint decided, not the application logic' }, fill: { 'ik-v': '#2f6b3f', 'ik-verd': '#e3eedc' } },
-  { say: 'One more guard: the same key arriving with a <em>different</em> body. Replaying the stored answer would silently swallow a genuine new request, so this returns 422 instead.', unhl: ['ik-api'], text: { 'ik-apit': 'same key, body hash differs', 'ik-apit2': '422 — key reused with different content', 'ik-v': 'never replay a response for a request you did not actually receive' }, fill: { 'ik-v': '#23362e', 'ik-verd': '#e8ece2' } },
-  { say: 'After 24 hours the record expires and the key is forgotten. A retry arriving after that would charge again &mdash; which is why the window has to outlast every retry, redelivery and replay you might ever perform.', hl: ['ik-store'], text: { 'ik-phase': 'the window is the correctness boundary', 'ik-s1': '(expired after 24 h)', 'ik-s2': 'sized from: client retries + broker redelivery + replay margin', 'ik-v': 'and prune it, or it becomes the biggest table you own' } },
+  { say: "The client generates a key once, when the user presses the button — one key per <em>operation</em>, not per attempt. This is the step most implementations get wrong.", hl: ["ik-cli"], text: {"ik-clit":"generated a key","ik-clit2":"Idempotency-Key: 9f1c7a2e"} },
+  { say: "It sends the charge with that header. The API claims the key atomically — an insert that the unique constraint arbitrates, not a read followed by a write.", hl: ["ik-api"], unhl: ["ik-cli"], text: {"ik-apit":"INSERT … ON CONFLICT DO NOTHING","ik-apit2":"1 row → first attempt","ik-s1":"9f1c7a2e → in_flight","ik-p1":"attempts received: 1"} },
+  { say: "The insert succeeded, so this is genuinely the first time. The charge runs, and the response is stored against the key in the same transaction as the effect.", hl: ["ik-eff"], unhl: ["ik-api"], text: {"ik-efft":"charged: €40","ik-s1":"9f1c7a2e → done, 201, {id: ch_8…}","ik-p2":"charges made: 1"}, fill: {"ik-efft":"#2f6b3f"} },
+  { say: "But the response is lost on the way back. The client times out knowing nothing — exactly the ambiguity from the first animation.", unhl: ["ik-eff"], text: {"ik-clit":"timed out","ik-clit2":"did the charge happen?","ik-v":"the client cannot tell, and does not have to"}, fill: {"ik-clit":"#c53b3b"} },
+  { say: "It retries with the <em>same</em> key. The claim fails this time: the row already exists.", hl: ["ik-api"], text: {"ik-clit":"retrying","ik-clit2":"Idempotency-Key: 9f1c7a2e  (unchanged)","ik-apit":"INSERT … → conflict","ik-apit2":"0 rows → duplicate","ik-p1":"attempts received: 2"} },
+  { say: "So the API compares the request fingerprint, finds it identical, reads the stored response and replays it. No second charge, and the client finally gets its answer.", unhl: ["ik-api"], text: {"ik-apit":"fingerprint matches ✓","ik-apit2":"replaying 201 {id: ch_8…}","ik-efft":"charged: €40","ik-p2":"charges made: 1","ik-v":"two attempts, one charge, and an identical response both times"}, fill: {"ik-v":"#2f6b3f","ik-verd":"#e3eedc"} },
+  { say: "Now the harder case: two attempts in flight at once, which fast retries make common. The second arrives while the first is still working.", hl: ["ik-api"], text: {"ik-apit":"second attempt arrives mid-flight","ik-apit2":"row exists, state = in_flight","ik-p1":"attempts received: 3","ik-v":"a check-then-act implementation would charge twice here"}, fill: {"ik-v":"#c53b3b","ik-verd":"#f9e3df"} },
+  { say: "Because the claim was atomic, only one attempt ever owned the work. The other sees <code>in_flight</code> and returns 409 rather than starting a second charge.", text: {"ik-apit2":"409 — in flight, do not duplicate","ik-efft":"charged: €40","ik-p2":"charges made: 1","ik-v":"the unique constraint decided, not the application logic"}, fill: {"ik-v":"#2f6b3f","ik-verd":"#e3eedc"} },
+  { say: "One more guard: the same key arriving with a <em>different</em> body. Replaying the stored answer would silently swallow a genuine new request, so this returns 422 instead.", unhl: ["ik-api"], text: {"ik-apit":"same key, body hash differs","ik-apit2":"422 — key reused with different content","ik-v":"never replay a response for a request you did not actually receive"}, fill: {"ik-v":"#23362e","ik-verd":"#e8ece2"} },
+  { say: "After 24 hours the record expires and the key is forgotten. A retry arriving after that would charge again — which is why the window has to outlast every retry, redelivery and replay you might ever perform.", hl: ["ik-store"], text: {"ik-phase":"the window is the correctness boundary","ik-s1":"(expired after 24 h)","ik-s2":"sized from: client retries + broker redelivery + replay margin","ik-v":"and prune it, or it becomes the biggest table you own"} },
 ]);
 
+/* Animations inside key-concept panels */
 window.TERM_ANIMS = {
   win: [
-    { say: 'An operation runs at t=0 and its key is stored. For as long as that record exists, any repeat is recognised.', hl: ['wn-win'] },
-    { say: 'A retry arrives inside the window &mdash; a client retry, a broker redelivery, an operator replay. The key is found, the work is skipped, the stored response is returned.', show: ['wn-r1'], unhl: ['wn-win'], text: { 'wn-msg': 'retry inside the window → deduplicated, one charge', 'wn-msg2': 'this is the case everybody tests' } },
-    { say: 'Now the window expires and the record is pruned. Nothing is wrong yet &mdash; the table is simply being kept to a sensible size.', text: { 'wn-wint': 'key forgotten', 'wn-msg': 'the record is gone, as designed' }, fill: { 'wn-win': '#e8ece2', 'wn-wint': '#5f6f66' } },
-    { say: 'But a retry can still arrive after that. A dead-letter replay, a broker with a long redelivery delay, a queue that was paused overnight. The key looks brand new.', show: ['wn-r2'], hl: ['wn-r2'], text: { 'wn-msg': 'retry outside the window → processed again', 'wn-msg2': 'a second charge, and nothing in the system objects' }, fill: { 'wn-msg': '#c53b3b' } },
-    { say: 'So the window is not a storage setting. Size it from the worst case &mdash; client retry horizon plus broker redelivery plus any manual replay &mdash; and remember the cost is <code>rate × window</code>: 1,000 a second over 24 hours is 86 million rows.', unhl: ['wn-r2'], text: { 'wn-msg': 'window > client retries + broker redelivery + replay margin', 'wn-msg2': 'or dedup on a business key, which never expires at all' }, fill: { 'wn-msg': '#2f6b3f' } },
+    { say: "An operation runs at t=0 and its key is stored. For as long as that record exists, any repeat is recognised.", hl: ["wn-win"] },
+    { say: "A retry arrives inside the window — a client retry, a broker redelivery, an operator replay. The key is found, the work is skipped, the stored response is returned.", show: ["wn-r1"], unhl: ["wn-win"], text: {"wn-msg":"retry inside the window → deduplicated, one charge","wn-msg2":"this is the case everybody tests"} },
+    { say: "Now the window expires and the record is pruned. Nothing is wrong yet — the table is simply being kept to a sensible size.", text: {"wn-wint":"key forgotten","wn-msg":"the record is gone, as designed"}, fill: {"wn-win":"#e8ece2","wn-wint":"#5f6f66"} },
+    { say: "But a retry can still arrive after that. A dead-letter replay, a broker with a long redelivery delay, a queue that was paused overnight. The key looks brand new.", show: ["wn-r2"], hl: ["wn-r2"], text: {"wn-msg":"retry outside the window → processed again","wn-msg2":"a second charge, and nothing in the system objects"}, fill: {"wn-msg":"#c53b3b"} },
+    { say: "So the window is not a storage setting. Size it from the worst case — client retry horizon plus broker redelivery plus any manual replay — and remember the cost is <code>rate × window</code>: 1,000 a second over 24 hours is 86 million rows.", unhl: ["wn-r2"], text: {"wn-msg":"window > client retries + broker redelivery + replay margin","wn-msg2":"or dedup on a business key, which never expires at all"}, fill: {"wn-msg":"#2f6b3f"} },
   ],
 };
 </script>

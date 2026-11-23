@@ -97,16 +97,15 @@
           <text x="400" y="336" font-size="11" text-anchor="middle" fill="#5f6f66">every GraphQL problem in production is a version of that second sentence</text>
         </svg>
       </div>
-      <p class="caption">A typed facade over whatever you already have &mdash; with execution, batching and cost control as the server's new responsibilities.</p>
+      <p class="caption">A typed facade over whatever you already have — with execution, batching and cost control as the server's new responsibilities.</p>
     </section>
 
     <section id="how-it-works">
       <h2>How it works</h2>
-      <p style="margin:0 0 18px">The first animation executes one query and shows the N+1 problem appearing and then being fixed. The second is what happens when a client asks for something expensive &mdash; by accident or otherwise.</p>
-      <span class="note" style="margin:-8px 0 18px">the schema is the contract. the resolvers are where the bill is written.</span>
-
+      <p>The first animation executes one query and shows the N+1 problem appearing and then being fixed. The second is what happens when a client asks for something expensive — by accident or otherwise.</p>
+      <span class="note" style="margin:-6px 0 14px">the schema is the contract. the resolvers are where the bill is written.</span>
       <div class="anim" id="anim-exec">
-        <h3>1 &middot; Execution, N+1, and DataLoader</h3>
+        <h3>1 · Execution, N+1, and DataLoader</h3>
         <div class="stage">
           <svg viewBox="0 0 800 332" role="img" aria-label="A GraphQL query executing field by field, producing one database query per user, then the same query batched by a DataLoader">
             <defs>
@@ -172,9 +171,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-cost">
-        <h3>2 &middot; A query that costs more than it looks</h3>
+        <h3>2 · A query that costs more than it looks</h3>
         <div class="stage">
           <svg viewBox="0 0 800 318" role="img" aria-label="A deeply nested cyclic GraphQL query multiplying into millions of field resolutions, and the defences that stop it">
             <text id="gd-phase" x="400" y="20" font-size="12.5" text-anchor="middle" fill="#5f6f66">the schema has a cycle: a user has posts, a post has an author, an author has posts…</text>
@@ -220,204 +218,200 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>Schema</b><span>The typed description of everything that exists, written in SDL — the whole contract between client and server.</span><template class="term-detail" data-see="Resolver, Nullability, Introspection, Schema evolution">
-          <p>The schema defines object types, their fields, the arguments each field takes and what it returns. Three types are special roots: <code>Query</code> for reads, <code>Mutation</code> for writes, <code>Subscription</code> for streams. Everything a client can ask is reachable from those.</p>
-          <p>It is checked at query time, not just documented: a query naming a field that does not exist, or passing an argument of the wrong type, is rejected during validation before a single resolver runs. That is a genuine advantage over REST, where the same mistake is a runtime surprise.</p>
-          <h4>The building blocks</h4>
-          <table>
-            <tr><th>Construct</th><th>Use</th></tr>
-            <tr><td><code>type</code></td><td>an object with fields</td></tr>
-            <tr><td><code>input</code></td><td>structured arguments &mdash; cannot be returned</td></tr>
-            <tr><td><code>interface</code></td><td>shared fields across types</td></tr>
-            <tr><td><code>union</code></td><td>one of several unrelated types</td></tr>
-            <tr><td><code>enum</code></td><td>a closed set of values</td></tr>
-            <tr><td><code>scalar</code></td><td>custom leaf types (DateTime, URL)</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Design it around the domain, not around your tables. A schema that mirrors the database is a database with extra steps.</li></ul>
+        <p>The schema defines object types, their fields, the arguments each field takes and what it returns. Three types are special roots: <code>Query</code> for reads, <code>Mutation</code> for writes, <code>Subscription</code> for streams. Everything a client can ask is reachable from those.</p>
+        <p>It is checked at query time, not just documented: a query naming a field that does not exist, or passing an argument of the wrong type, is rejected during validation before a single resolver runs. That is a genuine advantage over REST, where the same mistake is a runtime surprise.</p>
+        <h4>The building blocks</h4>
+        <table><tr><th>Construct</th><th>Use</th></tr>
+        <tr><td><code>type</code></td><td>an object with fields</td></tr>
+        <tr><td><code>input</code></td><td>structured arguments — cannot be returned</td></tr>
+        <tr><td><code>interface</code></td><td>shared fields across types</td></tr>
+        <tr><td><code>union</code></td><td>one of several unrelated types</td></tr>
+        <tr><td><code>enum</code></td><td>a closed set of values</td></tr>
+        <tr><td><code>scalar</code></td><td>custom leaf types (DateTime, URL)</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Design it around the domain, not around your tables. A schema that mirrors the database is a database with extra steps.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Resolver</b><span>The function that produces one field's value — called once per object, not once per query.</span><template class="term-detail" data-see="Execution, N+1 problem, DataLoader, Field authorization">
-          <p>Each field can have a resolver taking the parent object, the arguments, a shared context and info about the query. If a field is just a property of the parent, most servers supply a default resolver; you write one when the value must be computed or fetched.</p>
-          <p>The thing to internalise is "once per object". A list of 100 users with a <code>posts</code> field calls that resolver 100 times, with no knowledge that its 99 siblings exist. Everything difficult about GraphQL performance follows from that one sentence.</p>
-          <pre class="language-none"><code class="language-none">// pseudo-signature, in every implementation
-resolve(parent, args, context, info) → value | Task&lt;value&gt;</code></pre>
-          <h4>How it relates</h4>
-          <ul><li><code>info</code> is how advanced servers do projection &mdash; inspecting the requested sub-fields to select only those columns.</li></ul>
+        <p>Each field can have a resolver taking the parent object, the arguments, a shared context and info about the query. If a field is just a property of the parent, most servers supply a default resolver; you write one when the value must be computed or fetched.</p>
+        <p>The thing to internalise is "once per object". A list of 100 users with a <code>posts</code> field calls that resolver 100 times, with no knowledge that its 99 siblings exist. Everything difficult about GraphQL performance follows from that one sentence.</p>
+        <pre class="language-none"><code class="language-none">// pseudo-signature, in every implementation
+resolve(parent, args, context, info) → value | Task&lt;value&gt;</code></pre><h4>How it relates</h4>
+        <ul>
+        <li><code>info</code> is how advanced servers do projection — inspecting the requested sub-fields to select only those columns.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Execution</b><span>How the server walks the query: parents before children, siblings in parallel, errors bubbling up through nullable fields.</span><template class="term-detail" data-see="Resolver, Nullability, Errors">
-          <p>Execution is breadth-wise and layered. The root field resolves, then its selected sub-fields resolve against each returned object, and so on. Sibling fields at the same level may run concurrently; a child cannot start before its parent has produced an object.</p>
-          <p>Mutations are the exception: top-level mutation fields run <em>serially</em>, in document order, because write order matters. Everything nested under them resolves like a query.</p>
-          <h4>How it relates</h4>
-          <ul><li>Layered execution is what makes <b>DataLoader</b> possible: all the siblings at one level ask within the same tick, so their keys can be batched.</li></ul>
+        <p>Execution is breadth-wise and layered. The root field resolves, then its selected sub-fields resolve against each returned object, and so on. Sibling fields at the same level may run concurrently; a child cannot start before its parent has produced an object.</p>
+        <p>Mutations are the exception: top-level mutation fields run <em>serially</em>, in document order, because write order matters. Everything nested under them resolves like a query.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Layered execution is what makes <b>DataLoader</b> possible: all the siblings at one level ask within the same tick, so their keys can be batched.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>N+1 problem</b><span>One query for the list, then one more for each item — the default behaviour of a naive resolver tree.</span><template class="term-detail" data-see="DataLoader, Resolver, Execution, Query cost">
-          <p>Fetch 50 users with one query, then resolve <code>user.company</code> 50 times, each doing its own lookup: 51 round trips for data that one <code>IN</code> clause would have returned. Nest another level and it multiplies &mdash; 50 users &times; 20 posts &times; an author lookup is a thousand more.</p>
-          <p>It is not a bug in anyone's code. It is the direct consequence of resolvers being per-object and independent, and it will appear in every GraphQL server that does not explicitly prevent it.</p>
-          <h4>How it multiplies</h4>
-          <table>
-            <tr><th>Query</th><th>Naive round trips</th><th>Batched</th></tr>
-            <tr><td>50 users</td><td>1</td><td>1</td></tr>
-            <tr><td>+ company each</td><td>51</td><td>2</td></tr>
-            <tr><td>+ 20 posts each</td><td>101</td><td>3</td></tr>
-            <tr><td>+ author of each post</td><td>1,101</td><td>4</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Log round trips per request in development and fail the build above a threshold &mdash; it is the only way to notice before production.</li></ul>
+        <p>Fetch 50 users with one query, then resolve <code>user.company</code> 50 times, each doing its own lookup: 51 round trips for data that one <code>IN</code> clause would have returned. Nest another level and it multiplies — 50 users × 20 posts × an author lookup is a thousand more.</p>
+        <p>It is not a bug in anyone's code. It is the direct consequence of resolvers being per-object and independent, and it will appear in every GraphQL server that does not explicitly prevent it.</p>
+        <h4>How it multiplies</h4>
+        <table><tr><th>Query</th><th>Naive round trips</th><th>Batched</th></tr>
+        <tr><td>50 users</td><td>1</td><td>1</td></tr>
+        <tr><td>+ company each</td><td>51</td><td>2</td></tr>
+        <tr><td>+ 20 posts each</td><td>101</td><td>3</td></tr>
+        <tr><td>+ author of each post</td><td>1,101</td><td>4</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Log round trips per request in development and fail the build above a threshold — it is the only way to notice before production.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>DataLoader</b><span>A per-request batching and deduplicating cache that collapses N calls into one.</span><template class="term-detail" data-see="N+1 problem, Execution, Resolver">
-          <p>A DataLoader collects the keys requested during one tick of the event loop, then calls a batch function once with all of them and distributes the results. It also deduplicates: ten posts by the same author produce one load. Scope it <em>per request</em> &mdash; a shared instance would leak one user's data into another's response.</p>
-          <p>The batch function must return results in the same order as the keys, with a null or a placeholder for misses. Getting that mapping wrong produces wrong data rather than an error, which makes it worth a test.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Setting</th><th>Guidance</th></tr>
-            <tr><td>Lifetime</td><td>one request, always</td></tr>
-            <tr><td>Max batch size</td><td>100&ndash;1,000, to bound the <code>IN</code> clause</td></tr>
-            <tr><td>Caching</td><td>per request; longer-lived caching is a separate layer</td></tr>
-            <tr><td>Ordering</td><td>results must align with the key array</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>It fixes round-trip count, not the amount of work. A batch of 10,000 ids is still a very large query &mdash; that is what <b>Query cost</b> is for.</li></ul>
+        <p>A DataLoader collects the keys requested during one tick of the event loop, then calls a batch function once with all of them and distributes the results. It also deduplicates: ten posts by the same author produce one load. Scope it <em>per request</em> — a shared instance would leak one user's data into another's response.</p>
+        <p>The batch function must return results in the same order as the keys, with a null or a placeholder for misses. Getting that mapping wrong produces wrong data rather than an error, which makes it worth a test.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Setting</th><th>Guidance</th></tr>
+        <tr><td>Lifetime</td><td>one request, always</td></tr>
+        <tr><td>Max batch size</td><td>100–1,000, to bound the <code>IN</code> clause</td></tr>
+        <tr><td>Caching</td><td>per request; longer-lived caching is a separate layer</td></tr>
+        <tr><td>Ordering</td><td>results must align with the key array</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>It fixes round-trip count, not the amount of work. A batch of 10,000 ids is still a very large query — that is what <b>Query cost</b> is for.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Nullability</b><span>Every field is nullable unless marked <code>!</code> — and non-null is a promise that propagates failure upward.</span><template class="term-detail" data-see="Errors, Schema, Execution">
-          <p>GraphQL inverts the usual default: fields are optional by default, and <code>!</code> makes one required. If a non-null field resolves to null or throws, the error cannot stop there &mdash; it nullifies the parent, and if the parent is also non-null, its parent, up to <code>data: null</code> in the worst case.</p>
-          <p>So <code>!</code> is a real commitment. Marking a list element non-null means one broken item destroys the whole list. The common advice is to be generous with non-null on scalars you genuinely always have, and conservative on anything fetched from another service.</p>
-          <h4>Reading the syntax</h4>
-          <table>
-            <tr><th>Type</th><th>Meaning</th></tr>
-            <tr><td><code>[Post]</code></td><td>list may be null, items may be null</td></tr>
-            <tr><td><code>[Post!]</code></td><td>list may be null, items may not</td></tr>
-            <tr><td><code>[Post]!</code></td><td>list is always present, items may be null</td></tr>
-            <tr><td><code>[Post!]!</code></td><td>both guaranteed &mdash; and most fragile</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Nullability is part of the contract, so tightening a field later is a breaking change while loosening it is not.</li></ul>
+        <p>GraphQL inverts the usual default: fields are optional by default, and <code>!</code> makes one required. If a non-null field resolves to null or throws, the error cannot stop there — it nullifies the parent, and if the parent is also non-null, its parent, up to <code>data: null</code> in the worst case.</p>
+        <p>So <code>!</code> is a real commitment. Marking a list element non-null means one broken item destroys the whole list. The common advice is to be generous with non-null on scalars you genuinely always have, and conservative on anything fetched from another service.</p>
+        <h4>Reading the syntax</h4>
+        <table><tr><th>Type</th><th>Meaning</th></tr>
+        <tr><td><code>[Post]</code></td><td>list may be null, items may be null</td></tr>
+        <tr><td><code>[Post!]</code></td><td>list may be null, items may not</td></tr>
+        <tr><td><code>[Post]!</code></td><td>list is always present, items may be null</td></tr>
+        <tr><td><code>[Post!]!</code></td><td>both guaranteed — and most fragile</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Nullability is part of the contract, so tightening a field later is a breaking change while loosening it is not.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Errors</b><span>Partial data with an errors array, returned under HTTP 200 — which breaks a lot of client assumptions.</span><template class="term-detail" data-see="Nullability, Field authorization, Execution">
-          <p>A GraphQL response can contain both <code>data</code> and <code>errors</code>: three of four requested fields succeeded and one failed, each error carrying a message, a path and optional extensions. The transport status is 200 even so, because the GraphQL request itself succeeded.</p>
-          <p>Clients and monitoring must therefore inspect the body. An alerting rule based on HTTP status will report perfect health while half the fields on every page are failing &mdash; which is one of the most common GraphQL operational blind spots.</p>
-          <h4>Where to put what</h4>
-          <table>
-            <tr><th>Kind</th><th>Convey as</th></tr>
-            <tr><td>Malformed query</td><td>validation error, 400</td></tr>
-            <tr><td>Unexpected failure</td><td><code>errors</code> entry, 200</td></tr>
-            <tr><td>Expected domain outcome</td><td>a union or result type in <code>data</code></td></tr>
-            <tr><td>Not authorised</td><td><code>errors</code> with a code in extensions</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Modelling expected failures as types &mdash; <code>union PayResult = Paid | InsufficientFunds</code> &mdash; makes them typed and client-handleable instead of stringly.</li></ul>
+        <p>A GraphQL response can contain both <code>data</code> and <code>errors</code>: three of four requested fields succeeded and one failed, each error carrying a message, a path and optional extensions. The transport status is 200 even so, because the GraphQL request itself succeeded.</p>
+        <p>Clients and monitoring must therefore inspect the body. An alerting rule based on HTTP status will report perfect health while half the fields on every page are failing — which is one of the most common GraphQL operational blind spots.</p>
+        <h4>Where to put what</h4>
+        <table><tr><th>Kind</th><th>Convey as</th></tr>
+        <tr><td>Malformed query</td><td>validation error, 400</td></tr>
+        <tr><td>Unexpected failure</td><td><code>errors</code> entry, 200</td></tr>
+        <tr><td>Expected domain outcome</td><td>a union or result type in <code>data</code></td></tr>
+        <tr><td>Not authorised</td><td><code>errors</code> with a code in extensions</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Modelling expected failures as types — <code>union PayResult = Paid | InsufficientFunds</code> — makes them typed and client-handleable instead of stringly.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Pagination</b><span>Cursor-based connections, because offsets break on a graph that changes while you page through it.</span><template class="term-detail" data-see="Query cost, Schema, N+1 problem">
-          <p>The Relay connection pattern is the de facto standard: a field takes <code>first</code>/<code>after</code> (or <code>last</code>/<code>before</code>) and returns a connection with <code>edges</code> (each a <code>cursor</code> and a <code>node</code>) and a <code>pageInfo</code> with <code>hasNextPage</code> and <code>endCursor</code>.</p>
-          <p>It is verbose, and worth it. Cursors are stable under inserts and deletes, the extra indirection gives a place for edge metadata such as <code>addedAt</code>, and <code>first</code> is the argument your cost analysis multiplies by &mdash; a list field with no limit is an unbounded query waiting to happen.</p>
-          <pre class="language-none"><code class="language-none">posts(first: 20, after: "Y3Vyc29yOjIw") {
+        <p>The Relay connection pattern is the de facto standard: a field takes <code>first</code>/<code>after</code> (or <code>last</code>/<code>before</code>) and returns a connection with <code>edges</code> (each a <code>cursor</code> and a <code>node</code>) and a <code>pageInfo</code> with <code>hasNextPage</code> and <code>endCursor</code>.</p>
+        <p>It is verbose, and worth it. Cursors are stable under inserts and deletes, the extra indirection gives a place for edge metadata such as <code>addedAt</code>, and <code>first</code> is the argument your cost analysis multiplies by — a list field with no limit is an unbounded query waiting to happen.</p>
+        <pre class="language-none"><code class="language-none">posts(first: 20, after: "Y3Vyc29yOjIw") {
   edges { cursor node { id title } }
   pageInfo { hasNextPage endCursor }
-}</code></pre>
-          <h4>How it relates</h4>
-          <ul><li>Require a bounded <code>first</code> on every list field and cap it in the schema &mdash; it is the simplest cost control there is.</li></ul>
+}</code></pre><h4>How it relates</h4>
+        <ul>
+        <li>Require a bounded <code>first</code> on every list field and cap it in the schema — it is the simplest cost control there is.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Query cost</b><span>Analysing how expensive a query is before running it, and refusing the ones that are too expensive.</span><template class="term-detail" data-see="Persisted queries, Pagination, N+1 problem">
-          <p>Because the client composes the query, the server cannot know its own workload in advance &mdash; unless it computes it. Three controls, usually layered: a maximum <b>depth</b>, a maximum <b>node or complexity score</b> where each field has a cost and list fields multiply by their <code>first</code> argument, and a per-caller budget over time.</p>
-          <p>Depth alone is insufficient: a shallow query asking for 10,000 items of 50 fields each is cheap by depth and ruinous in practice. Complexity scoring catches that, and it runs during validation, so an over-budget query costs one parse rather than a database outage.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Control</th><th>Typical</th></tr>
-            <tr><td>Max depth</td><td>7&ndash;12</td></tr>
-            <tr><td>Max complexity</td><td>1,000&ndash;5,000 points</td></tr>
-            <tr><td>Default list cost</td><td>1 per field &times; <code>first</code></td></tr>
-            <tr><td>Max <code>first</code></td><td>100, enforced in the schema</td></tr>
-            <tr><td>Per-caller budget</td><td>complexity points per minute</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Rate limiting by request count is nearly meaningless here; limit by complexity points instead &mdash; see <b>Rate limiting</b>.</li></ul>
+        <p>Because the client composes the query, the server cannot know its own workload in advance — unless it computes it. Three controls, usually layered: a maximum <b>depth</b>, a maximum <b>node or complexity score</b> where each field has a cost and list fields multiply by their <code>first</code> argument, and a per-caller budget over time.</p>
+        <p>Depth alone is insufficient: a shallow query asking for 10,000 items of 50 fields each is cheap by depth and ruinous in practice. Complexity scoring catches that, and it runs during validation, so an over-budget query costs one parse rather than a database outage.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Control</th><th>Typical</th></tr>
+        <tr><td>Max depth</td><td>7–12</td></tr>
+        <tr><td>Max complexity</td><td>1,000–5,000 points</td></tr>
+        <tr><td>Default list cost</td><td>1 per field × <code>first</code></td></tr>
+        <tr><td>Max <code>first</code></td><td>100, enforced in the schema</td></tr>
+        <tr><td>Per-caller budget</td><td>complexity points per minute</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Rate limiting by request count is nearly meaningless here; limit by complexity points instead — see <b>Rate limiting</b>.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Persisted queries</b><span>Registering allowed operations ahead of time and sending an id instead of a document.</span><template class="term-detail" data-see="Query cost, Introspection, Caching">
-          <p>Clients extract their operations at build time, the server stores them, and at runtime the client sends a hash. Three wins at once: the request is tiny, the operation can be GET-able and therefore CDN-cacheable, and &mdash; if you allow <em>only</em> registered documents &mdash; arbitrary queries become impossible, which retires the entire query-cost attack surface.</p>
-          <p>That last mode is often called trusted documents, and it is the single best answer for a private API serving your own clients. It does not fit a public API where third parties compose their own queries.</p>
-          <h4>How it relates</h4>
-          <ul><li>With trusted documents you can also disable <b>Introspection</b> in production without inconveniencing your own build pipeline.</li></ul>
+        <p>Clients extract their operations at build time, the server stores them, and at runtime the client sends a hash. Three wins at once: the request is tiny, the operation can be GET-able and therefore CDN-cacheable, and — if you allow <em>only</em> registered documents — arbitrary queries become impossible, which retires the entire query-cost attack surface.</p>
+        <p>That last mode is often called trusted documents, and it is the single best answer for a private API serving your own clients. It does not fit a public API where third parties compose their own queries.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>With trusted documents you can also disable <b>Introspection</b> in production without inconveniencing your own build pipeline.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Introspection</b><span>The schema querying itself — what powers tooling, and what hands an attacker a map.</span><template class="term-detail" data-see="Persisted queries, Schema, Schema evolution">
-          <p><code>__schema</code> and <code>__type</code> let any client discover every type, field, argument and description. This is how GraphiQL, code generators, IDE completion and client typing all work, and it is a genuine advantage of the ecosystem.</p>
-          <p>In production on a private API it is also a complete inventory of your internal model, including deprecated fields and descriptions nobody meant to publish. The usual posture is: on in development, off in production, with the schema distributed to your own builds as a file.</p>
-          <h4>How it relates</h4>
-          <ul><li>Disabling it is obscurity, not security. Field-level authorization still has to be correct.</li></ul>
+        <p><code>__schema</code> and <code>__type</code> let any client discover every type, field, argument and description. This is how GraphiQL, code generators, IDE completion and client typing all work, and it is a genuine advantage of the ecosystem.</p>
+        <p>In production on a private API it is also a complete inventory of your internal model, including deprecated fields and descriptions nobody meant to publish. The usual posture is: on in development, off in production, with the schema distributed to your own builds as a file.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Disabling it is obscurity, not security. Field-level authorization still has to be correct.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Field authorization</b><span>Permission checks per field, because one request can touch twenty types across three services.</span><template class="term-detail" data-see="Resolver, Errors, Query cost">
-          <p>There is no endpoint to protect. A single request may read a user, their orders, each order's customer and that customer's billing details &mdash; and the right to see each of those may differ. Authorization therefore lives on fields and types, typically as directives or attributes resolved during execution.</p>
-          <p>The subtle failure is through traversal: a user may legitimately read <code>Order</code>, and <code>Order.customer</code> may expose a customer they should not see. Permission must be evaluated on the object actually being returned, not only on the entry point.</p>
-          <h4>Where to enforce</h4>
-          <table>
-            <tr><th>Layer</th><th>Catches</th></tr>
-            <tr><td>Schema directive</td><td>coarse role checks, declaratively</td></tr>
-            <tr><td>Resolver</td><td>per-object ownership</td></tr>
-            <tr><td>Data layer</td><td>row-level rules &mdash; the backstop</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Enforce in the data layer too. It is the only place that cannot be bypassed by a traversal nobody anticipated.</li></ul>
+        <p>There is no endpoint to protect. A single request may read a user, their orders, each order's customer and that customer's billing details — and the right to see each of those may differ. Authorization therefore lives on fields and types, typically as directives or attributes resolved during execution.</p>
+        <p>The subtle failure is through traversal: a user may legitimately read <code>Order</code>, and <code>Order.customer</code> may expose a customer they should not see. Permission must be evaluated on the object actually being returned, not only on the entry point.</p>
+        <h4>Where to enforce</h4>
+        <table><tr><th>Layer</th><th>Catches</th></tr>
+        <tr><td>Schema directive</td><td>coarse role checks, declaratively</td></tr>
+        <tr><td>Resolver</td><td>per-object ownership</td></tr>
+        <tr><td>Data layer</td><td>row-level rules — the backstop</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Enforce in the data layer too. It is the only place that cannot be bypassed by a traversal nobody anticipated.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Caching</b><span>HTTP caching mostly stops working; a normalised client cache replaces it.</span><template class="term-detail" data-see="Persisted queries, Query cost, Pagination">
-          <p>One URL, POST bodies, and a response shape that differs per client: URL-based caches have nothing to key on. CDN and browser caching largely do not apply unless you use persisted queries over GET.</p>
-          <p>What replaces it is a normalised cache in the client. Apollo Client, Relay and urql split responses into objects keyed by type and id, so a <code>User</code> fetched by one screen is reused by another and a mutation returning an updated object updates every view at once. That is genuinely powerful &mdash; and it requires every type to expose a stable id.</p>
-          <h4>What caches where</h4>
-          <table>
-            <tr><th>Layer</th><th>Works?</th></tr>
-            <tr><td>CDN / browser HTTP cache</td><td>only with persisted GET queries</td></tr>
-            <tr><td>Normalised client cache</td><td>yes &mdash; the main mechanism</td></tr>
-            <tr><td>Per-request DataLoader</td><td>yes, within one request</td></tr>
-            <tr><td>Server-side object cache</td><td>yes, inside resolvers (Redis)</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Always expose a globally unique <code>id</code>. Without it, client caches cannot normalise and lose most of their value.</li></ul>
+        <p>One URL, POST bodies, and a response shape that differs per client: URL-based caches have nothing to key on. CDN and browser caching largely do not apply unless you use persisted queries over GET.</p>
+        <p>What replaces it is a normalised cache in the client. Apollo Client, Relay and urql split responses into objects keyed by type and id, so a <code>User</code> fetched by one screen is reused by another and a mutation returning an updated object updates every view at once. That is genuinely powerful — and it requires every type to expose a stable id.</p>
+        <h4>What caches where</h4>
+        <table><tr><th>Layer</th><th>Works?</th></tr>
+        <tr><td>CDN / browser HTTP cache</td><td>only with persisted GET queries</td></tr>
+        <tr><td>Normalised client cache</td><td>yes — the main mechanism</td></tr>
+        <tr><td>Per-request DataLoader</td><td>yes, within one request</td></tr>
+        <tr><td>Server-side object cache</td><td>yes, inside resolvers (Redis)</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Always expose a globally unique <code>id</code>. Without it, client caches cannot normalise and lose most of their value.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Schema evolution</b><span>No v1 and v2 — you add fields, deprecate old ones, and watch who still uses them.</span><template class="term-detail" data-see="Schema, Introspection, Nullability">
-          <p>Because clients request fields explicitly, adding a field breaks nobody. That is the strongest practical argument for GraphQL in a multi-client estate: the mobile app from eighteen months ago keeps working while the web app uses fields that did not exist then.</p>
-          <p>Removal is the hard part. Mark a field <code>@deprecated(reason: "...")</code>, track per-field usage in your telemetry, and remove it only when usage reaches zero &mdash; which is a thing you can actually know, unlike with REST response bodies.</p>
-          <h4>Breaking or not</h4>
-          <table>
-            <tr><th>Change</th><th>Breaking?</th></tr>
-            <tr><td>Add a field or type</td><td>no</td></tr>
-            <tr><td>Add an optional argument</td><td>no</td></tr>
-            <tr><td>Remove or rename a field</td><td>yes</td></tr>
-            <tr><td>Make a nullable field non-null</td><td>no for clients, risky for you</td></tr>
-            <tr><td>Make a non-null field nullable</td><td>yes</td></tr>
-            <tr><td>Add an enum value</td><td>yes, in practice</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Run schema-diff checks in CI against the registered schema; breaking changes should fail the build, not surprise a client.</li></ul>
+        <p>Because clients request fields explicitly, adding a field breaks nobody. That is the strongest practical argument for GraphQL in a multi-client estate: the mobile app from eighteen months ago keeps working while the web app uses fields that did not exist then.</p>
+        <p>Removal is the hard part. Mark a field <code>@deprecated(reason: "...")</code>, track per-field usage in your telemetry, and remove it only when usage reaches zero — which is a thing you can actually know, unlike with REST response bodies.</p>
+        <h4>Breaking or not</h4>
+        <table><tr><th>Change</th><th>Breaking?</th></tr>
+        <tr><td>Add a field or type</td><td>no</td></tr>
+        <tr><td>Add an optional argument</td><td>no</td></tr>
+        <tr><td>Remove or rename a field</td><td>yes</td></tr>
+        <tr><td>Make a nullable field non-null</td><td>no for clients, risky for you</td></tr>
+        <tr><td>Make a non-null field nullable</td><td>yes</td></tr>
+        <tr><td>Add an enum value</td><td>yes, in practice</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Run schema-diff checks in CI against the registered schema; breaking changes should fail the build, not surprise a client.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Subscriptions</b><span>Server-pushed updates over a persistent transport, for the cases polling cannot cover.</span><template class="term-detail" data-see="Schema, Caching, Execution">
-          <p>A subscription operation opens a long-lived stream &mdash; WebSocket, or SSE in newer transports &mdash; and the server pushes a result each time an event fires. The payload is shaped by the selection set like any other operation.</p>
-          <p>They carry real operational weight: persistent connections per client, state in the server, a pub/sub backbone so any instance can publish, authentication at connect <em>and</em> ongoing, and a <b>reverse proxy</b> configured not to buffer or time out. For many use cases polling or SSE on a plain endpoint is less machinery for the same user experience.</p>
-          <h4>How it relates</h4>
-          <ul><li>If you add subscriptions, plan the pub/sub layer and the proxy configuration first &mdash; they are where the effort actually goes.</li></ul>
+        <p>A subscription operation opens a long-lived stream — WebSocket, or SSE in newer transports — and the server pushes a result each time an event fires. The payload is shaped by the selection set like any other operation.</p>
+        <p>They carry real operational weight: persistent connections per client, state in the server, a pub/sub backbone so any instance can publish, authentication at connect <em>and</em> ongoing, and a <b>reverse proxy</b> configured not to buffer or time out. For many use cases polling or SSE on a plain endpoint is less machinery for the same user experience.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>If you add subscriptions, plan the pub/sub layer and the proxy configuration first — they are where the effort actually goes.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Federation</b><span>Composing one graph from several independently owned subgraphs.</span><template class="term-detail" data-see="Schema, Query cost, Execution">
-          <p>Instead of one monolithic server, each team owns a subgraph that declares which types it contributes and which it extends by key. A gateway composes them into a supergraph, plans each query across subgraphs, and stitches the results.</p>
-          <p>It solves a real organisational problem &mdash; one graph, many owners &mdash; and introduces a distributed query planner into your request path. Query planning bugs, cross-subgraph N+1s and composition failures at deploy time are all new operational categories. Worth it at the scale that needs it; a heavy price below that.</p>
-          <h4>How it relates</h4>
-          <ul><li>A <b>Backend-for-Frontend</b> is the lighter answer when the problem is per-client shaping rather than multi-team ownership.</li></ul>
+        <p>Instead of one monolithic server, each team owns a subgraph that declares which types it contributes and which it extends by key. A gateway composes them into a supergraph, plans each query across subgraphs, and stitches the results.</p>
+        <p>It solves a real organisational problem — one graph, many owners — and introduces a distributed query planner into your request path. Query planning bugs, cross-subgraph N+1s and composition failures at deploy time are all new operational categories. Worth it at the scale that needs it; a heavy price below that.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>A <b>Backend-for-Frontend</b> is the lighter answer when the problem is per-client shaping rather than multi-team ownership.</li>
+        </ul>
         </template></div>
       </div>
     </section>
 
     <section id="commands">
       <h2>Schema &amp; code</h2>
-
       <div class="cmd-group">
         <h3>The schema</h3>
         <div class="cmd"><pre class="language-graphql line-numbers"><code class="language-graphql">type Query {
@@ -462,7 +456,6 @@ type CreateOrderPayload {      # expected failures as data, not as errors
 }
 type UserError { field: String  message: String!  code: ErrorCode! }</code></pre><div class="what">Every decision here matters later: bounded list arguments, a stable <code>id</code>, nullable cross-service fields, and expected failures modelled as types.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Resolvers, and the batching that makes them survivable</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// C# — Hot Chocolate: resolvers plus a DataLoader
@@ -502,7 +495,7 @@ internal static class CompanyDataLoaders
 import strawberry
 from strawberry.dataloader import DataLoader
 
-async def load_companies(ids: list[str]) -> list[Company | None]:
+async def load_companies(ids: list[str]) -&gt; list[Company | None]:
     rows = await db.fetch("SELECT * FROM companies WHERE id = ANY($1)", ids)
     by_id = {r["id"]: Company(**r) for r in rows}
     return [by_id.get(i) for i in ids]          # MUST align with the key order
@@ -513,11 +506,11 @@ class User:
     name: str
 
     @strawberry.field
-    async def company(self, info: strawberry.Info) -> Company | None:
+    async def company(self, info: strawberry.Info) -&gt; Company | None:
         return await info.context["company_loader"].load(self.company_id)
 
     @strawberry.field
-    async def posts(self, info: strawberry.Info, first: int = 10) -> list[Post]:
+    async def posts(self, info: strawberry.Info, first: int = 10) -&gt; list[Post]:
         first = min(first, 100)                 # cap it here too, not only in the schema
         return await info.context["posts_loader"].load((self.id, first))
 
@@ -529,7 +522,6 @@ async def get_context():
 
 schema = strawberry.Schema(query=Query, extensions=[QueryDepthLimiter(max_depth=10)])</code></pre><div class="what">Two rules carry across both languages: build loaders per request, and return batch results in the same order as the keys.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Defending the endpoint</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// C# — the production configuration, which is mostly about saying "no"
@@ -590,13 +582,13 @@ query LooksHarmless {
       <h2>Pros &amp; cons</h2>
       <div class="cols">
         <div class="col good"><h3>Pros</h3><ul>
-          <li>Clients fetch exactly what they need in one request &mdash; no over-fetching, no waterfalls.</li>
+          <li>Clients fetch exactly what they need in one request — no over-fetching, no waterfalls.</li>
           <li>A strongly typed schema that is validated at query time and generates client types for free.</li>
           <li>Evolution without versions: add fields freely, deprecate with measured usage before removing.</li>
           <li>Excellent tooling: introspection, GraphiQL, code generation, schema diffing in CI.</li>
           <li>Many clients with different needs are served by one backend and one team.</li>
           <li>Normalised client caches keep views consistent after a mutation, automatically.</li>
-          <li>A facade over heterogeneous backends &mdash; databases, REST services, search &mdash; behind one contract.</li>
+          <li>A facade over heterogeneous backends — databases, REST services, search — behind one contract.</li>
         </ul></div>
         <div class="col bad"><h3>Cons</h3><ul>
           <li>The client determines the server's workload, so cost analysis is mandatory rather than optional.</li>
@@ -615,8 +607,8 @@ query LooksHarmless {
       <div class="cards">
         <div class="card"><h3>Many clients, one backend</h3><p>Web, iOS, Android, a watch app and a partner integration all need different slices of the same data. Each asks for its own fields, and shipping a new screen does not require a backend change or a new endpoint.</p></div>
         <div class="card"><h3>Killing the request waterfall</h3><p>A mobile screen previously made five sequential REST calls because each depended on the last. One GraphQL query returns the whole tree in a single round trip, which on a high-latency connection is the difference between 1.8 s and 300 ms.</p></div>
-        <div class="card"><h3>A facade over a messy estate</h3><p>Four internal services, two databases and a search cluster, with no consistent conventions. A GraphQL layer presents one typed graph to product teams while the mess behind it is refactored at its own pace &mdash; a typed <b>Backend-for-Frontend</b>.</p></div>
-        <div class="card"><h3>Retiring a field with evidence</h3><p><code>User.fullName</code> is deprecated and per-field usage is tracked. Six months later it is genuinely at zero and is removed &mdash; a decision made from data rather than from hope, which REST response bodies never allow.</p></div>
+        <div class="card"><h3>A facade over a messy estate</h3><p>Four internal services, two databases and a search cluster, with no consistent conventions. A GraphQL layer presents one typed graph to product teams while the mess behind it is refactored at its own pace — a typed <b>Backend-for-Frontend</b>.</p></div>
+        <div class="card"><h3>Retiring a field with evidence</h3><p><code>User.fullName</code> is deprecated and per-field usage is tracked. Six months later it is genuinely at zero and is removed — a decision made from data rather than from hope, which REST response bodies never allow.</p></div>
         <div class="card"><h3>A public API with trusted clients</h3><p>Partners integrate against one endpoint with introspection-driven tooling, while persisted operations and complexity budgets keep the workload predictable and per-partner limits meaningful.</p></div>
       </div>
     </section>
@@ -633,9 +625,9 @@ query LooksHarmless {
           <li>You are unifying several backends behind one API surface.</li>
         </ul></div>
         <div class="col bad"><h3>Avoid it when…</h3><ul>
-          <li>One client, a handful of endpoints, a stable shape. Use <b>REST</b> &mdash; it will be faster to build and to run.</li>
+          <li>One client, a handful of endpoints, a stable shape. Use <b>REST</b> — it will be faster to build and to run.</li>
           <li>Service-to-service calls where latency and typed contracts matter most. Use <b>gRPC</b>.</li>
-          <li>The payload is large, binary or streamed &mdash; files, video, bulk export. Use plain HTTP.</li>
+          <li>The payload is large, binary or streamed — files, video, bulk export. Use plain HTTP.</li>
           <li>CDN caching of public responses is central to your performance. Use <b>REST with cache headers</b>.</li>
           <li>The real need is one tailored API per client surface. Use a <b>Backend-for-Frontend</b>.</li>
           <li>Nobody will own cost limits, batching and field authorization. Without those it is an outage waiting for a curious client.</li>
@@ -645,16 +637,16 @@ query LooksHarmless {
 
     <section id="gotchas">
       <h2>Common mistakes &amp; gotchas</h2>
-      <div class="gotcha"><b>No DataLoader</b><span>A list of 50 users with a nested field issues 51 queries, and a second level of nesting makes it a thousand. It is invisible in development with three rows of test data and catastrophic in production.</span><div class="fix">Fix: a DataLoader for every field that fetches by key, constructed per request. Log round trips per GraphQL request and fail CI above a threshold &mdash; that is how you catch it before users do.</div></div>
-      <div class="gotcha"><b>No cost or depth limit</b><span>A client &mdash; curious, buggy or hostile &mdash; sends a nested query over a cyclic schema. Depth 9 with four list fields of 100 is a million field resolutions from a 10-line document.</span><div class="fix">Fix: enforce max depth <em>and</em> a complexity score that multiplies by list arguments, cap <code>first</code> in the schema, add an execution timeout, and prefer persisted operations for first-party clients.</div></div>
+      <div class="gotcha"><b>No DataLoader</b><span>A list of 50 users with a nested field issues 51 queries, and a second level of nesting makes it a thousand. It is invisible in development with three rows of test data and catastrophic in production.</span><div class="fix">Fix: a DataLoader for every field that fetches by key, constructed per request. Log round trips per GraphQL request and fail CI above a threshold — that is how you catch it before users do.</div></div>
+      <div class="gotcha"><b>No cost or depth limit</b><span>A client — curious, buggy or hostile — sends a nested query over a cyclic schema. Depth 9 with four list fields of 100 is a million field resolutions from a 10-line document.</span><div class="fix">Fix: enforce max depth <em>and</em> a complexity score that multiplies by list arguments, cap <code>first</code> in the schema, add an execution timeout, and prefer persisted operations for first-party clients.</div></div>
       <div class="gotcha"><b>Monitoring on HTTP status</b><span>Every response is 200, including the ones where half the fields failed. Dashboards show perfect availability while the product is broken.</span><div class="fix">Fix: alert on the <code>errors</code> array and on per-field error rates, and record the resolver path on each error so you can see which field is failing.</div></div>
-      <div class="gotcha"><b>Non-null everywhere</b><span><code>[Post!]!</code> looks tidy, so it is used throughout. One post whose author lookup fails nullifies the item, which nullifies the list, which nullifies the user &mdash; and a whole screen goes blank over one bad row.</span><div class="fix">Fix: reserve <code>!</code> for values you genuinely always have. Anything fetched from another service is nullable, and the client renders a partial result instead of nothing.</div></div>
+      <div class="gotcha"><b>Non-null everywhere</b><span><code>[Post!]!</code> looks tidy, so it is used throughout. One post whose author lookup fails nullifies the item, which nullifies the list, which nullifies the user — and a whole screen goes blank over one bad row.</span><div class="fix">Fix: reserve <code>!</code> for values you genuinely always have. Anything fetched from another service is nullable, and the client renders a partial result instead of nothing.</div></div>
       <div class="gotcha"><b>Introspection and exception details in production</b><span>The public endpoint publishes every type, field and description, and stack traces appear in the <code>errors</code> array when a resolver throws.</span><div class="fix">Fix: disable introspection outside development, never include exception details, and distribute the schema to your own builds as a file.</div></div>
       <div class="gotcha"><b>Authorization only at the entry point</b><span><code>order(id:)</code> checks that the caller owns the order, but <code>Order.customer.billingDetails</code> is reachable from a different root field that nobody thought about.</span><div class="fix">Fix: authorize on the object being returned, not only on the entry field, and enforce row-level rules in the data layer as a backstop.</div></div>
-      <div class="gotcha"><b>A schema that mirrors the database</b><span>Tables become types, columns become fields, join tables leak into the graph. Clients end up assembling domain concepts themselves, and the schema is now coupled to the storage layout.</span><div class="fix">Fix: design the graph around how clients think &mdash; <code>Order.total</code>, <code>User.unreadCount</code> &mdash; and let resolvers do the mapping. The whole point is a contract that outlives the storage.</div></div>
+      <div class="gotcha"><b>A schema that mirrors the database</b><span>Tables become types, columns become fields, join tables leak into the graph. Clients end up assembling domain concepts themselves, and the schema is now coupled to the storage layout.</span><div class="fix">Fix: design the graph around how clients think — <code>Order.total</code>, <code>User.unreadCount</code> — and let resolvers do the mapping. The whole point is a contract that outlives the storage.</div></div>
       <div class="gotcha"><b>Unbounded list fields</b><span><code>posts: [Post!]!</code> with no arguments means "all of them". It works for two years and then one account has 400,000.</span><div class="fix">Fix: every list is a paginated connection with a required, capped <code>first</code>. Make the server reject a missing paging boundary rather than defaulting to everything.</div></div>
       <div class="gotcha"><b>Mutations that return a bare scalar</b><span><code>deleteUser: Boolean!</code> cannot report why it failed, cannot return the updated state, and gives the client cache nothing to update.</span><div class="fix">Fix: one input type and one payload type per mutation, with the affected objects and a typed <code>problems</code> list. Expected failures belong in <code>data</code>, not in <code>errors</code>.</div></div>
-      <div class="gotcha"><b>Reaching for federation too early</b><span>Three services and one team adopt a gateway, a supergraph and composition checks. Now every deploy can fail at composition time and every slow query needs a query plan to debug.</span><div class="fix">Fix: start with one schema. Federate when several teams genuinely need independent ownership of parts of the graph &mdash; it is an organisational solution, not a technical one.</div></div>
+      <div class="gotcha"><b>Reaching for federation too early</b><span>Three services and one team adopt a gateway, a supergraph and composition checks. Now every deploy can fail at composition time and every slow query needs a query plan to debug.</span><div class="fix">Fix: start with one schema. Federate when several teams genuinely need independent ownership of parts of the graph — it is an organisational solution, not a technical one.</div></div>
     </section>
 
     <section id="alternatives">
@@ -663,18 +655,18 @@ query LooksHarmless {
         <table>
           <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs GraphQL</th></tr></thead>
           <tbody>
-            <tr class="self"><td><b>GraphQL</b></td><td>many clients, deeply related data</td><td>Medium&ndash;High</td><td>open spec, free servers</td><td>&mdash;</td></tr>
+            <tr class="self"><td><b>GraphQL</b></td><td>many clients, deeply related data</td><td>Medium–High</td><td>open spec, free servers</td><td>—</td></tr>
             <tr><td><b>REST</b></td><td>most APIs, most of the time</td><td>Low</td><td>free</td><td>Server fixes the shape; HTTP caching just works; over-fetching and waterfalls are yours to manage</td></tr>
             <tr><td><b>gRPC</b></td><td>service-to-service</td><td>Medium</td><td>free</td><td>Typed RPC over HTTP/2 with codegen; fastest, and awkward from a browser</td></tr>
-            <tr><td><b>Backend-for-Frontend</b></td><td>a few known clients</td><td>Low&ndash;Medium</td><td>free</td><td>One tailored API per client, in plain code; no query language and no cost analysis</td></tr>
+            <tr><td><b>Backend-for-Frontend</b></td><td>a few known clients</td><td>Low–Medium</td><td>free</td><td>One tailored API per client, in plain code; no query language and no cost analysis</td></tr>
             <tr><td><b>OData</b></td><td>queryable REST over entities</td><td>Medium</td><td>free</td><td>Query language on top of REST, keeping URLs and HTTP caching</td></tr>
-            <tr><td><b>tRPC</b></td><td>TypeScript on both ends</td><td>Very low</td><td>free</td><td>End-to-end types with no schema language &mdash; and no cross-language story</td></tr>
+            <tr><td><b>tRPC</b></td><td>TypeScript on both ends</td><td>Very low</td><td>free</td><td>End-to-end types with no schema language — and no cross-language story</td></tr>
             <tr><td><b>GraphQL federation</b></td><td>many teams, one graph</td><td>High</td><td>free / managed</td><td>Same model, distributed ownership, plus a query planner in the request path</td></tr>
           </tbody>
         </table>
       </div>
       <ul style="margin-top:12px">
-        <li><b>Pick REST</b> unless you can name the clients that need different shapes &mdash; it is the right default and caching alone often decides it.</li>
+        <li><b>Pick REST</b> unless you can name the clients that need different shapes — it is the right default and caching alone often decides it.</li>
         <li><b>Pick gRPC</b> for internal service-to-service calls where latency and typed contracts matter more than client flexibility.</li>
         <li><b>Pick a BFF</b> when there are two or three known client surfaces; it gets you most of the benefit for a fraction of the machinery.</li>
         <li><b>Pick tRPC</b> if both ends are TypeScript and will stay that way.</li>
@@ -686,7 +678,7 @@ query LooksHarmless {
       <h2>Resources</h2>
       <ul>
         <li><a href="https://spec.graphql.org/" target="_blank" rel="noopener">The GraphQL specification</a>: short, readable, and the authority on execution order, nullability propagation and errors.</li>
-        <li><a href="https://graphql.org/learn/" target="_blank" rel="noopener">graphql.org &mdash; Learn</a>: the official introduction to schemas, queries and resolvers.</li>
+        <li><a href="https://graphql.org/learn/" target="_blank" rel="noopener">graphql.org — Learn</a>: the official introduction to schemas, queries and resolvers.</li>
         <li><a href="https://github.com/graphql/dataloader" target="_blank" rel="noopener">DataLoader</a>: the original implementation, and the clearest explanation of batching and per-request scoping.</li>
         <li><a href="https://relay.dev/graphql/connections.htm" target="_blank" rel="noopener">Relay connection specification</a>: the cursor pagination pattern everyone adopted.</li>
         <li><a href="https://chillicream.com/docs/hotchocolate" target="_blank" rel="noopener">Hot Chocolate</a>: the .NET server, including cost analysis, paging limits and persisted operations.</li>
@@ -733,34 +725,34 @@ query LooksHarmless {
   </main>
 </div>
 
-<script src="../assets/player.js?v=3658cbc7"></script>
+<script src="../assets/player.js?v=e9bf1ea3"></script>
 <script>
 createAnimation('anim-exec', [
-  { say: 'Three lines of query: the first three users, each with their first two posts. It reads like one request, and the client has no idea what it implies.', hl: ['gq-query'], text: { 'gq-l1': 'validate against the schema: every field exists, every argument type-checks' } },
-  { say: 'Validation passes, so execution starts at the root. The <code>users</code> resolver runs once and does one database query.', unhl: ['gq-query'], hl: ['gq-n1'], text: { 'gq-d1': 'SELECT * FROM users LIMIT 3', 'gq-d5': '1 query', 'gq-l1': 'root field resolved: 1 query, 3 users' } },
-  { say: 'Now the server has three <code>User</code> objects, and resolves the selected sub-fields against each one. <code>name</code> is already loaded, so it is free.', unhl: ['gq-n1'], hl: ['gq-u1', 'gq-u2', 'gq-u3'], text: { 'gq-u1t': 'User 1 ✓', 'gq-u2t': 'User 2 ✓', 'gq-u3t': 'User 3 ✓', 'gq-l2': 'name: a property of the parent — the default resolver, no I/O' } },
-  { say: '<code>posts</code> is not. It has its own resolver, and that resolver is called <b>once per user</b> &mdash; three separate invocations that know nothing about each other.', unhl: ['gq-u1', 'gq-u2', 'gq-u3'], hl: ['gq-p1'], text: { 'gq-p1t': 'posts(user 1)', 'gq-d2': 'SELECT … WHERE user_id = 1', 'gq-d5': '2 queries', 'gq-l2': 'resolver for User.posts: invoked per object, not per query' } },
-  { say: 'And again. And again. Three users, three identical queries differing only in one parameter &mdash; which one <code>IN</code> clause would have answered.', hl: ['gq-p2', 'gq-p3'], text: { 'gq-p2t': 'posts(user 2)', 'gq-p3t': 'posts(user 3)', 'gq-d3': 'SELECT … WHERE user_id = 2', 'gq-d4': 'SELECT … WHERE user_id = 3', 'gq-d5': '4 queries', 'gq-d6': '1 + N', 'gq-l3': 'this is N+1 — and it is the DEFAULT behaviour, not a bug in anyone’s code' }, fill: { 'gq-d5': '#c53b3b', 'gq-l3': '#c53b3b' } },
-  { say: 'Four queries for three users sounds harmless. Change <code>first</code> to 50 and it is 51. Ask for each post&rsquo;s author as well and it is over a thousand &mdash; from a query that grew by one word.', unhl: ['gq-p1', 'gq-p2', 'gq-p3'], text: { 'gq-phase': 'the same query with first: 50, plus one more nested field', 'gq-d5': '1,101 queries', 'gq-l4': '50 users → 51 · + 20 posts each → 101 · + author of each post → 1,101' }, fill: { 'gq-l4': '#c53b3b' } },
-  { say: 'The fix uses the one structural guarantee execution gives you: all three <code>posts</code> resolvers run in the same tick, at the same level of the tree.', hl: ['gq-u1', 'gq-u2', 'gq-u3'], text: { 'gq-phase': 'siblings resolve together — which means their keys can be collected', 'gq-l1': 'execution is layered: parents, then all their children together', 'gq-l2': '&nbsp;', 'gq-l3': '&nbsp;', 'gq-l4': '&nbsp;' }, fill: { 'gq-d5': '#5f6f66' } },
-  { say: 'A DataLoader sits in front. Each resolver calls <code>load(userId)</code> and gets a promise; the loader collects the keys instead of issuing anything.', unhl: ['gq-u1', 'gq-u2', 'gq-u3'], hl: ['gq-p1', 'gq-p2', 'gq-p3'], text: { 'gq-p1t': 'load(1) →', 'gq-p2t': 'load(2) →', 'gq-p3t': 'load(3) →', 'gq-l1': 'keys collected this tick: [1, 2, 3] — nothing sent yet', 'gq-d1': '(waiting)', 'gq-d2': '&nbsp;', 'gq-d3': '&nbsp;', 'gq-d4': '&nbsp;' } },
-  { say: 'At the end of the tick it fires once with all the keys, and distributes the rows back to the waiting promises. Two queries instead of four &mdash; and two instead of 1,101 in the larger case.', unhl: ['gq-p1', 'gq-p2', 'gq-p3'], hl: ['gq-db'], text: { 'gq-d1': 'SELECT * FROM users LIMIT 3', 'gq-d2': 'WHERE user_id IN (1,2,3)', 'gq-d5': '2 queries', 'gq-d6': 'constant in N', 'gq-l1': 'one batch per level of the tree, however wide the level is' }, fill: { 'gq-d5': '#2f6b3f', 'gq-d6': '#2f6b3f' } },
-  { say: 'It deduplicates as well. Twenty posts by the same author produce one load, not twenty &mdash; which is why the loader must be created per request and never shared between them.', text: { 'gq-l2': 'deduplication: 20 posts by one author → 1 load', 'gq-l3': 'per-request lifetime — a shared loader leaks one user’s data into another’s response' }, fill: { 'gq-l3': '#c53b3b' } },
-  { say: 'But note what it did <em>not</em> fix: the amount of work. A batch of 10,000 ids is still an enormous query. Batching bounds round trips; bounding the size of the request is a separate job.', unhl: ['gq-db'], text: { 'gq-phase': 'DataLoader fixes round trips, not volume', 'gq-l1': 'round trips: solved by batching', 'gq-l2': 'volume: solved by paging limits and cost analysis', 'gq-l3': 'you need both — and the second one is the subject of the next animation', 'gq-v': 'batch every field that fetches by key, and cap every list that can grow' }, fill: { 'gq-l3': '#5f6f66', 'gq-verd': '#e3eedc' } },
+  { say: "Three lines of query: the first three users, each with their first two posts. It reads like one request, and the client has no idea what it implies.", hl: ["gq-query"], text: {"gq-l1":"validate against the schema: every field exists, every argument type-checks"} },
+  { say: "Validation passes, so execution starts at the root. The <code>users</code> resolver runs once and does one database query.", hl: ["gq-n1"], unhl: ["gq-query"], text: {"gq-d1":"SELECT * FROM users LIMIT 3","gq-d5":"1 query","gq-l1":"root field resolved: 1 query, 3 users"} },
+  { say: "Now the server has three <code>User</code> objects, and resolves the selected sub-fields against each one. <code>name</code> is already loaded, so it is free.", hl: ["gq-u1","gq-u2","gq-u3"], unhl: ["gq-n1"], text: {"gq-u1t":"User 1 ✓","gq-u2t":"User 2 ✓","gq-u3t":"User 3 ✓","gq-l2":"name: a property of the parent — the default resolver, no I/O"} },
+  { say: "<code>posts</code> is not. It has its own resolver, and that resolver is called <b>once per user</b> — three separate invocations that know nothing about each other.", hl: ["gq-p1"], unhl: ["gq-u1","gq-u2","gq-u3"], text: {"gq-p1t":"posts(user 1)","gq-d2":"SELECT … WHERE user_id = 1","gq-d5":"2 queries","gq-l2":"resolver for User.posts: invoked per object, not per query"} },
+  { say: "And again. And again. Three users, three identical queries differing only in one parameter — which one <code>IN</code> clause would have answered.", hl: ["gq-p2","gq-p3"], text: {"gq-p2t":"posts(user 2)","gq-p3t":"posts(user 3)","gq-d3":"SELECT … WHERE user_id = 2","gq-d4":"SELECT … WHERE user_id = 3","gq-d5":"4 queries","gq-d6":"1 + N","gq-l3":"this is N+1 — and it is the DEFAULT behaviour, not a bug in anyone’s code"}, fill: {"gq-d5":"#c53b3b","gq-l3":"#c53b3b"} },
+  { say: "Four queries for three users sounds harmless. Change <code>first</code> to 50 and it is 51. Ask for each post’s author as well and it is over a thousand — from a query that grew by one word.", unhl: ["gq-p1","gq-p2","gq-p3"], text: {"gq-phase":"the same query with first: 50, plus one more nested field","gq-d5":"1,101 queries","gq-l4":"50 users → 51 · + 20 posts each → 101 · + author of each post → 1,101"}, fill: {"gq-l4":"#c53b3b"} },
+  { say: "The fix uses the one structural guarantee execution gives you: all three <code>posts</code> resolvers run in the same tick, at the same level of the tree.", hl: ["gq-u1","gq-u2","gq-u3"], text: {"gq-phase":"siblings resolve together — which means their keys can be collected","gq-l1":"execution is layered: parents, then all their children together","gq-l2":"&nbsp;","gq-l3":"&nbsp;","gq-l4":"&nbsp;"}, fill: {"gq-d5":"#5f6f66"} },
+  { say: "A DataLoader sits in front. Each resolver calls <code>load(userId)</code> and gets a promise; the loader collects the keys instead of issuing anything.", hl: ["gq-p1","gq-p2","gq-p3"], unhl: ["gq-u1","gq-u2","gq-u3"], text: {"gq-p1t":"load(1) →","gq-p2t":"load(2) →","gq-p3t":"load(3) →","gq-l1":"keys collected this tick: [1, 2, 3] — nothing sent yet","gq-d1":"(waiting)","gq-d2":"&nbsp;","gq-d3":"&nbsp;","gq-d4":"&nbsp;"} },
+  { say: "At the end of the tick it fires once with all the keys, and distributes the rows back to the waiting promises. Two queries instead of four — and two instead of 1,101 in the larger case.", hl: ["gq-db"], unhl: ["gq-p1","gq-p2","gq-p3"], text: {"gq-d1":"SELECT * FROM users LIMIT 3","gq-d2":"WHERE user_id IN (1,2,3)","gq-d5":"2 queries","gq-d6":"constant in N","gq-l1":"one batch per level of the tree, however wide the level is"}, fill: {"gq-d5":"#2f6b3f","gq-d6":"#2f6b3f"} },
+  { say: "It deduplicates as well. Twenty posts by the same author produce one load, not twenty — which is why the loader must be created per request and never shared between them.", text: {"gq-l2":"deduplication: 20 posts by one author → 1 load","gq-l3":"per-request lifetime — a shared loader leaks one user’s data into another’s response"}, fill: {"gq-l3":"#c53b3b"} },
+  { say: "But note what it did <em>not</em> fix: the amount of work. A batch of 10,000 ids is still an enormous query. Batching bounds round trips; bounding the size of the request is a separate job.", unhl: ["gq-db"], text: {"gq-phase":"DataLoader fixes round trips, not volume","gq-l1":"round trips: solved by batching","gq-l2":"volume: solved by paging limits and cost analysis","gq-l3":"you need both — and the second one is the subject of the next animation","gq-v":"batch every field that fetches by key, and cap every list that can grow"}, fill: {"gq-l3":"#5f6f66","gq-verd":"#e3eedc"} },
 ]);
 
 createAnimation('anim-cost', [
-  { say: 'The schema has a perfectly normal cycle: a <code>User</code> has <code>posts</code>, a <code>Post</code> has an <code>author</code>, and that author has posts again. Almost every real schema does.', hl: ['gd-q'], text: { 'gd-g1': 'type User  { posts(first: Int): [Post!]! }', 'gd-g2': 'type Post  { author: User! }', 'gd-g3': '# nothing unusual — this cycle is the point of a graph' } },
-  { say: 'A client writes a query that looks modest. One hundred users, each with a hundred posts.', unhl: ['gd-q'], text: { 'gd-g1': 'query {', 'gd-g2': '  users(first: 100) {', 'gd-g3': '    edges { node {', 'gd-g4': '      posts(first: 100) {', 'gd-m1': 'depth:  4', 'gd-m2': 'fields: 100 × 100 = 10,000' } },
-  { say: 'Then one more level: each post&rsquo;s comments. Still readable, still ten lines, and the multiplication has now run away from everyone.', text: { 'gd-g5': '        edges { node {', 'gd-g6': '          comments(first: 100) {', 'gd-g7': '            edges { node { author { name } } }', 'gd-g8': '} } } } } } }', 'gd-m1': 'depth:  9', 'gd-m2': 'fields: 100 × 100 × 100 = 1,000,000' }, fill: { 'gd-m2': '#c53b3b' } },
-  { say: 'A million field resolutions. Even with perfect DataLoader batching, that is millions of rows marshalled, assembled and serialised &mdash; from a document that fits on a postcard.', text: { 'gd-m3': 'batched to ~12 queries — still a million objects', 'gd-n1': 'the client wrote 10 lines; the server agreed to minutes of work' }, fill: { 'gd-m3': '#c53b3b', 'gd-n1': '#c53b3b' } },
-  { say: 'Defence one: a maximum depth. Depth 9 here &mdash; and the limit is 10. It passes. Depth alone catches recursive nonsense and misses the query that actually hurts.', hl: ['gd-def'], text: { 'gd-d1': '1. max depth 10 → depth is 9 → PASSES ✗' }, fill: { 'gd-d1': '#c53b3b' } },
-  { say: 'Defence two is the one that works: complexity scoring. Each field costs points, and a list field multiplies its children by its <code>first</code> argument. The score is one million against a budget of one thousand.', text: { 'gd-d2': '2. complexity: 100 × 100 × 100 = 1,000,000 > 1,000 → REJECTED ✓', 'gd-m3': 'rejected during validation — before a single resolver runs' }, fill: { 'gd-d2': '#2f6b3f', 'gd-m3': '#2f6b3f' } },
-  { say: 'And that rejection is free. Cost analysis happens after parsing and before execution, so an abusive query costs microseconds instead of taking the database with it.', text: { 'gd-n1': 'cost is computed statically, from the document and its arguments', 'gd-n2': 'the expensive query never reaches a resolver, a connection or a row' }, fill: { 'gd-n1': '#2f6b3f', 'gd-n2': '#2f6b3f' } },
-  { say: 'Defence three closes the hole underneath both: make every list field require a bounded <code>first</code>, capped in the schema. An unbounded list is an unbounded query, waiting for one account to get large.', text: { 'gd-d3': '3. paging boundaries required, max size 100' }, fill: { 'gd-d3': '#2f6b3f' } },
-  { say: 'Defence four: an execution timeout, because cost analysis estimates and estimates are wrong. A ten-second ceiling turns a mistake into a failed request instead of a saturated pool.', text: { 'gd-d4': '4. execution timeout 10s → a bad estimate fails one request' }, fill: { 'gd-d4': '#2f6b3f' } },
-  { say: 'And for first-party clients, the defence that removes the whole category: persisted operations. The client sends a hash of a document you registered at build time, and arbitrary queries simply cannot run.', text: { 'gd-d5': '5. trusted documents → only registered ops run', 'gd-phase': 'for your own apps, the client never composes a query at runtime at all' }, fill: { 'gd-d5': '#2f6b3f' } },
-  { say: 'The underlying point is the one worth remembering. REST decides its own workload per endpoint. GraphQL hands that decision to the caller &mdash; and cost limits are how you take it back.', unhl: ['gd-def'], text: { 'gd-n1': 'rate limiting by requests per minute is nearly meaningless here', 'gd-n2': 'limit by complexity points per minute instead' }, fill: { 'gd-verd': '#e3eedc', 'gd-n2': '#2f6b3f' } },
+  { say: "The schema has a perfectly normal cycle: a <code>User</code> has <code>posts</code>, a <code>Post</code> has an <code>author</code>, and that author has posts again. Almost every real schema does.", hl: ["gd-q"], text: {"gd-g1":"type User  { posts(first: Int): [Post!]! }","gd-g2":"type Post  { author: User! }","gd-g3":"# nothing unusual — this cycle is the point of a graph"} },
+  { say: "A client writes a query that looks modest. One hundred users, each with a hundred posts.", unhl: ["gd-q"], text: {"gd-g1":"query {","gd-g2":"  users(first: 100) {","gd-g3":"    edges { node {","gd-g4":"      posts(first: 100) {","gd-m1":"depth:  4","gd-m2":"fields: 100 × 100 = 10,000"} },
+  { say: "Then one more level: each post’s comments. Still readable, still ten lines, and the multiplication has now run away from everyone.", text: {"gd-g5":"        edges { node {","gd-g6":"          comments(first: 100) {","gd-g7":"            edges { node { author { name } } }","gd-g8":"} } } } } } }","gd-m1":"depth:  9","gd-m2":"fields: 100 × 100 × 100 = 1,000,000"}, fill: {"gd-m2":"#c53b3b"} },
+  { say: "A million field resolutions. Even with perfect DataLoader batching, that is millions of rows marshalled, assembled and serialised — from a document that fits on a postcard.", text: {"gd-m3":"batched to ~12 queries — still a million objects","gd-n1":"the client wrote 10 lines; the server agreed to minutes of work"}, fill: {"gd-m3":"#c53b3b","gd-n1":"#c53b3b"} },
+  { say: "Defence one: a maximum depth. Depth 9 here — and the limit is 10. It passes. Depth alone catches recursive nonsense and misses the query that actually hurts.", hl: ["gd-def"], text: {"gd-d1":"1. max depth 10 → depth is 9 → PASSES ✗"}, fill: {"gd-d1":"#c53b3b"} },
+  { say: "Defence two is the one that works: complexity scoring. Each field costs points, and a list field multiplies its children by its <code>first</code> argument. The score is one million against a budget of one thousand.", text: {"gd-d2":"2. complexity: 100 × 100 × 100 = 1,000,000 > 1,000 → REJECTED ✓","gd-m3":"rejected during validation — before a single resolver runs"}, fill: {"gd-d2":"#2f6b3f","gd-m3":"#2f6b3f"} },
+  { say: "And that rejection is free. Cost analysis happens after parsing and before execution, so an abusive query costs microseconds instead of taking the database with it.", text: {"gd-n1":"cost is computed statically, from the document and its arguments","gd-n2":"the expensive query never reaches a resolver, a connection or a row"}, fill: {"gd-n1":"#2f6b3f","gd-n2":"#2f6b3f"} },
+  { say: "Defence three closes the hole underneath both: make every list field require a bounded <code>first</code>, capped in the schema. An unbounded list is an unbounded query, waiting for one account to get large.", text: {"gd-d3":"3. paging boundaries required, max size 100"}, fill: {"gd-d3":"#2f6b3f"} },
+  { say: "Defence four: an execution timeout, because cost analysis estimates and estimates are wrong. A ten-second ceiling turns a mistake into a failed request instead of a saturated pool.", text: {"gd-d4":"4. execution timeout 10s → a bad estimate fails one request"}, fill: {"gd-d4":"#2f6b3f"} },
+  { say: "And for first-party clients, the defence that removes the whole category: persisted operations. The client sends a hash of a document you registered at build time, and arbitrary queries simply cannot run.", text: {"gd-d5":"5. trusted documents → only registered ops run","gd-phase":"for your own apps, the client never composes a query at runtime at all"}, fill: {"gd-d5":"#2f6b3f"} },
+  { say: "The underlying point is the one worth remembering. REST decides its own workload per endpoint. GraphQL hands that decision to the caller — and cost limits are how you take it back.", unhl: ["gd-def"], text: {"gd-n1":"rate limiting by requests per minute is nearly meaningless here","gd-n2":"limit by complexity points per minute instead"}, fill: {"gd-verd":"#e3eedc","gd-n2":"#2f6b3f"} },
 ]);
 </script>
 </body>

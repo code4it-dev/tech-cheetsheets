@@ -1,0 +1,614 @@
+title: Redis
+slug: redis
+tagline: "An in-memory data structure server: a key-value store that answers in microseconds."
+asof: Nov 2026 · latest release line 8.10
+description: "Redis cheatsheet: architecture, animated SET and cache-aside walk-throughs, key concepts, commands, trade-offs and alternatives."
+aliases: [ Redis ]
+keywords:
+  - cache
+  - key-value
+  - in-memory
+  - nosql
+  - database
+  - session store
+  - pub/sub
+  - streams
+  - valkey
+overview:
+  - "Redis keeps all its data in RAM and exposes it over a simple TCP protocol. Instead of tables and rows you work with keys, and each key holds a data structure: a string, hash, list, set, sorted set, stream, JSON document or vector set. Because nothing has to be read from disk, typical reads and writes take well under a millisecond."
+  - Commands run one at a time on a single main thread, so each command is atomic without locks. Data can be persisted to disk (snapshots and/or an append-only log), copied to replicas, and split across nodes with Redis Cluster. Keys can carry a time-to-live, which makes Redis a natural cache.
+  - "It is most often used next to a primary database, not instead of one: as a cache, session store, rate limiter, leaderboard, job queue or message bus. Since Redis 8, the former \"Redis Stack\" features (JSON, search and query, time series, probabilistic structures) ship in the core, under a tri-license (AGPLv3, RSALv2 or SSPLv1)."
+architecture:
+  svg: redis/architecture.svg
+  alt: Clients connect to a Redis primary that holds data structures in RAM, persists to disk, replicates to read-only replicas and is watched by Sentinel or organised as a Cluster
+  caption: Think of Redis as a giant hash map in RAM that speaks over the network. Everything else (disk, replicas, Sentinel, Cluster) exists to make that map survive restarts, scale reads, or grow beyond one machine.
+howItWorks:
+  - anim:
+      id: anim-set
+      title: What happens on `SET user:1 "Ada"`
+      svg: redis/anim-set.svg
+      alt: Animated walk-through of a SET command
+      steps:
+        - say: Your app sends `SET user:1 "Ada"` to Redis over a TCP connection, encoded in the simple RESP protocol.
+          show: [ s-msg ]
+          hl: [ s-client ]
+        - say: The **event loop** reads the command from the socket. A single thread runs every client's commands one after another, so each command is atomic and no locks are needed.
+          hl: [ s-loop ]
+          unhl: [ s-client ]
+          move:
+            s-msg: [ 240, 0 ]
+          text:
+            s-loop-label: "parse: SET user:1 \"Ada\""
+        - say: "Redis hashes the key to find its bucket in the main hash table (the **keyspace**). This is O(1): the lookup cost does not grow with the number of keys."
+          hl: [ s-slot-2 ]
+          text:
+            s-loop-label: hash("user:1") → bucket 2
+        - say: The value is written straight into **RAM**. No disk seek, no query planner, no page cache. That is why a write takes microseconds.
+          unhl: [ s-loop ]
+          move:
+            s-msg: [ 530, -85 ]
+        - say: The key now exists in the keyspace as a String. A later `GET user:1` follows the same path and reads it from memory.
+          hide: [ s-msg ]
+          unhl: [ s-slot-2 ]
+          text:
+            s-slot-2-t: 2 │ user:1 → "Ada"
+            s-loop-label: done
+          fill:
+            s-slot-2: "#e3eedc"
+        - say: If **AOF** is on, the command is also appended to the log file. By default it is flushed to disk once per second (`appendfsync everysec`), so a crash loses at most about 1 s of writes. With RDB only, the key is saved at the next snapshot.
+          show: [ s-arrow-disk ]
+          hl: [ s-disk ]
+          text:
+            s-aof: … SET user:1 "Ada"
+        - say: Redis queues the reply `+OK` on the connection.
+          show: [ s-reply ]
+          unhl: [ s-disk ]
+        - say: The client receives `OK`. On a local network the whole round trip usually takes well under a millisecond, and most of that is network time, not Redis.
+          hl: [ s-client ]
+          move:
+            s-reply: [ -240, 0 ]
+  - anim:
+      id: anim-cache
+      title: "Cache-aside: a miss, a fill, a hit, an expiry"
+      svg: redis/anim-cache.svg
+      alt: Animated cache-aside pattern between an app, Redis and a database
+      steps:
+        - say: A user opens product 42. With the **cache-aside** pattern, the app asks Redis first.
+          show: [ c-pkt ]
+          hl: [ c-app ]
+        - say: Redis looks up `product:42` in its keyspace…
+          hl: [ c-redis ]
+          unhl: [ c-app ]
+          move:
+            c-pkt: &a2 [ 115, -80 ]
+        - say: "**Cache miss.** The key does not exist, so Redis returns `(nil)` in a fraction of a millisecond."
+          move:
+            c-pkt: &a1 [ 0, 0 ]
+          text:
+            c-pkt-label: (nil)
+            c-redis-state: miss → (nil)
+          fill:
+            c-redis: "#f9e3df"
+        - say: "The app falls back to the database: `SELECT * FROM products WHERE id = 42`."
+          hl: [ c-db ]
+          unhl: [ c-redis ]
+          move:
+            c-pkt: [ 115, 90 ]
+          text:
+            c-pkt-label: SELECT … id=42
+          fill:
+            c-redis: "#fbfcf8"
+        - say: PostgreSQL returns the row. Disk I/O, query planning and the network make this the slow path.
+          move:
+            c-pkt: *a1
+          text:
+            c-pkt-label: row (Desk)
+            c-lat: ≈ 15 ms
+            c-lat-sub: "miss: DB round trip"
+        - say: "Before responding, the app stores the result in Redis with a 5-minute TTL: `SET product:42 \"{…}\" EX 300`."
+          hl: [ c-redis ]
+          unhl: [ c-db ]
+          move:
+            c-pkt: *a2
+          text:
+            c-pkt-label: SET … EX 300
+        - say: The value is now cached, and Redis will delete it on its own when the TTL runs out.
+          move:
+            c-pkt: *a1
+          text:
+            c-pkt-label: OK
+            c-redis-state: product:42 → {…} · TTL 300s
+          fill:
+            c-redis: "#e3eedc"
+        - say: "The next visitor asks for the same product: again, Redis first."
+          move:
+            c-pkt: *a2
+          text:
+            c-pkt-label: GET product:42
+        - say: "**Cache hit.** The value comes straight from RAM. The database is never touched, and the response is many times faster."
+          move:
+            c-pkt: *a1
+          text:
+            c-pkt-label: "{\"Desk\"…}"
+            c-lat: ≈ 0.3 ms
+            c-lat-sub: "hit: served from RAM"
+        - say: After 300 s the key **expires**. The next request is a miss again and reloads fresh data. The TTL caps how stale the cache can be.
+          hide: [ c-pkt ]
+          unhl: [ c-redis ]
+          text:
+            c-redis-state: product:42 expired
+            c-lat: —
+            c-lat-sub: ""
+          fill:
+            c-redis: "#fbfcf8"
+concepts:
+  - term: key
+    short: "A binary-safe string that names a value, by convention namespaced with colons: `user:1`, `cart:7`. Max 512 MB, but keep keys short."
+    see: [ keyspace, data types, TTL / EXPIRE, Cluster / hash slot ]
+    detail: |-
+      Keys are binary-safe strings. Redis has no tables or schemas, so the **naming convention** is your schema: `object-type:id:field`.
+
+      | Good | Why |
+      | --- | --- |
+      | `user:1042` | type + id, easy to `SCAN MATCH user:*` |
+      | `session:9f3c` | short, unique, set a TTL |
+      | `rl:{user:42}:2026-11-10T10:05` | rate-limit bucket; `{…}` is a Cluster hash tag |
+
+      Keep keys short: with 100M keys, every extra 20 bytes is ~2 GB of RAM. Avoid unbounded patterns (one key per request) without a TTL.
+  - term: keyspace
+    short: The set of all keys in a database, stored in one big in-memory hash table. Lookups are O(1).
+    see: [ key, maxmemory + eviction, Cluster / hash slot ]
+    detail: |-
+      All keys of a database live in one big hash table, so `GET`, `SET` and `DEL` are O(1) whatever the size. Redis grows the table incrementally (rehashing a little on each command) to avoid long pauses.
+
+      - `DBSIZE` counts keys; `INFO keyspace` shows keys and expiring keys per database.
+      - Redis has 16 numbered databases (`SELECT 0..15`), but Cluster supports only db 0. Prefer key prefixes over database numbers.
+      - Scale: tens of millions of keys per instance are normal; the limit is RAM, not count.
+  - term: data types
+    short: "What a key holds: String, Hash, List, Set, Sorted set, Stream, Bitmap, HyperLogLog, Geo, JSON, Vector set. Each has its own commands."
+    see: [ key, Pub/Sub vs Streams ]
+    detail: |-
+      | Type | Think of it as | Typical use |
+      | --- | --- | --- |
+      | String | bytes, number, JSON blob (≤ 512 MB) | cache entries, counters, locks |
+      | Hash | a small object / dict | user profile, session fields |
+      | List | linked list, push/pop at both ends | queues, recent-items feeds |
+      | Set | unique unordered members | tags, "who liked this" |
+      | Sorted set | members ordered by score | leaderboards, scheduling, sliding windows |
+      | Stream | append-only log with consumer groups | event streams, job queues with acks |
+      | JSON, Vector set, HyperLogLog, Bitmap, Geo | specialised structures | documents, similarity search, unique counts, flags, "nearby" |
+
+      Pick the type by the **operations** you need: if you'd read-modify-write a JSON string to change one field, use a Hash instead.
+  - term: TTL / EXPIRE
+    short: A time-to-live on a key. When it runs out, Redis deletes the key. The basis of caching and sessions.
+    see: [ maxmemory + eviction, key ]
+    detail: |-
+      ```bash
+      SET session:9f "{...}" EX 1800     # set with 30 min TTL
+      EXPIRE cart:7 3600                  # add/replace a TTL
+      TTL cart:7      → 3597              # seconds left (-1 none, -2 missing)
+      PERSIST cart:7                      # remove the TTL
+      ```
+
+      Expired keys are removed two ways: **lazily** when someone touches them, and **actively** by a background job that samples keys with TTLs several times per second. Memory is therefore reclaimed slightly after expiry, not at the exact second.
+
+      #### Common values
+
+      Cache entries: 1–60 min, with random jitter to avoid stampedes. Sessions: 30 min to 24 h, refreshed on activity. One-time codes: 5–10 min.
+
+      Gotcha: `SET` without `EX`/`KEEPTTL` on an existing key **removes** its TTL.
+  - term: maxmemory + eviction
+    short: The RAM cap. When it is reached, the `maxmemory-policy` decides what to drop (e.g. `allkeys-lru`) or to reject writes (`noeviction`).
+    see: [ TTL / EXPIRE, keyspace ]
+    anim:
+      key: evict
+      title: allkeys-lru in action
+      svg: redis/evict.svg
+      alt: Animated LRU eviction when Redis memory is full
+      steps:
+        - say: "Memory is at the cap: `used_memory` equals `maxmemory` (100 MB). The policy is `allkeys-lru`."
+        - say: A client sends `SET product:42 …`. Storing it needs memory Redis no longer has.
+          show: [ e-new, e-new-cmd ]
+        - say: Redis doesn't keep an exact LRU ordering (too costly). It **samples** a few keys (`maxmemory-samples`, 5 by default) and compares how long each has been idle.
+          hl: [ e-k1-r, e-k2-r, e-k3-r, e-k4-r, e-k5-r ]
+        - say: "`cart:7` has been idle the longest (40 min), so it is the victim."
+          unhl: [ e-k1-r, e-k3-r, e-k4-r, e-k5-r ]
+          fill:
+            e-k2-r: "#f9e3df"
+        - say: "It is evicted, freeing memory. No error, no warning to any client: the key is simply gone."
+          hide: [ e-k2 ]
+          text:
+            e-mem: used 98 MB / maxmemory 100 MB
+        - say: The write now fits. Later, a `GET cart:7` returns `nil`, which is fine for a cache and a disaster for data you needed.
+          hide: [ e-new-cmd ]
+          move:
+            e-new: [ 0, -100 ]
+          text:
+            e-new-t: stored ✓
+            e-mem: used 100 MB / maxmemory 100 MB
+          fill:
+            e-new-r: "#e3eedc"
+        - say: That is why queues and primary data belong on an instance with `noeviction`, and caches on one with an LRU or LFU policy.
+          show: [ e-note ]
+    detail: |-
+      `maxmemory` caps the RAM Redis uses for data. When a write would exceed it, `maxmemory-policy` decides what happens.
+
+      | Policy | Evicts | Use for |
+      | --- | --- | --- |
+      | `noeviction` (default) | nothing: writes fail with OOM | data you can't lose (queues, primary data) |
+      | `allkeys-lru` | least recently used key | pure caches (most common) |
+      | `allkeys-lfu` | least frequently used key | caches with stable "hot" keys |
+      | `volatile-lru` / `volatile-ttl` | only keys with a TTL | mixed cache + persistent data |
+
+      ::anim evict::
+
+      Size it: set `maxmemory` to ~70–80% of the machine's RAM to leave room for fragmentation, replication buffers and fork during RDB saves.
+  - term: atomicity
+    short: Commands run one at a time on the main thread, so a single command like `INCR` never races with another.
+    see: [ MULTI / EXEC, Lua / Functions, pipelining ]
+    detail: |-
+      Commands execute one at a time on the main thread, so `INCR`, `SET NX`, `LPUSH` or `ZINCRBY` can never interleave with another client's command. Two app servers incrementing the same counter never lose an update.
+
+      But **a sequence** of commands from your app is not atomic: between your `GET` and `SET` another client can sneak in. Options:
+
+      - A single command that does it all (`INCR`, `SET … NX GET`, `GETDEL`).
+      - `MULTI/EXEC` with `WATCH` for optimistic locking.
+      - A Lua script or Function: the whole script runs atomically.
+
+      Since Redis 6, network I/O can use extra threads, but command execution stays single-threaded, so atomicity is unchanged.
+  - term: pipelining
+    short: Send many commands without waiting for each reply. Cuts network round trips; usually the biggest client-side speedup.
+    see: [ atomicity, MULTI / EXEC ]
+    detail: |-
+      Without pipelining each command waits for its reply: 1,000 commands × 0.5 ms round trip = 0.5 s, mostly waiting on the network. With a pipeline you send all 1,000, then read 1,000 replies: a few milliseconds.
+
+      ```csharp
+      var batch = db.CreateBatch();        // client-side batching, not a transaction
+      var tasks = userIds.Select(id => batch.HashGetAllAsync($"user:{id}")).ToArray();
+      batch.Execute();                     // one round trip for the whole set
+      var profiles = await Task.WhenAll(tasks);
+      ```
+
+      ```python
+      pipe = r.pipeline(transaction=False)
+      for uid in user_ids:
+          pipe.hgetall(f"user:{uid}")
+      profiles = pipe.execute()
+      ```
+
+      Pipelining is a client-side batching trick, not a transaction: other clients' commands can still run in between. Keep batches to a few thousand commands to bound memory.
+  - term: MULTI / EXEC
+    short: "A transaction: queued commands run together with nothing interleaved. There is no rollback if one fails."
+    see: [ atomicity, Lua / Functions, pipelining ]
+    detail: |-
+      ```bash
+      WATCH stock:42
+      GET stock:42            → "3"
+      MULTI
+      DECR stock:42
+      LPUSH orders "…"
+      EXEC                    → nil if stock:42 changed since WATCH
+      ```
+
+      - Commands are queued and run back-to-back with nothing interleaved.
+      - **No rollback**: if one command fails at runtime (wrong type), the others still apply.
+      - `WATCH` gives optimistic locking: `EXEC` aborts if a watched key changed; retry in a loop.
+      - In Cluster all keys must share a hash slot.
+
+      For logic with conditions ("decrement only if > 0"), a Lua script is simpler than WATCH retries.
+  - term: Lua / Functions
+    short: Server-side scripts that run atomically. Use them for read-modify-write logic, such as rate limiters.
+    see: [ atomicity, MULTI / EXEC ]
+    detail: |-
+      A script runs entirely on the server, atomically, so it can read, decide and write in one step. Classic fixed-window rate limiter:
+
+      ```lua
+      -- KEYS[1] = rl:{user:42}:minute, ARGV[1] = limit
+      local n = redis.call('INCR', KEYS[1])
+      if n == 1 then redis.call('EXPIRE', KEYS[1], 60) end
+      return n <= tonumber(ARGV[1])
+      ```
+
+      `EVAL` sends the script each time; `EVALSHA` reuses a cached one. Redis 7+ **Functions** (`FUNCTION LOAD`, `FCALL`) store named scripts in the server and persist them with the data.
+
+      Keep scripts short: while one runs, every other client waits.
+  - term: RDB
+    short: Point-in-time snapshot of the whole dataset to disk. Compact and fast to load, but you lose writes made since the last snapshot.
+    see: [ AOF, replication ]
+    detail: |-
+      Redis forks; the child writes the whole dataset to `dump.rdb` while the parent keeps serving. Fork uses copy-on-write, so memory use can briefly grow under heavy writes.
+
+      ```
+      save 3600 1 300 100 60 10000   # snapshot after N changes in T seconds
+      BGSAVE                         # snapshot now
+      LASTSAVE                       # when was the last one
+      ```
+
+      **Pros**: compact file, fast restarts, perfect for backups (copy it to object storage). **Cons**: a crash loses every write since the last snapshot, often minutes.
+
+      Replicas also bootstrap from an RDB sent by the primary.
+  - term: AOF
+    short: "Append-only file: every write command is logged. With `appendfsync everysec`, at most about 1 second of writes is lost on a crash."
+    see: [ RDB, replication ]
+    detail: |-
+      The append-only file logs every write command; on restart Redis replays it.
+
+      | `appendfsync` | Data at risk on crash | Speed |
+      | --- | --- | --- |
+      | `always` | ~none | slow (fsync per write) |
+      | `everysec` (default) | ~1 second | fast, the usual choice |
+      | `no` | up to ~30 s (OS decides) | fastest |
+
+      The log is rewritten in the background to stay compact. Modern Redis uses a multi-part AOF with an RDB base plus incremental files. Common production setup: AOF `everysec` + periodic RDB for backups.
+  - term: replication
+    short: Replicas keep an asynchronous copy of a primary. They serve reads and can be promoted if the primary fails.
+    see: [ Sentinel, RDB, AOF ]
+    detail: |-
+      A replica connects to the primary (`REPLICAOF host 6379`), receives an RDB snapshot, then a continuous stream of write commands.
+
+      - **Asynchronous**: the primary acknowledges the client before replicas have the write. A failover can lose the last few writes. `WAIT 1 100` blocks until 1 replica has it (still not a guarantee).
+      - Replicas are read-only and can serve reads, but may lag a few ms behind.
+      - Typical setup: 1 primary + 1–2 replicas in different availability zones.
+
+      Replication alone doesn't fail over automatically: that's Sentinel's or Cluster's job.
+  - term: Sentinel
+    short: Processes that monitor a primary and its replicas, run automatic failover and tell clients the new primary's address.
+    see: [ replication, Cluster / hash slot ]
+    detail: |-
+      Sentinel is a separate process (run at least 3, on different machines) that watches a primary and its replicas.
+
+      1. Sentinels ping the primary; if a **quorum** (e.g. 2 of 3) agrees it's down, they elect a leader Sentinel.
+      2. The leader promotes the most up-to-date replica and reconfigures the others.
+      3. Clients ask Sentinel "who is the primary for `mymaster`?" and reconnect.
+
+      Use Sentinel when data fits on one machine and you need automatic failover. If you need to shard data across machines, use Cluster instead; it has failover built in. Managed services (ElastiCache, Azure Cache) handle this for you.
+  - term: Cluster / hash slot
+    short: Redis Cluster shards keys over 16,384 slots (`CRC16(key) mod 16384`). `{tags}` in a key force related keys into the same slot.
+    see: [ key, replication, Sentinel ]
+    detail: |-
+      Redis Cluster splits the keyspace into **16,384 hash slots**: `slot = CRC16(key) mod 16384`. Each primary owns a range of slots; each primary has replicas for failover.
+
+      | Node | Slots |
+      | --- | --- |
+      | A | 0 – 5460 |
+      | B | 5461 – 10922 |
+      | C | 10923 – 16383 |
+
+      - Clients cache the slot map; a `MOVED` reply tells them the map changed.
+      - Multi-key commands (`MGET`, `MULTI`, Lua) need all keys in one slot. Force it with a **hash tag**: only `{user:42}` is hashed in `cart:{user:42}` and `profile:{user:42}`.
+      - Resharding moves slots between nodes online.
+  - term: Pub/Sub vs Streams
+    short: Pub/Sub is fire-and-forget broadcast. Streams are a persistent, append-only log with consumer groups and acknowledgements.
+    see: [ data types, replication ]
+    detail: |-
+      |  | Pub/Sub | Streams |
+      | --- | --- | --- |
+      | Storage | none: delivered and forgotten | kept in a log (trim with `MAXLEN`) |
+      | Offline consumers | miss messages | catch up from their last ID |
+      | Load balancing | every subscriber gets every message | consumer groups split the work |
+      | Acks / retries | no | `XACK`, pending list, `XCLAIM` |
+      | Use for | live notifications, cache invalidation, chat presence | job queues, event sourcing, activity feeds |
+
+      Streams look a lot like a mini Kafka: IDs like `1731234567890-0` are timestamp-based offsets. For days of retention or very high volume, use Kafka itself.
+commands:
+  heading: Essential commands & syntax
+  tocLabel: Commands
+  groups:
+    - group: Setup
+      items:
+        - lang: bash
+          code: docker run -d --name redis -p 6379:6379 redis:8
+          what: Run a local Redis server.
+        - lang: bash
+          code: redis-cli -h localhost -p 6379 PING
+          what: Connect from the CLI. Answers `PONG`.
+        - lang: csharp
+          code: |-
+            // dotnet add package StackExchange.Redis
+            var mux = await ConnectionMultiplexer.ConnectAsync("localhost:6379");
+            var db  = mux.GetDatabase();
+
+            await db.StringSetAsync("user:1", "Ada", TimeSpan.FromMinutes(1));
+            var name = await db.StringGetAsync("user:1");
+          what: Keep one `ConnectionMultiplexer` for the lifetime of the app and share it — it multiplexes every command over a single connection.
+        - lang: python
+          code: |-
+            import redis
+            r = redis.Redis(decode_responses=True)
+            r.set("user:1", "Ada", ex=60)
+          what: Python (`pip install redis`). `decode_responses` returns `str` instead of `bytes`.
+    - group: Keys & strings
+      items:
+        - lang: bash
+          code: SET session:9f "{...}" EX 1800 NX
+          what: Set with a 30-minute TTL, only if the key does not exist. `NX` also gives you a simple lock.
+        - lang: bash
+          code: GET session:9f
+          what: Read a value. Returns `(nil)` if it is missing or expired.
+        - lang: bash
+          code: INCR views:home
+          what: Atomic counter. Also `INCRBY` and `DECR`.
+        - lang: bash
+          code: EXPIRE cart:7 3600 · TTL cart:7
+          what: Set or inspect a TTL in seconds. `-1` means no TTL, `-2` means no key.
+        - code: UNLINK big:key
+          what: "Delete without blocking: memory is freed in the background. Prefer it over `DEL` for large keys."
+        - code: SCAN 0 MATCH user:* COUNT 100
+          what: Iterate keys incrementally. Never use `KEYS *` in production.
+    - group: Data structures
+      items:
+        - code: |-
+            HSET user:1 name Ada role admin
+            HGETALL user:1
+          what: "Hash: an object with fields. Update one field without rewriting the rest."
+        - code: |-
+            LPUSH jobs '{"id":42}'
+            BRPOP jobs 0
+          what: List as a queue. `BRPOP` blocks until a job arrives.
+        - code: |-
+            SADD tags:42 redis cache
+            SISMEMBER tags:42 redis
+          what: "Set: unique members and O(1) membership tests."
+        - lang: bash
+          code: |-
+            ZADD board 1500 ada 1320 bob
+            ZRANGE board 0 9 REV WITHSCORES
+          what: "Sorted set: the top-10 leaderboard in one call."
+        - code: |-
+            XADD orders * id 42 total 19.90
+            XREADGROUP GROUP billing w1 COUNT 10 STREAMS orders >
+          what: "Stream: a durable event log consumed by groups, with `XACK` to acknowledge."
+        - code: PUBLISH chat:room1 "hi" · SUBSCRIBE chat:room1
+          what: "Pub/Sub: live fan-out. Clients that are not connected miss the message."
+    - group: Inspect & debug
+      items:
+        - lang: bash
+          code: INFO memory
+          what: Used memory, fragmentation and peak usage. `INFO` alone shows every section.
+        - code: SLOWLOG GET 10
+          what: The 10 slowest recent commands. Usually the first stop when latency rises.
+        - lang: bash
+          code: redis-cli --bigkeys
+          what: Finds the largest keys per type. Big keys cause latency spikes.
+        - lang: bash
+          code: CONFIG GET maxmemory-policy
+          what: Shows the eviction policy. Check it before you rely on Redis as a cache.
+        - code: MONITOR
+          what: "Streams every command the server receives. Use it in development only: it is expensive."
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - Sub-millisecond reads and writes, because the data lives in RAM.
+      - "Rich data structures: a counter, queue or leaderboard is a single command, not custom code."
+      - Single-command atomicity without locks.
+      - Built-in TTLs and eviction make caching almost free to implement.
+      - "Simple to run: one binary, one config file, mature clients for every language."
+      - Scales out with replicas (for reads) and Cluster (for data size and writes).
+  bad:
+    heading: Cons
+    items:
+      - The dataset must fit in RAM, and RAM costs much more than disk.
+      - "Durability is a trade-off: at best you lose about 1 s of writes, and replication is async."
+      - No SQL, no joins, no secondary indexes unless you use the Query Engine or build them yourself.
+      - One slow command (big `DEL`, `KEYS *`, a long Lua script) blocks every client.
+      - Cluster restricts multi-key operations to keys in the same hash slot.
+      - License changes (2024 to 2025) pushed some vendors to the Valkey fork. Check your legal constraints.
+when:
+  note: "Rule of thumb: Redis is a speed layer, not your source of truth."
+  good:
+    heading: Use it when…
+    items:
+      - You need a fast cache in front of a slower database or API.
+      - "Data is short-lived or rebuildable: sessions, tokens, counters, feature flags."
+      - You need shared state across many app instances, such as locks, rate limits or queues.
+      - Your access pattern is "by key" and latency matters more than flexible queries.
+      - You need real-time rankings, presence or lightweight messaging.
+  bad:
+    heading: Avoid it when…
+    items:
+      - It would be the only copy of critical data, like orders or payments. Use **PostgreSQL**.
+      - You need ad-hoc queries, joins or reporting. Use a **relational DB** or **warehouse**.
+      - The dataset is much larger than affordable RAM. Use a **disk-based store**.
+      - You need a replayable, high-volume event log kept for weeks. Use **Kafka**.
+      - The app is a single process with a small dataset. An **in-process cache** (`functools.lru_cache`) is enough.
+useCases:
+  - title: Caching database queries
+    body: An e-commerce site caches product pages with `SET product:42 … EX 300`. Most reads skip PostgreSQL entirely, so the database handles writes and cold reads only.
+  - title: Sessions & login tokens
+    body: A web app behind a load balancer stores sessions as hashes with a TTL. Any server can read any session, and idle sessions expire on their own.
+  - title: Rate limiting
+    body: An API counts requests with `INCR rl:{user}:{minute}` plus `EXPIRE`, or a Lua sliding window. It blocks a client after N calls with one atomic round trip.
+  - title: Leaderboards & rankings
+    body: A mobile game keeps scores in a sorted set. `ZINCRBY` updates a score, and `ZRANGE … REV` or `ZRANK` answer "top 10" and "my position" in O(log N).
+  - title: Background jobs & events
+    body: Python workers (RQ, Celery with a Redis broker) pull tasks from lists. Microservices exchange events through Streams with consumer groups and retries.
+gotchas:
+  note: The first two bite almost everyone at least once!
+  items:
+    - mistake: Running `KEYS *` in production
+      why: It is O(N) and blocks the single thread. With millions of keys, every client stalls for seconds.
+      fix: use `SCAN` with `MATCH` and `COUNT`.
+    - mistake: Cache keys without a TTL
+      why: Memory fills up. With the default `noeviction` policy, writes start failing with OOM errors.
+      fix: always set `EX` on cache keys, and set `maxmemory` plus `allkeys-lru` (or `allkeys-lfu`) for pure caches.
+    - mistake: Treating Redis as a durable database by default
+      why: With RDB snapshots only, a crash loses everything written since the last snapshot, possibly minutes of data.
+      fix: enable AOF with `everysec`, keep the source of truth in a real DB, and test restores.
+    - mistake: Big keys and O(N) commands
+      why: A 2 GB hash or `HGETALL` on 1M fields blocks the server and saturates the network.
+      fix: split data into smaller keys, use `HSCAN`/`SSCAN`, and delete with `UNLINK`.
+    - mistake: Using Pub/Sub for things that must not be lost
+      why: A subscriber that is offline or restarting never sees the message.
+      fix: use Streams with consumer groups and `XACK`.
+    - mistake: Cache stampede on a hot key
+      why: When a popular key expires, thousands of requests miss at the same moment and hit the database together.
+      fix: add random jitter to TTLs, refresh early, or let one request rebuild the value behind a `SET NX` lock.
+    - mistake: Expecting `MULTI` to roll back
+      why: If one command fails at runtime, the others still run. There is no rollback.
+      fix: validate inputs first, or use a Lua script or Function for all-or-nothing logic.
+    - mistake: Exposing port 6379 to the internet
+      why: Unprotected Redis instances are scanned and compromised within hours.
+      fix: bind to a private network, enable ACL users and passwords, and use TLS.
+alternatives:
+  columns: [ Tool, Best for, Complexity, Cost / license, Key difference vs Redis ]
+  rows:
+    - self: true
+      cells:
+        - "**Redis**"
+        - Caching, sessions, queues, rankings
+        - Low
+        - AGPLv3 / RSALv2 / SSPLv1; paid Redis Cloud & Enterprise
+        - —
+    - cells:
+        - "**Valkey**"
+        - Same as Redis, with a permissive license
+        - Low
+        - BSD-3, Linux Foundation; used by AWS ElastiCache and Google Memorystore
+        - Fork of Redis 7.2.4. Command-compatible for the core, but lacks some Redis 8 features
+    - cells:
+        - "**Memcached**"
+        - Pure, simple object caching
+        - Very low
+        - BSD
+        - Multi-threaded, strings only, no persistence or replication
+    - cells:
+        - "**Dragonfly**"
+        - Very large single-node caches
+        - Low
+        - BSL 1.1
+        - Multi-threaded, Redis-protocol compatible, uses more cores per instance
+    - cells:
+        - "**Apache Kafka**"
+        - High-volume, long-retention event streams
+        - High
+        - Apache 2.0
+        - Disk-based log built for replay and throughput, not key lookups
+    - cells:
+        - "**PostgreSQL**"
+        - Durable data you also need to query
+        - Medium
+        - PostgreSQL License
+        - Disk-based, ACID, SQL. Slower, but your data is safe
+  notes:
+    - "**Pick Valkey** if you want Redis semantics under a BSD license, or your cloud's managed service is Valkey-based."
+    - "**Pick Memcached** if all you need is a plain key → blob cache and you want the simplest possible thing."
+    - "**Pick Dragonfly** if one huge node with many cores is easier for you to run than a Redis Cluster."
+    - "**Pick Kafka** if events must be kept and replayed by many consumers over days or weeks."
+    - "**Pick PostgreSQL** (no cache at all) if your load is modest. One fewer moving part beats a cache you don't need."
+resources:
+  - url: https://redis.io/docs/latest/
+    title: Redis documentation
+    why: official guides on data types, persistence and scaling.
+  - url: https://redis.io/docs/latest/commands/
+    title: Command reference
+    why: every command with its time complexity. Check the O(N) ones.
+  - url: https://university.redis.io/
+    title: Redis University
+    why: free hands-on courses, including Redis for Python developers.
+  - url: https://github.com/redis/redis-py
+    title: redis-py on GitHub
+    why: the official Python client, with examples for pipelines and pub/sub.
+  - url: https://valkey.io/
+    title: Valkey
+    why: the open-source fork, useful for comparing features and licenses.

@@ -1,0 +1,1022 @@
+title: Caching strategies
+slug: caching-strategies
+tagline: Keep the answer near the question — and decide, up front, how wrong you are willing to be.
+asof: Nov 2026 · patterns are timeless; the examples are .NET 9+, Redis and HTTP
+description: "Caching strategies cheatsheet: cache-aside, read-through, write-through, write-behind and refresh-ahead, with animated walk-throughs of write paths, stampedes and invalidation races."
+aliases:
+  - Caching strategies
+  - caching
+  - cache patterns
+  - cache-aside
+  - write-through
+  - write-behind
+keywords:
+  - caching
+  - cache-aside
+  - write-through
+  - write-behind
+  - read-through
+  - invalidation
+  - ttl
+  - eviction
+  - cdn
+  - performance
+related: [ rate-limiting, azure-api-management ]
+overview:
+  - A cache is a second copy of data, placed closer to the reader than the system of record. It converts a slow, expensive, contended operation — a join across three tables, a call to a partner API, rendering a PDF — into a key lookup that costs a fraction of a millisecond. Done well, it is the single highest-leverage performance change available to most systems.
+  - "The **strategy** is not \"use Redis\". It is the set of four decisions you make about that second copy: **who fills it** (cache-aside, read-through, refresh-ahead), **what happens on writes** (write-through, write-behind, write-around, or just invalidate), **when entries die** (TTL, eviction policy, explicit invalidation), and **how stale is too stale**. Get those wrong and a cache turns a correctness problem into an intermittent, unreproducible one."
+  - "Caches exist at every layer at once: CPU and ORM caches inside a process, an in-memory cache per instance, a shared distributed cache such as Redis, a CDN at the edge, and the browser. Each layer has its own hit ratio, its own staleness, and its own invalidation problem — which is why \"just add a cache\" is rarely a one-line change."
+architecture:
+  svg: caching-strategies/architecture.svg
+  alt: Layers of caching from browser through CDN, in-process cache and distributed cache to the database, with typical latency and hit ratio at each layer
+  caption: A cache is not a layer you add; it is four decisions you make. The last one — how stale a value may be — determines the other three.
+howItWorks:
+  - md: Six patterns, all drawn in the same three boxes — your app, the cache, PostgreSQL — so you can see exactly which arrow moves and who waits. The first three are **read paths** (who fills the cache); the last three are **write paths** (what happens to the cache when data changes). A comparison follows at the end.
+  - note: "watch the arrows: who talks to the database tells you almost everything"
+  - heading: Read paths — who fills the cache
+  - anim:
+      id: anim-aside
+      title: 1 · Cache-aside (lazy loading)
+      svg: caching-strategies/anim-aside.svg
+      alt: Animated cache-aside read where the application itself queries the database and populates the cache
+      steps:
+        - say: A request arrives for product 42. With **cache-aside** your application code owns the whole flow — it asks the cache first, and the cache has no idea a database exists.
+          hl: [ ca-app ]
+          text:
+            ca-app-sub: GET product:42
+        - say: "**Miss.** The key is not there, and the cache says so in a fraction of a millisecond. That lookup was not free, and it bought nothing."
+          hl: [ ca-cache ]
+          unhl: [ ca-app ]
+          text:
+            ca-cache-val: product:42 → (nil)
+            ca-app-lat: 0.3 ms so far
+        - say: So the app falls back to the database **itself** — note the dashed arrow going round the cache entirely. This is the step that distinguishes cache-aside from everything else.
+          hl: [ ca-db ]
+          unhl: [ ca-cache ]
+          text:
+            ca-app-sub: SELECT ... WHERE id = 42
+            ca-db-hits: "queries: 1"
+            ca-app-lat: 15 ms so far
+        - say: "The app gets the row back and writes it into the cache with a five-minute TTL. Again: the <em>app</em> does this, in your code, at every call site that reads a product."
+          hl: [ ca-cache ]
+          unhl: [ ca-db ]
+          text:
+            ca-cache-val: product:42 → 99
+            ca-cache-ttl: TTL 300 s
+            ca-cache-sub: populated by the application
+        - say: "Only now does the client get its answer. The miss cost **16 ms**: the failed lookup plus the real query plus the write-back. A miss is always more expensive than having no cache at all."
+          unhl: [ ca-cache ]
+          text:
+            ca-app-sub: responds
+            ca-app-lat: 16 ms
+            ca-score: "client waited: 16 ms · 1 database query"
+        - say: The next visitor asks for the same product and gets a **hit** — 0.3 ms, with the database untouched. That 50x gap, multiplied by the hit ratio, is the entire value of the pattern.
+          hl: [ ca-cache ]
+          text:
+            ca-app-sub: GET product:42
+            ca-app-lat: 0.3 ms
+            ca-score: "client waited: 0.3 ms · still 1 database query"
+          fill:
+            ca-cache: "#e3eedc"
+        - say: "Two properties worth keeping: only data somebody actually asked for is ever cached, and if the cache disappears entirely, every call simply becomes a miss — <em>provided the database can take the load</em>. That caveat is the whole of the stampede problem further down this page."
+          show: [ ca-note ]
+          unhl: [ ca-cache ]
+          text:
+            ca-cache-sub: optional — the app works without it
+  - anim:
+      id: anim-through
+      title: 2 · Read-through
+      svg: caching-strategies/anim-through.svg
+      alt: Animated read-through where the cache itself loads the missing value from the database
+      steps:
+        - say: Same request, but now the loading code lives **inside the cache**. Your application calls one method and never mentions the database. In .NET this is `HybridCache.GetOrCreateAsync`.
+          hl: [ rt-app ]
+          text:
+            rt-app-sub: GetOrCreateAsync(...)
+        - say: "**Miss.** Instead of returning `nil` to your code, the cache invokes the factory you handed it."
+          hl: [ rt-cache ]
+          unhl: [ rt-app ]
+          text:
+            rt-cache-val: product:42 → (nil)
+            rt-cache-sub: invoking the factory
+        - say: The **cache** queries PostgreSQL, stores the result and returns it. The client waited the same 16 ms as cache-aside — the read path is genuinely identical. All that moved is where the code lives.
+          hl: [ rt-db ]
+          text:
+            rt-db-hits: "queries: 1"
+            rt-cache-val: product:42 → 99
+            rt-app-lat: 16 ms
+            rt-score: "client waited: 16 ms · 1 database query"
+        - say: Now the difference that matters. Five hundred requests for the same key arrive in the same hundred milliseconds, just after an expiry.
+          hl: [ rt-app ]
+          unhl: [ rt-db, rt-cache ]
+          text:
+            rt-app-sub: 500 concurrent callers
+            rt-cache-val: product:42 → (nil)
+        - say: With **cache-aside** each of those 500 call sites independently discovers the miss and runs the query. Five hundred identical queries hit the database at once.
+          unhl: [ rt-app ]
+          text:
+            rt-db-hits: "cache-aside: 500 queries"
+            rt-score: "cache-aside: 500 queries"
+          fill:
+            rt-db: "#f9e3df"
+        - say: With **read-through** the first caller starts the factory and the other 499 <em>await the same task</em>. One query. You get stampede protection without writing a single lock.
+          hl: [ rt-cache ]
+          text:
+            rt-db-hits: "read-through: 1 query"
+            rt-cache-flight: "in-flight: 1 shared task"
+            rt-score: "read-through: 1 query, 500 callers served"
+          fill:
+            rt-db: "#fbfcf8"
+        - say: "So: same latency, same arrows, one implementation instead of one per call site, and single-flight for free. The price is coupling — your cache now has to know how to load your data, which makes it harder to swap and makes loader failures look like cache failures."
+          show: [ rt-note ]
+          unhl: [ rt-cache ]
+  - anim:
+      id: anim-refresh
+      title: 3 · Refresh-ahead
+      svg: caching-strategies/anim-refresh.svg
+      alt: Animated refresh-ahead where a background task recomputes a hot entry before it expires
+      steps:
+        - say: "`product:42` is on the homepage — expensive to compute and read constantly. It is cached with a five-minute TTL."
+          hl: [ ra-cache ]
+        - say: Four and a half minutes in, a reader arrives. Still a hit, served in 0.3 ms. Nothing unusual yet.
+          hl: [ ra-app ]
+          unhl: [ ra-cache ]
+          text:
+            ra-app-sub: GET product:42
+            ra-app-lat: 0.3 ms
+            ra-clock: t = 4:30 — 30 s left on the TTL
+            ra-cache-ttl: TTL 30 s left
+            ra-score: "client waited: 0.3 ms"
+        - say: But the entry is **close to expiry**, and that is the trigger. Rather than wait for it to die and make some unlucky user pay 16 ms, a background task starts recomputing it now.
+          show: [ ra-link, ra-link-t ]
+          hl: [ ra-db ]
+          unhl: [ ra-app ]
+          text:
+            ra-db-hits: "queries: 1 (background)"
+            ra-cache-sub: refreshing behind the scenes
+        - say: The reader was served the cached copy immediately and has already gone. Nobody is waiting on that query.
+          unhl: [ ra-db ]
+          text:
+            ra-app-sub: already responded
+        - say: The fresh value replaces the old one with a full TTL again. The entry has now survived an expiry boundary that **no user ever felt**.
+          hide: [ ra-link, ra-link-t ]
+          hl: [ ra-cache ]
+          text:
+            ra-cache-val: product:42 → 99
+            ra-cache-ttl: TTL 300 s
+            ra-clock: t = 0:00 — refreshed, nobody waited
+            ra-cache-sub: never went cold
+            ra-score: "client waited: 0.3 ms · every time"
+        - say: "And the bill: if nobody reads `product:42` again, that query was pure waste. Refresh-ahead trades **wasted recomputation** for **never paying a miss**, which is an excellent deal for your top hundred keys and a catastrophic one for the next million."
+          unhl: [ ra-cache ]
+          text:
+            ra-db-hits: "queries: 1 per 5 min, forever"
+        - say: "Compare it with **stale-while-revalidate**, which is the same idea moved half a step later: serve the entry <em>after</em> it expires while refreshing behind it. Refresh-ahead guesses which keys are worth pre-computing; stale-while-revalidate only ever refreshes keys that were actually just asked for."
+          show: [ ra-note ]
+  - heading: Write paths — what happens when the data changes
+  - anim:
+      id: anim-wthrough
+      title: 4 · Write-through
+      svg: caching-strategies/anim-wthrough.svg
+      alt: Animated write-through where the cache synchronously writes to the database before acknowledging
+      steps:
+        - say: The back office changes a price from 99 to 79. In a **write-through** cache the application writes to the cache, never to the database directly.
+          hl: [ wt-app ]
+          text:
+            wt-app-sub: UPDATE price = 79
+        - say: The cache stores the new value…
+          hl: [ wt-cache ]
+          unhl: [ wt-app ]
+          text:
+            wt-cache-val: product:42 → 79
+            wt-agree: "cache and database agree: NOT YET"
+        - say: …and immediately forwards it to PostgreSQL, **synchronously**, blocking on the commit. Nothing has been acknowledged to the caller yet.
+          hl: [ wt-db, wt-link ]
+          unhl: [ wt-cache ]
+          text:
+            wt-link-t: waiting on the commit
+            wt-app-lat: still waiting
+        - say: The database commits. Only now does the cache acknowledge the write.
+          hl: [ wt-app ]
+          unhl: [ wt-db, wt-link ]
+          text:
+            wt-db-sub: price = 79
+            wt-db-hits: "committed: yes"
+            wt-app-sub: acknowledged
+            wt-app-lat: 16 ms
+            wt-agree: "cache and database agree: yes"
+            wt-score: "client waited: 16 ms · nothing can be lost"
+        - say: A reader arriving at any instant — before, during or after — sees a consistent answer. There is no window in which the cache and the source disagree, which is the entire point of the pattern.
+          unhl: [ wt-app ]
+          text:
+            wt-cache-sub: always agrees with the source
+          fill:
+            wt-cache: "#e3eedc"
+        - say: The cost is on the next line of the invoice. Write latency is the <em>database’s</em> latency plus the cache’s, on every single write — and the cache now contains everything that was ever written, whether or not anyone reads it.
+          text:
+            wt-cache-sub: also holds data nobody will ever read
+          fill:
+            wt-cache: "#f9e3df"
+        - say: "That last point is the hidden tax: on a write-heavy, read-light table, write-through fills your cache with entries that will never be hit, evicting the ones that would have been. Pair it with a short TTL, or use write-around for data that is written far more often than it is read."
+          show: [ wt-note ]
+  - anim:
+      id: anim-wbehind
+      title: 5 · Write-behind (write-back)
+      svg: caching-strategies/anim-wbehind.svg
+      alt: Animated write-behind where the cache acknowledges immediately and flushes to the database later
+      steps:
+        - say: Exactly the same write — price 99 to 79 — but the cache is configured **write-behind**. Watch what the caller waits for.
+          hl: [ wb-app ]
+          text:
+            wb-app-sub: UPDATE price = 79
+        - say: The cache stores the value and **acknowledges immediately**, in about 0.3 ms. The caller is already gone, and the database has not been touched.
+          show: [ wb-dirty-box, wb-dirty ]
+          hl: [ wb-cache ]
+          unhl: [ wb-app ]
+          text:
+            wb-cache-val: product:42 → 79
+            wb-dirty: "dirty: product:42"
+            wb-app-sub: acknowledged
+            wb-app-lat: 0.3 ms
+            wb-agree: cache 79, database 99 — they disagree
+            wb-score: "client waited: 0.3 ms · 50x faster than write-through"
+        - say: "Readers are still correct, which surprises people: they read <em>through the cache</em>, so they see 79. The disagreement is invisible to anyone who goes through the front door."
+          unhl: [ wb-cache ]
+          text:
+            wb-cache-val: product:42 → 79 (readers see this)
+        - say: Anyone who queries the database directly — a reporting job, a replica, an ETL pipeline — sees 99. That is the real-world consequence of the window, and it is how this pattern usually bites.
+          hl: [ wb-db ]
+          text:
+            wb-db-sub: price = 99 (reports see this)
+        - say: A background flush drains the dirty buffer every 200 ms, batching as it goes. Fifty updates to the same key become **one** `UPDATE` — which is exactly why write-behind is so good for counters.
+          hl: [ wb-link ]
+          unhl: [ wb-db ]
+          text:
+            wb-db-sub: price = 79
+            wb-db-hits: "writes: 1 (for 50 updates)"
+            wb-dirty: "dirty buffer: empty"
+            wb-agree: "cache and database agree: yes"
+        - say: But between the acknowledgement and the flush there is a window. If the cache node dies inside it, those writes never happened — and the caller was told they succeeded.
+          show: [ wb-crash ]
+          unhl: [ wb-link ]
+          text:
+            wb-dirty: "dirty: 37 writes"
+            wb-cache-val: product:42 → 49
+            wb-agree: "cache and database agree: 37 writes lost"
+        - say: "So the choice is one sentence long: **write-through pays database latency on every write and can never lose one; write-behind is fifty times faster and loses up to one flush interval.** View counters and telemetry: write-behind. Orders, payments, audit logs: never. If you need both, write to a durable log such as Apache Kafka and project into the database — same shape, but the buffer survives a crash."
+          show: [ wb-note ]
+          hide: [ wb-crash ]
+  - anim:
+      id: anim-waround
+      title: 6 · Write-around (write, then invalidate)
+      svg: caching-strategies/anim-waround.svg
+      alt: Animated write-around where the application writes to the database and deletes the cache key
+      steps:
+        - say: Same price change once more. With **write-around** the cache is not in the write path at all — the application writes straight to PostgreSQL.
+          hl: [ wa-app ]
+          text:
+            wa-app-sub: UPDATE price = 79
+        - say: The database commits. The cache still holds the old value, 99, and right now it is serving it to everybody. This is the moment the pattern has to handle.
+          hl: [ wa-db ]
+          unhl: [ wa-app ]
+          text:
+            wa-db-sub: price = 79
+            wa-app-lat: 15 ms
+          fill:
+            wa-cache: "#f9e3df"
+        - say: "So the app invalidates the key. Note the command: `DEL`, **not** `SET`. It would be easy to write 79 into the cache here, and it would be wrong."
+          show: [ wa-del, wa-del-t ]
+          hl: [ wa-cache ]
+          unhl: [ wa-db ]
+          text:
+            wa-cache-val: product:42 → (deleted)
+        - say: Why delete rather than set? Because a `SET` writes a value <em>you</em> computed, possibly from a row you read before somebody else’s update — and that stale value then survives until the TTL. A delete is idempotent and can never be stale. An empty cache is always a correct cache.
+          text:
+            wa-cache-sub: empty — which is always a safe state
+            wa-score: "client waited: 15 ms · cache untouched by the write"
+          fill:
+            wa-cache: "#fbfcf8"
+        - say: The next reader misses and repopulates from the database, exactly as in cache-aside. So the first read after a write is slow — that is the cost of this pattern, and the reason it is a bad fit for write-then-immediately-read flows.
+          hide: [ wa-del, wa-del-t ]
+          unhl: [ wa-cache ]
+          text:
+            wa-cache-val: product:42 → 79 (repopulated)
+            wa-app-sub: "next read: miss + 16 ms"
+            wa-score: "first read after a write: 16 ms · then 0.3 ms"
+        - say: In exchange, nothing write-only ever enters the cache. On a table written far more often than it is read — an event log, an audit trail, a telemetry table — that is the difference between a useful cache and one full of entries nobody will ever ask for.
+          text:
+            wa-cache-sub: only ever holds data someone read
+          fill:
+            wa-cache: "#e3eedc"
+        - say: "This is the write half of the cache-aside pattern, and the pair is what most production systems actually run: **read cache-aside, write around and delete, TTL as the backstop for the invalidations you miss**."
+          show: [ wa-note ]
+  - heading: Comparing them
+    id: compare-patterns
+  - md: The read paths differ in <em>where the loading code lives</em> and <em>who pays for a miss</em>. The write paths differ in <em>what the cache holds afterwards</em> and <em>what you can lose</em>.
+  - table:
+      columns:
+        - Pattern
+        - Who talks to the database
+        - Client waits
+        - Cache ends up holding
+        - Main risk
+        - Reach for it when
+      rows:
+        - cells:
+            - "**Cache-aside**"
+            - your application code
+            - miss ~16 ms, hit ~0.3 ms
+            - only what someone asked for
+            - a stampede, and the invalidation race
+            - the default; you want the cache to be optional
+        - cells:
+            - "**Read-through**"
+            - the cache library
+            - same, but one loader per key
+            - only what someone asked for
+            - couples the cache to your data access
+            - you want one implementation and free stampede protection
+        - cells:
+            - "**Refresh-ahead**"
+            - a background task
+            - "**never** pays a miss"
+            - whatever you decided is hot
+            - wasted recomputation of cold keys
+            - a small, known set of expensive hot keys
+        - cells:
+            - "**Write-through**"
+            - the cache, synchronously
+            - write ~16 ms
+            - everything written, read or not
+            - cache filled with write-only data
+            - you need cache and source to never disagree
+        - cells:
+            - "**Write-behind**"
+            - the cache, later, in batches
+            - write ~0.3 ms
+            - everything written, plus dirty state
+            - "**acknowledged writes can be lost**"
+            - counters and telemetry — never money
+        - self: true
+          cells:
+            - "**Write-around**"
+            - your application code
+            - write ~15 ms; next read is a miss
+            - only what is actually read
+            - the first read after a write is slow
+            - writes outnumber reads; pairs with cache-aside
+  - md: |-
+      The things that are easy to miss until you see them side by side:
+
+      - **Cache-aside and read-through have the same read path.** The arrows differ only in who owns the loading code — your call site, or the cache library. The real difference shows up under concurrency: 500 simultaneous misses run 500 queries with cache-aside, and one with read-through.
+      - **Write-through and write-behind differ by one word: <em>await</em>.** That one word is the difference between a 16 ms write that can never be lost and a 0.3 ms write that can.
+      - **Write-around is the one that deletes rather than writes.** That is not laziness — a `DEL` is idempotent and can never be stale, while a `SET` can store a value you computed before someone else's update. The invalidation deep dive animates exactly that failure.
+      - They compose. The common production combination is **cache-aside reads + write-around writes + a TTL as a backstop**, which is what most codebases end up with whether or not anyone named it.
+  - heading: The failure mode all three read paths share
+  - anim:
+      id: anim-stampede
+      title: "Cache stampede: one expiry, a thousand misses"
+      svg: caching-strategies/anim-stampede.svg
+      alt: Animated cache stampede where an expiring key sends all concurrent requests to the database
+      steps:
+        - say: Steady state. `product:42` is cached with a 5-minute TTL, 5,000 requests a second are served from memory, and the database sees about one query every five minutes.
+          hl: [ sp-cache ]
+        - say: "The TTL runs out. The key is gone — not because anything changed, just because five minutes passed. Every read path above hits this: cache-aside, read-through and even refresh-ahead if the key was not on its hot list."
+          unhl: [ sp-cache ]
+          text:
+            sp-key: product:42 → (nil)
+            sp-ttl: EXPIRED
+            sp-hit: miss
+          fill:
+            sp-cache: "#f9e3df"
+        - say: Every request now misses. Not one request — **all of them**, because 5,000 arrive per second and the rebuild takes 300 ms. Roughly 1,500 requests miss before the first one finishes.
+          hl: [ sp-link ]
+          text:
+            sp-clients-sub: 1,500 concurrent misses
+            sp-flow: 5,000 /s
+        - say: All of them run the same expensive query. The database goes from 2% to saturated in a single tick, and each slow query holds a connection from the pool.
+          hl: [ sp-db ]
+          unhl: [ sp-link ]
+          text:
+            sp-dbload: "load: 100%"
+            sp-dblat: p99 4,200 ms
+            sp-dbpool: pool 100 / 100
+            sp-dbstate: saturated
+          fill:
+            sp-db: "#f9e3df"
+        - say: Now it cascades. Queries queue, requests time out before they can populate the cache, the clients retry, and the retries miss too. The cache stays empty because nothing ever completes.
+          show: [ sp-note ]
+          text:
+            sp-clients-sub: timeouts + retries
+            sp-caption: The cache was carrying 100x the load the database can take. Nothing warned you.
+        - say: "**Fix 1 — single-flight.** The first request to miss takes a lock and rebuilds; everyone else awaits the same task instead of starting their own. This is what read-through gave you for free, and what cache-aside makes you build."
+          show: [ sp-lock, sp-lock-t, sp-fix ]
+          unhl: [ sp-db ]
+          text:
+            sp-dbload: "load: 4%"
+            sp-dblat: p99 14 ms
+            sp-dbpool: pool 4 / 100
+            sp-dbstate: healthy
+            sp-flow: 1 query
+          fill:
+            sp-db: "#fbfcf8"
+        - say: "**Fix 2 — stale-while-revalidate.** Better still: keep serving the expired value while one background task refreshes it. Nobody waits at all, and the only cost is a few hundred milliseconds of extra staleness."
+          hide: [ sp-lock, sp-lock-t ]
+          text:
+            sp-key: product:42 → {...} (stale)
+            sp-ttl: stale, refreshing
+            sp-hit: hit ratio 100%
+            sp-clients-sub: served instantly
+            sp-fix-t: "stale-while-revalidate: serve the old value, refresh behind it"
+          fill:
+            sp-cache: "#e3eedc"
+        - say: "**And always: TTL jitter.** If a hundred keys were created by the same warm-up script, they expire in the same millisecond and you get this again, a hundred times over. `ttl = 300 + random(0, 30)` spreads them out for free."
+          text:
+            sp-ttl: TTL 300 s + jitter
+            sp-key: product:42 → {...}
+            sp-caption: Single-flight bounds the damage. Stale-while-revalidate hides it. Jitter stops it happening at scale.
+            sp-fix-t: "jitter: ttl = base + random(0, base * 0.1)"
+concepts:
+  - term: hit ratio
+    short: The fraction of lookups answered by the cache. It decides the average latency and, more importantly, how much load reaches the thing behind it.
+    see: [ cache-aside, TTL, cache stampede ]
+    detail: |-
+      Hit ratio is the number that turns a cache from a vibe into a measurement. Average latency is `hit_ratio x hit_cost + (1 − hit_ratio) x miss_cost`, and the miss cost usually dominates.
+
+      #### What the numbers actually mean
+
+      | Hit ratio | Avg latency (1 ms hit, 50 ms miss) | Load reaching the DB |
+      | --- | --- | --- |
+      | 50% | 25.5 ms | half of it |
+      | 90% | 5.9 ms | 1 in 10 |
+      | 99% | 1.5 ms | 1 in 100 |
+      | 99.9% | 1.05 ms | 1 in 1,000 |
+
+      Two consequences people miss. First, going from 90% to 99% halves the backend load again — the marginal value of hit ratio grows as it approaches 1. Second, a system tuned to run comfortably at a 99% hit ratio is running at **100x its sustainable load** if the cache ever empties, which is why a cold cache after a deploy or a flush can take the database down.
+
+      Measure hits, misses and evictions separately. A falling hit ratio with rising evictions means the cache is too small; a falling hit ratio with stable evictions means your keys have too much cardinality or your TTLs are too short.
+  - term: cache-aside
+    short: Also "lazy loading". Your code checks the cache, and on a miss reads the source and populates the cache itself. The cache knows nothing about the database.
+    see: [ read-through, invalidation, TTL, cache stampede ]
+    detail: |-
+      The default pattern, and the one in almost every codebase. The application owns the whole flow:
+
+      ```csharp
+      var cached = await cache.GetAsync(key);
+      if (cached is not null) return cached;          // hit
+
+      var value = await db.LoadProductAsync(42);      // miss: go to the source
+      await cache.SetAsync(key, value, ttl: 5min);    // populate for next time
+      return value;
+      ```
+
+      | Property | Consequence |
+      | --- | --- |
+      | Only requested data is cached | no wasted memory on cold items |
+      | Cache and DB models can differ | cache the rendered DTO, not the row |
+      | A cache outage is survivable | every call just becomes a miss — if the DB can take it |
+      | Every miss pays double | a failed lookup <em>plus</em> the real query |
+      | Writes are your problem | you must invalidate, and the race is real |
+
+      Pair it with write-side invalidation (delete the key, do not update it) and a TTL as a backstop for the invalidations you will inevitably miss.
+  - term: read-through
+    short: The cache sits in front of the source and loads missing entries itself. Your code only ever talks to the cache.
+    see: [ cache-aside, refresh-ahead, write-through ]
+    detail: |-
+      Same read path as cache-aside, but the "go and fetch it" logic lives in the cache library rather than in each call site. In .NET, `HybridCache.GetOrCreateAsync` is exactly this.
+
+      ```csharp
+      // the factory is only invoked on a miss, and only once per key
+      var product = await hybridCache.GetOrCreateAsync(
+          $"product:{id}",
+          async ct => await db.LoadProductAsync(id, ct),
+          new HybridCacheEntryOptions { Expiration = TimeSpan.FromMinutes(5) });
+      ```
+
+      #### Why prefer it over hand-rolled cache-aside
+
+      - One implementation instead of one per call site, so the TTL, the serializer and the metrics are consistent.
+      - Stampede protection comes for free: concurrent callers for the same key await the same task.
+      - Caching a `null` result (negative caching) is handled once rather than forgotten everywhere.
+
+      The cost is coupling: your cache now needs to know how to load your data, which makes a cache library harder to swap and makes the loader's failures look like cache failures.
+  - term: write-through
+    short: Writes go to the cache and to the source synchronously, before the caller is acknowledged. Cache and database never disagree.
+    see: [ write-behind, write-around, read-through, consistency ]
+    detail: |-
+      The write path mirrors read-through: the cache is the only thing your code talks to, and it forwards the write to the source before returning.
+
+      | Property | Effect |
+      | --- | --- |
+      | Consistency | strong between cache and source — no stale window |
+      | Write latency | cache write <em>plus</em> full source write (the slower of the two) |
+      | Durability | same as the database: nothing is acknowledged before it is committed |
+      | Cache contents | everything written, whether or not anyone reads it |
+
+      The hidden cost is that last row: a write-heavy, read-light table fills the cache with entries nobody ever reads, evicting the ones people do. Combine write-through with a short TTL, or use write-around for data that is written far more often than it is read.
+
+      See the first animation for the full write path, and what changes when the same write becomes write-behind.
+  - term: write-behind
+    short: Also "write-back". The write is acknowledged as soon as the cache holds it, and flushed to the source later, usually in batches.
+    see: [ write-through, write-around, consistency ]
+    detail: |-
+      The fastest write path and the only one that can <em>lose</em> data. The cache acknowledges, buffers the change as dirty, and a background flush writes it to the source after a delay or when a batch fills.
+
+      | Knob | Typical | What it buys |
+      | --- | --- | --- |
+      | Flush interval | 100 ms – 5 s | batching; longer means fewer, larger writes |
+      | Batch size | 100 – 10,000 rows | amortises round trips and index maintenance |
+      | Data-loss window | = flush interval | exactly what you lose if the node dies |
+
+      It wins when the same key is written repeatedly — a view counter hit 10,000 times a minute becomes one `UPDATE` instead of 10,000 — or when the source is slow and the write is not the user's last word on the subject.
+
+      Never use it for data you cannot reconstruct: payments, orders, audit logs. "We lost 400 ms of writes" is an acceptable sentence about page-view counters and an unacceptable one about money. If you need both speed and durability, write to an append-only log such as Apache Kafka and project into the database asynchronously — same shape, but the buffer is durable.
+  - term: write-around
+    short: Writes go straight to the source and simply invalidate (or skip) the cache. The entry is only populated when somebody actually reads it.
+    see: [ write-through, cache-aside, invalidation ]
+    detail: |-
+      The quiet default for cache-aside systems: on a write, `DELETE` the key rather than updating it, and let the next reader repopulate.
+
+      ```csharp
+      await db.UpdatePriceAsync(42, 79);
+      await cache.RemoveAsync("product:42");   // not Set — see the invalidation race
+      ```
+
+      | Compared to | Difference |
+      | --- | --- |
+      | write-through | does not pollute the cache with write-only data; first read after a write is a miss |
+      | updating the key in place | avoids writing a value you computed from a row you may have read before someone else's write |
+
+      Delete, do not update. A delete is idempotent and always safe; a set can write a stale value computed moments ago, and that value then survives until its TTL. The invalidation deep dive animates exactly how that goes wrong.
+  - term: refresh-ahead
+    short: Refresh popular entries <em>before</em> they expire, in the background, so that no user request ever pays for a miss.
+    see: [ stale-while-revalidate, cache stampede, TTL ]
+    detail: |-
+      Two flavours. **Proactive**: a scheduled job recomputes a known set of hot keys on a timer. **Probabilistic**: on each read, refresh early with a probability that rises as the entry nears expiry — the "XFetch" trick.
+
+      ```python
+      # refresh early, with increasing probability as the TTL runs out
+      if now - delta * beta * log(random()) >= expiry:
+          refresh_in_background(key)
+      return cached_value
+      ```
+
+      | Use it for | Not for |
+      | --- | --- |
+      | a small, known set of hot keys (homepage, pricing, feature flags) | long-tail keys — you would refresh millions of entries nobody wants |
+      | values that are expensive to compute (reports, aggregations) | values that change unpredictably: refresh-ahead still serves the previous one |
+
+      The cost is wasted work: you recompute entries that might never be read again. That is a good trade for the top 100 keys and a terrible one for the next million.
+  - term: TTL
+    short: "Time to live: how long an entry may be served before it is discarded. The simplest, most robust correctness backstop you have."
+    see: [ invalidation, consistency, cache stampede, eviction policy ]
+    detail: |-
+      A TTL is an admission that your invalidation will sometimes fail. It bounds the damage: however badly the invalidation goes, the wrong value disappears within the TTL.
+
+      #### Common values
+
+      | Data | TTL | Why |
+      | --- | --- | --- |
+      | Static assets (hashed filename) | 1 year, `immutable` | the name changes when the content does |
+      | Product catalogue | 5–60 min | changes rarely, staleness is cheap |
+      | Prices, stock levels | 10–60 s | wrong values cost money |
+      | User session / permissions | 1–15 min | a revoked permission must not linger |
+      | Feature flags | 5–30 s | a kill switch must actually kill |
+      | Expensive report | 1–24 h | cost dominates freshness |
+      | Negative result (not found) | 5–30 s | short, so a newly created item appears quickly |
+
+      Always add jitter: `ttl = base + random(0, base * 0.1)`. Entries created together — by a deploy, a warm-up script or a bulk import — otherwise expire together and produce a synchronised stampede.
+
+      Distinguish absolute expiry (dies at a fixed time, predictable) from sliding expiry (extends on each access, keeps hot items alive but can keep a stale value alive forever). Most caches, including .NET's `HybridCache`, let you set both: a sliding window with an absolute cap.
+  - term: eviction policy
+    short: "What gets thrown out when the cache is full: least recently used, least frequently used, FIFO, or something smarter. Eviction is not expiry."
+    see: [ TTL, hit ratio, key design ]
+    detail: |-
+      Expiry is about correctness (this value is too old); eviction is about capacity (I need the space). A key can disappear for either reason, and your code must handle both identically.
+
+      | Policy | Keeps | Weak against |
+      | --- | --- | --- |
+      | LRU | recently touched entries | a scan: one bulk job evicts your whole working set |
+      | LFU | frequently touched entries | changing popularity; yesterday's hot key will not leave |
+      | FIFO | nothing in particular | almost everything; simple but rarely best |
+      | W-TinyLFU | frequency with a recency window | little — it is the modern default (Caffeine, many CDNs) |
+      | `noeviction` | everything; writes fail instead | use for queues and primary data, never for a cache |
+
+      In Redis the choice is `maxmemory-policy`: `allkeys-lru` for a pure cache, `volatile-lru` when the same instance also holds data that must not vanish. Watch `evicted_keys` — a non-zero and rising number means your cache is too small for its working set, and your hit ratio is paying for it.
+  - term: invalidation
+    short: Removing or replacing an entry because the underlying data changed. The hard half of caching, and the source of the subtlest bugs.
+    see: [ write-around, TTL, consistency, key design ]
+    anim:
+      key: inval
+      title: The cache-aside invalidation race
+      svg: caching-strategies/inval.svg
+      alt: Animated race between a slow reader and a writer that leaves a stale value in the cache
+      steps:
+        - say: "Request **A** asks for `product:42`, misses, and reads the database. It gets `99` — and then stalls for a few milliseconds: a GC pause, a slow serializer, a retry."
+          show: [ iv-s1 ]
+        - say: In that window, request **B** updates the price to `79` and commits. The database is now correct.
+          show: [ iv-s2 ]
+          text:
+            iv-db: price = 79
+        - say: "B then invalidates the cache the right way: `DEL product:42`. The cache is empty, which is always a safe state. Everything so far is correct."
+          show: [ iv-s3 ]
+        - say: "Now A wakes up and finishes its job: it writes the value it read <em>before</em> B’s update. The cache is repopulated with `99`."
+          show: [ iv-s4 ]
+          text:
+            iv-cache: product:42 → 99
+        - say: Every subsequent reader is served `99` until the TTL expires. Nobody did anything wrong, and nothing will tell you — the cache and the database simply disagree.
+          show: [ iv-s5, iv-verdict ]
+        - say: "Fixes, in order of effort: a short TTL as a backstop, writing with a version check so A’s stale value loses, or delaying the delete slightly after the write so the loser is overwritten. The window is milliseconds wide — and at a few thousand requests a second you hit it every day."
+          show: [ iv-fix, iv-note ]
+    detail: |-
+      Three strategies, in increasing order of effort and precision:
+
+      | Strategy | Precision | Effort |
+      | --- | --- | --- |
+      | TTL only | coarse: wrong for up to the TTL | none |
+      | Explicit delete on write | good, if you find every write path | medium, and easy to miss one |
+      | Event-driven (CDC, outbox, change feed) | high: the database itself tells you | high, but it catches writes your code did not make |
+
+      Tag-based invalidation ("drop everything tagged `product:42`") is what you want once one entity appears in many cached views — a product page, a category listing and a search result all go stale from one price change. `HybridCache.RemoveByTagAsync` and CDN surrogate keys both do this.
+
+      ::anim inval::
+
+      Note the shape of the bug: nobody did anything wrong, the operations were individually correct, and the window is a few milliseconds wide. At 5,000 requests per second, a few milliseconds happens constantly.
+  - term: cache stampede
+    short: Also "dogpile" or "thundering herd". A hot key expires and every concurrent request misses at once, hitting the source with the full, uncached load.
+    see: [ TTL, stale-while-revalidate, refresh-ahead, hit ratio ]
+    detail: |-
+      The counter-intuitive part: the better your hit ratio, the worse the stampede, because the source has been sized for the trickle it normally sees.
+
+      #### The four fixes, in order of preference
+
+      | Fix | How it works | Cost |
+      | --- | --- | --- |
+      | Single-flight / lock | one request recomputes, the rest await the same task | the waiters still wait once |
+      | Stale-while-revalidate | serve the expired value, refresh in the background | a bounded extra staleness |
+      | Probabilistic early refresh | recompute before expiry with rising probability | some wasted recomputation |
+      | TTL jitter | spreads expiry so keys do not die together | none — always do this |
+
+      In .NET, `HybridCache` gives you single-flight within an instance and across the distributed layer without extra code, which is the main reason to prefer it over a hand-written `IDistributedCache` wrapper. In Python or Go, a mutex keyed on the cache key does the same job for the in-process layer; a Redis `SET NX` lock covers the fleet.
+
+      The second animation on this page walks through the failure and both fixes.
+  - term: stale-while-revalidate
+    short: Serve the expired value immediately and refresh it in the background. Latency stays flat; the price is a bounded window of known staleness.
+    see: [ cache stampede, refresh-ahead, TTL ]
+    detail: |-
+      An entry gets two lifetimes: <em>fresh</em> (serve without thinking) and <em>stale but usable</em> (serve, then refresh behind the scenes). It is the single most effective trick for keeping p99 latency flat.
+
+      ```
+      Cache-Control: max-age=60, stale-while-revalidate=300, stale-if-error=86400
+      ```
+
+      | Directive | Means |
+      | --- | --- |
+      | `max-age=60` | fresh for 60 s |
+      | `stale-while-revalidate=300` | for the next 300 s, serve the old copy and refresh in the background |
+      | `stale-if-error=86400` | if the origin is down, keep serving the old copy for a day |
+
+      `stale-if-error` deserves special mention: it turns your CDN into a last line of defence that keeps the site readable through a complete backend outage. It costs one header.
+
+      Do not use it where staleness is a correctness bug — account balances, stock levels at checkout, permissions after a revocation.
+  - term: negative caching
+    short: Caching the fact that something does not exist, so that repeated lookups for missing keys do not hammer the source.
+    see: [ cache-aside, TTL, key design ]
+    detail: |-
+      Without it, every request for a non-existent id is a guaranteed miss, and an attacker who enumerates random ids gets a direct line to your database — a <em>cache penetration</em> attack.
+
+      | Technique | Use when |
+      | --- | --- |
+      | Cache a sentinel "not found" with a short TTL (5–30 s) | always, as a baseline |
+      | Bloom filter in front of the cache | huge keyspace, many legitimate misses |
+      | Validate the key shape before looking it up | ids with a checksum or known format — free and effective |
+
+      Keep negative TTLs much shorter than positive ones: a user who just signed up should not be told "no such account" for five minutes because a page load beat the write.
+
+      Be careful to distinguish "the source says it does not exist" from "the source timed out". Caching the second one turns a blip into a sustained outage.
+  - term: cache hierarchy
+    short: Several caches in series — browser, CDN, in-process, distributed — each with its own hit ratio, TTL and invalidation story.
+    see: [ hit ratio, invalidation, consistency ]
+    figure:
+      svg: caching-strategies/figure-cache-hierarchy.svg
+      alt: Latency ladder from in-process cache to a cross-region database call
+    detail: |-
+      Latency per layer is what makes the hierarchy worth the complexity. The numbers below are the ones worth memorising:
+
+      ::figure::
+
+      The trap is invalidation across layers. Deleting a key in Redis does nothing to the copy sitting in 40 process-local caches, so an in-process layer needs either a very short TTL (5–30 s) or a broadcast channel. .NET's `HybridCache` handles both tiers and propagates tag invalidation; Redis pub/sub or key-space notifications do it by hand.
+
+      Rule: the further a layer is from the source, the shorter its TTL must be, because its invalidation is less reliable.
+  - term: key design
+    short: The cache has no schema, so the key naming convention <em>is</em> the schema. It decides cardinality, invalidation granularity and hit ratio.
+    see: [ invalidation, hit ratio, eviction policy ]
+    detail: |-
+      Include everything that changes the value, and nothing that does not. Each extra dimension multiplies the number of entries and divides the hit ratio.
+
+      | Key | Verdict |
+      | --- | --- |
+      | `product:42:v3` | good — the `v3` lets a schema change invalidate everything at once |
+      | `product:42:en-GB:eur` | good if the rendered value really differs by locale and currency |
+      | `search:{query}:{page}:{sort}:{userId}` | bad — `userId` makes every entry unique; hit ratio near zero |
+      | `product:42:{requestId}` | catastrophic — unbounded cardinality, pure memory leak |
+
+      Normalise before hashing: sort query parameters, lowercase, drop tracking parameters such as `utm_*`. A CDN that treats `?utm_source=x` as a distinct key caches your homepage a thousand times and hits none of them.
+
+      Put a version segment in the prefix. When the serialized shape changes, bumping `v3` to `v4` invalidates everything instantly, with no scan and no risk of deserializing an old shape into a new type.
+  - term: consistency
+    short: How far the cached copy may drift from the source, and for how long. This is a product decision wearing a technical costume.
+    see: [ TTL, invalidation, write-through, stale-while-revalidate ]
+    detail: |-
+      Every cache is eventually consistent. The only question is the size of the window and who pays when it is exceeded.
+
+      | Staleness budget | Strategy that fits |
+      | --- | --- |
+      | Zero (money, permissions at the point of use) | do not cache, or write-through with explicit invalidation and read-your-writes |
+      | Seconds | short TTL + delete-on-write; stale-while-revalidate off |
+      | Minutes | cache-aside with a TTL, invalidation best-effort |
+      | Hours | refresh-ahead or a scheduled rebuild; serve stale on error |
+
+      **Read-your-writes** deserves its own line. A user who edits their profile and immediately sees the old version assumes the save failed and does it again. Fix it by invalidating synchronously on the write path, or by bypassing the cache for the writer for a few seconds (a cookie or a request-scoped flag), even when every other reader gets a cached copy.
+
+      Write the budget down per data type, next to the TTL. A TTL with no stated budget is a number somebody picked once and nobody can safely change.
+  - term: HTTP caching
+    short: "The cache you get for free: `Cache-Control`, `ETag` and conditional requests, honoured by browsers, proxies and CDNs without any code."
+    see: [ stale-while-revalidate, TTL, cache hierarchy ]
+    detail: |-
+      Before adding a cache inside your application, check whether the response could simply be cacheable. The cheapest request is the one that never reaches your server.
+
+      ```yaml
+      Cache-Control: public, max-age=300, stale-while-revalidate=600
+      ETag: "a3f9c1"
+      Vary: Accept-Encoding, Accept-Language
+      ```
+
+      | Directive | Effect |
+      | --- | --- |
+      | `public` / `private` | may a shared cache (CDN, proxy) store it, or only the browser? |
+      | `max-age=N` | fresh for N seconds |
+      | `s-maxage=N` | a different, usually longer, freshness just for shared caches |
+      | `no-store` | never written to disk or memory — the one for personal data |
+      | `no-cache` | may be stored, but must be revalidated first (not the same as `no-store`) |
+      | `must-revalidate` | never serve stale once expired, even if the origin is unreachable |
+
+      With an `ETag`, a revalidation that finds nothing changed returns `304 Not Modified` with no body — still a round trip, but a few hundred bytes instead of a few hundred kilobytes.
+
+      `Vary` is the footgun. `Vary: Cookie` on a page served to logged-in users makes every entry unique and the cache useless; worse, getting `Vary` wrong on a `public` response can serve one user's page to another.
+commands:
+  heading: Essential commands & syntax
+  tocLabel: Commands
+  groups:
+    - group: .NET — HybridCache (read-through, two tiers, stampede-safe)
+      items:
+        - lang: csharp
+          code: |-
+            builder.Services.AddStackExchangeRedisCache(o => o.Configuration = conn);
+            builder.Services.AddHybridCache(o =>
+            {
+                o.DefaultEntryOptions = new HybridCacheEntryOptions
+                {
+                    Expiration      = TimeSpan.FromMinutes(5),   // distributed (L2)
+                    LocalCacheExpiration = TimeSpan.FromSeconds(20)  // in-process (L1)
+                };
+            });
+          what: Registers the L1 + L2 cache. L1 keeps a short TTL because it cannot be invalidated reliably.
+        - lang: csharp
+          code: |-
+            var product = await cache.GetOrCreateAsync(
+                $"product:{id}:v3",
+                async ct => await db.LoadProductAsync(id, ct),
+                tags: [$"product:{id}"], cancellationToken: ct);
+          what: "Read-through with built-in single-flight: 500 concurrent callers run the factory once."
+        - lang: csharp
+          code: await cache.RemoveByTagAsync($"product:{id}");
+          what: "Tag invalidation: drops every cached view derived from that product, across both tiers."
+        - lang: csharp
+          code: |-
+            await cache.SetAsync(key, value, new HybridCacheEntryOptions
+                { Expiration = TimeSpan.FromMinutes(5), Flags = HybridCacheEntryFlags.DisableLocalCache });
+          what: Writes to the distributed tier only — for values that must not linger in a process-local copy.
+    - group: .NET — the lower-level pieces
+      items:
+        - lang: csharp
+          code: |-
+            services.AddMemoryCache();
+            cache.Set("flags", value, new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(30),
+                Size = 1
+            });
+          what: In-process only. Set `SizeLimit` on the cache and `Size` per entry, or it grows until the process dies.
+        - lang: csharp
+          code: |-
+            await distributed.SetStringAsync(key, json, new DistributedCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
+                SlidingExpiration = TimeSpan.FromMinutes(1)
+            });
+          what: Classic cache-aside against Redis. No stampede protection — you add that yourself.
+        - lang: csharp
+          code: |-
+            app.UseOutputCache();
+            app.MapGet("/products", Handler).CacheOutput(p => p.Expire(TimeSpan.FromSeconds(30)).Tag("products"));
+            // later:  await outputCacheStore.EvictByTagAsync("products", ct);
+          what: Caches the whole rendered response server-side, with tag-based eviction.
+    - group: Redis — the cache primitives
+      items:
+        - lang: bash
+          code: SET product:42 "{...}" EX 300
+          what: Store with a 5-minute TTL. Add jitter to `300` so sibling keys do not expire together.
+        - lang: bash
+          code: SET lock:product:42 1 NX EX 10
+          what: "Single-flight lock: only the first caller gets `OK` and rebuilds; the rest wait or serve stale."
+        - lang: bash
+          code: |-
+            GET product:42
+            TTL product:42
+            DEL product:42
+          what: Read, check the remaining life, invalidate. `DEL` on write, never `SET`.
+        - lang: bash
+          code: |-
+            CONFIG SET maxmemory 4gb
+            CONFIG SET maxmemory-policy allkeys-lru
+          what: Cap the memory and choose what gets evicted. A pure cache wants `allkeys-lru` or `allkeys-lfu`.
+        - lang: bash
+          code: INFO stats | grep -E "keyspace_hits|keyspace_misses|evicted_keys"
+          what: The three numbers that tell you whether the cache is working, too small, or pointless.
+    - group: HTTP and CDN
+      items:
+        - code: "Cache-Control: public, max-age=60, stale-while-revalidate=600, stale-if-error=86400"
+          what: Fresh for a minute, served stale while refreshing for ten, and kept alive for a day if the origin is down.
+        - code: "Cache-Control: private, no-store"
+          what: The correct header for anything personal. `no-cache` is not this.
+        - lang: bash
+          code: curl -sI https://example.com/api/products | grep -iE "cache-control|age|etag|x-cache"
+          what: Checks what is actually being sent and whether the CDN reports a hit. `Age` tells you how long it has been cached.
+    - group: Python — cache-aside with stampede protection
+      items:
+        - lang: python
+          code: |-
+            import json, random, redis
+            r = redis.Redis()
+
+            def get_product(pid, ttl=300):
+                key = f"product:{pid}:v3"
+                if (hit := r.get(key)) is not None:
+                    return json.loads(hit)
+                if r.set(f"lock:{key}", 1, nx=True, ex=10):          # single-flight
+                    value = load_from_db(pid)
+                    r.set(key, json.dumps(value), ex=ttl + random.randint(0, 30))  # jitter
+                    r.delete(f"lock:{key}")
+                    return value
+                time.sleep(0.05)                                      # someone else is rebuilding
+                return get_product(pid, ttl)
+          what: "The whole pattern in one function: lookup, lock, load, jittered TTL, back off if another worker is already rebuilding."
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - Latency improvements of 10–1000x on read paths, usually for a few dozen lines of code.
+      - "Takes load off the hardest component to scale: the database."
+      - Defers expensive scaling work — a cache is far cheaper than a read replica or a shard.
+      - Absorbs traffic spikes that would otherwise require autoscaling you cannot do fast enough.
+      - With `stale-if-error`, it keeps the product readable through a complete backend outage.
+      - "Cuts cost directly when the cached thing is metered: a partner API, an LLM call, an egress charge."
+  bad:
+    heading: Cons
+    items:
+      - Every cache introduces staleness, and staleness bugs are intermittent and hard to reproduce.
+      - Invalidation is genuinely hard, and gets harder with each layer you add.
+      - It hides a performance problem rather than fixing it — a missing index stays missing.
+      - A cold or flushed cache can take down a system that has quietly been running at 50x its true capacity.
+      - A distributed cache is one more thing to operate, secure, size and fail over.
+      - "Debugging gets harder: \"works for me\" now also means \"my cache has a different copy\"."
+when:
+  note: Cache when reads outnumber writes and a slightly old answer is still a good answer.
+  good:
+    heading: Cache when…
+    items:
+      - The same value is read far more often than it changes — a read:write ratio above roughly 10:1.
+      - "Computing it is expensive: joins, aggregations, rendering, a remote call."
+      - A value that is a few seconds or minutes old is still correct enough for the user.
+      - Traffic is spiky and the source cannot be scaled up fast enough to follow it.
+      - The source is metered or rate-limited and you need to stay under the cap.
+      - You can name the invalidation trigger. If you cannot, at least pick a TTL you can defend.
+  bad:
+    heading: Avoid it when…
+    items:
+      - "Staleness is a correctness bug: balances, stock at checkout, permissions. Read the source, or use a **short-TTL write-through** with synchronous invalidation."
+      - Every key is read once — per-request or per-user-session data. A cache here is pure overhead; fix the **query** instead.
+      - The real problem is a missing index or an N+1. Fix the **query**; a cache just hides it until the cache misses.
+      - The data is written far more often than read. Use **write-around**, or do not cache at all.
+      - You would be caching personal data in a shared layer. Use `private, no-store` and **per-user in-memory** scope.
+      - The source is already fast and not the bottleneck. Measure first; a cache in front of a 2 ms query buys nothing but bugs.
+useCases:
+  - title: Product catalogue on an e-commerce site
+    body: The product page joins six tables and renders at 180 ms. Cache-aside against Redis with a 10-minute TTL takes it to 3 ms and removes 98% of the database read load. Writes from the back office publish an outbox event that deletes the key by tag, so a price change is visible in under a second rather than in ten minutes.
+  - title: Feature flags and configuration
+    body: Every request reads a dozen flags. A process-local `MemoryCache` with a 15-second absolute TTL means the flag service sees four requests per minute per instance instead of thousands per second, and a kill switch still takes effect within 15 seconds — the staleness budget written into the design.
+  - title: Write-heavy counters
+    body: A video platform counts views. Writing each view to the database would be 40,000 writes per second of contention on one row. The counter is incremented in Redis and flushed as a write-behind batch every two seconds, turning it into roughly one `UPDATE` per video per flush. Losing two seconds of view counts in a crash is acceptable; losing two seconds of payments would not be.
+  - title: Expensive third-party API
+    body: A geocoding provider charges per call and takes 400 ms. Addresses barely change, so results are cached for 30 days keyed by the normalised address string, with negative results cached for an hour. The hit ratio settles at 94%, which is also a 94% reduction in the bill.
+  - title: CDN in front of an API
+    body: "A public read-only endpoint serves the same JSON to millions of clients. `Cache-Control: public, max-age=60, stale-while-revalidate=600` moves almost all of that traffic to the edge. Origin traffic becomes one request per point of presence per minute, and `stale-if-error` keeps the endpoint answering during a deploy that goes wrong."
+gotchas:
+  items:
+    - mistake: Updating the cache on write instead of deleting the key
+      why: Two concurrent writers, or a slow reader racing a writer, can leave the <em>older</em> value in the cache, where it survives until the TTL. The invalidation deep dive animates exactly how.
+      fix: delete on write and let the next read repopulate. If you must write through, include a version or timestamp and only overwrite when yours is newer.
+    - mistake: No jitter on TTLs
+      why: Keys created together expire together. A warm-up script, a deploy or a bulk import produces a synchronised wave of misses that the database experiences as a traffic spike from nowhere.
+      fix: "`ttl = base + random(0, base * 0.1)` everywhere. It costs one line and removes a whole class of incident."
+    - mistake: No stampede protection on a hot key
+      why: The homepage key expires and 2,000 in-flight requests all miss, all run the same 300 ms query, and exhaust the connection pool. The cache was doing its job right up to the moment it stopped.
+      fix: single-flight (`HybridCache` does it for you, or a Redis `SET NX` lock), plus stale-while-revalidate so nobody waits at all.
+    - mistake: An unbounded in-process cache
+      why: "`MemoryCache` with no `SizeLimit`, or a plain `ConcurrentDictionary` used as a cache, grows until the container is OOM-killed. It usually survives testing and dies in production on a long-running pod."
+      fix: "always set a size limit and an absolute expiry, and give every entry a `Size`. Track evictions: if they are zero and memory is climbing, the cache is not bounded."
+    - mistake: Caching per-user data under a shared key
+      why: A key like `dashboard:summary` that was written while user A was logged in gets served to user B. This is a data breach, not a bug, and CDNs make it a public one.
+      fix: put the identity in the key, or mark the response `private, no-store`. Audit every `public` cache header on an authenticated route.
+    - mistake: Caching errors and timeouts
+      why: A dependency times out, the code caches the empty result for five minutes, and a 2-second blip becomes a 5-minute outage that recovers on its own just as you start investigating.
+      fix: only cache successful responses, and cache deliberate "not found" results with a short, separate TTL. Never cache an exception or a timeout.
+    - mistake: No plan for a cold cache
+      why: A Redis failover, a flush or a deploy that bumps the key version sends 100% of traffic to a database sized for 2%. The cache coming back does not help, because the database is already saturated.
+      fix: warm the top keys on startup, roll key-version changes gradually, and keep a concurrency limit in front of the database so a cold cache degrades instead of collapsing.
+    - mistake: Forgetting that serialized shapes change
+      why: A new field is added to the cached DTO, the old JSON deserializes into a type that no longer matches, and the service throws on every cache hit until the TTL drains.
+      fix: put a version segment in every key (`product:42:v3`) and bump it in the same commit that changes the shape.
+alternatives:
+  columns: [ Approach, Best for, Complexity, Cost, Key difference vs caching ]
+  rows:
+    - self: true
+      cells:
+        - "**Caching**"
+        - repeated reads of expensive, slowly changing data
+        - Low–medium
+        - "cheap: memory"
+        - —
+    - cells:
+        - "**Fix the query / add an index**"
+        - a slow path that is slow for a findable reason
+        - Low
+        - free
+        - Makes the source genuinely fast instead of avoiding it; no staleness at all
+    - cells:
+        - "**Read replicas**"
+        - read-heavy relational workloads
+        - Medium
+        - another database instance
+        - Full query power on fresh-ish data; replication lag replaces TTL staleness
+    - cells:
+        - "**Materialized view**"
+        - expensive aggregations over stable data
+        - Medium
+        - storage + refresh cost
+        - Lives in the database, refreshed on a schedule; consistent and queryable
+    - cells:
+        - "**Precompute on write**"
+        - fan-out-on-write feeds, leaderboards
+        - Medium–high
+        - write amplification
+        - Reads are always ready and always correct; writes get much more expensive
+    - cells:
+        - "**CDN / edge cache**"
+        - static assets and public responses
+        - Low
+        - bandwidth
+        - Same idea, moved to the network edge; cannot cache personalised responses
+    - cells:
+        - "**Event-driven projections**"
+        - read models that must stay close to the source
+        - High
+        - infrastructure
+        - The source pushes changes (Apache Kafka, CDC) instead of the reader polling or expiring
+  notes:
+    - "**Fix the query first.** A cache in front of an unindexed query is a liability you will discover on the day the cache is cold."
+    - "**Pick read replicas** if you need full query flexibility on nearly-fresh data rather than key lookups."
+    - "**Pick a materialized view** if the expensive thing is an aggregation and the database can refresh it for you."
+    - "**Pick precompute-on-write** if reads vastly outnumber writes and staleness is unacceptable."
+    - "**Pick event-driven projections** if invalidation keeps being the bug, and you would rather be told about changes than guess at TTLs."
+    - "These compose: a CDN in front of an application cache in front of an indexed query against a read replica is an ordinary production system."
+resources:
+  - url: https://learn.microsoft.com/aspnet/core/performance/caching/hybrid
+    title: HybridCache in ASP.NET Core
+    why: the two-tier, stampede-protected, tag-invalidating cache and how to migrate to it.
+  - url: https://learn.microsoft.com/azure/architecture/patterns/cache-aside
+    title: Azure Architecture Center — Cache-Aside pattern
+    why: the canonical write-up, with the consistency caveats spelled out.
+  - url: https://redis.io/docs/latest/develop/reference/eviction/
+    title: Redis key eviction
+    why: how `maxmemory-policy`, sampling and the LFU counter actually behave.
+  - url: https://developer.mozilla.org/en-US/docs/Web/HTTP/Caching
+    title: MDN — HTTP caching
+    why: the authoritative reference for `Cache-Control`, `ETag`, `Vary` and revalidation.
+  - url: https://web.archive.org/web/20230125005150/https://www.vldb.org/pvldb/vol8/p886-vattani.pdf
+    title: Optimal Probabilistic Cache Stampede Prevention (VLDB)
+    why: the paper behind probabilistic early refresh, with the maths.
+  - url: https://github.com/ben-manes/caffeine/wiki/Efficiency
+    title: Caffeine — cache efficiency
+    why: hit-ratio comparisons of LRU, LFU and W-TinyLFU on real traces.

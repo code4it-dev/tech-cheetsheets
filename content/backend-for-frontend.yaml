@@ -1,0 +1,871 @@
+title: Backend-for-Frontend
+slug: backend-for-frontend
+tagline: One backend per experience, so no client has to negotiate with a general-purpose API.
+asof: Nov 2026 · the pattern is stable; examples are .NET 10 (LTS) and ASP.NET Core
+description: "Backend-for-Frontend cheatsheet: animated comparison of one shared API, a BFF per client, gateway aggregation and GraphQL, with round-trip budgets, tail amplification, auth and ownership."
+aliases: [ Backend-for-Frontend, BFF, backends for frontends, experience API ]
+keywords:
+  - architecture
+  - bff
+  - api gateway
+  - graphql
+  - aggregation
+  - mobile
+  - frontend
+  - microservices
+  - latency
+related: [ modular-monolith, multitenancy ]
+overview:
+  - "A single general-purpose API has to serve a desktop web app, a mobile app, a smart TV and a partner integration — and each of them wants a different shape. The usual outcome is an API that suits none of them: the mobile app downloads 28 KB to display a name, makes six round trips to paint one screen, and carries the orchestration logic in a binary you cannot update for the 20% of users who never upgrade."
+  - A **Backend-for-Frontend** is a thin server-side layer dedicated to one client, owned and deployed by the team that owns that client. It exposes endpoints shaped like <em>screens</em> rather than like resources, fans out to the downstream services inside the datacenter where a call costs milliseconds, and returns exactly what the UI renders — nothing more.
+  - It is not the only way to solve this. An API gateway can aggregate with configuration, and GraphQL lets the client declare the shape instead. Those answer the same question with different trade-offs around ownership, logic and caching, which is what the four animations below compare — on the same screen, the same six services and the same network.
+architecture:
+  svg: backend-for-frontend/architecture.svg
+  alt: Three clients each with their own backend-for-frontend, all calling the same shared downstream services
+  caption: The BFF is part of the frontend, running on a server. It ships with the client, changes with the client, and is thrown away when the client is.
+howItWorks:
+  - md: "The same task in all four animations: paint one mobile home screen that needs data from six services, over a mobile link with a **150 ms** round trip. Only the thing in the middle changes."
+  - note: count the round trips — on mobile, that's the whole story
+  - anim:
+      id: anim-direct
+      title: 1 · One general-purpose API for every client
+      svg: backend-for-frontend/anim-direct.svg
+      alt: Animated mobile client making six round trips directly to a general purpose API
+      steps:
+        - say: The mobile home screen needs a greeting, the basket, some recommendations and a loyalty panel. The API is general purpose, so that data lives behind six separate resources.
+          hl: [ d-cli ]
+        - say: "Call one: `GET /users/me`. It returns the full user aggregate — profile, every saved address, preferences, consent history — **28 KB**, of which the screen uses a first name and an avatar URL. That is **over-fetching**, and the endpoint cannot be trimmed because the web app needs the rest."
+          show: [ d-l1 ]
+          unhl: [ d-cli ]
+          text:
+            d-t1: GET /users/me → 28 KB, 2 fields used
+            d-r1: "round trips: 1 · bytes: 28 KB"
+            d-r2: "time to first paint: 150 ms and counting"
+          fill:
+            d-s1: "#f9e3df"
+        - say: Call two fetches the basket. It comes back holding product <em>ids</em> and nothing else — no names, no images, no prices. The screen cannot be drawn from it.
+          show: [ d-l2 ]
+          text:
+            d-t2: GET /baskets/current → ids only
+            d-r1: "round trips: 2 · bytes: 31 KB"
+          fill:
+            d-s2: "#f9e3df"
+        - say: "That is **under-fetching**, and it is the expensive one: calls three and four cannot start until call two has returned, because they need those ids. These are <em>dependent waves</em>, not parallel calls."
+          show: [ d-l3, d-l4 ]
+          text:
+            d-t3: GET /catalogue/items?ids=... — wave 2
+            d-t4: GET /pricing?ids=... — wave 2
+            d-r1: "round trips: 4 · bytes: 142 KB"
+            d-r2: "time to first paint: 300 ms and counting"
+          fill:
+            d-s3: "#f9e3df"
+            d-s4: "#f9e3df"
+        - say: Loyalty and recommendations finish the job in a third wave. Six requests, three waves, about **180 KB** on the wire and roughly **700 ms** before a single pixel appears.
+          show: [ d-l5, d-l6 ]
+          text:
+            d-t5: GET /loyalty/me — wave 3
+            d-t6: GET /recommendations — wave 3
+            d-r1: "round trips: 6 · bytes: ~180 KB"
+            d-r2: "time to first paint: ~700 ms"
+          fill:
+            d-s5: "#f9e3df"
+            d-s6: "#f9e3df"
+        - say: "And look where the logic for all of that lives: in the app. Which call comes first, what to do when recommendations fail, how to merge four responses — all of it compiled into a binary you cannot update for the users who never upgrade."
+          hl: [ d-cli ]
+          text:
+            d-cli-o: "orchestration: in the app"
+            d-cli-v: cannot change for old installs
+        - say: The trap is that none of this can be fixed in the API. Trim `/users/me` for mobile and you break the web app; add a combined endpoint for mobile and you have started building a BFF without admitting it. A general-purpose API serving four different experiences will always be wrong for at least three of them.
+          show: [ d-note ]
+          unhl: [ d-cli ]
+  - anim:
+      id: anim-bff
+      title: 2 · A BFF for the mobile app
+      svg: backend-for-frontend/anim-bff.svg
+      alt: Animated mobile client making one round trip to a BFF that fans out in the datacenter
+      steps:
+        - say: "Same screen, same six services. Add one thing: a backend that exists only to serve the mobile app, written and deployed by the mobile team, exposing a single endpoint shaped like the screen."
+          hl: [ b-bff ]
+        - say: The device makes **one** request. That is the only time it crosses the mobile network, and it is the number that decides how this screen feels.
+          show: [ b-hop, b-hop-t ]
+          hl: [ b-cli ]
+          unhl: [ b-bff ]
+          text:
+            b-bff-s: request received
+            b-r1: "round trips: 1 · bytes: 0 KB"
+            b-r2: "time to first paint: 150 ms elapsed"
+        - say: Inside the datacenter the BFF fans out to all six services **at once**. Same six calls as before — but here a round trip is about 5 ms, not 150.
+          show: [ b-l1, b-l2, b-l3, b-l4, b-l5, b-l6, b-fan ]
+          unhl: [ b-cli ]
+          text:
+            b-bff-s: Task.WhenAll, six calls
+          fill:
+            b-s1: "#e3eedc"
+            b-s2: "#e3eedc"
+            b-s3: "#e3eedc"
+            b-s4: "#e3eedc"
+            b-s5: "#e3eedc"
+            b-s6: "#e3eedc"
+        - say: The dependent waves still exist — catalogue and pricing still need the basket’s ids — but three waves at 5 ms is 15 ms instead of 450. The BFF did not remove the chattiness; it moved it somewhere a round trip is thirty times cheaper.
+          text:
+            b-bff-s: 3 waves, ~15 ms total
+            b-t2: basket → ids
+            b-t3: catalogue — wave 2
+            b-t4: pricing — wave 2
+        - say: "Then it **shapes** the result: 180 KB of upstream payloads become a 4 KB object with a greeting, a basket summary and a list of panels, in render order. The device parses almost nothing."
+          hl: [ b-bff ]
+          text:
+            b-bff-c: 180 KB in → 4 KB out
+            b-r1: "round trips: 1 · bytes: 4 KB"
+        - say: Recommendations time out at 300 ms. The BFF does not fail the screen — it drops that one panel and returns everything else, because it knows what the screen can live without. A general-purpose API cannot make that call; it has no idea what you are drawing.
+          text:
+            b-t6: recommendations — timed out, panel dropped
+            b-bff-s: degraded, still useful
+          fill:
+            b-s6: "#fbf3c4"
+        - say: "Total: **one round trip, 4 KB, about 195 ms**, against six round trips, 180 KB and 700 ms. And the orchestration now lives in a service the mobile team deploys on a Tuesday afternoon."
+          hl: [ b-cli ]
+          unhl: [ b-bff ]
+          text:
+            b-r2: "time to first paint: ~195 ms"
+            b-cli-o: "orchestration: server-side"
+            b-cli-v: changes without an app release
+        - say: "The bill: another service to run, and **tail amplification** — the BFF is only as fast as its slowest downstream, so with six calls it hits a p99 tail roughly 6% of the time rather than 1%. Tight timeouts, a fallback per panel and caching in the BFF are the defences; the percentiles page has the arithmetic."
+          show: [ b-note ]
+          unhl: [ b-cli ]
+  - anim:
+      id: anim-gateway
+      title: 3 · Gateway aggregation
+      svg: backend-for-frontend/anim-gateway.svg
+      alt: Animated API gateway aggregating several services by configuration rather than code
+      steps:
+        - say: You can get some of that without writing a service. Most API gateways can call several backends and merge the responses, driven by **configuration** rather than code.
+          hl: [ g-gw ]
+        - say: The device still makes one request, and the fan-out still happens inside the datacenter. For the straightforward part of the job, this is genuinely equivalent to a BFF.
+          show: [ g-hop, g-hop-t, g-l1, g-l2, g-l3, g-l4 ]
+          unhl: [ g-gw ]
+          text:
+            g-gw-s: aggregating 4 calls
+            g-r1: "round trips: 1 · bytes: 0 KB"
+            g-r2: "time to first paint: 150 ms elapsed"
+          fill:
+            g-s1: "#e3eedc"
+            g-s2: "#e3eedc"
+            g-s3: "#e3eedc"
+            g-s4: "#e3eedc"
+        - say: "The merge is a policy — a few lines of configuration with a sprinkle of expression language — and it does the plumbing well: auth, rate limits, retries and routing all come with it."
+          text:
+            g-gw-c: "policy: merge 4 responses"
+            g-r1: "round trips: 1 · bytes: ~20 KB"
+        - say: "Then the screen needs a rule: <em>show the loyalty banner only when the tier is gold and the basket is not empty</em>. That is a conditional over two responses, and the policy language is a poor place to express it."
+          hl: [ g-gw ]
+          text:
+            g-t5: loyalty — needs a conditional
+            g-gw-s: expression getting long
+          fill:
+            g-s5: "#f9e3df"
+        - say: "You can write it — as C# embedded in XML, untested, unreviewable, with no debugger. Most teams do the other thing instead: leave it out and let the app decide, which puts the logic straight back into the binary you cannot update."
+          text:
+            g-t6: recommendations — left to the client
+            g-cli-o: some logic stays here
+            g-r1: "round trips: 1 + whatever the app adds"
+          fill:
+            g-s6: "#f9e3df"
+        - say: And there is an ownership problem on top. The gateway is almost always run by a platform team, so a change to the mobile home screen becomes a ticket in somebody else’s backlog — the exact hand-off the BFF pattern exists to remove.
+          unhl: [ g-gw ]
+          text:
+            g-gw-d: change = a ticket for another team
+            g-r2: "time to first paint: ~195 ms, plus the extra calls"
+        - say: "So: excellent for cross-cutting concerns and mechanical composition, and a reasonable choice when no client team can run a service. It is not an experience layer, because it has nowhere to put a decision."
+          show: [ g-note ]
+  - anim:
+      id: anim-graphql
+      title: 4 · GraphQL
+      svg: backend-for-frontend/anim-graphql.svg
+      alt: Animated GraphQL endpoint where the client declares the shape it needs and resolvers fan out
+      steps:
+        - say: GraphQL turns the problem around. Instead of a backend deciding the shape, there is one endpoint and a typed schema, and the **client declares** exactly what it wants.
+          hl: [ q-cli ]
+        - say: The mobile app sends one query naming the fields the screen draws — display name, avatar, basket count and total, six recommendations. One request, one round trip.
+          show: [ q-hop, q-hop-t ]
+          hl: [ q-srv ]
+          unhl: [ q-cli ]
+          text:
+            q-srv-s: parsing + validating the query
+            q-r1: "round trips: 1 · bytes: 0 KB"
+            q-r2: "time to first paint: 150 ms elapsed"
+        - say: The server resolves field by field, fanning out to the same six services in the same datacenter. The latency story is identical to the BFF’s — and so is the tail.
+          show: [ q-l1, q-l2, q-l3, q-l4, q-l5, q-l6 ]
+          unhl: [ q-srv ]
+          text:
+            q-srv-s: resolving fields
+            q-r1: "round trips: 1 · bytes: 4 KB"
+            q-r2: "time to first paint: ~200 ms"
+          fill:
+            q-s1: "#e3eedc"
+            q-s2: "#e3eedc"
+            q-s3: "#e3eedc"
+            q-s4: "#e3eedc"
+            q-s5: "#e3eedc"
+            q-s6: "#e3eedc"
+        - say: "The big win: **no backend per client**. The web app, the TV app and a future watch app each send a different query to this same schema. Adding a client costs a query, not a service."
+          text:
+            q-cli-v: no backend to build or deploy
+            q-srv-d: one schema, every client
+        - say: Now the bills. Resolving `recommendations { price }` for six items calls pricing six times unless you add batching — the N+1 problem is the <em>default</em> here, where in a BFF you would have written one batched call without thinking.
+          text:
+            q-t4: pricing — called 6x without DataLoader
+            q-srv-c: needs DataLoader batching
+          fill:
+            q-s4: "#fbf3c4"
+        - say: "Caching gets harder too: one URL, usually `POST`, so ordinary HTTP and CDN caching does not apply. And a careless or malicious query can be arbitrarily expensive, so production needs depth limits, complexity analysis and persisted queries."
+          text:
+            q-srv-e: POST /graphql · not cacheable
+            q-srv-c: depth limit + persisted queries
+          fill:
+            q-s4: "#e3eedc"
+        - say: "And the organisational cost: the schema is **shared**. Every client’s needs land in one type system that every team has to agree on — which is precisely the coordination a BFF removes by letting each team own its own backend."
+          hl: [ q-srv ]
+          text:
+            q-srv-d: shared schema = shared negotiation
+        - say: "The two are not opposites, which is why the most common happy ending is a **GraphQL BFF**: one GraphQL server per client, each with a schema shaped for that client. Declarative shaping, no org-wide schema to negotiate."
+          show: [ q-note ]
+          unhl: [ q-srv ]
+  - heading: Comparing them
+    id: compare-approaches
+  - md: Same screen, same six services, same 150 ms link. The numbers below come straight out of the four animations.
+  - table:
+      columns: [ "", Shared REST API, BFF per client, Gateway aggregation, GraphQL ]
+      rows:
+        - cells: [ "**Round trips**", "6, in 3 dependent waves", "**1**", "**1**", "**1**" ]
+        - cells:
+            - "**Time to first paint**"
+            - ~700 ms
+            - ~195 ms
+            - ~195 ms, plus leftover calls
+            - ~200 ms
+        - cells: [ "**Bytes to the device**", ~180 KB, "**~4 KB**", ~20 KB, "**~4 KB**" ]
+        - cells:
+            - "**Who owns it**"
+            - a platform or API team
+            - "**the client team**"
+            - a platform team
+            - a schema guild, shared
+        - cells:
+            - "**Client-specific shaping**"
+            - none
+            - total
+            - limited to the policy language
+            - whatever the query asks for
+        - cells:
+            - "**Where UI logic lives**"
+            - in the app binary
+            - in the BFF, deployable
+            - nowhere — back in the app
+            - in resolvers, shared by all clients
+        - cells:
+            - "**Adding a client**"
+            - another consumer to appease
+            - another BFF to build and run
+            - more policies
+            - "**just another query**"
+        - cells:
+            - "**HTTP caching**"
+            - easy, per resource
+            - easy, per screen
+            - easy
+            - hard — one URL, usually POST
+        - self: true
+          cells:
+            - "**Main risk**"
+            - over- and under-fetching
+            - duplication across BFFs
+            - logic has nowhere to go
+            - query cost, N+1, schema coordination
+  - md: |-
+      Three things worth pulling out of that:
+
+      - **The win is the round trip, not the bytes.** Every option that gets to one round trip lands within milliseconds of the others. The shared API is slow because of <em>six</em> sequential 150 ms waits, and no amount of payload trimming fixes that.
+      - **The real difference is ownership.** A BFF lets the mobile team change the screen's data without filing a ticket; a gateway puts a platform team in the path; GraphQL puts a shared schema in the path. Pick based on which queue you want to stand in.
+      - **GraphQL and BFFs are not opposites.** A common end state is a GraphQL BFF: one per client, each exposing a schema shaped for that client over the same services. You get declarative shaping without a schema that every team must agree on.
+concepts:
+  - term: BFF
+    short: A server-side component dedicated to one client, owned by that client's team and shaped around its screens rather than around domain resources.
+    see: [ experience API, ownership, aggregation, response shaping ]
+    detail: |-
+      Introduced at SoundCloud and named by Sam Newman. The defining property is not what it does — aggregation and shaping — but <em>who owns it</em>: it is part of the frontend that happens to run on a server.
+
+      | A BFF is | A BFF is not |
+      | --- | --- |
+      | one per <em>experience</em> (mobile, web, TV) | one per microservice |
+      | deployed with its client | a shared platform component |
+      | allowed to be ugly and specific | a place for domain rules |
+      | disposable when the client is retired | a long-lived public API |
+
+      One per experience, not one per platform: if iOS and Android render the same screens from the same data, they share a BFF. Split them when the experiences genuinely diverge, not because the languages do.
+
+      The honest test of whether you have a BFF or an API: when the mobile team needs a new field on a screen, do they write the code themselves and ship it today, or do they ask another team? If it is the second, it is not a BFF.
+  - term: experience API
+    short: An endpoint shaped like a screen — `GET /mobile/home` — rather than like a resource. The thing a BFF actually exposes.
+    see: [ BFF, response shaping, aggregation ]
+    detail: |-
+      Resource APIs are designed for generality; experience APIs are designed for one layout. That specificity is a feature, and it is why they must not be shared.
+
+      | Resource API | Experience API |
+      | --- | --- |
+      | `GET /users/{id}` | `GET /mobile/home` |
+      | `GET /baskets/{id}` | `GET /mobile/checkout` |
+      | returns everything about a thing | returns everything on a screen |
+      | stable, versioned, documented | changes with the design |
+
+      ```json
+      // the response is the screen, in order
+      {
+        "greeting":  "Good evening, Davide",
+        "basket":    { "count": 3, "total": "€89.90" },
+        "panels": [
+          { "type": "recommendations", "items": [ { "id":"p1", "title":"…", "price":"€12" } ] },
+          { "type": "loyalty",         "points": 420, "nextTier": 80 }
+        ]
+      }
+      ```
+
+      Going further, some teams return the <em>layout</em> too — server-driven UI, where the BFF decides which panels appear and in what order. That lets you change a screen without an app release, at the cost of a client that is harder to reason about offline.
+  - term: over-fetching
+    short: "Receiving far more than the screen renders: the full user aggregate when you needed a name. Wasteful on mobile, and it ties you to a model you do not control."
+    see: [ under-fetching, response shaping, experience API ]
+    detail: |-
+      A general-purpose endpoint has to return everything any consumer might need, so every consumer pays for the union of everyone's requirements.
+
+      | Screen needs | `GET /users/me` returns |
+      | --- | --- |
+      | display name, avatar URL | profile, all addresses, preferences, consent history, linked accounts |
+      | ~120 bytes | 28 KB |
+
+      On a good connection nobody notices. On a congested mobile link, 180 KB of padding across six calls is seconds of waiting, and on a metered plan it is the user's money.
+
+      The subtler cost: every field in that response is now something a client might start depending on, so the shape cannot change. A BFF breaks that by making the transport payload a private detail between the BFF and its own client.
+  - term: under-fetching
+    short: "The opposite: the response does not contain what you need next, so you make another call — and another. This is what turns one screen into six round trips."
+    see: [ over-fetching, chattiness, aggregation ]
+    detail: |-
+      Under-fetching is worse than over-fetching, because extra bytes cost bandwidth while extra calls cost <em>latency</em>, and latency does not improve with a better plan.
+
+      ```bash
+      GET /baskets/current        -> { items: [ { productId: 42 }, { productId: 91 } ] }
+      GET /catalogue/items?ids=42,91   -> names and images   (needed the first call to know the ids)
+      GET /pricing?ids=42,91           -> prices             (and again)
+      ```
+
+      Those three calls are **sequential**: each needs an id from the one before. That is a dependent wave, and three waves on a 150 ms link is 450 ms before a pixel is drawn.
+
+      | Pattern | Cost on mobile |
+      | --- | --- |
+      | 6 parallel calls | 1 wave — about 150 ms, if connection limits allow |
+      | 6 calls in 3 dependent waves | 450 ms minimum |
+      | 1 call to a BFF | 150 ms, with the waves happening at 5 ms each inside the datacenter |
+
+      The BFF does not remove the dependent waves; it moves them somewhere a round trip is thirty times cheaper.
+  - term: chattiness
+    short: The number of round trips a screen costs. On mobile this dominates everything else, so it is the number to design against.
+    see: [ under-fetching, tail amplification, aggregation ]
+    detail: |-
+      Give every screen a round-trip budget and treat it like a performance requirement, because it is.
+
+      | Link | Typical round trip | 6 calls in 3 waves |
+      | --- | --- | --- |
+      | Datacenter-internal | 0.5–5 ms | ~15 ms |
+      | Wired broadband | 10–30 ms | ~90 ms |
+      | Good 4G/5G | 50–100 ms | ~300 ms |
+      | Congested mobile, or rural | 150–400 ms | 450–1,200 ms |
+      | Satellite | 600 ms+ | unusable |
+
+      Two corrections people make that do not help: HTTP/2 multiplexing removes the connection limit but not the dependency between waves, and a CDN helps only if the response is cacheable and shared. A dependent chain of calls is slow on principle.
+
+      Budget one round trip per screen transition. If a screen needs two, there should be a reason written down.
+  - term: aggregation
+    short: Calling several services in parallel and combining the results. The BFF's main job, and the reason it belongs near the services rather than near the user.
+    see: [ chattiness, tail amplification, partial failure ]
+    detail: |-
+      The mechanics are unremarkable; the discipline is in what you do when one of them is slow or broken.
+
+      ```csharp
+      var profile = _profile.GetAsync(userId, ct);
+      var basket  = _basket.GetAsync(userId, ct);
+      var loyalty = _loyalty.GetAsync(userId, ct);
+      await Task.WhenAll(profile, basket, loyalty);      // one wave, not three
+      ```
+
+      | Rule | Why |
+      | --- | --- |
+      | Start every independent call before awaiting any | awaiting in sequence turns one wave into N |
+      | Give every downstream call its own timeout | otherwise the slowest defines your latency |
+      | Degrade rather than fail where you can | a home screen without recommendations still works |
+      | Never let the BFF become a second hop to another BFF | chains of aggregators multiply the tail |
+
+      Keep aggregation shallow. A BFF calling services is fine; a BFF calling a BFF calling services is a distributed system with a latency budget nobody is tracking.
+  - term: response shaping
+    short: Returning exactly the fields the screen renders, in the structure it renders them. What turns 180 KB into 4 KB.
+    see: [ experience API, over-fetching, BFF ]
+    detail: |-
+      Shaping is more than projection. The BFF is the right place to do the formatting, ordering and conditional logic that would otherwise be duplicated in every client.
+
+      | Do in the BFF | Leave to the services |
+      | --- | --- |
+      | pick the fields this screen needs | what the fields mean |
+      | format currency and dates for the locale | store amounts and instants |
+      | flatten three responses into one object | own their own models |
+      | decide panel order and visibility | business rules and invariants |
+      | resize or pick an image variant | hold the asset |
+
+      The boundary to hold: presentation logic belongs in the BFF, domain logic does not. "Show the loyalty banner when tier is gold and the basket is non-empty" is presentation. "A gold tier requires 2,000 points" is domain, and must live in the loyalty service or it will be wrong in one of your four clients.
+  - term: ownership
+    short: The BFF is owned, deployed and on-called by the team that owns the client. This is the defining property, not an organisational detail.
+    see: [ BFF, versioning, duplication ]
+    detail: |-
+      Conway's Law applied on purpose. The reason the pattern works is that it removes a hand-off from the most frequently changing part of the system.
+
+      | Owned by the client team | Owned by a platform team |
+      | --- | --- |
+      | a new field ships today | a new field is a ticket and a sprint |
+      | deploys with the client release | deploys on the platform's schedule |
+      | free to be specific and ugly | must stay general for all consumers |
+      | deleted when the client is | outlives everything, forever |
+
+      If your organisation will not let the client team run a service — no pipeline, no on-call, no budget — you will get a BFF owned by the platform team, which is just a second API with extra hops. In that case prefer gateway aggregation or GraphQL and save yourself the deployment.
+
+      The same logic says: delete the BFF with the client. A "legacy mobile BFF" still running two years after the app was retired is a sign the ownership was never real.
+  - term: tail amplification
+    short: The BFF waits for the slowest of its downstream calls, so its p99 is much worse than any single service's. The cost of fan-out.
+    see: [ aggregation, partial failure, chattiness ]
+    detail: |-
+      Moving the fan-out server-side does not remove the probability maths — it just moves it. If each of six calls is fast 99% of the time, the <em>page</em> is fast only <code>0.99<sup>6</sup></code> = 94% of the time.
+
+      | Downstream calls | Chance the screen hits a p99 tail |
+      | --- | --- |
+      | 1 | 1% |
+      | 6 | 5.9% |
+      | 10 | 9.6% |
+      | 20 | 18% |
+
+      So a BFF fanning out to six services with a 500 ms p99 each has roughly a 6% chance of a slow screen — the services' p99 has become the screen's p94. The percentiles page covers the arithmetic and the defences in full.
+
+      Three mitigations, in order: aggressive per-call timeouts with a degraded response, caching in the BFF so hot panels never fan out, and hedged requests for the one downstream that is genuinely erratic.
+  - term: partial failure
+    short: One downstream is down, and the screen still renders without that panel. A BFF is the natural place to decide this, because it knows what the screen can live without.
+    see: [ tail amplification, aggregation, response shaping ]
+    detail: |-
+      A general-purpose API cannot make this decision — it does not know what the caller is drawing. A BFF does, and that is one of its strongest arguments.
+
+      ```csharp
+      var recs = await Safe(() => _recs.GetAsync(userId, cts.Token), fallback: []);
+
+      static async Task<T> Safe<T>(Func<Task<T>> call, T fallback)
+      {
+          try { return await call(); }
+          catch (Exception ex) when (ex is TimeoutException or HttpRequestException)
+          { return fallback; }     // log it, count it, and carry on
+      }
+      ```
+
+      | Downstream | If it fails |
+      | --- | --- |
+      | profile | fail the request — there is no screen without a user |
+      | basket | fail, or show an explicit error state |
+      | recommendations | omit the panel |
+      | loyalty | omit the panel |
+
+      Decide this per field, write it down, and emit a metric for every degradation. A BFF that silently drops panels is indistinguishable from a product decision, and you will find out months later that a panel has been missing for 4% of users.
+  - term: caching in a BFF
+    short: "The BFF is an excellent cache point: it knows the screen, the user and what may be shared. Done wrong, it is where you leak one user's data to another."
+    see: [ response shaping, partial failure, authentication ]
+    detail: |-
+      Three distinct things can be cached, and conflating them is the classic bug.
+
+      | Cache | Key | TTL |
+      | --- | --- | --- |
+      | Shared downstream data (catalogue, prices) | resource id | minutes |
+      | Per-user downstream data (basket, loyalty) | user id + resource | seconds, or not at all |
+      | The assembled screen | user id + screen + locale + app version | seconds |
+
+      Only the first row is safe to cache globally. Put the user id in the key for the other two, and never set `Cache-Control: public` on an authenticated response — a shared cache in front of the BFF will happily serve one user's home screen to the next.
+
+      The caching strategies page covers the patterns and the invalidation traps; the only BFF-specific rule is that the cache key must contain every dimension that changes the screen, including the app version, because an old client and a new one expect different shapes.
+  - term: authentication
+    short: The BFF sits between a browser or app and the services, which makes it the right place to swap a cookie for a token and to keep tokens off the client entirely.
+    see: [ ownership, caching in a BFF ]
+    detail: |-
+      For a browser SPA this is the strongest security argument for the pattern. Tokens in JavaScript are reachable by any script on the page; tokens in a BFF are not.
+
+      | Client | Holds | BFF does |
+      | --- | --- | --- |
+      | Browser SPA | an `HttpOnly`, `SameSite` session cookie | keeps the access and refresh tokens server-side and attaches them downstream |
+      | Mobile app | tokens in the platform keychain | validates, then exchanges for a downstream token |
+      | Partner | client credentials | not a BFF — use the public API |
+
+      This "BFF pattern for SPAs" is now the mainstream recommendation for browser applications precisely because it removes tokens from a place scripts can reach. In .NET, Duende.BFF packages it; the shape is a cookie in, a bearer token out.
+
+      Do not let the BFF become an authorization service. It should check that the caller is who they claim and pass identity down; whether this user may read that order is the owning service's decision, and duplicating it in four BFFs guarantees a divergence.
+  - term: versioning
+    short: A BFF can change as often as its client — but on mobile the old client never goes away, so it must serve several app versions at once.
+    see: [ ownership, experience API ]
+    detail: |-
+      Web is easy: ship the SPA and the BFF together and there is one version in the wild. Mobile is not: users on a two-year-old build still open the app, and you cannot force them to upgrade.
+
+      | Approach | Good for | Cost |
+      | --- | --- | --- |
+      | Additive-only changes | almost everything | fields accumulate |
+      | Version in the path (`/v2/mobile/home`) | a redesigned screen | two code paths to maintain |
+      | Branch on the app version header | small divergences | `if` statements that never get deleted |
+      | Minimum supported version | cutting the tail off | a forced-upgrade screen and angry reviews |
+
+      Set a support window — "the last four releases, or six months" — before you need it, instrument the version distribution, and put a deletion date on every compatibility branch you add. Without that, a BFF accumulates version checks until it is harder to change than the general-purpose API it replaced.
+  - term: duplication
+    short: Three BFFs calling the same five services will contain similar code. Some of that duplication is the price of the pattern; some of it is a mistake.
+    see: [ BFF, ownership, aggregation ]
+    detail: |-
+      The instinct is to extract the common parts into a shared library, and that instinct, followed too far, recreates the coupling the BFFs were meant to remove.
+
+      | Share | Duplicate |
+      | --- | --- |
+      | generated service clients and DTOs | aggregation logic |
+      | auth middleware, tracing, logging | response shapes |
+      | resilience policies and defaults | which panel to drop on failure |
+      | the deployment template | anything to do with a screen |
+
+      Rule of thumb: share things that are <em>plumbing</em>, duplicate things that are <em>product</em>. The moment a shared library needs a flag for "but mobile wants it differently", stop and copy the code instead.
+
+      And watch the version lock: a shared library that every BFF must upgrade in lockstep reintroduces the coordinated release the pattern was adopted to avoid.
+  - term: downstream coupling
+    short: The BFF depends on the services it calls, so their breaking changes become its problem. A thin BFF makes this manageable; a thick one does not.
+    see: [ aggregation, duplication, ownership ]
+    detail: |-
+      You have added a layer, which means a change can now break in two places instead of one. Keep the layer thin enough that a downstream change is a mapping fix rather than a redesign.
+
+      | Keeps coupling cheap | Makes it expensive |
+      | --- | --- |
+      | generated clients from OpenAPI | hand-written HTTP calls and anonymous JSON |
+      | mapping at the edge, in one place | downstream DTOs flowing through the BFF |
+      | consumer-driven contract tests | finding out in production |
+      | no business rules in the BFF | rules duplicated from the service |
+
+      Contract tests are the highest-value investment here: the BFF publishes what it needs from each service, and the service's pipeline fails if a change would break it. That turns "we found out on Friday" into a red build on the service team's own pull request.
+  - term: GraphQL
+    short: "The main alternative: one endpoint, a typed schema, and the client declares the shape. Solves over- and under-fetching without a backend per client."
+    see: [ BFF, response shaping, chattiness ]
+    detail: |-
+      GraphQL and the BFF pattern answer the same question. The differences are about who coordinates, and what it costs to operate.
+
+      |  | BFF | GraphQL |
+      | --- | --- | --- |
+      | Shaping decided by | the BFF's code | the client's query |
+      | New client | build and run a new service | write a new query |
+      | Coordination | none — each team owns its BFF | the schema is shared and negotiated |
+      | HTTP caching | normal | hard: one URL, usually POST |
+      | Cost control | you wrote the aggregation | needs depth and complexity limits |
+      | N+1 | visible in your own code | the default, until you add batching |
+
+      ```
+      # one request, exactly the fields the screen draws
+      query Home {
+        me { displayName avatarUrl }
+        basket { count total }
+        recommendations(limit: 6) { id title price }
+      }
+      ```
+
+      They combine well: a **GraphQL BFF** is one GraphQL server per client, with a schema shaped for that client. You keep declarative shaping and drop the organisation-wide schema negotiation, which is the part most teams find hardest.
+commands:
+  heading: Code & syntax
+  tocLabel: Code & syntax
+  groups:
+    - group: A BFF endpoint, end to end
+      items:
+        - lang: csharp
+          code: |-
+            app.MapGet("/mobile/home", async (
+                ClaimsPrincipal user, IProfileApi profile, IBasketApi basket,
+                IRecommendationApi recs, ILoyaltyApi loyalty, CancellationToken ct) =>
+            {
+                var userId = user.GetUserId();
+
+                var profileTask = profile.GetAsync(userId, ct);           // start everything first
+                var basketTask  = basket.GetAsync(userId, ct);
+                var recsTask    = Safe(() => recs.TopAsync(userId, 6, ct), Array.Empty<Rec>());
+                var loyaltyTask = Safe(() => loyalty.GetAsync(userId, ct), null);
+
+                await Task.WhenAll(profileTask, basketTask, recsTask, loyaltyTask);
+
+                return Results.Ok(new HomeScreen(
+                    Greeting: $"Good evening, {profileTask.Result.FirstName}",
+                    Basket:   new(basketTask.Result.Items.Count, Money(basketTask.Result.Total)),
+                    Panels:   BuildPanels(recsTask.Result, loyaltyTask.Result)));
+            }).RequireAuthorization();
+          what: One wave of parallel calls, optional panels degraded safely, and a response shaped like the screen.
+        - lang: python
+          code: |-
+            @app.get("/mobile/home")
+            async def mobile_home(user_id: str) -> dict:
+                profile, orders, recs = await asyncio.gather(
+                    profile_api.get(user_id),
+                    orders_api.recent(user_id, limit=3),
+                    safe(recs_api.get(user_id), fallback=[]),    # optional: never fails the page
+                )
+                return {                                          # exactly what this screen renders
+                    "name": profile["displayName"],
+                    "orders": [{"id": o["id"], "status": o["status"]} for o in orders],
+                    "recommended": recs[:4],
+                }
+
+
+            async def safe(coro, *, fallback, timeout=0.2):
+                try:
+                    return await asyncio.wait_for(coro, timeout)
+                except Exception:                                 # timeout, 5xx, breaker open
+                    return fallback
+          what: The same BFF in FastAPI. `asyncio.gather` is the fan-out, and `safe()` is what keeps an optional dependency from taking the screen down.
+        - lang: csharp
+          code: |-
+            static async Task<T> Safe<T>(Func<Task<T>> call, T fallback)
+            {
+                try { return await call(); }
+                catch (Exception ex) when (ex is TimeoutException or HttpRequestException)
+                { return fallback; }
+            }
+          what: The whole of partial failure. Log and count every fallback, or missing panels become invisible.
+        - lang: csharp
+          code: |-
+            builder.Services.AddHttpClient<IRecommendationApi, RecommendationApi>(c =>
+            {
+                c.BaseAddress = new Uri(cfg["Services:Recommendations"]!);
+                c.Timeout = TimeSpan.FromMilliseconds(300);     // shorter than your own SLO
+            })
+            .AddStandardResilienceHandler();
+          what: A tight per-downstream timeout is what stops one slow service defining the screen's latency.
+        - lang: csharp
+          code: |-
+            app.MapGet("/mobile/home", Handler)
+               .CacheOutput(p => p.Expire(TimeSpan.FromSeconds(15)).VaryByValue(ctx =>
+                    new KeyValuePair<string,string>("u", ctx.User.GetUserId())));
+          what: "Caching an authenticated screen: the user id must be in the key, or you serve one user's home page to another."
+    - group: "Browser SPA: cookie in, token out"
+      items:
+        - lang: csharp
+          code: |-
+            builder.Services.AddBff();
+            builder.Services.AddAuthentication(o =>
+            {
+                o.DefaultScheme          = CookieAuthenticationDefaults.AuthenticationScheme;
+                o.DefaultChallengeScheme = "oidc";
+            })
+            .AddCookie(o => { o.Cookie.HttpOnly = true; o.Cookie.SameSite = SameSiteMode.Strict; })
+            .AddOpenIdConnect("oidc", o => { o.ResponseType = "code"; o.SaveTokens = true; });
+          what: The browser holds only an `HttpOnly` cookie; the access token never reaches JavaScript.
+        - lang: csharp
+          code: |-
+            app.UseAuthentication();
+            app.UseBff();
+            app.UseAuthorization();
+            app.MapBffManagementEndpoints();                     // /bff/login, /bff/logout, /bff/user
+            app.MapRemoteBffApiEndpoint("/api/orders", "https://orders.internal")
+               .RequireAccessToken(TokenType.User);              // swaps the cookie for a bearer token
+          what: Proxying with token exchange, so the SPA calls same-origin paths and never sees a token.
+    - group: Gateway aggregation, for comparison
+      items:
+        - lang: markup
+          code: |-
+            <!-- Azure API Management: composition by policy -->
+            <send-request mode="new" response-variable-name="profile" timeout="2">
+              <set-url>@($"https://profile.internal/users/{context.User.Id}")</set-url>
+            </send-request>
+            <return-response>
+              <set-body>@{
+                  var p = ((IResponse)context.Variables["profile"]).Body.As<JObject>();
+                  return new JObject(new JProperty("name", p["displayName"])).ToString();
+              }</set-body>
+            </return-response>
+          what: Perfectly workable for simple composition — and the moment it needs a real rule, you are writing C# inside XML.
+        - code: |-
+            # YARP: routing and transforms, no aggregation
+            "Routes": { "orders": { "ClusterId": "orders", "Match": { "Path": "/api/orders/{**rest}" } } }
+          what: A reverse proxy handles routing and cross-cutting concerns. Aggregation is not its job.
+    - group: GraphQL, for comparison
+      items:
+        - lang: graphql
+          code: |-
+            query Home {
+              me { displayName avatarUrl }
+              basket { count total }
+              recommendations(limit: 6) { id title price }
+            }
+          what: One request, one round trip, and only the fields the screen draws.
+        - lang: csharp
+          code: |-
+            builder.Services
+                .AddGraphQLServer()
+                .AddQueryType<Query>()
+                .AddDataLoader<ProductByIdDataLoader>()          // batching: the N+1 fix
+                .ModifyRequestOptions(o => o.ExecutionTimeout = TimeSpan.FromSeconds(5))
+                .AddMaxExecutionDepthRule(8)                      // stop pathological queries
+                .UsePersistedOperationPipeline();                 // only allow queries you shipped
+          what: "The four things a production GraphQL endpoint needs that a BFF gets for free: batching, a timeout, a depth limit and an allow-list."
+    - group: Measuring it
+      items:
+        - lang: bash
+          code: |-
+            curl -w 'dns:%{time_namelookup} connect:%{time_connect} ttfb:%{time_starttransfer} total:%{time_total} size:%{size_download}\n' \
+                 -o /dev/null -s https://bff.example.com/mobile/home -H "Authorization: Bearer $TOKEN"
+          what: "The two numbers that matter for a screen: time to first byte and bytes downloaded."
+        - lang: csharp
+          code: |-
+            // tag every downstream call so you can see which one owns the tail
+            using var span = Activity.Current?.Source.StartActivity("downstream.recommendations");
+            span?.SetTag("bff.screen", "mobile.home");
+          what: With fan-out, the aggregate p99 tells you nothing. You need per-downstream percentiles to find the culprit.
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - Collapses a screen from six round trips to one, which on mobile is the whole performance story.
+      - The client team ships data changes itself, with no ticket and no other team's sprint.
+      - Payloads shrink by an order of magnitude because the response is built for one layout.
+      - Orchestration moves out of an app binary you cannot update into a service you deploy hourly.
+      - "Partial failure becomes a product decision: the screen renders without the panel that broke."
+      - For browser apps, tokens stay server-side behind an `HttpOnly` cookie.
+  bad:
+    heading: Cons
+    items:
+      - Another service per client to build, deploy, monitor and be on call for.
+      - Fan-out means the BFF inherits a worse tail than any single downstream service.
+      - Similar code appears in every BFF, and the urge to share it undoes the independence.
+      - It is one more place a downstream breaking change can land.
+      - Without real ownership it degrades into a second API with an extra hop.
+      - Mobile forces you to serve old app versions, so compatibility branches accumulate.
+when:
+  note: If the client team can't deploy it, it isn't a BFF — it's just another API.
+  good:
+    heading: Use it when…
+    items:
+      - Two or more clients want genuinely different shapes from the same services.
+      - A screen needs several services and your users are on mobile networks.
+      - The client team can own, deploy and be on call for a service.
+      - You are building a browser SPA and want tokens out of JavaScript.
+      - Orchestration currently lives in an app binary you cannot update quickly.
+      - You are strangling a legacy backend and want the frontend insulated from the migration.
+  bad:
+    heading: Avoid it when…
+    items:
+      - You have one client. A BFF and your API would be the same thing — just build the **API**.
+      - Clients want the same shape. Shape it once in a **shared API** and skip the layer.
+      - The client team cannot run a service. Use **gateway aggregation** or **GraphQL** instead.
+      - You need only cross-cutting concerns — auth, rate limits, routing. Use an **API gateway**.
+      - Clients are numerous and unpredictable, like public integrators. Use a **documented public API**, or GraphQL.
+      - You would put domain rules in it. Those belong in the **services**, or you will have four versions of them.
+useCases:
+  - title: A mobile home screen on a bad connection
+    body: "Six services, three dependent waves, 180 KB and about 700 ms before anything renders on a congested 4G link. A mobile BFF collapses it to one request returning 4 KB: the device waits for one 150 ms round trip while the fan-out happens at 5 ms a hop inside the datacenter."
+  - title: A browser SPA that must not hold tokens
+    body: A banking SPA cannot keep access tokens where a third-party script could reach them. A BFF holds the tokens server-side, gives the browser an `HttpOnly` cookie, and proxies API calls with token exchange. The SPA only ever calls same-origin paths, and a compromised dependency finds nothing worth stealing.
+  - title: Smart TV with a very different screen
+    body: The TV app renders eight rails of artwork and no text-heavy detail, and it runs on hardware that struggles to parse large JSON. Its own BFF returns a tiny payload with pre-selected image variants at exactly the right resolution, while the mobile and web BFFs keep returning what their screens need.
+  - title: Strangling a legacy backend
+    body: A monolith exposes an awkward SOAP-shaped API that the new React app should never see. A BFF fronts it, translating into clean JSON per screen. As capabilities move out of the monolith, the BFF repoints one call at a time — the frontend never knows a migration is happening.
+  - title: Shipping a redesign without an app release
+    body: Marketing wants to reorder the home screen panels for a campaign. Because the BFF decides panel order and visibility, the change is a deployment on Tuesday rather than an app-store submission and a two-week wait for users to update.
+gotchas:
+  items:
+    - mistake: The BFF becomes a shared API again
+      why: The web team needs something the mobile BFF already returns, so they call it. Six months later three clients depend on it, it cannot change without coordination, and you have rebuilt the problem with an extra hop.
+      fix: one BFF per experience, and an explicit rule that a BFF has exactly one consumer. If two clients need the same thing, the capability belongs in a downstream service, not in somebody's BFF.
+    - mistake: Business logic creeps in
+      why: "\"Gold tier needs 2,000 points\" gets implemented in the mobile BFF because it was quick. The web BFF implements it slightly differently, and now the rule has two versions and no owner."
+      fix: hold the line between presentation and domain. Deciding which panel to show is presentation; deciding what makes a customer gold is domain and lives in the loyalty service.
+    - mistake: Awaiting calls one at a time
+      why: "`var a = await X(); var b = await Y();` turns a one-wave fan-out into a chain. The BFF is now as slow as the sum of its downstreams, which can be slower than the chatty client it replaced."
+      fix: start every independent call before awaiting any of them, then `Task.WhenAll`. Add a test that fails if the handler's wall time exceeds the slowest downstream by more than a small margin.
+    - mistake: No per-downstream timeout
+      why: One service degrades from 40 ms to 9 seconds. The BFF has no timeout, so every home screen takes 9 seconds, the thread pool fills, and the BFF takes down screens that did not even need that service.
+      fix: every downstream call gets a timeout shorter than your own latency objective, plus a fallback for anything the screen can live without. Budget the whole screen first, then divide it.
+    - mistake: Caching an authenticated screen without the user in the key
+      why: "`Cache-Control: public` on `/mobile/home`, or an output cache keyed only on the path. A shared cache serves one customer's basket and loyalty points to the next one."
+      fix: "`private, no-store` for anything personal, and when you do cache server-side, key on user id plus screen plus locale plus app version. Review every cache directive on a BFF as a security change."
+    - mistake: Forgetting old app versions
+      why: A field is renamed to match a redesign. Users on last year's build get a blank panel, and because mobile clients never fully turn over, the complaints arrive for months.
+      fix: additive changes by default; a new path when a screen is genuinely redesigned. Track the version distribution, declare a support window, and put a deletion date on every compatibility branch.
+    - mistake: Extracting a shared BFF library too early
+      why: Three BFFs look similar, so the common parts move into `Bff.Common`. Within a year every change needs a lockstep upgrade across three teams — the exact coordination the pattern was supposed to remove.
+      fix: share plumbing (clients, auth, tracing, resilience defaults), duplicate product (shapes, panel rules, fallbacks). When a shared library grows a per-client flag, copy the code back out.
+    - mistake: Chaining BFFs
+      why: A BFF calls another BFF because it already aggregates something useful. Now one screen depends on two fan-outs, the tails multiply, and no single dashboard shows the real latency.
+      fix: keep aggregation one level deep — BFF to services, never BFF to BFF. If two BFFs need the same composition, that composition is a domain service.
+alternatives:
+  columns: [ Approach, Best for, Complexity, Who owns it, Key difference vs a BFF ]
+  rows:
+    - self: true
+      cells:
+        - "**BFF per client**"
+        - several clients with different screens
+        - Medium
+        - the client team
+        - —
+    - cells:
+        - "**One shared API**"
+        - a single client, or clients that agree
+        - Low
+        - a platform team
+        - No extra layer; every client gets a compromise shape
+    - cells:
+        - "**API gateway aggregation**"
+        - simple composition plus cross-cutting concerns
+        - Low–medium
+        - a platform team
+        - Configuration not code, so there is nowhere to put a decision
+    - cells:
+        - "**GraphQL**"
+        - many clients, fast-changing shapes
+        - Medium–high
+        - a shared schema
+        - The client declares the shape; no backend per client, but caching and cost control get harder
+    - cells:
+        - "**GraphQL BFF**"
+        - wanting both
+        - Medium–high
+        - the client team
+        - A GraphQL schema per client — declarative shaping without org-wide negotiation
+    - cells:
+        - "**Server-driven UI**"
+        - screens that must change without a release
+        - High
+        - the client team
+        - The BFF returns layout as well as data; maximum flexibility, hardest to reason about
+    - cells:
+        - "**Edge functions**"
+        - personalisation close to the user
+        - Medium
+        - the client team
+        - A BFF deployed at the edge; great for a cached shell, poor for fan-out to one region
+  notes:
+    - "**Pick one shared API** if you have one client, or if the clients genuinely want the same data. The simplest thing that works."
+    - "**Pick gateway aggregation** if the composition is mechanical and no client team can run a service."
+    - "**Pick GraphQL** when client needs change faster than you can ship backends, and you can afford batching, depth limits and persisted queries."
+    - "**Pick a GraphQL BFF** if you want declarative shaping without a schema every team has to agree on. Often the best of both."
+    - "Note where these sit: a gateway in front for auth and rate limits, a BFF behind it per client, domain services behind that, is a perfectly ordinary stack."
+resources:
+  - url: https://samnewman.io/patterns/architectural/bff/
+    title: Sam Newman — Backends For Frontends
+    why: the article that named the pattern, including when not to use it.
+  - url: https://learn.microsoft.com/azure/architecture/patterns/backends-for-frontends
+    title: Azure Architecture Center — Backends for Frontends
+    why: the pattern with its trade-offs and a reference diagram.
+  - url: https://learn.microsoft.com/azure/architecture/patterns/gateway-aggregation
+    title: Gateway Aggregation pattern
+    why: the alternative in animation 3, and the cases it is genuinely better for.
+  - url: https://datatracker.ietf.org/doc/html/draft-ietf-oauth-browser-based-apps
+    title: OAuth 2.0 for Browser-Based Applications
+    why: why the BFF is now the recommended token-handling pattern for SPAs.
+  - url: https://docs.duendesoftware.com/bff/
+    title: Duende BFF
+    why: the .NET implementation of cookie-in, token-out, with the proxy endpoints.
+  - url: https://graphql.org/learn/best-practices/
+    title: GraphQL best practices
+    why: batching, persisted queries and cost analysis — the work a BFF does not need.

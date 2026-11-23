@@ -39,8 +39,8 @@
       <h1>Event store</h1>
       <p class="tagline">Store what happened, not what is. Everything else is a fold over the facts.</p>
       <span class="meta">As of Nov 2026 · examples use PostgreSQL, Marten and KurrentDB 26.0 LTS (renamed from EventStoreDB at 25.0)</span>
-      <p>An ordinary database stores the current state and destroys the previous one on every update: after <code>UPDATE orders SET status='shipped'</code>, the fact that it was ever <code>pending</code> is gone unless somebody thought to log it. An <b>event store</b> inverts that. It keeps an append-only sequence of immutable facts &mdash; <code>OrderPlaced</code>, <code>ItemAdded</code>, <code>OrderShipped</code> &mdash; and derives current state by replaying them. Nothing is ever updated or deleted; the log <em>is</em> the system of record.</p>
-      <p>Events are grouped into <b>streams</b>, normally one per aggregate (<code>order-42</code>). Loading an aggregate means reading its stream and folding the events into state; writing means appending new events with the version you expected to find, which gives you optimistic concurrency for free. <b>Snapshots</b> keep long streams fast, and <b>subscriptions</b> let any number of readers &mdash; projections, process managers, other contexts, the warehouse &mdash; follow the log at their own pace.</p>
+      <p>An ordinary database stores the current state and destroys the previous one on every update: after <code>UPDATE orders SET status='shipped'</code>, the fact that it was ever <code>pending</code> is gone unless somebody thought to log it. An <b>event store</b> inverts that. It keeps an append-only sequence of immutable facts — <code>OrderPlaced</code>, <code>ItemAdded</code>, <code>OrderShipped</code> — and derives current state by replaying them. Nothing is ever updated or deleted; the log <em>is</em> the system of record.</p>
+      <p>Events are grouped into <b>streams</b>, normally one per aggregate (<code>order-42</code>). Loading an aggregate means reading its stream and folding the events into state; writing means appending new events with the version you expected to find, which gives you optimistic concurrency for free. <b>Snapshots</b> keep long streams fast, and <b>subscriptions</b> let any number of readers — projections, process managers, other contexts, the warehouse — follow the log at their own pace.</p>
       <p>The payoff is that you cannot lose information you did not know you needed: history, audit and temporal queries are properties of the storage rather than features someone has to add. The bill is paid in schema versioning (a 2024 event must still be readable in 2034), storage that only grows, and a team that has to think in facts rather than rows. It is usually applied to one or two bounded contexts, not to a whole system.</p>
     </header>
 
@@ -109,16 +109,15 @@
           <text x="629" y="286" font-size="9.5" text-anchor="middle" fill="#5f6f66">a question nobody asked in 2026</text>
         </svg>
       </div>
-      <p class="caption">One log, many readers. The aggregate's state and every read model are projections of the same facts &mdash; and all of them can be thrown away and rebuilt.</p>
+      <p class="caption">One log, many readers. The aggregate's state and every read model are projections of the same facts — and all of them can be thrown away and rebuilt.</p>
     </section>
 
     <section id="how-it-works">
       <h2>How it works</h2>
-      <p style="margin:0 0 18px">The first animation writes to a stream, folds it back into state, and shows what happens when two writers collide. The second is what the log is actually worth: readers you had not thought of yet.</p>
-      <span class="note" style="margin:-8px 0 18px">current state is a cache. the events are the database.</span>
-
+      <p>The first animation writes to a stream, folds it back into state, and shows what happens when two writers collide. The second is what the log is actually worth: readers you had not thought of yet.</p>
+      <span class="note" style="margin:-6px 0 14px">current state is a cache. the events are the database.</span>
       <div class="anim" id="anim-stream">
-        <h3>1 &middot; Append, fold, and collide</h3>
+        <h3>1 · Append, fold, and collide</h3>
         <div class="stage">
           <svg viewBox="0 0 800 320" role="img" aria-label="Events appended to a stream, folded into current state, and two concurrent writers resolved by expected version">
             <defs>
@@ -162,9 +161,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-readers">
-        <h3>2 &middot; One log, and a reader you have not written yet</h3>
+        <h3>2 · One log, and a reader you have not written yet</h3>
         <div class="stage">
           <svg viewBox="0 0 800 320" role="img" aria-label="Several subscribers consuming the same event log at their own checkpoints, and a new projection replaying history from the beginning">
             <defs>
@@ -216,227 +214,225 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>Event</b><span>An immutable record that something happened, named in the past tense and never modified after it is written.</span><template class="term-detail" data-see="Stream, Append-only, Schema versioning">
-          <p>The unit of storage. <code>OrderPlaced</code>, <code>ItemAdded</code>, <code>AddressCorrected</code>. An event records a decision that was already taken, so it cannot be rejected and cannot be edited &mdash; a mistake is corrected by appending another event, exactly as an accountant posts a correcting entry rather than erasing a line.</p>
-          <p>Keep the payload about the business, not the row. Storing a full entity snapshot inside every event couples consumers to your internal model and destroys most of the benefit.</p>
-          <h4>Anatomy</h4>
-          <table>
-            <tr><th>Field</th><th>Why</th></tr>
-            <tr><td><code>type</code> + <code>version</code></td><td>routing and upcasting</td></tr>
-            <tr><td><code>data</code></td><td>what changed, in business terms</td></tr>
-            <tr><td><code>metadata</code></td><td>who, when, correlation, causation</td></tr>
-            <tr><td><code>stream_id</code> + <code>version</code></td><td>position within the aggregate</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>These are the same orange notes from an EventStorming wall, made durable.</li></ul>
+        <p>The unit of storage. <code>OrderPlaced</code>, <code>ItemAdded</code>, <code>AddressCorrected</code>. An event records a decision that was already taken, so it cannot be rejected and cannot be edited — a mistake is corrected by appending another event, exactly as an accountant posts a correcting entry rather than erasing a line.</p>
+        <p>Keep the payload about the business, not the row. Storing a full entity snapshot inside every event couples consumers to your internal model and destroys most of the benefit.</p>
+        <h4>Anatomy</h4>
+        <table><tr><th>Field</th><th>Why</th></tr>
+        <tr><td><code>type</code> + <code>version</code></td><td>routing and upcasting</td></tr>
+        <tr><td><code>data</code></td><td>what changed, in business terms</td></tr>
+        <tr><td><code>metadata</code></td><td>who, when, correlation, causation</td></tr>
+        <tr><td><code>stream_id</code> + <code>version</code></td><td>position within the aggregate</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>These are the same orange notes from an EventStorming wall, made durable.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Stream</b><span>The ordered sequence of events for one thing — normally one stream per aggregate instance.</span><template class="term-detail" data-see="Event, Stream version, Folding, Snapshot">
-          <p><code>order-42</code>, <code>account-7731</code>, <code>shipment-9c2</code>. The stream is the unit of consistency: you read one to load an aggregate and append to one to change it, and the store guarantees ordering inside it.</p>
-          <p>Stream design is the main modelling decision. Too coarse (<code>all-orders</code>) and every write contends on one stream; too fine and a single business rule spans several, which it must not. The aggregate boundary is almost always the right granularity.</p>
-          <h4>Choosing granularity</h4>
-          <table>
-            <tr><th>Design</th><th>Result</th></tr>
-            <tr><td>One per aggregate</td><td>correct; the default</td></tr>
-            <tr><td>One per entity type</td><td>write contention, huge streams</td></tr>
-            <tr><td>One per user session</td><td>invariants span streams &mdash; broken</td></tr>
-            <tr><td>Unbounded lifetime stream</td><td>needs closing and snapshots</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>A stream is the storage form of a DDD aggregate's consistency boundary.</li></ul>
+        <p><code>order-42</code>, <code>account-7731</code>, <code>shipment-9c2</code>. The stream is the unit of consistency: you read one to load an aggregate and append to one to change it, and the store guarantees ordering inside it.</p>
+        <p>Stream design is the main modelling decision. Too coarse (<code>all-orders</code>) and every write contends on one stream; too fine and a single business rule spans several, which it must not. The aggregate boundary is almost always the right granularity.</p>
+        <h4>Choosing granularity</h4>
+        <table><tr><th>Design</th><th>Result</th></tr>
+        <tr><td>One per aggregate</td><td>correct; the default</td></tr>
+        <tr><td>One per entity type</td><td>write contention, huge streams</td></tr>
+        <tr><td>One per user session</td><td>invariants span streams — broken</td></tr>
+        <tr><td>Unbounded lifetime stream</td><td>needs closing and snapshots</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>A stream is the storage form of a DDD aggregate's consistency boundary.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Append-only</b><span>The single rule: events are added at the end and never updated or deleted.</span><template class="term-detail" data-see="Event, Correction event, Crypto-shredding">
-          <p>Everything else follows from this. Writes are sequential, which is the fastest thing a disk does; there are no update conflicts at the row level; history is complete by construction; and any derived view can be rebuilt because the inputs never changed.</p>
-          <p>It also means mistakes are permanent in the log. A wrong amount is fixed by appending a correction, not by editing, which is unfamiliar at first and is exactly how financial systems have always worked.</p>
-          <h4>What it buys</h4>
-          <table>
-            <tr><th>Property</th><th>Consequence</th></tr>
-            <tr><td>Sequential writes</td><td>very fast, no in-place updates</td></tr>
-            <tr><td>Immutability</td><td>projections are always rebuildable</td></tr>
-            <tr><td>Complete history</td><td>audit is storage, not a feature</td></tr>
-            <tr><td>No deletes</td><td>GDPR needs a deliberate answer</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The deletion problem has its own answer &mdash; see <b>crypto-shredding</b>.</li></ul>
+        <p>Everything else follows from this. Writes are sequential, which is the fastest thing a disk does; there are no update conflicts at the row level; history is complete by construction; and any derived view can be rebuilt because the inputs never changed.</p>
+        <p>It also means mistakes are permanent in the log. A wrong amount is fixed by appending a correction, not by editing, which is unfamiliar at first and is exactly how financial systems have always worked.</p>
+        <h4>What it buys</h4>
+        <table><tr><th>Property</th><th>Consequence</th></tr>
+        <tr><td>Sequential writes</td><td>very fast, no in-place updates</td></tr>
+        <tr><td>Immutability</td><td>projections are always rebuildable</td></tr>
+        <tr><td>Complete history</td><td>audit is storage, not a feature</td></tr>
+        <tr><td>No deletes</td><td>GDPR needs a deliberate answer</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The deletion problem has its own answer — see <b>crypto-shredding</b>.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Stream version</b><span>The sequence number of an event within its stream — the basis for both ordering and concurrency control.</span><template class="term-detail" data-see="Optimistic concurrency, Stream, Global position">
-          <p>Versions start at 1 (or 0, depending on the store) and increase by one per event. They give deterministic ordering inside a stream and are what a reader uses to resume. They are <em>not</em> global: version 4 of <code>order-42</code> says nothing about when it happened relative to <code>order-43</code>.</p>
-          <h4>Two kinds of position</h4>
-          <table>
-            <tr><th>Position</th><th>Scope</th><th>Use</th></tr>
-            <tr><td>Stream version</td><td>one stream</td><td>concurrency, rehydration</td></tr>
-            <tr><td>Global position</td><td>whole store</td><td>projections, subscriptions</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Projections checkpoint on the global position, aggregates on the stream version.</li></ul>
+        <p>Versions start at 1 (or 0, depending on the store) and increase by one per event. They give deterministic ordering inside a stream and are what a reader uses to resume. They are <em>not</em> global: version 4 of <code>order-42</code> says nothing about when it happened relative to <code>order-43</code>.</p>
+        <h4>Two kinds of position</h4>
+        <table><tr><th>Position</th><th>Scope</th><th>Use</th></tr>
+        <tr><td>Stream version</td><td>one stream</td><td>concurrency, rehydration</td></tr>
+        <tr><td>Global position</td><td>whole store</td><td>projections, subscriptions</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Projections checkpoint on the global position, aggregates on the stream version.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Optimistic concurrency</b><span>Appending with the version you expected to find, so a concurrent writer is rejected instead of silently overwriting.</span><template class="term-detail" data-see="Stream version, Folding, Append-only">
-          <p>You read <code>order-42</code> to version 3, decide, and append with <code>expectedVersion: 3</code>. If someone else got there first the stream is at 4 and the store rejects your append with a wrong-expected-version error. No locks are held between read and write, and the aggregate's invariant is still protected.</p>
-          <p>The retry must <em>re-decide</em>, not just re-append: the event that beat you may have invalidated the decision &mdash; another item may have taken the order past its ten-item limit.</p>
-          <h4>Expected version options</h4>
-          <table>
-            <tr><th>Value</th><th>Means</th></tr>
-            <tr><td>A number</td><td>stream must be exactly here</td></tr>
-            <tr><td>"no stream"</td><td>creating it; fails if it exists</td></tr>
-            <tr><td>"stream exists"</td><td>must already exist</td></tr>
-            <tr><td>"any"</td><td>no check &mdash; gives up the invariant</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Steps 7&ndash;10 of the first animation are one collision and its correct retry.</li></ul>
+        <p>You read <code>order-42</code> to version 3, decide, and append with <code>expectedVersion: 3</code>. If someone else got there first the stream is at 4 and the store rejects your append with a wrong-expected-version error. No locks are held between read and write, and the aggregate's invariant is still protected.</p>
+        <p>The retry must <em>re-decide</em>, not just re-append: the event that beat you may have invalidated the decision — another item may have taken the order past its ten-item limit.</p>
+        <h4>Expected version options</h4>
+        <table><tr><th>Value</th><th>Means</th></tr>
+        <tr><td>A number</td><td>stream must be exactly here</td></tr>
+        <tr><td>"no stream"</td><td>creating it; fails if it exists</td></tr>
+        <tr><td>"stream exists"</td><td>must already exist</td></tr>
+        <tr><td>"any"</td><td>no check — gives up the invariant</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Steps 7–10 of the first animation are one collision and its correct retry.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Folding</b><span>Rebuilding current state by applying every event in order to an empty starting value. Also called rehydration or replay.</span><template class="term-detail" data-see="Stream, Snapshot, Event">
-          <p><code>state = events.Aggregate(Empty, Apply)</code>. The <code>Apply</code> method must be pure and must never reject anything &mdash; an event already happened, so applying it cannot fail. All validation lives in the command handling, before the event is created.</p>
-          <p>That split is what makes the model easy to test: feed a list of events, assert the state, with no database anywhere in the test.</p>
-          <h4>Two methods, two jobs</h4>
-          <table>
-            <tr><th>Method</th><th>May reject?</th><th>Side effects</th></tr>
-            <tr><td><code>Decide(command)</code></td><td>yes &mdash; invariants here</td><td>returns events</td></tr>
-            <tr><td><code>Apply(event)</code></td><td>never</td><td>mutates state only</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>A read model is the same fold, kept outside the aggregate and persisted.</li></ul>
+        <p><code>state = events.Aggregate(Empty, Apply)</code>. The <code>Apply</code> method must be pure and must never reject anything — an event already happened, so applying it cannot fail. All validation lives in the command handling, before the event is created.</p>
+        <p>That split is what makes the model easy to test: feed a list of events, assert the state, with no database anywhere in the test.</p>
+        <h4>Two methods, two jobs</h4>
+        <table><tr><th>Method</th><th>May reject?</th><th>Side effects</th></tr>
+        <tr><td><code>Decide(command)</code></td><td>yes — invariants here</td><td>returns events</td></tr>
+        <tr><td><code>Apply(event)</code></td><td>never</td><td>mutates state only</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>A read model is the same fold, kept outside the aggregate and persisted.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Snapshot</b><span>A stored copy of folded state at a given version, so long streams do not have to be replayed from the beginning.</span><template class="term-detail" data-see="Folding, Stream, Append-only">
-          <p>Load the snapshot at version 9,900 and apply the hundred events after it. It is purely an optimisation and must never become the source of truth: if the fold logic changes, you delete every snapshot and let them rebuild.</p>
-          <p>Most aggregates never need one. Reach for snapshots when a stream genuinely grows without bound &mdash; a long-lived account, a device that emits telemetry &mdash; and consider whether the aggregate should instead be closed and a new stream started per period.</p>
-          <div class="anim" id="snap-anim" data-steps="snap"><h4>Ten thousand events, or a hundred</h4>
-            <div class="stage">
-              <svg viewBox="0 0 560 200" role="img" aria-label="Loading an aggregate by replaying ten thousand events, then by using a snapshot plus the tail">
-                <text x="280" y="24" font-size="11.5" text-anchor="middle" fill="#5f6f66">a long-lived stream, and the cost of rebuilding it</text>
-                <rect id="sn-stream" x="30" y="46" width="340" height="52" rx="6" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
-                <text x="200" y="68" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">stream account-7731</text>
-                <text id="sn-streamt" x="200" y="86" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">10,000 events</text>
-                <rect id="sn-snap" class="hidden" x="30" y="112" width="200" height="48" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
-                <text id="sn-snapt" class="hidden" x="130" y="132" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">snapshot @ v9,900</text>
-                <text id="sn-snapt2" class="hidden" x="130" y="150" font-size="10" text-anchor="middle" fill="#5f6f66">a cache, never the truth</text>
-                <rect id="sn-cost" x="390" y="46" width="140" height="52" rx="6" fill="#f9e3df" stroke="#e6b3ad" stroke-width="1.5"/>
-                <text x="460" y="68" font-size="11" text-anchor="middle" fill="#23362e" font-weight="600">load time</text>
-                <text id="sn-costt" x="460" y="86" font-size="11.5" text-anchor="middle" fill="#c53b3b" font-weight="700" font-family="Fira Code, monospace">?</text>
-                <text id="sn-msg" x="280" y="184" font-size="11" text-anchor="middle" fill="#5f6f66">every load replays the whole history</text>
-              </svg>
-            </div><div class="controls"></div><div class="narration"></div></div>
-          <h4>How it relates</h4>
-          <ul><li>Snapshots are to aggregates what read models are to queries: derived, disposable, rebuildable.</li></ul>
+        <p>Load the snapshot at version 9,900 and apply the hundred events after it. It is purely an optimisation and must never become the source of truth: if the fold logic changes, you delete every snapshot and let them rebuild.</p>
+        <p>Most aggregates never need one. Reach for snapshots when a stream genuinely grows without bound — a long-lived account, a device that emits telemetry — and consider whether the aggregate should instead be closed and a new stream started per period.</p>
+        <div class="anim" id="snap-anim" data-steps="snap">
+          <h4>Ten thousand events, or a hundred</h4>
+          <div class="stage">
+            <svg viewBox="0 0 560 200" role="img" aria-label="Loading an aggregate by replaying ten thousand events, then by using a snapshot plus the tail">
+              <text x="280" y="24" font-size="11.5" text-anchor="middle" fill="#5f6f66">a long-lived stream, and the cost of rebuilding it</text>
+              <rect id="sn-stream" x="30" y="46" width="340" height="52" rx="6" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+              <text x="200" y="68" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">stream account-7731</text>
+              <text id="sn-streamt" x="200" y="86" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">10,000 events</text>
+              <rect id="sn-snap" class="hidden" x="30" y="112" width="200" height="48" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text id="sn-snapt" class="hidden" x="130" y="132" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">snapshot @ v9,900</text>
+              <text id="sn-snapt2" class="hidden" x="130" y="150" font-size="10" text-anchor="middle" fill="#5f6f66">a cache, never the truth</text>
+              <rect id="sn-cost" x="390" y="46" width="140" height="52" rx="6" fill="#f9e3df" stroke="#e6b3ad" stroke-width="1.5"/>
+              <text x="460" y="68" font-size="11" text-anchor="middle" fill="#23362e" font-weight="600">load time</text>
+              <text id="sn-costt" x="460" y="86" font-size="11.5" text-anchor="middle" fill="#c53b3b" font-weight="700" font-family="Fira Code, monospace">?</text>
+              <text id="sn-msg" x="280" y="184" font-size="11" text-anchor="middle" fill="#5f6f66">every load replays the whole history</text>
+            </svg>
+          </div>
+          <div class="controls"></div>
+          <div class="narration"></div>
+        </div>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Snapshots are to aggregates what read models are to queries: derived, disposable, rebuildable.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Global position</b><span>The order of an event across the whole store, used by anything that reads more than one stream.</span><template class="term-detail" data-see="Stream version, Subscription, Checkpoint">
-          <p>Often exposed as a virtual stream (<code>$all</code> in KurrentDB, a <code>seq</code> column in a relational implementation). It is what a projection follows, because a read model usually spans thousands of aggregates and needs a single ordering to checkpoint against.</p>
-          <p>Be careful with its meaning in distributed stores: "global order" may be per partition, and a gap can be an in-flight transaction rather than a missing event. Read your store's guarantees before assuming a dense sequence.</p>
-          <h4>How it relates</h4>
-          <ul><li>In a Postgres implementation, gaps from concurrent transactions are the classic subtle projection bug.</li></ul>
+        <p>Often exposed as a virtual stream (<code>$all</code> in KurrentDB, a <code>seq</code> column in a relational implementation). It is what a projection follows, because a read model usually spans thousands of aggregates and needs a single ordering to checkpoint against.</p>
+        <p>Be careful with its meaning in distributed stores: "global order" may be per partition, and a gap can be an in-flight transaction rather than a missing event. Read your store's guarantees before assuming a dense sequence.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>In a Postgres implementation, gaps from concurrent transactions are the classic subtle projection bug.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Subscription</b><span>A reader that follows the log — from the beginning, from a position, or from now — and is pushed new events as they arrive.</span><template class="term-detail" data-see="Checkpoint, Projection, Global position">
-          <p>Two shapes. A <b>catch-up</b> subscription reads history then stays live, with the client owning the checkpoint &mdash; the right choice for projections, because you control replay. A <b>persistent</b> (competing-consumer) subscription has the server track position and distribute events across workers, which suits work queues but gives up ordering.</p>
-          <h4>Picking one</h4>
-          <table>
-            <tr><th>Need</th><th>Subscription</th></tr>
-            <tr><td>Build a read model</td><td>catch-up, client checkpoint</td></tr>
-            <tr><td>Rebuild from scratch</td><td>catch-up from 0</td></tr>
-            <tr><td>Parallel work queue</td><td>persistent / competing</td></tr>
-            <tr><td>React only to new events</td><td>catch-up from "now"</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Catch-up subscriptions are what make CQRS projections rebuildable.</li></ul>
+        <p>Two shapes. A <b>catch-up</b> subscription reads history then stays live, with the client owning the checkpoint — the right choice for projections, because you control replay. A <b>persistent</b> (competing-consumer) subscription has the server track position and distribute events across workers, which suits work queues but gives up ordering.</p>
+        <h4>Picking one</h4>
+        <table><tr><th>Need</th><th>Subscription</th></tr>
+        <tr><td>Build a read model</td><td>catch-up, client checkpoint</td></tr>
+        <tr><td>Rebuild from scratch</td><td>catch-up from 0</td></tr>
+        <tr><td>Parallel work queue</td><td>persistent / competing</td></tr>
+        <tr><td>React only to new events</td><td>catch-up from "now"</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Catch-up subscriptions are what make CQRS projections rebuildable.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Checkpoint</b><span>The position a subscriber has processed up to, stored next to whatever it produced.</span><template class="term-detail" data-see="Subscription, Projection, Global position">
-          <p>Written in the same transaction as the rows it produced, so the pair is atomic: on restart the subscriber resumes rather than replaying or skipping. The gap between the log head and a checkpoint is the lag metric for that reader.</p>
-          <h4>How it relates</h4>
-          <ul><li>Identical mechanics to a CQRS projection checkpoint &mdash; because that is exactly what it is.</li></ul>
+        <p>Written in the same transaction as the rows it produced, so the pair is atomic: on restart the subscriber resumes rather than replaying or skipping. The gap between the log head and a checkpoint is the lag metric for that reader.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Identical mechanics to a CQRS projection checkpoint — because that is exactly what it is.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Projection</b><span>Any derived view built by folding events — a read model, a report, a search index, an aggregate's own state.</span><template class="term-detail" data-see="Subscription, Checkpoint, Folding">
-          <p>Because the log is immutable, every projection is disposable: delete it, reset the checkpoint, replay, and it comes back. Read-side schema changes become replays instead of migrations, which is the single most liberating operational property of an event store.</p>
-          <p>Projections must be idempotent, since subscriptions redeliver after a restart.</p>
-          <h4>Kinds</h4>
-          <table>
-            <tr><th>Projection</th><th>Lives in</th></tr>
-            <tr><td>Read model for a screen</td><td>SQL table</td></tr>
-            <tr><td>Search index</td><td>Elasticsearch</td></tr>
-            <tr><td>Aggregate state</td><td>memory, per request</td></tr>
-            <tr><td>Analytics feed</td><td>warehouse</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>An event store plus projections is the fullest form of CQRS.</li></ul>
+        <p>Because the log is immutable, every projection is disposable: delete it, reset the checkpoint, replay, and it comes back. Read-side schema changes become replays instead of migrations, which is the single most liberating operational property of an event store.</p>
+        <p>Projections must be idempotent, since subscriptions redeliver after a restart.</p>
+        <h4>Kinds</h4>
+        <table><tr><th>Projection</th><th>Lives in</th></tr>
+        <tr><td>Read model for a screen</td><td>SQL table</td></tr>
+        <tr><td>Search index</td><td>Elasticsearch</td></tr>
+        <tr><td>Aggregate state</td><td>memory, per request</td></tr>
+        <tr><td>Analytics feed</td><td>warehouse</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>An event store plus projections is the fullest form of CQRS.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Schema versioning</b><span>Events are forever, so the code must keep reading the shapes it wrote years ago.</span><template class="term-detail" data-see="Upcasting, Event, Append-only">
-          <p>You cannot migrate an immutable log by running an <code>ALTER</code>. A 2024 <code>OrderPlaced</code> with no <code>currency</code> field will still be replayed in 2034, so every change must be backwards compatible: add optional fields, never rename or repurpose, never change the meaning of an existing one.</p>
-          <p>This is the discipline event sourcing demands most consistently, and the one teams underestimate most reliably.</p>
-          <h4>Safe and unsafe changes</h4>
-          <table>
-            <tr><th>Change</th><th>Safe?</th></tr>
-            <tr><td>Add an optional field</td><td>yes</td></tr>
-            <tr><td>Add a new event type</td><td>yes</td></tr>
-            <tr><td>Rename a field</td><td>no &mdash; upcast instead</td></tr>
-            <tr><td>Change a field's meaning</td><td>no &mdash; new event type</td></tr>
-            <tr><td>Remove a field</td><td>only once nothing reads it</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Internal events can evolve more freely than the integration events other contexts consume.</li></ul>
+        <p>You cannot migrate an immutable log by running an <code>ALTER</code>. A 2024 <code>OrderPlaced</code> with no <code>currency</code> field will still be replayed in 2034, so every change must be backwards compatible: add optional fields, never rename or repurpose, never change the meaning of an existing one.</p>
+        <p>This is the discipline event sourcing demands most consistently, and the one teams underestimate most reliably.</p>
+        <h4>Safe and unsafe changes</h4>
+        <table><tr><th>Change</th><th>Safe?</th></tr>
+        <tr><td>Add an optional field</td><td>yes</td></tr>
+        <tr><td>Add a new event type</td><td>yes</td></tr>
+        <tr><td>Rename a field</td><td>no — upcast instead</td></tr>
+        <tr><td>Change a field's meaning</td><td>no — new event type</td></tr>
+        <tr><td>Remove a field</td><td>only once nothing reads it</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Internal events can evolve more freely than the integration events other contexts consume.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Upcasting</b><span>Translating an old event shape into the current one as it is read, so the rest of the code only sees the latest version.</span><template class="term-detail" data-see="Schema versioning, Folding, Event">
-          <p>A small function per version transition, applied on the read path: v1 gets a default currency, v2's renamed field is mapped, v3 is passed through. The aggregate and projections only ever handle the newest shape, and the stored bytes stay untouched.</p>
-          <p>The alternative &mdash; rewriting the log into a new one &mdash; is a big, risky migration and loses the guarantee that history is what actually happened. Prefer upcasting until the chain becomes genuinely unreadable.</p>
-          <h4>Strategies</h4>
-          <table>
-            <tr><th>Strategy</th><th>When</th></tr>
-            <tr><td>Upcast on read</td><td>default; cheap and reversible</td></tr>
-            <tr><td>Weak schema (tolerant reader)</td><td>additive changes only</td></tr>
-            <tr><td>New event type</td><td>the meaning really changed</td></tr>
-            <tr><td>Copy-and-transform the stream</td><td>last resort</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Keep upcasters covered by tests built from real old payloads, not from the current class.</li></ul>
+        <p>A small function per version transition, applied on the read path: v1 gets a default currency, v2's renamed field is mapped, v3 is passed through. The aggregate and projections only ever handle the newest shape, and the stored bytes stay untouched.</p>
+        <p>The alternative — rewriting the log into a new one — is a big, risky migration and loses the guarantee that history is what actually happened. Prefer upcasting until the chain becomes genuinely unreadable.</p>
+        <h4>Strategies</h4>
+        <table><tr><th>Strategy</th><th>When</th></tr>
+        <tr><td>Upcast on read</td><td>default; cheap and reversible</td></tr>
+        <tr><td>Weak schema (tolerant reader)</td><td>additive changes only</td></tr>
+        <tr><td>New event type</td><td>the meaning really changed</td></tr>
+        <tr><td>Copy-and-transform the stream</td><td>last resort</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Keep upcasters covered by tests built from real old payloads, not from the current class.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Correction event</b><span>How you fix a mistake in an append-only world: append the opposite, do not edit the past.</span><template class="term-detail" data-see="Append-only, Event, Schema versioning">
-          <p><code>AmountCorrected</code>, <code>ChargeReversed</code>, <code>AddressCorrected</code>. The original stays, the correction follows, and the fold produces the right answer. Anyone who needs to know what the system believed last Tuesday still can &mdash; which is the entire reason for the design.</p>
-          <p>Name corrections explicitly rather than re-emitting the original event type, so projections can treat them differently if they need to.</p>
-          <h4>How it relates</h4>
-          <ul><li>This is exactly how a ledger works, and for the same reasons.</li></ul>
+        <p><code>AmountCorrected</code>, <code>ChargeReversed</code>, <code>AddressCorrected</code>. The original stays, the correction follows, and the fold produces the right answer. Anyone who needs to know what the system believed last Tuesday still can — which is the entire reason for the design.</p>
+        <p>Name corrections explicitly rather than re-emitting the original event type, so projections can treat them differently if they need to.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>This is exactly how a ledger works, and for the same reasons.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Crypto-shredding</b><span>Deleting personal data from an immutable log by encrypting it per subject and destroying the key.</span><template class="term-detail" data-see="Append-only, Event, Projection">
-          <p>"Never delete" meets the right to erasure. The usual answer: store each person's personal fields encrypted with a key held per subject in a separate, mutable key store. Erasure deletes the key, after which the payload is unrecoverable noise while the stream's structure, ordering and versions stay intact.</p>
-          <p>Design it in from the start. Retrofitting it onto a log that already holds plaintext means either a full stream rewrite or a legal problem.</p>
-          <h4>Options</h4>
-          <table>
-            <tr><th>Approach</th><th>Trade-off</th></tr>
-            <tr><td>Crypto-shredding</td><td>standard; needs upfront design</td></tr>
-            <tr><td>Keep PII outside the log</td><td>simplest; events hold references</td></tr>
-            <tr><td>Rewrite the stream</td><td>breaks immutability and audit</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Projections must handle an unreadable payload gracefully, not crash on replay.</li></ul>
+        <p>"Never delete" meets the right to erasure. The usual answer: store each person's personal fields encrypted with a key held per subject in a separate, mutable key store. Erasure deletes the key, after which the payload is unrecoverable noise while the stream's structure, ordering and versions stay intact.</p>
+        <p>Design it in from the start. Retrofitting it onto a log that already holds plaintext means either a full stream rewrite or a legal problem.</p>
+        <h4>Options</h4>
+        <table><tr><th>Approach</th><th>Trade-off</th></tr>
+        <tr><td>Crypto-shredding</td><td>standard; needs upfront design</td></tr>
+        <tr><td>Keep PII outside the log</td><td>simplest; events hold references</td></tr>
+        <tr><td>Rewrite the stream</td><td>breaks immutability and audit</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Projections must handle an unreadable payload gracefully, not crash on replay.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Temporal query</b><span>Asking what the state was at a past moment, by folding only the events up to it.</span><template class="term-detail" data-see="Folding, Projection, Append-only">
-          <p>"What did this order look like before the address change?" is a filter and a fold, not a feature request. The same mechanism answers "what did we believe when we made that decision?" &mdash; which is the question auditors, regulators and incident reviews actually ask.</p>
-          <p>It is also the best debugging tool in the model: replay a customer's exact history into a test and watch the bug happen.</p>
-          <h4>How it relates</h4>
-          <ul><li>In a state-based database this requires a separate temporal table, maintained by hand and usually incomplete.</li></ul>
+        <p>"What did this order look like before the address change?" is a filter and a fold, not a feature request. The same mechanism answers "what did we believe when we made that decision?" — which is the question auditors, regulators and incident reviews actually ask.</p>
+        <p>It is also the best debugging tool in the model: replay a customer's exact history into a test and watch the bug happen.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>In a state-based database this requires a separate temporal table, maintained by hand and usually incomplete.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Storage growth</b><span>The log only ever grows, so replay time, storage cost and archiving are planned work, not surprises.</span><template class="term-detail" data-see="Snapshot, Projection, Stream">
-          <p>Events are small, so raw volume is rarely the problem; replay time is. Measure a full rebuild early and watch the trend, because a projection that takes eleven hours to rebuild is effectively not rebuildable when you need it at 3 a.m.</p>
-          <p>The usual levers: snapshots for long aggregates, closing streams per period rather than letting them run forever, and archiving cold streams to object storage with a documented way to bring them back.</p>
-          <h4>Plan for</h4>
-          <table>
-            <tr><th>Concern</th><th>Lever</th></tr>
-            <tr><td>Slow aggregate load</td><td>snapshots</td></tr>
-            <tr><td>Slow projection rebuild</td><td>parallel replay, partitioned projections</td></tr>
-            <tr><td>Unbounded streams</td><td>close per period, start a new one</td></tr>
-            <tr><td>Cost</td><td>archive cold streams</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Rehearse a full rebuild in CI; it is the test that stops this becoming a crisis.</li></ul>
+        <p>Events are small, so raw volume is rarely the problem; replay time is. Measure a full rebuild early and watch the trend, because a projection that takes eleven hours to rebuild is effectively not rebuildable when you need it at 3 a.m.</p>
+        <p>The usual levers: snapshots for long aggregates, closing streams per period rather than letting them run forever, and archiving cold streams to object storage with a documented way to bring them back.</p>
+        <h4>Plan for</h4>
+        <table><tr><th>Concern</th><th>Lever</th></tr>
+        <tr><td>Slow aggregate load</td><td>snapshots</td></tr>
+        <tr><td>Slow projection rebuild</td><td>parallel replay, partitioned projections</td></tr>
+        <tr><td>Unbounded streams</td><td>close per period, start a new one</td></tr>
+        <tr><td>Cost</td><td>archive cold streams</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Rehearse a full rebuild in CI; it is the test that stops this becoming a crisis.</li>
+        </ul>
         </template></div>
       </div>
     </section>
@@ -463,9 +459,8 @@ INSERT INTO events (stream_id, version, type, data, metadata)
 SELECT $1, $2 + row_number() OVER (), e.type, e.data, $5
 FROM   jsonb_to_recordset($3) AS e(type text, data jsonb)
 WHERE  (SELECT coalesce(max(version), 0) FROM events WHERE stream_id = $1) = $2;
--- 0 rows inserted => wrong expected version => reload, re-decide, retry</code></pre><div class="what">Expected version checked and events written in one statement. Zero rows means a concurrent writer won — reload and decide again.</div></div>
+-- 0 rows inserted =&gt; wrong expected version =&gt; reload, re-decide, retry</code></pre><div class="what">Expected version checked and events written in one statement. Zero rows means a concurrent writer won — reload and decide again.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>The aggregate (C#)</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">public sealed class Order
@@ -508,7 +503,6 @@ var newOnes = order.AddItem(sku, qty).ToArray();
 try   { await store.Append($"order-{id}", expectedVersion: order.Version, newOnes); }
 catch (WrongExpectedVersion) { /* reload, RE-DECIDE, retry — do not just re-append */ }</code></pre><div class="what">The retry must re-run the decision: the event that beat you may have made your command invalid.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Subscriptions and projections</h3>
         <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">def project(batch, conn):
@@ -524,7 +518,6 @@ TRUNCATE order_list_view;
 UPDATE checkpoint SET position = 0 WHERE name = 'order_list';
 # build v2 alongside v1, let it catch up, then switch the queries over</code></pre><div class="what">Read-side schema changes stop being migrations. This is the operational superpower of an event store.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Upcasting old events</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">static object Upcast(string type, int schemaVer, JsonNode data) =&gt; (type, schemaVer) switch
@@ -535,7 +528,6 @@ UPDATE checkpoint SET position = 0 WHERE name = 'order_list';
     _                  =&gt; throw new UnknownEventVersion(type, schemaVer),
 };</code></pre><div class="what">Applied on read, so the aggregate and every projection only see the newest shape. The stored bytes are never touched.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Using a dedicated store</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// KurrentDB (renamed from EventStoreDB at 25.0) — .NET client
@@ -552,7 +544,6 @@ await session.SaveChangesAsync();
 
 var order = await session.Events.AggregateStreamAsync&lt;Order&gt;(streamId);</code></pre><div class="what">Often the pragmatic middle ground: event sourcing semantics without operating a second database.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Operations</h3>
         <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">-- streams long enough to need a snapshot
@@ -568,7 +559,7 @@ SELECT name, (SELECT max(global_seq) FROM events) - position AS lag FROM checkpo
       <h2>Pros &amp; cons</h2>
       <div class="cols">
         <div class="col good"><h3>Pros</h3><ul>
-          <li>Complete history by construction &mdash; audit, provenance and "what did we believe then?" are free.</li>
+          <li>Complete history by construction — audit, provenance and "what did we believe then?" are free.</li>
           <li>New questions can be answered retroactively, because the facts were kept even when nobody was asking.</li>
           <li>Every derived view is rebuildable, so read-side schema changes become replays instead of migrations.</li>
           <li>Optimistic concurrency falls out of the stream version; no locks are held between read and write.</li>
@@ -577,7 +568,7 @@ SELECT name, (SELECT max(global_seq) FROM events) - position AS lag FROM checkpo
         </ul></div>
         <div class="col bad"><h3>Cons</h3><ul>
           <li>Event schemas are forever; upcasting is permanent, unglamorous maintenance work.</li>
-          <li>"Give me all orders over &euro;500" is impossible without a projection &mdash; you cannot query the log usefully.</li>
+          <li>"Give me all orders over €500" is impossible without a projection — you cannot query the log usefully.</li>
           <li>Deletion is genuinely hard, so GDPR needs crypto-shredding designed in from the start.</li>
           <li>Unfamiliar model: most teams need weeks before the design stops fighting them.</li>
           <li>Storage and replay time only grow, which becomes an operational constraint if ignored.</li>
@@ -591,7 +582,7 @@ SELECT name, (SELECT max(global_seq) FROM events) - position AS lag FROM checkpo
       <div class="cards">
         <div class="card"><h3>A ledger that has to balance</h3><p>Financial systems already think in immutable postings and correcting entries. Modelling them as events rather than mutable balances removes a whole category of "how did this number get here?" investigations, because the number is the fold and the fold is the evidence.</p></div>
         <div class="card"><h3>Regulated audit requirements</h3><p>An insurer must show what the system knew at the moment a claim was assessed. With state-based storage this is a bolted-on audit table that is always slightly wrong. With an event store it is a fold over events up to a timestamp.</p></div>
-        <div class="card"><h3>The question nobody asked in time</h3><p>Two years in, product asks how often customers add an item and remove it within a minute. Nobody ever recorded that metric &mdash; but <code>ItemAdded</code> and <code>ItemRemoved</code> are all still there, so a new projection replayed from offset zero answers it for the whole history.</p></div>
+        <div class="card"><h3>The question nobody asked in time</h3><p>Two years in, product asks how often customers add an item and remove it within a minute. Nobody ever recorded that metric — but <code>ItemAdded</code> and <code>ItemRemoved</code> are all still there, so a new projection replayed from offset zero answers it for the whole history.</p></div>
         <div class="card"><h3>Collaborative editing and reconstruction</h3><p>Several users change a document or an order concurrently. Events record each intention separately rather than the last writer's final state, so conflicts can be reasoned about and the sequence can be replayed to explain exactly what happened.</p></div>
         <div class="card"><h3>Device and telemetry history</h3><p>A fleet of machines emits state changes. Streams per device give a natural history, temporal queries answer "what was it doing at 03:14?", and snapshots keep the current-state load cheap on devices with millions of events.</p></div>
       </div>
@@ -599,11 +590,11 @@ SELECT name, (SELECT max(global_seq) FROM events) - position AS lag FROM checkpo
 
     <section id="when">
       <h2>When to use / when not to</h2>
-      <span class="note" style="margin:-6px 0 14px">adopt it where history is the product &mdash; one or two contexts, not the whole system</span>
+      <span class="note" style="margin:-6px 0 14px">adopt it where history is the product — one or two contexts, not the whole system</span>
       <div class="cols">
         <div class="col good"><h3>Use it when…</h3><ul>
           <li>History, audit or "what did we know then?" is a genuine business requirement.</li>
-          <li>The domain already thinks in events &mdash; ledgers, trading, insurance, logistics, workflow.</li>
+          <li>The domain already thinks in events — ledgers, trading, insurance, logistics, workflow.</li>
           <li>Several views of the same data are needed and you expect to add more later.</li>
           <li>The <em>why</em> of a change matters as much as the resulting value.</li>
           <li>You are already doing CQRS and the write model is naturally a sequence of decisions.</li>
@@ -613,21 +604,21 @@ SELECT name, (SELECT max(global_seq) FROM events) - position AS lag FROM checkpo
           <li>You only need an audit trail. Use <b>an audit log or temporal tables</b> beside normal storage.</li>
           <li>The data is mostly read and rarely changes. Use <b>a plain database and caching</b>.</li>
           <li>Personal data dominates and erasure is frequent. Use <b>state-based storage</b>, or design crypto-shredding before writing a line.</li>
-          <li>The team is new to it and the deadline is short. Use <b>CQRS without event sourcing</b> &mdash; most of the benefit, far less of the cost.</li>
+          <li>The team is new to it and the deadline is short. Use <b>CQRS without event sourcing</b> — most of the benefit, far less of the cost.</li>
         </ul></div>
       </div>
     </section>
 
     <section id="gotchas">
       <h2>Common mistakes &amp; gotchas</h2>
-      <div class="gotcha"><b>CRUD events</b><span><code>OrderUpdated</code> with a full entity snapshot is a row disguised as an event. It carries no intent, so no projection can tell <em>what</em> changed or why, and the whole model collapses back into state storage with extra steps.</span><div class="fix">Fix: name events after business decisions &mdash; <code>AddressCorrected</code>, <code>DiscountApplied</code> &mdash; and carry only what changed. If you cannot name it in business language, you have not found the event yet.</div></div>
-      <div class="gotcha"><b>Querying the event log</b><span>"Find all orders over &euro;500" has no answer in an append-only log, and the first attempt is always a desperate <code>jsonb</code> scan over every event ever written.</span><div class="fix">Fix: every query gets a projection. The log is for writing and replaying; read models are for reading. That is not a workaround, it is the design.</div></div>
-      <div class="gotcha"><b>Validation inside Apply</b><span>Throwing while applying an event is a contradiction &mdash; the event already happened &mdash; and it makes replays fail on history that was perfectly valid when it was written.</span><div class="fix">Fix: all validation goes in the decide step, before the event exists. <code>Apply</code> only mutates state and can never reject anything.</div></div>
-      <div class="gotcha"><b>Breaking event schemas</b><span>Renaming a field or changing its meaning breaks every replay of every event written before the change &mdash; and you find out during a rebuild, usually at the worst moment.</span><div class="fix">Fix: additive changes only. For anything else write an upcaster, and test it against real old payloads rather than against the current class.</div></div>
+      <div class="gotcha"><b>CRUD events</b><span><code>OrderUpdated</code> with a full entity snapshot is a row disguised as an event. It carries no intent, so no projection can tell <em>what</em> changed or why, and the whole model collapses back into state storage with extra steps.</span><div class="fix">Fix: name events after business decisions — <code>AddressCorrected</code>, <code>DiscountApplied</code> — and carry only what changed. If you cannot name it in business language, you have not found the event yet.</div></div>
+      <div class="gotcha"><b>Querying the event log</b><span>"Find all orders over €500" has no answer in an append-only log, and the first attempt is always a desperate <code>jsonb</code> scan over every event ever written.</span><div class="fix">Fix: every query gets a projection. The log is for writing and replaying; read models are for reading. That is not a workaround, it is the design.</div></div>
+      <div class="gotcha"><b>Validation inside Apply</b><span>Throwing while applying an event is a contradiction — the event already happened — and it makes replays fail on history that was perfectly valid when it was written.</span><div class="fix">Fix: all validation goes in the decide step, before the event exists. <code>Apply</code> only mutates state and can never reject anything.</div></div>
+      <div class="gotcha"><b>Breaking event schemas</b><span>Renaming a field or changing its meaning breaks every replay of every event written before the change — and you find out during a rebuild, usually at the worst moment.</span><div class="fix">Fix: additive changes only. For anything else write an upcaster, and test it against real old payloads rather than against the current class.</div></div>
       <div class="gotcha"><b>Aggregates with unbounded streams</b><span>A stream that grows forever eventually takes seconds to load, and snapshots only postpone the problem.</span><div class="fix">Fix: give aggregates a lifecycle. Close the stream per period or per business cycle and start a new one; add snapshots only for the ones that genuinely must stay open.</div></div>
       <div class="gotcha"><b>Snapshots treated as truth</b><span>A bug in the fold logic is baked into every snapshot, and since nobody replays from zero any more, the wrong state becomes permanent.</span><div class="fix">Fix: snapshots are a cache. Version them with the fold logic, and delete and rebuild them whenever it changes.</div></div>
-      <div class="gotcha"><b>No plan for deletion</b><span>"We never delete" and the right to erasure collide about a year in, when the log already holds plaintext personal data in a million events.</span><div class="fix">Fix: decide up front &mdash; keep personal data out of events and reference it, or encrypt it per subject so the key can be destroyed later.</div></div>
-      <div class="gotcha"><b>Never rehearsing a full replay</b><span>Three years of events, a projector bug, and the first complete rebuild turns out to take eleven hours &mdash; discovered during the incident, not before it.</span><div class="fix">Fix: rebuild in CI regularly and track the duration. Partition projections or parallelise the replay long before the number becomes frightening.</div></div>
+      <div class="gotcha"><b>No plan for deletion</b><span>"We never delete" and the right to erasure collide about a year in, when the log already holds plaintext personal data in a million events.</span><div class="fix">Fix: decide up front — keep personal data out of events and reference it, or encrypt it per subject so the key can be destroyed later.</div></div>
+      <div class="gotcha"><b>Never rehearsing a full replay</b><span>Three years of events, a projector bug, and the first complete rebuild turns out to take eleven hours — discovered during the incident, not before it.</span><div class="fix">Fix: rebuild in CI regularly and track the duration. Partition projections or parallelise the replay long before the number becomes frightening.</div></div>
     </section>
 
     <section id="alternatives">
@@ -636,7 +627,7 @@ SELECT name, (SELECT max(global_seq) FROM events) - position AS lag FROM checkpo
         <table>
           <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs an event store</th></tr></thead>
           <tbody>
-            <tr class="self"><td><b>Event store</b></td><td>domains where history is the product</td><td>High</td><td>free to high, depending on the product</td><td>&mdash;</td></tr>
+            <tr class="self"><td><b>Event store</b></td><td>domains where history is the product</td><td>High</td><td>free to high, depending on the product</td><td>—</td></tr>
             <tr><td><b>State table + outbox</b></td><td>most services</td><td>Low</td><td>free</td><td>Current state is the truth; events are notifications, and history is only what you remembered to keep</td></tr>
             <tr><td><b>Audit log / temporal tables</b></td><td>"who changed what" compliance</td><td>Low</td><td>free with the DB</td><td>Records changes beside normal storage; no intent, and not the source of truth</td></tr>
             <tr><td><b>Kafka as the log</b></td><td>streaming pipelines</td><td>Medium</td><td>free; a cluster to run</td><td>Excellent log, weak store: no per-stream expected version, and retention fights permanence</td></tr>
@@ -647,7 +638,7 @@ SELECT name, (SELECT max(global_seq) FROM events) - position AS lag FROM checkpo
         </table>
       </div>
       <ul style="margin-top:12px">
-        <li><b>Pick a state table plus an outbox</b> for most services &mdash; it is the honest default, and CQRS works fine on top of it.</li>
+        <li><b>Pick a state table plus an outbox</b> for most services — it is the honest default, and CQRS works fine on top of it.</li>
         <li><b>Pick temporal tables or an audit log</b> if you only need "who changed what", not the intent behind it.</li>
         <li><b>Pick Kafka</b> for pipelines, not as a system of record: without per-stream expected version you lose the concurrency guarantee that makes aggregates safe.</li>
         <li><b>Pick Marten</b> to get event sourcing without adding a database to your operational surface.</li>
@@ -658,12 +649,12 @@ SELECT name, (SELECT max(global_seq) FROM events) - position AS lag FROM checkpo
     <section id="resources">
       <h2>Resources</h2>
       <ul>
-        <li><a href="https://martinfowler.com/eaaDev/EventSourcing.html" target="_blank" rel="noopener">Martin Fowler &mdash; Event Sourcing</a>: the original pattern description, including the distinction from an audit log.</li>
+        <li><a href="https://martinfowler.com/eaaDev/EventSourcing.html" target="_blank" rel="noopener">Martin Fowler — Event Sourcing</a>: the original pattern description, including the distinction from an audit log.</li>
         <li><a href="https://docs.kurrent.io/" target="_blank" rel="noopener">KurrentDB documentation</a>: streams, expected version, <code>$all</code> and subscriptions, from the purpose-built store (renamed from EventStoreDB at 25.0).</li>
-        <li><a href="https://martendb.io/events/" target="_blank" rel="noopener">Marten &mdash; Event Store</a>: event sourcing and projections on PostgreSQL, with a very readable API.</li>
-        <li><a href="https://event-driven.io/en/" target="_blank" rel="noopener">Oskar Dudycz &mdash; Event-Driven.io</a>: the most practical writing available on versioning, snapshots and stream design.</li>
-        <li><a href="https://microservices.io/patterns/data/event-sourcing.html" target="_blank" rel="noopener">microservices.io &mdash; Event sourcing</a>: the pattern in a service context, with its trade-offs listed plainly.</li>
-        <li><a href="https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing" target="_blank" rel="noopener">Azure Architecture Center &mdash; Event Sourcing</a>: a short, balanced write-up including when not to use it.</li>
+        <li><a href="https://martendb.io/events/" target="_blank" rel="noopener">Marten — Event Store</a>: event sourcing and projections on PostgreSQL, with a very readable API.</li>
+        <li><a href="https://event-driven.io/en/" target="_blank" rel="noopener">Oskar Dudycz — Event-Driven.io</a>: the most practical writing available on versioning, snapshots and stream design.</li>
+        <li><a href="https://microservices.io/patterns/data/event-sourcing.html" target="_blank" rel="noopener">microservices.io — Event sourcing</a>: the pattern in a service context, with its trade-offs listed plainly.</li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing" target="_blank" rel="noopener">Azure Architecture Center — Event Sourcing</a>: a short, balanced write-up including when not to use it.</li>
       </ul>
     </section>
     <!-- RELATED:START (generated by scripts/build-index.mjs, do not edit) -->
@@ -706,41 +697,42 @@ SELECT name, (SELECT max(global_seq) FROM events) - position AS lag FROM checkpo
   </main>
 </div>
 
-<script src="../assets/player.js?v=3658cbc7"></script>
+<script src="../assets/player.js?v=e9bf1ea3"></script>
 <script>
 createAnimation('anim-stream', [
-  { say: 'An event store keeps facts, not current state. Events are grouped into streams &mdash; normally one per aggregate instance, here <code>order-42</code>. The stream starts empty.', hl: ['st-stream'] },
-  { say: 'A customer places the order. We append <code>OrderPlaced</code> &mdash; version 1. Nothing was updated; a fact was added to the end.', show: ['st-v1'], unhl: ['st-stream'], text: { 'st-head': 'version 1', 'st-s1': 'status: placed', 'st-s2': '0 lines, 0 items' } },
-  { say: 'Two items are added: versions 2 and 3. All three facts coexist &mdash; there is no row being overwritten, and the earlier states are still recoverable.', show: ['st-v2', 'st-v3'], text: { 'st-head': 'version 3', 'st-s2': '2 lines, 5 items' } },
-  { say: 'So how do you get current state? Not with a SELECT. You <em>fold</em>: start from empty and apply each event in order. State is derived in memory, and never stored as truth.', hl: ['st-state'], text: { 'st-s3': 'total: €128.40', 'st-s4': 'folded from 3 events', 'st-s5': 'derived, not stored' } },
-  { say: 'The fold has a strict contract: <code>Apply</code> may never reject anything, because the event already happened. All the validation lives in the decide step, before an event exists.', unhl: ['st-state'], text: { 'st-n': 'Decide() may reject · Apply() never can' } },
-  { say: 'Now concurrency. Two users act at the same time: one changes the delivery address, one adds an item. Both read the stream to version 3.', show: ['st-wa', 'st-wb'], text: { 'st-n': 'both writers have read to version 3 and decided independently' } },
-  { say: 'Writer A appends with <code>expectedVersion: 3</code>. The stream really is at 3, so the append succeeds and the stream moves to version 4.', show: ['st-v4'], hl: ['st-wa'], text: { 'st-wat': 'append expectedVersion=3 → OK, now v4', 'st-head': 'version 4' }, fill: { 'st-wat': '#2f6b3f' } },
-  { say: 'Writer B appends with the same <code>expectedVersion: 3</code> &mdash; but the stream is at 4 now. The store rejects it. No lock was ever held between read and write, and the invariant is still protected.', unhl: ['st-wa'], hl: ['st-wb'], text: { 'st-wbt': 'append expectedVersion=3 → WrongExpectedVersion', 'st-n': 'optimistic concurrency, free, from the stream version alone' }, fill: { 'st-wbt': '#c53b3b' } },
-  { say: 'B reloads to version 4 and &mdash; crucially &mdash; <em>re-decides</em>. It does not simply re-append: the event that beat it might have invalidated the command, by pushing the order past its ten-item limit.', unhl: ['st-wb'], text: { 'st-wbt': 'reload to v4 · run AddItem again against new state', 'st-n': 'retry means re-decide, never just re-append' }, fill: { 'st-wbt': '#5f6f66' } },
-  { say: 'This time the rule still holds, so the append succeeds at version 5. Five immutable facts, full history, and not a single row was ever updated.', show: ['st-v5'], text: { 'st-head': 'version 5', 'st-wbt': 'append expectedVersion=4 → OK, now v5', 'st-s2': '3 lines, 6 items', 'st-s3': 'total: €141.90', 'st-s4': 'folded from 5 events', 'st-n': 'append-only: the reason history, audit and time travel are free' }, fill: { 'st-wbt': '#2f6b3f' } },
+  { say: "An event store keeps facts, not current state. Events are grouped into streams — normally one per aggregate instance, here <code>order-42</code>. The stream starts empty.", hl: ["st-stream"] },
+  { say: "A customer places the order. We append <code>OrderPlaced</code> — version 1. Nothing was updated; a fact was added to the end.", show: ["st-v1"], unhl: ["st-stream"], text: {"st-head":"version 1","st-s1":"status: placed","st-s2":"0 lines, 0 items"} },
+  { say: "Two items are added: versions 2 and 3. All three facts coexist — there is no row being overwritten, and the earlier states are still recoverable.", show: ["st-v2","st-v3"], text: {"st-head":"version 3","st-s2":"2 lines, 5 items"} },
+  { say: "So how do you get current state? Not with a SELECT. You <em>fold</em>: start from empty and apply each event in order. State is derived in memory, and never stored as truth.", hl: ["st-state"], text: {"st-s3":"total: €128.40","st-s4":"folded from 3 events","st-s5":"derived, not stored"} },
+  { say: "The fold has a strict contract: <code>Apply</code> may never reject anything, because the event already happened. All the validation lives in the decide step, before an event exists.", unhl: ["st-state"], text: {"st-n":"Decide() may reject · Apply() never can"} },
+  { say: "Now concurrency. Two users act at the same time: one changes the delivery address, one adds an item. Both read the stream to version 3.", show: ["st-wa","st-wb"], text: {"st-n":"both writers have read to version 3 and decided independently"} },
+  { say: "Writer A appends with <code>expectedVersion: 3</code>. The stream really is at 3, so the append succeeds and the stream moves to version 4.", show: ["st-v4"], hl: ["st-wa"], text: {"st-wat":"append expectedVersion=3 → OK, now v4","st-head":"version 4"}, fill: {"st-wat":"#2f6b3f"} },
+  { say: "Writer B appends with the same <code>expectedVersion: 3</code> — but the stream is at 4 now. The store rejects it. No lock was ever held between read and write, and the invariant is still protected.", hl: ["st-wb"], unhl: ["st-wa"], text: {"st-wbt":"append expectedVersion=3 → WrongExpectedVersion","st-n":"optimistic concurrency, free, from the stream version alone"}, fill: {"st-wbt":"#c53b3b"} },
+  { say: "B reloads to version 4 and — crucially — <em>re-decides</em>. It does not simply re-append: the event that beat it might have invalidated the command, by pushing the order past its ten-item limit.", unhl: ["st-wb"], text: {"st-wbt":"reload to v4 · run AddItem again against new state","st-n":"retry means re-decide, never just re-append"}, fill: {"st-wbt":"#5f6f66"} },
+  { say: "This time the rule still holds, so the append succeeds at version 5. Five immutable facts, full history, and not a single row was ever updated.", show: ["st-v5"], text: {"st-head":"version 5","st-wbt":"append expectedVersion=4 → OK, now v5","st-s2":"3 lines, 6 items","st-s3":"total: €141.90","st-s4":"folded from 5 events","st-n":"append-only: the reason history, audit and time travel are free"}, fill: {"st-wbt":"#2f6b3f"} },
 ]);
 
 createAnimation('anim-readers', [
-  { say: 'Zoom out from one stream to the whole store. Every event ever written, in global order &mdash; across all orders, all aggregates, all types.', hl: ['rd-log'] },
-  { say: 'The read model subscribes with a catch-up subscription, folds each event into <code>order_list_view</code>, and stores its own checkpoint.', show: ['rd-a1'], unhl: ['rd-log'], hl: ['rd-r1'], text: { 'rd-r1t': 'subscribed · checkpoint #5 · live' } },
-  { say: 'The process manager subscribes to the same log. It reacts to <code>OrderPlaced</code> by issuing a command to reserve stock &mdash; the saga is just another reader.', show: ['rd-a2'], unhl: ['rd-r1'], hl: ['rd-r2'], text: { 'rd-r2t': 'subscribed · checkpoint #5 · reserving stock' } },
-  { say: 'Billing subscribes too, filtering for the event types it cares about, and translates them into its own model at its own boundary.', show: ['rd-a3'], unhl: ['rd-r2'], hl: ['rd-r3'], text: { 'rd-r3t': 'subscribed · filtered by type · checkpoint #4' } },
-  { say: 'Each has its own checkpoint and its own pace. Billing being an hour behind does not slow the read model down, and a projection crashing does not stop anything else.', unhl: ['rd-r3'], text: { 'rd-msg': 'independent readers, independent checkpoints, independent failure' } },
-  { say: 'Two years later, product asks: how often does a customer add an item and then remove it within a minute? Nobody ever recorded that metric. In a state-based system the answer is simply gone.', text: { 'rd-msg': 'how often do customers add an item and remove it within a minute?', 'rd-msg2': 'nobody instrumented that — and in a CRUD system the data is gone forever' }, fill: { 'rd-msg': '#c53b3b' } },
-  { say: 'But <code>ItemAdded</code> and <code>ItemRemoved</code> are both still there, with their timestamps, because the store keeps facts rather than state.', hl: ['rd-log'], text: { 'rd-logt': '#1 ItemAdded and #2 ItemRemoved — 38 seconds apart' } },
-  { say: 'So write a new projection, start it at offset zero and replay the entire history. The answer exists for every order ever placed, including the ones from before anyone thought to ask.', show: ['rd-a4'], unhl: ['rd-log'], hl: ['rd-r4'], text: { 'rd-r4a': 'new projection → add/remove within 60s', 'rd-r4t': 'replaying from offset 0 … caught up at #5', 'rd-msg': 'a question answered retroactively, across all of history' }, fill: { 'rd-msg': '#2f6b3f' } },
-  { say: 'That is what an event store is for. Every derived view is disposable &mdash; delete it, reset the checkpoint, replay &mdash; so read-side schema changes become replays instead of migrations.', unhl: ['rd-r4'], text: { 'rd-msg': 'the log is the truth; everything else can be thrown away and rebuilt' } },
-  { say: 'And the bill: the log only grows, replays get slower, snapshots and archiving become real work &mdash; and a 2024 event must still be readable in 2034, which is what upcasting is for.', hl: ['rd-log'], text: { 'rd-phase': 'the price of keeping everything', 'rd-msg': 'storage grows · replays slow · event schemas are forever', 'rd-msg2': 'rehearse a full rebuild in CI, before you need one at 3 a.m.' }, fill: { 'rd-msg': '#23362e' } },
+  { say: "Zoom out from one stream to the whole store. Every event ever written, in global order — across all orders, all aggregates, all types.", hl: ["rd-log"] },
+  { say: "The read model subscribes with a catch-up subscription, folds each event into <code>order_list_view</code>, and stores its own checkpoint.", show: ["rd-a1"], hl: ["rd-r1"], unhl: ["rd-log"], text: {"rd-r1t":"subscribed · checkpoint #5 · live"} },
+  { say: "The process manager subscribes to the same log. It reacts to <code>OrderPlaced</code> by issuing a command to reserve stock — the saga is just another reader.", show: ["rd-a2"], hl: ["rd-r2"], unhl: ["rd-r1"], text: {"rd-r2t":"subscribed · checkpoint #5 · reserving stock"} },
+  { say: "Billing subscribes too, filtering for the event types it cares about, and translates them into its own model at its own boundary.", show: ["rd-a3"], hl: ["rd-r3"], unhl: ["rd-r2"], text: {"rd-r3t":"subscribed · filtered by type · checkpoint #4"} },
+  { say: "Each has its own checkpoint and its own pace. Billing being an hour behind does not slow the read model down, and a projection crashing does not stop anything else.", unhl: ["rd-r3"], text: {"rd-msg":"independent readers, independent checkpoints, independent failure"} },
+  { say: "Two years later, product asks: how often does a customer add an item and then remove it within a minute? Nobody ever recorded that metric. In a state-based system the answer is simply gone.", text: {"rd-msg":"how often do customers add an item and remove it within a minute?","rd-msg2":"nobody instrumented that — and in a CRUD system the data is gone forever"}, fill: {"rd-msg":"#c53b3b"} },
+  { say: "But <code>ItemAdded</code> and <code>ItemRemoved</code> are both still there, with their timestamps, because the store keeps facts rather than state.", hl: ["rd-log"], text: {"rd-logt":"#1 ItemAdded and #2 ItemRemoved — 38 seconds apart"} },
+  { say: "So write a new projection, start it at offset zero and replay the entire history. The answer exists for every order ever placed, including the ones from before anyone thought to ask.", show: ["rd-a4"], hl: ["rd-r4"], unhl: ["rd-log"], text: {"rd-r4a":"new projection → add/remove within 60s","rd-r4t":"replaying from offset 0 … caught up at #5","rd-msg":"a question answered retroactively, across all of history"}, fill: {"rd-msg":"#2f6b3f"} },
+  { say: "That is what an event store is for. Every derived view is disposable — delete it, reset the checkpoint, replay — so read-side schema changes become replays instead of migrations.", unhl: ["rd-r4"], text: {"rd-msg":"the log is the truth; everything else can be thrown away and rebuilt"} },
+  { say: "And the bill: the log only grows, replays get slower, snapshots and archiving become real work — and a 2024 event must still be readable in 2034, which is what upcasting is for.", hl: ["rd-log"], text: {"rd-phase":"the price of keeping everything","rd-msg":"storage grows · replays slow · event schemas are forever","rd-msg2":"rehearse a full rebuild in CI, before you need one at 3 a.m."}, fill: {"rd-msg":"#23362e"} },
 ]);
 
+/* Animations inside key-concept panels */
 window.TERM_ANIMS = {
   snap: [
-    { say: 'A long-lived aggregate: <code>account-7731</code> has accumulated 10,000 events over four years.', hl: ['sn-stream'] },
-    { say: 'Loading it means reading all 10,000 and folding them, every single time &mdash; 400 ms, and getting worse with every transaction the account makes.', unhl: ['sn-stream'], hl: ['sn-cost'], text: { 'sn-costt': '400 ms', 'sn-msg': 'every load replays four years of history' } },
-    { say: 'So store a snapshot: the folded state as it was at version 9,900, written alongside the stream.', show: ['sn-snap', 'sn-snapt', 'sn-snapt2'], unhl: ['sn-cost'], text: { 'sn-msg': 'the fold, cached at a known version' } },
-    { say: 'Now a load reads the snapshot and applies only the 100 events after it: 6 ms instead of 400.', hl: ['sn-cost'], text: { 'sn-costt': '6 ms', 'sn-streamt': 'snapshot @ v9,900 + 100 events', 'sn-msg': 'two orders of magnitude, for one cached fold' }, fill: { 'sn-costt': '#2f6b3f' } },
-    { say: 'But a snapshot is a cache, never the truth. Change the fold logic and every snapshot is silently wrong &mdash; so version them with the code, and delete and rebuild them whenever it changes.', unhl: ['sn-cost'], text: { 'sn-msg': 'version snapshots with the fold logic · delete and rebuild on change' } },
+    { say: "A long-lived aggregate: <code>account-7731</code> has accumulated 10,000 events over four years.", hl: ["sn-stream"] },
+    { say: "Loading it means reading all 10,000 and folding them, every single time — 400 ms, and getting worse with every transaction the account makes.", hl: ["sn-cost"], unhl: ["sn-stream"], text: {"sn-costt":"400 ms","sn-msg":"every load replays four years of history"} },
+    { say: "So store a snapshot: the folded state as it was at version 9,900, written alongside the stream.", show: ["sn-snap","sn-snapt","sn-snapt2"], unhl: ["sn-cost"], text: {"sn-msg":"the fold, cached at a known version"} },
+    { say: "Now a load reads the snapshot and applies only the 100 events after it: 6 ms instead of 400.", hl: ["sn-cost"], text: {"sn-costt":"6 ms","sn-streamt":"snapshot @ v9,900 + 100 events","sn-msg":"two orders of magnitude, for one cached fold"}, fill: {"sn-costt":"#2f6b3f"} },
+    { say: "But a snapshot is a cache, never the truth. Change the fold logic and every snapshot is silently wrong — so version them with the code, and delete and rebuild them whenever it changes.", unhl: ["sn-cost"], text: {"sn-msg":"version snapshots with the fold logic · delete and rebuild on change"} },
   ],
 };
 </script>

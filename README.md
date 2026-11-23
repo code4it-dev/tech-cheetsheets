@@ -18,7 +18,27 @@ python -m http.server 8000
 
 Then open http://localhost:8000.
 
-## Add a cheatsheet
+## How the site is built
+
+The site is headless: the page layout lives in one template, the content in HTML-free files.
+
+```
+content/<slug>.yaml        the whole page: text, tables, code, animation steps
+content/<slug>/*.svg       its diagrams, one file each
+templates/page.html        the single page template
+scripts/render.mjs         content -> cheatsheets/<slug>.html
+scripts/build-index.mjs    search index, home cards, "Related pages", syntax highlighting
+cheatsheets/*.html         generated - do not edit
+```
+
+```bash
+npm ci
+npm run build
+```
+
+`npm run check` rebuilds and fails if the committed HTML is out of date.
+
+## Add or edit a cheatsheet
 
 Pages are generated with Claude Code using the project skill in `.claude/skills/tech-cheatsheet/`. From this folder, ask Claude:
 
@@ -26,11 +46,7 @@ Pages are generated with Claude Code using the project skill in `.claude/skills/
 /tech-cheatsheet postgresql
 ```
 
-To add or edit a page by hand, start from `.claude/skills/tech-cheatsheet/template.html`, save it as `cheatsheets/<slug>.html`, then rebuild the search index, the home page cards and the "Related pages" sections:
-
-```bash
-node scripts/build-index.mjs
-```
+By hand: copy `.claude/skills/tech-cheatsheet/template.yaml` to `content/<slug>.yaml`, draw the diagrams into `content/<slug>/`, and run `npm run build`.
 
 ## Deploy
 

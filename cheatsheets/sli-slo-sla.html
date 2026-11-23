@@ -40,8 +40,8 @@
       <p class="tagline">Measure what users feel, promise a number you can keep, sign only what you can afford to break.</p>
       <span class="meta">As of Nov 2026 · vocabulary from Google SRE; examples use Prometheus, OpenSLO and Sloth</span>
       <p>"Is the service up?" is not a question with an answer. Something is always failing for someone, so the only honest version is "what fraction of the things users tried actually worked, and is that fraction good enough?" The three letters answer that in order: an <b>SLI</b> is the measurement, an <b>SLO</b> is the target you hold yourselves to, and an <b>SLA</b> is the much weaker promise you make to a customer with money attached.</p>
-      <p>The mechanism that makes them useful is the <b>error budget</b>: the difference between 100% and your SLO. A 99.9% objective over 28 days is not "do not fail" &mdash; it is an explicit allowance of about 40 minutes of failure, or 0.1% of requests, that you are free to spend on deploys, migrations and risk. When the budget is healthy you ship; when it is gone you stop shipping and fix things. That turns an argument about feelings into arithmetic.</p>
-      <p>This is the backbone of SRE practice at Google, and it has been copied nearly everywhere: the same three terms show up in cloud provider contracts, in platform team charters and in tools like Prometheus, Datadog, Grafana and Nobl9. None of it requires a big organisation &mdash; a single team with one SLI per critical user journey already gets most of the benefit.</p>
+      <p>The mechanism that makes them useful is the <b>error budget</b>: the difference between 100% and your SLO. A 99.9% objective over 28 days is not "do not fail" — it is an explicit allowance of about 40 minutes of failure, or 0.1% of requests, that you are free to spend on deploys, migrations and risk. When the budget is healthy you ship; when it is gone you stop shipping and fix things. That turns an argument about feelings into arithmetic.</p>
+      <p>This is the backbone of SRE practice at Google, and it has been copied nearly everywhere: the same three terms show up in cloud provider contracts, in platform team charters and in tools like Prometheus, Datadog, Grafana and Nobl9. None of it requires a big organisation — a single team with one SLI per critical user journey already gets most of the benefit.</p>
     </header>
 
     <section id="architecture">
@@ -95,16 +95,15 @@
           <text class="hand" x="46" y="316" font-size="16" fill="#c53b3b">no SLI? then the SLO is a wish and the SLA is a gamble</text>
         </svg>
       </div>
-      <p class="caption">One journey, one ratio, one target, one budget &mdash; and a contract that always sits a comfortable step below what you actually aim for.</p>
+      <p class="caption">One journey, one ratio, one target, one budget — and a contract that always sits a comfortable step below what you actually aim for.</p>
     </section>
 
     <section id="how-it-works">
       <h2>How it works</h2>
-      <p style="margin:0 0 18px">The first animation turns raw requests into a budget. The second spends that budget and shows exactly when it should wake a human.</p>
-      <span class="note" style="margin:-8px 0 18px">an SLO you never alert on is decoration &mdash; the burn rate is the whole point</span>
-
+      <p>The first animation turns raw requests into a budget. The second spends that budget and shows exactly when it should wake a human.</p>
+      <span class="note" style="margin:-6px 0 14px">an SLO you never alert on is decoration — the burn rate is the whole point</span>
       <div class="anim" id="anim-sli">
-        <h3>1 &middot; From raw requests to an error budget</h3>
+        <h3>1 · From raw requests to an error budget</h3>
         <div class="stage">
           <svg viewBox="0 0 800 300" role="img" aria-label="Requests classified as good or bad by an SLI rule, then aggregated into a ratio and an error budget">
             <defs>
@@ -155,9 +154,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-burn">
-        <h3>2 &middot; Burn rate: when the budget should wake you up</h3>
+        <h3>2 · Burn rate: when the budget should wake you up</h3>
         <div class="stage">
           <svg viewBox="0 0 800 300" role="img" aria-label="Error rate over 28 days, burn rate computed over fast and slow windows, triggering a page or a ticket">
             <text x="400" y="20" font-size="12.5" text-anchor="middle" fill="#5f6f66">SLO 99.9% over 28 days &mdash; burn rate 1&times; means the budget lasts exactly 28 days</text>
@@ -210,238 +208,232 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>SLI</b><span>A Service Level Indicator: a ratio of good events to valid events, expressed as a percentage of things that worked.</span><template class="term-detail" data-see="Valid events, SLO, Availability SLI, Latency SLI">
-          <p>An SLI is always a fraction, never a gauge. CPU usage is not an SLI; "99.94% of checkout requests returned a non-5xx within 300 ms" is. Writing it as <code>good / valid</code> forces you to define both halves explicitly, which is where most of the thinking happens.</p>
-          <p>Measure it as close to the user as you can afford. The same journey measured at four points gives four different numbers, and the one furthest from your code is the one the user actually lives with.</p>
-          <h4>Where to measure</h4>
-          <table>
-            <tr><th>Vantage point</th><th>Catches</th><th>Misses</th></tr>
-            <tr><td>Application logs</td><td>handler errors</td><td>crashes, LB failures, DNS</td></tr>
-            <tr><td>Load balancer / ingress</td><td>5xx, timeouts, most outages</td><td>client network, CDN, DNS</td></tr>
-            <tr><td>Synthetic probe</td><td>full path incl. DNS and TLS</td><td>real traffic mix, real users</td></tr>
-            <tr><td>Client / RUM</td><td>what users truly see</td><td>noisy, hard to attribute</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul>
-            <li>An <b>SLO</b> is just a threshold applied to an SLI over a window.</li>
-            <li>The <b>valid events</b> denominator decides what you are even allowed to be judged on.</li>
-            <li>The first animation is one SLI being computed from four log lines.</li>
-          </ul>
+        <p>An SLI is always a fraction, never a gauge. CPU usage is not an SLI; "99.94% of checkout requests returned a non-5xx within 300 ms" is. Writing it as <code>good / valid</code> forces you to define both halves explicitly, which is where most of the thinking happens.</p>
+        <p>Measure it as close to the user as you can afford. The same journey measured at four points gives four different numbers, and the one furthest from your code is the one the user actually lives with.</p>
+        <h4>Where to measure</h4>
+        <table><tr><th>Vantage point</th><th>Catches</th><th>Misses</th></tr>
+        <tr><td>Application logs</td><td>handler errors</td><td>crashes, LB failures, DNS</td></tr>
+        <tr><td>Load balancer / ingress</td><td>5xx, timeouts, most outages</td><td>client network, CDN, DNS</td></tr>
+        <tr><td>Synthetic probe</td><td>full path incl. DNS and TLS</td><td>real traffic mix, real users</td></tr>
+        <tr><td>Client / RUM</td><td>what users truly see</td><td>noisy, hard to attribute</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>An <b>SLO</b> is just a threshold applied to an SLI over a window.</li>
+        <li>The <b>valid events</b> denominator decides what you are even allowed to be judged on.</li>
+        <li>The first animation is one SLI being computed from four log lines.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Valid events</b><span>The denominator: the events that count towards the SLI at all. Everything else is excluded, not counted as bad.</span><template class="term-detail" data-see="SLI, Availability SLI, Critical user journey">
-          <p>Choosing the denominator is the most consequential and least discussed decision in an SLO. A <code>400 Bad Request</code> caused by a malformed client payload is not your service failing; counting it as bad means a single broken integration can eat your budget. A <code>429</code> from your own rate limiter is usually excluded too &mdash; it is the system working as designed.</p>
-          <p>The rule of thumb: an event is valid if your service could in principle have handled it correctly. Be careful, though &mdash; exclusions are also how teams quietly make an SLO unfalsifiable. Every exclusion should be written down and reviewed.</p>
-          <h4>Typical treatment</h4>
-          <table>
-            <tr><th>Event</th><th>Usual call</th></tr>
-            <tr><td>5xx from your service</td><td>valid, bad</td></tr>
-            <tr><td>4xx from a client bug</td><td>not valid</td></tr>
-            <tr><td>429 you issued on purpose</td><td>not valid</td></tr>
-            <tr><td>Health-check and bot traffic</td><td>not valid</td></tr>
-            <tr><td>Timeout with no response</td><td>valid, bad</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Rate limiting decides how many 429s exist, so the two designs interact directly.</li><li>Step 8 of the first animation drops a 429 out of the denominator entirely.</li></ul>
+        <p>Choosing the denominator is the most consequential and least discussed decision in an SLO. A <code>400 Bad Request</code> caused by a malformed client payload is not your service failing; counting it as bad means a single broken integration can eat your budget. A <code>429</code> from your own rate limiter is usually excluded too — it is the system working as designed.</p>
+        <p>The rule of thumb: an event is valid if your service could in principle have handled it correctly. Be careful, though — exclusions are also how teams quietly make an SLO unfalsifiable. Every exclusion should be written down and reviewed.</p>
+        <h4>Typical treatment</h4>
+        <table><tr><th>Event</th><th>Usual call</th></tr>
+        <tr><td>5xx from your service</td><td>valid, bad</td></tr>
+        <tr><td>4xx from a client bug</td><td>not valid</td></tr>
+        <tr><td>429 you issued on purpose</td><td>not valid</td></tr>
+        <tr><td>Health-check and bot traffic</td><td>not valid</td></tr>
+        <tr><td>Timeout with no response</td><td>valid, bad</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Rate limiting decides how many 429s exist, so the two designs interact directly.</li>
+        <li>Step 8 of the first animation drops a 429 out of the denominator entirely.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>SLO</b><span>A Service Level Objective: the target value of an SLI over a stated window, chosen internally and with no contractual force.</span><template class="term-detail" data-see="SLI, SLA, Error budget, Rolling window, Nines">
-          <p>An SLO is three things in one sentence: an SLI, a threshold and a window. "99.9% of checkout requests succeed within 300 ms, measured over a rolling 28 days." Drop any of the three and it stops being actionable &mdash; especially the window, since the same target over an hour and over a quarter mean completely different things.</p>
-          <p>Pick the number from evidence, not ambition. Measure what you already deliver for a month, then set the SLO slightly below it. If current performance is 99.95%, a 99.9% SLO gives you headroom and still means something; a 99.99% SLO invented in a meeting just guarantees a permanently breached objective that everybody learns to ignore.</p>
-          <h4>Window choices</h4>
-          <table>
-            <tr><th>Window</th><th>Behaviour</th></tr>
-            <tr><td>Rolling 28 days</td><td>most common; no month-boundary amnesty, four whole weeks</td></tr>
-            <tr><td>Rolling 7 days</td><td>reacts fast, very noisy for low traffic</td></tr>
-            <tr><td>Calendar month</td><td>matches billing and SLAs; budget resets on the 1st</td></tr>
-            <tr><td>Calendar quarter</td><td>planning-friendly, far too slow to act on</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The <b>error budget</b> is mechanically <code>100% &minus; SLO</code>.</li><li>The <b>SLA</b> should be a looser number than the SLO, never the same one.</li></ul>
+        <p>An SLO is three things in one sentence: an SLI, a threshold and a window. "99.9% of checkout requests succeed within 300 ms, measured over a rolling 28 days." Drop any of the three and it stops being actionable — especially the window, since the same target over an hour and over a quarter mean completely different things.</p>
+        <p>Pick the number from evidence, not ambition. Measure what you already deliver for a month, then set the SLO slightly below it. If current performance is 99.95%, a 99.9% SLO gives you headroom and still means something; a 99.99% SLO invented in a meeting just guarantees a permanently breached objective that everybody learns to ignore.</p>
+        <h4>Window choices</h4>
+        <table><tr><th>Window</th><th>Behaviour</th></tr>
+        <tr><td>Rolling 28 days</td><td>most common; no month-boundary amnesty, four whole weeks</td></tr>
+        <tr><td>Rolling 7 days</td><td>reacts fast, very noisy for low traffic</td></tr>
+        <tr><td>Calendar month</td><td>matches billing and SLAs; budget resets on the 1st</td></tr>
+        <tr><td>Calendar quarter</td><td>planning-friendly, far too slow to act on</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The <b>error budget</b> is mechanically <code>100% − SLO</code>.</li>
+        <li>The <b>SLA</b> should be a looser number than the SLO, never the same one.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>SLA</b><span>A Service Level Agreement: a contract with a customer stating a service level and the financial consequence of missing it.</span><template class="term-detail" data-see="SLO, Service credits, Nines">
-          <p>An SLA is a legal document that happens to contain a number. It specifies what is measured, by whom, over what period, what counts as excluded (planned maintenance, force majeure, the customer's own misconfiguration), how the customer claims, and what they get &mdash; almost always service credits rather than real damages.</p>
-          <p>The engineering rule is simple: <b>the SLA target must be meaningfully weaker than the SLO</b>. The SLO is where you start worrying; the SLA is where you start paying. If they are equal, the first bad week costs money. A typical gap is one nine: internal SLO 99.95%, contractual SLA 99.9%.</p>
-          <h4>Typical public SLAs</h4>
-          <table>
-            <tr><th>Tier</th><th>Monthly target</th><th>Allowed downtime</th></tr>
-            <tr><td>Single VM / instance</td><td>99.9%</td><td>43 min</td></tr>
-            <tr><td>Multi-AZ managed service</td><td>99.95%</td><td>22 min</td></tr>
-            <tr><td>Global control plane</td><td>99.99%</td><td>4.4 min</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li><b>Service credits</b> are the enforcement mechanism.</li><li>Many services have an SLO and deliberately no SLA at all &mdash; that is a perfectly good answer for internal platforms.</li></ul>
+        <p>An SLA is a legal document that happens to contain a number. It specifies what is measured, by whom, over what period, what counts as excluded (planned maintenance, force majeure, the customer's own misconfiguration), how the customer claims, and what they get — almost always service credits rather than real damages.</p>
+        <p>The engineering rule is simple: <b>the SLA target must be meaningfully weaker than the SLO</b>. The SLO is where you start worrying; the SLA is where you start paying. If they are equal, the first bad week costs money. A typical gap is one nine: internal SLO 99.95%, contractual SLA 99.9%.</p>
+        <h4>Typical public SLAs</h4>
+        <table><tr><th>Tier</th><th>Monthly target</th><th>Allowed downtime</th></tr>
+        <tr><td>Single VM / instance</td><td>99.9%</td><td>43 min</td></tr>
+        <tr><td>Multi-AZ managed service</td><td>99.95%</td><td>22 min</td></tr>
+        <tr><td>Global control plane</td><td>99.99%</td><td>4.4 min</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li><b>Service credits</b> are the enforcement mechanism.</li>
+        <li>Many services have an SLO and deliberately no SLA at all — that is a perfectly good answer for internal platforms.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Error budget</b><span>The amount of unreliability the SLO permits in a window: 100% minus the SLO, expressed in bad events or in minutes.</span><template class="term-detail" data-see="SLO, Burn rate, Error budget policy, Nines">
-          <p>The error budget is what converts an SLO from a report into a decision-making tool. It is a quantity you are entitled to spend: on a risky deploy, a schema migration, a chaos experiment, or simply on bad luck. Spending it is not failure &mdash; <em>not</em> spending it means your SLO is too loose and you are shipping too slowly.</p>
-          <p>Express it in whichever unit the audience understands. Engineers tend to prefer "40,000 bad requests left"; managers hear "30 minutes of full outage left this month".</p>
-          <h4>Budget for a 28-day window</h4>
-          <table>
-            <tr><th>SLO</th><th>Budget (time)</th><th>Budget at 40M req</th></tr>
-            <tr><td>99%</td><td>6 h 43 m</td><td>400,000</td></tr>
-            <tr><td>99.9%</td><td>40 m 19 s</td><td>40,000</td></tr>
-            <tr><td>99.95%</td><td>20 m 10 s</td><td>20,000</td></tr>
-            <tr><td>99.99%</td><td>4 m 2 s</td><td>4,000</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li><b>Burn rate</b> is the speed at which you are spending it.</li><li>The <b>error budget policy</b> is the pre-agreed rule for what happens when it runs out.</li></ul>
+        <p>The error budget is what converts an SLO from a report into a decision-making tool. It is a quantity you are entitled to spend: on a risky deploy, a schema migration, a chaos experiment, or simply on bad luck. Spending it is not failure — <em>not</em> spending it means your SLO is too loose and you are shipping too slowly.</p>
+        <p>Express it in whichever unit the audience understands. Engineers tend to prefer "40,000 bad requests left"; managers hear "30 minutes of full outage left this month".</p>
+        <h4>Budget for a 28-day window</h4>
+        <table><tr><th>SLO</th><th>Budget (time)</th><th>Budget at 40M req</th></tr>
+        <tr><td>99%</td><td>6 h 43 m</td><td>400,000</td></tr>
+        <tr><td>99.9%</td><td>40 m 19 s</td><td>40,000</td></tr>
+        <tr><td>99.95%</td><td>20 m 10 s</td><td>20,000</td></tr>
+        <tr><td>99.99%</td><td>4 m 2 s</td><td>4,000</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li><b>Burn rate</b> is the speed at which you are spending it.</li>
+        <li>The <b>error budget policy</b> is the pre-agreed rule for what happens when it runs out.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Burn rate</b><span>How fast the error budget is being consumed, relative to the rate that would exactly exhaust it over the full window.</span><template class="term-detail" data-see="Error budget, Multi-window alert, SLO">
-          <p>Burn rate is a unitless multiplier: <code>burn = observed error rate / (1 - SLO)</code>. At 1&times; the budget runs out precisely at the end of the window. At 14.4&times; it runs out in under two days &mdash; which, for a 28-day window, means 2% of the budget is gone in a single hour.</p>
-          <p>It is the right thing to alert on because it is scale-free and window-independent: the same thresholds work for a service doing 10 requests a second and one doing 10,000, and they translate directly into "how long until we have a problem".</p>
-          <h4>Standard thresholds (28&ndash;30 day window)</h4>
-          <table>
-            <tr><th>Burn</th><th>Long window</th><th>Short window</th><th>Budget used</th><th>Action</th></tr>
-            <tr><td>14.4&times;</td><td>1 h</td><td>5 m</td><td>2%</td><td>page</td></tr>
-            <tr><td>6&times;</td><td>6 h</td><td>30 m</td><td>5%</td><td>page</td></tr>
-            <tr><td>3&times;</td><td>1 d</td><td>2 h</td><td>10%</td><td>ticket</td></tr>
-            <tr><td>1&times;</td><td>3 d</td><td>6 h</td><td>10%</td><td>ticket</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The second animation walks a 14.4&times; spike and a slow 3&times; leak through exactly this table.</li></ul>
+        <p>Burn rate is a unitless multiplier: <code>burn = observed error rate / (1 - SLO)</code>. At 1× the budget runs out precisely at the end of the window. At 14.4× it runs out in under two days — which, for a 28-day window, means 2% of the budget is gone in a single hour.</p>
+        <p>It is the right thing to alert on because it is scale-free and window-independent: the same thresholds work for a service doing 10 requests a second and one doing 10,000, and they translate directly into "how long until we have a problem".</p>
+        <h4>Standard thresholds (28–30 day window)</h4>
+        <table><tr><th>Burn</th><th>Long window</th><th>Short window</th><th>Budget used</th><th>Action</th></tr>
+        <tr><td>14.4×</td><td>1 h</td><td>5 m</td><td>2%</td><td>page</td></tr>
+        <tr><td>6×</td><td>6 h</td><td>30 m</td><td>5%</td><td>page</td></tr>
+        <tr><td>3×</td><td>1 d</td><td>2 h</td><td>10%</td><td>ticket</td></tr>
+        <tr><td>1×</td><td>3 d</td><td>6 h</td><td>10%</td><td>ticket</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The second animation walks a 14.4× spike and a slow 3× leak through exactly this table.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Availability SLI</b><span>The share of valid requests that did not fail: the default SLI, and usually the first one a team writes.</span><template class="term-detail" data-see="SLI, Valid events, Composite availability">
-          <p>Request-based availability counts events, not seconds: <code>non-5xx / valid requests</code>. That is usually better than time-based availability, because "the minute was up" hides a minute in which 40% of requests failed. Time-based availability still has a place in contracts, where "minutes of downtime" is easier to litigate.</p>
-          <p>Watch the difference when you translate between the two: a service that is 99.9% available by request count during peak hours can look far better by minute count, because quiet minutes dilute the bad ones.</p>
-          <h4>Two definitions, same service</h4>
-          <table>
-            <tr><th>Definition</th><th>Formula</th><th>Favours</th></tr>
-            <tr><td>Request-based</td><td>good req / valid req</td><td>users; weights peak traffic</td></tr>
-            <tr><td>Time-based</td><td>good minutes / total minutes</td><td>providers; dilutes short peaks</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Pair it with a <b>latency SLI</b>: a service returning 200s slowly is "available" and useless.</li></ul>
+        <p>Request-based availability counts events, not seconds: <code>non-5xx / valid requests</code>. That is usually better than time-based availability, because "the minute was up" hides a minute in which 40% of requests failed. Time-based availability still has a place in contracts, where "minutes of downtime" is easier to litigate.</p>
+        <p>Watch the difference when you translate between the two: a service that is 99.9% available by request count during peak hours can look far better by minute count, because quiet minutes dilute the bad ones.</p>
+        <h4>Two definitions, same service</h4>
+        <table><tr><th>Definition</th><th>Formula</th><th>Favours</th></tr>
+        <tr><td>Request-based</td><td>good req / valid req</td><td>users; weights peak traffic</td></tr>
+        <tr><td>Time-based</td><td>good minutes / total minutes</td><td>providers; dilutes short peaks</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Pair it with a <b>latency SLI</b>: a service returning 200s slowly is "available" and useless.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Latency SLI</b><span>The share of requests served faster than a threshold — a ratio, not a percentile.</span><template class="term-detail" data-see="SLI, SLO, Availability SLI">
-          <p>Write it as "99% of requests under 300 ms", not "p99 under 300 ms". They sound identical and behave differently: the first is a counter you can add up, aggregate across services and subtract from a budget; the second is a quantile that cannot be averaged, cannot be summed across instances, and tells you nothing about how bad the slow 1% was.</p>
-          <p>In Prometheus this maps straight onto histogram buckets, so pick the threshold to match a real bucket boundary &mdash; interpolating between buckets is where most latency SLI inaccuracy comes from.</p>
-          <h4>Two thresholds beat one</h4>
-          <table>
-            <tr><th>Tier</th><th>Example target</th><th>Protects against</th></tr>
-            <tr><td>Typical</td><td>90% under 200 ms</td><td>the median getting worse</td></tr>
-            <tr><td>Tail</td><td>99% under 1 s</td><td>a slow minority being ignored</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The percentiles page explains why quantiles cannot be averaged, which is exactly why this SLI is defined as a ratio.</li></ul>
+        <p>Write it as "99% of requests under 300 ms", not "p99 under 300 ms". They sound identical and behave differently: the first is a counter you can add up, aggregate across services and subtract from a budget; the second is a quantile that cannot be averaged, cannot be summed across instances, and tells you nothing about how bad the slow 1% was.</p>
+        <p>In Prometheus this maps straight onto histogram buckets, so pick the threshold to match a real bucket boundary — interpolating between buckets is where most latency SLI inaccuracy comes from.</p>
+        <h4>Two thresholds beat one</h4>
+        <table><tr><th>Tier</th><th>Example target</th><th>Protects against</th></tr>
+        <tr><td>Typical</td><td>90% under 200 ms</td><td>the median getting worse</td></tr>
+        <tr><td>Tail</td><td>99% under 1 s</td><td>a slow minority being ignored</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The percentiles page explains why quantiles cannot be averaged, which is exactly why this SLI is defined as a ratio.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Rolling window</b><span>The trailing period the SLI is evaluated over — typically 28 days, moving forward continuously instead of resetting.</span><template class="term-detail" data-see="SLO, Error budget, Burn rate">
-          <p>A rolling window means yesterday's outage keeps counting until it ages out, and the budget recovers gradually rather than being forgiven on the 1st of the month. That is usually what you want: it removes the perverse incentive to take risks on the 31st, and it keeps the number continuous.</p>
-          <p>28 days rather than 30 is deliberate &mdash; it is exactly four weeks, so weekend and weekday traffic patterns are always represented in the same proportion and the number does not wobble with the calendar.</p>
-          <h4>Consequences</h4>
-          <table>
-            <tr><th>Window type</th><th>Budget recovery</th><th>Good for</th></tr>
-            <tr><td>Rolling 28 d</td><td>gradual, day by day</td><td>engineering decisions</td></tr>
-            <tr><td>Calendar month</td><td>instant on the 1st</td><td>billing, SLA credits</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Burn-rate alert windows (1 h, 6 h) live <em>inside</em> this window; they are not the same thing.</li></ul>
+        <p>A rolling window means yesterday's outage keeps counting until it ages out, and the budget recovers gradually rather than being forgiven on the 1st of the month. That is usually what you want: it removes the perverse incentive to take risks on the 31st, and it keeps the number continuous.</p>
+        <p>28 days rather than 30 is deliberate — it is exactly four weeks, so weekend and weekday traffic patterns are always represented in the same proportion and the number does not wobble with the calendar.</p>
+        <h4>Consequences</h4>
+        <table><tr><th>Window type</th><th>Budget recovery</th><th>Good for</th></tr>
+        <tr><td>Rolling 28 d</td><td>gradual, day by day</td><td>engineering decisions</td></tr>
+        <tr><td>Calendar month</td><td>instant on the 1st</td><td>billing, SLA credits</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Burn-rate alert windows (1 h, 6 h) live <em>inside</em> this window; they are not the same thing.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Nines</b><span>Shorthand for availability targets — 99.9% is "three nines" — and the downtime each one allows.</span><template class="term-detail" data-see="SLO, Error budget, Composite availability">
-          <p>Each extra nine divides the allowed downtime by ten and multiplies the engineering cost by considerably more. Three nines is reachable with good practices, a load balancer and a competent on-call rotation. Four nines requires removing single points of failure, automated failover and deploys that cannot cause a full outage. Five nines usually means the thing is not allowed to depend on a human at all.</p>
-          <p>Be honest about what the number has to include: if a planned deploy takes the service down for 90 seconds once a week, you have already spent more than a four-nines monthly budget.</p>
-          <h4>Allowed downtime</h4>
-          <table>
-            <tr><th>Target</th><th>Per day</th><th>Per 30 days</th><th>Per year</th></tr>
-            <tr><td>99%</td><td>14 m 24 s</td><td>7 h 12 m</td><td>3 d 15 h</td></tr>
-            <tr><td>99.9%</td><td>1 m 26 s</td><td>43 m 12 s</td><td>8 h 46 m</td></tr>
-            <tr><td>99.95%</td><td>43 s</td><td>21 m 36 s</td><td>4 h 23 m</td></tr>
-            <tr><td>99.99%</td><td>8.6 s</td><td>4 m 19 s</td><td>52 m 36 s</td></tr>
-            <tr><td>99.999%</td><td>0.9 s</td><td>26 s</td><td>5 m 15 s</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Chaining dependencies multiplies nines downwards &mdash; see <b>composite availability</b>.</li></ul>
+        <p>Each extra nine divides the allowed downtime by ten and multiplies the engineering cost by considerably more. Three nines is reachable with good practices, a load balancer and a competent on-call rotation. Four nines requires removing single points of failure, automated failover and deploys that cannot cause a full outage. Five nines usually means the thing is not allowed to depend on a human at all.</p>
+        <p>Be honest about what the number has to include: if a planned deploy takes the service down for 90 seconds once a week, you have already spent more than a four-nines monthly budget.</p>
+        <h4>Allowed downtime</h4>
+        <table><tr><th>Target</th><th>Per day</th><th>Per 30 days</th><th>Per year</th></tr>
+        <tr><td>99%</td><td>14 m 24 s</td><td>7 h 12 m</td><td>3 d 15 h</td></tr>
+        <tr><td>99.9%</td><td>1 m 26 s</td><td>43 m 12 s</td><td>8 h 46 m</td></tr>
+        <tr><td>99.95%</td><td>43 s</td><td>21 m 36 s</td><td>4 h 23 m</td></tr>
+        <tr><td>99.99%</td><td>8.6 s</td><td>4 m 19 s</td><td>52 m 36 s</td></tr>
+        <tr><td>99.999%</td><td>0.9 s</td><td>26 s</td><td>5 m 15 s</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Chaining dependencies multiplies nines downwards — see <b>composite availability</b>.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Critical user journey</b><span>A specific thing a user is trying to accomplish, used as the unit an SLI is defined around. Often abbreviated CUJ.</span><template class="term-detail" data-see="SLI, Valid events, Error budget policy">
-          <p>SLOs attach to journeys, not to services. "The payments service" is not a journey; "a customer completes checkout" is, and it may touch six services. Defining the journey first stops you from shipping a dashboard where every microservice is green and the product is broken.</p>
-          <p>Keep the list short. Three to five journeys per product is plenty, and each one should be something a non-engineer would recognise as a thing people do.</p>
-          <h4>Journeys and their natural SLI</h4>
-          <table>
-            <tr><th>Journey</th><th>SLI</th></tr>
-            <tr><td>Browse catalogue</td><td>page renders under 1 s</td></tr>
-            <tr><td>Complete checkout</td><td>payment accepted, non-5xx under 300 ms</td></tr>
-            <tr><td>Receive order email</td><td>sent within 2 min of order</td></tr>
-            <tr><td>Nightly export</td><td>file delivered before 06:00</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Each journey gets its own budget; they are not pooled.</li></ul>
+        <p>SLOs attach to journeys, not to services. "The payments service" is not a journey; "a customer completes checkout" is, and it may touch six services. Defining the journey first stops you from shipping a dashboard where every microservice is green and the product is broken.</p>
+        <p>Keep the list short. Three to five journeys per product is plenty, and each one should be something a non-engineer would recognise as a thing people do.</p>
+        <h4>Journeys and their natural SLI</h4>
+        <table><tr><th>Journey</th><th>SLI</th></tr>
+        <tr><td>Browse catalogue</td><td>page renders under 1 s</td></tr>
+        <tr><td>Complete checkout</td><td>payment accepted, non-5xx under 300 ms</td></tr>
+        <tr><td>Receive order email</td><td>sent within 2 min of order</td></tr>
+        <tr><td>Nightly export</td><td>file delivered before 06:00</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Each journey gets its own budget; they are not pooled.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Error budget policy</b><span>The agreement, written before anything breaks, that says what the team does at each level of budget consumption.</span><template class="term-detail" data-see="Error budget, Burn rate, SLO">
-          <p>Without a policy, an error budget is a chart nobody acts on. The policy names thresholds and the consequence of crossing each one, and &mdash; this is the part that matters &mdash; it is signed off by product and engineering together while everyone is calm. Once the budget is gone, the decision has already been made and there is no negotiation.</p>
-          <p>The classic escalation is: healthy budget means ship freely; half spent means review risky changes; exhausted means feature freeze and reliability work only until the window recovers. Repeated exhaustion means the SLO itself goes back on the table.</p>
-          <h4>A typical policy</h4>
-          <table>
-            <tr><th>Budget remaining</th><th>Action</th></tr>
-            <tr><td>Above 50%</td><td>ship normally, run experiments</td></tr>
-            <tr><td>20&ndash;50%</td><td>risky changes need a second reviewer</td></tr>
-            <tr><td>Below 20%</td><td>no non-essential deploys</td></tr>
-            <tr><td>0%</td><td>freeze; reliability work takes priority</td></tr>
-            <tr><td>0% three windows running</td><td>renegotiate the SLO or fund the fix</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>This is the only mechanism that makes an SLO change anyone's behaviour.</li></ul>
+        <p>Without a policy, an error budget is a chart nobody acts on. The policy names thresholds and the consequence of crossing each one, and — this is the part that matters — it is signed off by product and engineering together while everyone is calm. Once the budget is gone, the decision has already been made and there is no negotiation.</p>
+        <p>The classic escalation is: healthy budget means ship freely; half spent means review risky changes; exhausted means feature freeze and reliability work only until the window recovers. Repeated exhaustion means the SLO itself goes back on the table.</p>
+        <h4>A typical policy</h4>
+        <table><tr><th>Budget remaining</th><th>Action</th></tr>
+        <tr><td>Above 50%</td><td>ship normally, run experiments</td></tr>
+        <tr><td>20–50%</td><td>risky changes need a second reviewer</td></tr>
+        <tr><td>Below 20%</td><td>no non-essential deploys</td></tr>
+        <tr><td>0%</td><td>freeze; reliability work takes priority</td></tr>
+        <tr><td>0% three windows running</td><td>renegotiate the SLO or fund the fix</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>This is the only mechanism that makes an SLO change anyone's behaviour.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Multi-window alert</b><span>An alert that fires only when a high burn rate shows up in both a long qualifying window and a short confirming window.</span><template class="term-detail" data-see="Burn rate, Error budget, SLO">
-          <p>A single-window burn alert is either slow to fire or slow to clear. The multi-window multi-burn-rate pattern fixes both: the long window (say 1 h) decides whether the problem is big enough to care about, and the short window (1/12 of it, so 5 m) confirms that it is still happening right now. Both must be over threshold.</p>
-          <p>The effect is that a two-minute blip never pages anyone, and a resolved incident stops paging within minutes instead of an hour. Two severities &mdash; fast burns page, slow burns raise a ticket &mdash; are enough for almost every service.</p>
-          <h4>Behaviour</h4>
-          <table>
-            <tr><th>Property</th><th>Single window</th><th>Multi-window</th></tr>
-            <tr><td>Detection time</td><td>long</td><td>short</td></tr>
-            <tr><td>Reset time</td><td>up to a full window</td><td>minutes</td></tr>
-            <tr><td>False pages</td><td>frequent</td><td>rare</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The middle of the burn-rate animation is this rule firing and then clearing.</li></ul>
+        <p>A single-window burn alert is either slow to fire or slow to clear. The multi-window multi-burn-rate pattern fixes both: the long window (say 1 h) decides whether the problem is big enough to care about, and the short window (1/12 of it, so 5 m) confirms that it is still happening right now. Both must be over threshold.</p>
+        <p>The effect is that a two-minute blip never pages anyone, and a resolved incident stops paging within minutes instead of an hour. Two severities — fast burns page, slow burns raise a ticket — are enough for almost every service.</p>
+        <h4>Behaviour</h4>
+        <table><tr><th>Property</th><th>Single window</th><th>Multi-window</th></tr>
+        <tr><td>Detection time</td><td>long</td><td>short</td></tr>
+        <tr><td>Reset time</td><td>up to a full window</td><td>minutes</td></tr>
+        <tr><td>False pages</td><td>frequent</td><td>rare</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The middle of the burn-rate animation is this rule firing and then clearing.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Composite availability</b><span>What happens to a target when a journey depends on several services in series: the availabilities multiply.</span><template class="term-detail" data-see="Nines, SLO, Critical user journey">
-          <p>If a request must pass through auth, the API and the database, and each is independently 99.9% available, the journey is 0.999 cubed = 99.70% &mdash; three times the downtime of any single component. Dependencies in series subtract nines; this is why a four-nines promise on top of three-nines infrastructure is arithmetic fiction unless you add redundancy or graceful degradation.</p>
-          <p>Redundancy works in the other direction: two independent replicas each at 99% give 1 &minus; 0.01 squared = 99.99%, provided the failures really are independent &mdash; which shared power, shared control planes and shared deploys quietly ensure they are not.</p>
-          <div class="anim" id="dep-anim" data-steps="dep"><h4>Nines draining through a chain</h4>
-            <div class="stage">
-              <svg viewBox="0 0 560 200" role="img" aria-label="Three dependencies at 99.9% each multiplying down to 99.7% for the journey">
-                <defs><marker id="dp-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker></defs>
-                <text x="280" y="26" font-size="11.5" text-anchor="middle" fill="#5f6f66">all three must work for the journey to succeed</text>
-                <rect id="dp-b1" x="30" y="50" width="130" height="56" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
-                <text x="95" y="74" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">auth</text>
-                <text x="95" y="94" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">99.9%</text>
-                <line x1="164" y1="78" x2="200" y2="78" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#dp-a)"/>
-                <rect id="dp-b2" x="206" y="50" width="130" height="56" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
-                <text x="271" y="74" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">orders API</text>
-                <text x="271" y="94" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">99.9%</text>
-                <line x1="340" y1="78" x2="376" y2="78" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#dp-a)"/>
-                <rect id="dp-b3" x="382" y="50" width="130" height="56" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
-                <text x="447" y="74" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">database</text>
-                <text x="447" y="94" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">99.9%</text>
-                <text id="dp-eq" x="280" y="146" font-size="14" text-anchor="middle" fill="#23362e" font-weight="700" font-family="Fira Code, monospace">journey = ?</text>
-                <text id="dp-sub" x="280" y="170" font-size="11.5" text-anchor="middle" fill="#5f6f66">every hop you add costs you</text>
-              </svg>
-            </div><div class="controls"></div><div class="narration"></div></div>
-          <h4>How it relates</h4>
-          <ul><li>Set component SLOs <em>above</em> the journey SLO, not equal to it.</li></ul>
+        <p>If a request must pass through auth, the API and the database, and each is independently 99.9% available, the journey is 0.999 cubed = 99.70% — three times the downtime of any single component. Dependencies in series subtract nines; this is why a four-nines promise on top of three-nines infrastructure is arithmetic fiction unless you add redundancy or graceful degradation.</p>
+        <p>Redundancy works in the other direction: two independent replicas each at 99% give 1 − 0.01 squared = 99.99%, provided the failures really are independent — which shared power, shared control planes and shared deploys quietly ensure they are not.</p>
+        <div class="anim" id="dep-anim" data-steps="dep">
+          <h4>Nines draining through a chain</h4>
+          <div class="stage">
+            <svg viewBox="0 0 560 200" role="img" aria-label="Three dependencies at 99.9% each multiplying down to 99.7% for the journey">
+              <defs><marker id="dp-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker></defs>
+              <text x="280" y="26" font-size="11.5" text-anchor="middle" fill="#5f6f66">all three must work for the journey to succeed</text>
+              <rect id="dp-b1" x="30" y="50" width="130" height="56" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="95" y="74" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">auth</text>
+              <text x="95" y="94" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">99.9%</text>
+              <line x1="164" y1="78" x2="200" y2="78" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#dp-a)"/>
+              <rect id="dp-b2" x="206" y="50" width="130" height="56" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="271" y="74" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">orders API</text>
+              <text x="271" y="94" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">99.9%</text>
+              <line x1="340" y1="78" x2="376" y2="78" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#dp-a)"/>
+              <rect id="dp-b3" x="382" y="50" width="130" height="56" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="447" y="74" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">database</text>
+              <text x="447" y="94" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">99.9%</text>
+              <text id="dp-eq" x="280" y="146" font-size="14" text-anchor="middle" fill="#23362e" font-weight="700" font-family="Fira Code, monospace">journey = ?</text>
+              <text id="dp-sub" x="280" y="170" font-size="11.5" text-anchor="middle" fill="#5f6f66">every hop you add costs you</text>
+            </svg>
+          </div>
+          <div class="controls"></div>
+          <div class="narration"></div>
+        </div>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Set component SLOs <em>above</em> the journey SLO, not equal to it.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Service credits</b><span>The usual remedy in an SLA: a percentage of the bill refunded when the target is missed, capped and claimed by the customer.</span><template class="term-detail" data-see="SLA, SLO">
-          <p>Credits are deliberately small. A typical ladder refunds 10% of the monthly fee below 99.9%, 25% below 99%, and 100% only in extreme cases &mdash; and almost always as credit against future invoices rather than cash. They are a signal of seriousness, not compensation for the customer's actual loss, which is usually orders of magnitude larger.</p>
-          <p>Two details decide whether credits ever get paid: the customer normally has to <em>file a claim</em> within a short window, and the measurement is the provider's own. Both are worth reading carefully from either side of the contract.</p>
-          <h4>A common ladder</h4>
-          <table>
-            <tr><th>Monthly uptime</th><th>Credit</th></tr>
-            <tr><td>Below 99.9%</td><td>10%</td></tr>
-            <tr><td>Below 99.0%</td><td>25%</td></tr>
-            <tr><td>Below 95.0%</td><td>100%</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Credits are why the <b>SLA</b> number must sit below the <b>SLO</b> number.</li></ul>
+        <p>Credits are deliberately small. A typical ladder refunds 10% of the monthly fee below 99.9%, 25% below 99%, and 100% only in extreme cases — and almost always as credit against future invoices rather than cash. They are a signal of seriousness, not compensation for the customer's actual loss, which is usually orders of magnitude larger.</p>
+        <p>Two details decide whether credits ever get paid: the customer normally has to <em>file a claim</em> within a short window, and the measurement is the provider's own. Both are worth reading carefully from either side of the contract.</p>
+        <h4>A common ladder</h4>
+        <table><tr><th>Monthly uptime</th><th>Credit</th></tr>
+        <tr><td>Below 99.9%</td><td>10%</td></tr>
+        <tr><td>Below 99.0%</td><td>25%</td></tr>
+        <tr><td>Below 95.0%</td><td>100%</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Credits are why the <b>SLA</b> number must sit below the <b>SLO</b> number.</li>
+        </ul>
         </template></div>
       </div>
     </section>
@@ -450,16 +442,15 @@
       <h2>Essential formulas &amp; queries</h2>
       <div class="cmd-group">
         <h3>Arithmetic</h3>
-        <div class="cmd"><pre class="language-none"><code class="language-none">error_budget   = 1 - SLO                      # 99.9% -> 0.001
+        <div class="cmd"><pre class="language-none"><code class="language-none">error_budget   = 1 - SLO                      # 99.9% -&gt; 0.001
 budget_minutes = (1 - SLO) * window_minutes   # 0.001 * 40320 = 40.3 min
 budget_events  = (1 - SLO) * valid_events     # 0.001 * 40M   = 40,000</code></pre><div class="what">Turn an objective into a spendable allowance, in time or in events.</div></div>
         <div class="cmd"><pre class="language-none"><code class="language-none">burn_rate = observed_error_rate / (1 - SLO)
-# 1.44% errors against a 99.9% SLO -> 0.0144 / 0.001 = 14.4x
+# 1.44% errors against a 99.9% SLO -&gt; 0.0144 / 0.001 = 14.4x
 time_to_exhaustion = window * budget_remaining / burn_rate</code></pre><div class="what">Burn rate, and how long you have left at the current rate.</div></div>
         <div class="cmd"><pre class="language-none"><code class="language-none">journey_availability = A1 * A2 * A3         # series: 0.999^3 = 99.70%
-redundant_pair       = 1 - (1 - A) ** 2     # parallel: 99% -> 99.99%</code></pre><div class="what">Composite availability for dependencies in series and in parallel.</div></div>
+redundant_pair       = 1 - (1 - A) ** 2     # parallel: 99% -&gt; 99.99%</code></pre><div class="what">Composite availability for dependencies in series and in parallel.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Prometheus / PromQL</h3>
         <div class="cmd"><pre class="language-promql"><code class="language-promql">sum(rate(http_requests_total{job="checkout",code!~"5.."}[28d]))
@@ -471,7 +462,6 @@ sum(rate(http_request_duration_seconds_count{job="checkout"}[28d]))</code></pre>
         <div class="cmd"><pre class="language-none"><code class="language-none">(1 - slo:availability:ratio_rate1h) / (1 - 0.999)</code></pre><div class="what">Burn rate over the last hour, as a multiplier of the rate that would exhaust the budget exactly on time.</div></div>
         <div class="cmd"><pre class="language-none"><code class="language-none">1 - ((1 - slo:availability:ratio_rate28d) / (1 - 0.999))</code></pre><div class="what">Fraction of the error budget still unspent — the number to put on the dashboard.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Alert rules</h3>
         <div class="cmd"><pre class="language-yaml line-numbers"><code class="language-yaml">- alert: CheckoutBudgetBurnFast
@@ -493,7 +483,6 @@ sum(rate(http_request_duration_seconds_count{job="checkout"}[28d]))</code></pre>
   labels:
     severity: ticket</code></pre><div class="what">Slow burn: a leak that would exhaust the budget in about ten days. Creates work, does not wake anyone.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Declaring SLOs as code</h3>
         <div class="cmd"><pre class="language-yaml line-numbers"><code class="language-yaml">apiVersion: openslo/v1
@@ -511,7 +500,6 @@ spec:
         <div class="cmd"><pre class="language-bash"><code class="language-bash">sloth generate -i slos.yaml -o rules.yaml
 promtool check rules rules.yaml</code></pre><div class="what">Generate the recording and alerting rules from an SLO definition, then validate them before committing.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Python</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">const int WindowMinutes = 28 * 24 * 60;   // 40,320
@@ -522,7 +510,7 @@ static double HoursLeft(double remaining, double burn) =&gt; WindowMinutes / 60.
 
 Console.WriteLine($"{Budget(0.999):F1} min");             // 40.3 min
 Console.WriteLine($"{Burn(1440, 100_000, 0.999):F1}x");   // 14.4x
-Console.WriteLine($"{HoursLeft(0.75, 14.4):F1} h left");  // 35.0 h left</code></pre><div class="what">The whole model in three expressions &mdash; enough to sanity-check any SLO dashboard before you trust it.</div></div>
+Console.WriteLine($"{HoursLeft(0.75, 14.4):F1} h left");  // 35.0 h left</code></pre><div class="what">The whole model in three expressions — enough to sanity-check any SLO dashboard before you trust it.</div></div>
         <div class="cmd"><pre class="language-python line-numbers"><code class="language-python">WINDOW_MIN = 28 * 24 * 60          # 40320
 
 def budget(slo: float) -&gt; float:
@@ -547,13 +535,13 @@ print(f"{hours_left(0.75, 14.4):.1f} h left")     # 35.0 h left</code></pre><div
           <li>Replaces "the site feels slow" with a number both engineering and product can act on.</li>
           <li>The error budget makes the reliability-versus-velocity trade-off explicit and pre-agreed, instead of relitigated per incident.</li>
           <li>Burn-rate alerts cut pager noise sharply: you are woken for budget damage, not for every threshold crossing.</li>
-          <li>Scale-free &mdash; the same thresholds work for 10 rps and 10,000 rps.</li>
+          <li>Scale-free — the same thresholds work for 10 rps and 10,000 rps.</li>
           <li>Gives a principled answer to "should we invest in reliability this quarter?": look at how often the budget ran out.</li>
           <li>Forces the question "what are users actually trying to do?" before the question "which dashboard?".</li>
         </ul></div>
         <div class="col bad"><h3>Cons</h3><ul>
           <li>Useless without an error budget policy that someone actually enforces; otherwise it is a prettier dashboard.</li>
-          <li>Low-traffic services give statistically meaningless ratios &mdash; 200 requests a day cannot measure three nines.</li>
+          <li>Low-traffic services give statistically meaningless ratios — 200 requests a day cannot measure three nines.</li>
           <li>Picking the denominator is subtle, and sloppy exclusions make the SLO unfalsifiable.</li>
           <li>Needs reliable, high-cardinality telemetry retained over long windows, which is not free to store.</li>
           <li>Easy to proliferate: 40 SLOs across 40 microservices tells you nothing a user would recognise.</li>
@@ -566,27 +554,27 @@ print(f"{hours_left(0.75, 14.4):.1f} h left")     # 35.0 h left</code></pre><div
       <h2>Concrete use cases</h2>
       <div class="cards">
         <div class="card"><h3>Ending the release-freeze argument</h3><p>A payments team argues before every release about whether it is safe to ship. They define one SLO on the checkout journey and an error budget policy: above 50% remaining, ship; below 20%, only fixes. The argument becomes a glance at a number, and the freeze now ends automatically when the window rolls forward.</p></div>
-        <div class="card"><h3>Cutting pager noise</h3><p>An on-call rotation is paged 30 times a month by static "error rate above 1% for 5 minutes" rules, mostly for blips. Replacing them with two multi-window burn-rate alerts &mdash; 14.4&times; paging, 3&times; ticketing &mdash; drops pages to a handful, and every remaining one corresponds to real budget being destroyed.</p></div>
+        <div class="card"><h3>Cutting pager noise</h3><p>An on-call rotation is paged 30 times a month by static "error rate above 1% for 5 minutes" rules, mostly for blips. Replacing them with two multi-window burn-rate alerts — 14.4× paging, 3× ticketing — drops pages to a handful, and every remaining one corresponds to real budget being destroyed.</p></div>
         <div class="card"><h3>Setting a contract you can survive</h3><p>Sales wants to promise 99.99% to land an enterprise deal. Measurement shows the service delivers 99.93% and depends on three components at 99.9% each, so composite maths caps the journey near 99.7%. The team signs a 99.5% SLA with a 99.9% internal SLO, and funds the redundancy work needed before the next tier is offered.</p></div>
         <div class="card"><h3>Prioritising reliability work</h3><p>A platform team cannot justify a quarter of hardening work. They show that the budget was exhausted in four of the last six windows, always from the same two causes. That converts "we should improve reliability" into a costed, bounded project with a measurable exit condition.</p></div>
-        <div class="card"><h3>Making a batch pipeline accountable</h3><p>A nightly export has no requests to count, so the SLI becomes freshness: the share of days the file landed before 06:00, over a rolling 90 days. A 98% target gives roughly two acceptable late days a quarter &mdash; and a clear signal when the third one happens.</p></div>
+        <div class="card"><h3>Making a batch pipeline accountable</h3><p>A nightly export has no requests to count, so the SLI becomes freshness: the share of days the file landed before 06:00, over a rolling 90 days. A 98% target gives roughly two acceptable late days a quarter — and a clear signal when the third one happens.</p></div>
       </div>
     </section>
 
     <section id="when">
       <h2>When to use / when not to</h2>
-      <span class="note" style="margin:-6px 0 14px">one SLI per user journey, one policy per budget &mdash; everything else is reporting</span>
+      <span class="note" style="margin:-6px 0 14px">one SLI per user journey, one policy per budget — everything else is reporting</span>
       <div class="cols">
         <div class="col good"><h3>Use it when…</h3><ul>
           <li>Users feel the difference between working and broken, and someone is on call for it.</li>
-          <li>Traffic is high enough that a ratio is meaningful &mdash; roughly thousands of events per window per objective.</li>
+          <li>Traffic is high enough that a ratio is meaningful — roughly thousands of events per window per objective.</li>
           <li>You need to arbitrate between shipping speed and stability repeatedly, not once.</li>
           <li>You are about to sign a contract and need to know what you can actually deliver.</li>
           <li>Alert fatigue is a problem and your thresholds are static.</li>
         </ul></div>
         <div class="col bad"><h3>Avoid it when…</h3><ul>
           <li>The service handles a handful of events per day. Use <b>simple uptime checks and a synthetic probe</b> instead.</li>
-          <li>Nobody will enforce the budget. Use <b>a plain incident review process</b> &mdash; an unenforced SLO is worse than none.</li>
+          <li>Nobody will enforce the budget. Use <b>a plain incident review process</b> — an unenforced SLO is worse than none.</li>
           <li>What you care about is per-record correctness, not aggregate success. Use <b>data quality checks and reconciliation</b>.</li>
           <li>You are measuring an internal component nobody consumes directly. Use <b>the consuming journey's SLO</b> and derive a component budget from it.</li>
           <li>The system is pre-product-market-fit and changing weekly. Use <b>basic error alerts and rate limiting</b> until the shape settles.</li>
@@ -600,9 +588,9 @@ print(f"{hours_left(0.75, 14.4):.1f} h left")     # 35.0 h left</code></pre><div
       <div class="gotcha"><b>Measuring at the wrong place</b><span>Application-level metrics cannot see the outage where the pods crash-looped and the load balancer returned 503: the requests never reached your code, so the SLI looks perfect during the incident.</span><div class="fix">Fix: measure at the ingress or load balancer at minimum, and reconcile against a synthetic probe that exercises DNS and TLS too.</div></div>
       <div class="gotcha"><b>Treating a p99 as a latency SLI</b><span>Percentiles cannot be averaged or summed, so a p99-based objective cannot be aggregated across services or converted into a budget of bad events.</span><div class="fix">Fix: define latency as "x% of requests faster than T". Keep the percentile chart for debugging, not for the objective.</div></div>
       <div class="gotcha"><b>An SLO per microservice</b><span>Forty green service dashboards while checkout is broken is the normal outcome: no individual service owns the user's experience.</span><div class="fix">Fix: start from three to five critical user journeys. Derive component targets from them, not the other way round.</div></div>
-      <div class="gotcha"><b>Excluding your way to success</b><span>Every incident ends with another exclusion &mdash; maintenance windows, "customer-caused", a bad region &mdash; until the SLI can no longer go down.</span><div class="fix">Fix: list exclusions in one reviewed document, require a reason for each, and track how much traffic the exclusions remove.</div></div>
-      <div class="gotcha"><b>Alerting on the window, not the burn</b><span>"SLO breached over 28 days" fires once the damage is already done and then stays firing for weeks; it is a report, not an alert.</span><div class="fix">Fix: alert on multi-window burn rate (14.4&times; and 6&times; to page, 3&times; and 1&times; to ticket) and keep the 28-day number on a dashboard.</div></div>
-      <div class="gotcha"><b>Ignoring dependency maths</b><span>Promising 99.99% for a journey that traverses four components each promising 99.9% is arithmetically impossible &mdash; the ceiling is about 99.6%.</span><div class="fix">Fix: multiply the component availabilities first. If the product is below your target, add redundancy or graceful degradation before you set the number.</div></div>
+      <div class="gotcha"><b>Excluding your way to success</b><span>Every incident ends with another exclusion — maintenance windows, "customer-caused", a bad region — until the SLI can no longer go down.</span><div class="fix">Fix: list exclusions in one reviewed document, require a reason for each, and track how much traffic the exclusions remove.</div></div>
+      <div class="gotcha"><b>Alerting on the window, not the burn</b><span>"SLO breached over 28 days" fires once the damage is already done and then stays firing for weeks; it is a report, not an alert.</span><div class="fix">Fix: alert on multi-window burn rate (14.4× and 6× to page, 3× and 1× to ticket) and keep the 28-day number on a dashboard.</div></div>
+      <div class="gotcha"><b>Ignoring dependency maths</b><span>Promising 99.99% for a journey that traverses four components each promising 99.9% is arithmetically impossible — the ceiling is about 99.6%.</span><div class="fix">Fix: multiply the component availabilities first. If the product is below your target, add redundancy or graceful degradation before you set the number.</div></div>
       <div class="gotcha"><b>A budget that never gets spent</b><span>Consistently finishing a window at 99.999% against a 99.9% SLO is not a triumph; it means you are over-engineering, deploying too cautiously or measuring something users do not care about.</span><div class="fix">Fix: tighten the SLO, or deliberately spend the budget on faster releases, chaos testing or a migration you have been postponing.</div></div>
     </section>
 
@@ -612,7 +600,7 @@ print(f"{hours_left(0.75, 14.4):.1f} h left")     # 35.0 h left</code></pre><div
         <table>
           <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs SLI/SLO/SLA</th></tr></thead>
           <tbody>
-            <tr class="self"><td><b>SLI / SLO / SLA</b></td><td>user-facing services with real traffic</td><td>Medium</td><td>free concept; cost is telemetry</td><td>&mdash;</td></tr>
+            <tr class="self"><td><b>SLI / SLO / SLA</b></td><td>user-facing services with real traffic</td><td>Medium</td><td>free concept; cost is telemetry</td><td>—</td></tr>
             <tr><td><b>Uptime monitoring</b></td><td>small sites, status pages</td><td>Low</td><td>a few $/month</td><td>Binary up/down from one probe; no budget, no user-weighted ratio</td></tr>
             <tr><td><b>Apdex</b></td><td>APM latency summaries</td><td>Low</td><td>bundled with APM</td><td>Single blended score with satisfied/tolerating bands; not spendable, hides the shape</td></tr>
             <tr><td><b>MTBF / MTTR</b></td><td>hardware, physical operations</td><td>Low</td><td>free</td><td>Measures incidents, not request outcomes; blind to partial degradation</td></tr>
@@ -625,7 +613,7 @@ print(f"{hours_left(0.75, 14.4):.1f} h left")     # 35.0 h left</code></pre><div
         <li><b>Pick uptime monitoring</b> if the service is small, traffic is thin and "is it reachable?" is genuinely the whole question.</li>
         <li><b>Pick Apdex</b> if you already live inside an APM tool and want a quick latency summary rather than an enforceable target.</li>
         <li><b>Pick MTBF/MTTR</b> if you are reporting on incident response maturity rather than on service quality.</li>
-        <li><b>Pick DORA metrics</b> alongside SLOs &mdash; they answer "how fast do we ship?" while the budget answers "may we?".</li>
+        <li><b>Pick DORA metrics</b> alongside SLOs — they answer "how fast do we ship?" while the budget answers "may we?".</li>
         <li><b>Pick synthetic monitoring</b> as the SLI source when a critical journey simply does not get enough real traffic to measure.</li>
       </ul>
     </section>
@@ -633,8 +621,8 @@ print(f"{hours_left(0.75, 14.4):.1f} h left")     # 35.0 h left</code></pre><div
     <section id="resources">
       <h2>Resources</h2>
       <ul>
-        <li><a href="https://sre.google/sre-book/service-level-objectives/" target="_blank" rel="noopener">Site Reliability Engineering &mdash; Service Level Objectives</a>: the original chapter that defined the vocabulary. Free online.</li>
-        <li><a href="https://sre.google/workbook/implementing-slos/" target="_blank" rel="noopener">The Site Reliability Workbook &mdash; Implementing SLOs</a>: the practical follow-up, including the burn-rate tables.</li>
+        <li><a href="https://sre.google/sre-book/service-level-objectives/" target="_blank" rel="noopener">Site Reliability Engineering — Service Level Objectives</a>: the original chapter that defined the vocabulary. Free online.</li>
+        <li><a href="https://sre.google/workbook/implementing-slos/" target="_blank" rel="noopener">The Site Reliability Workbook — Implementing SLOs</a>: the practical follow-up, including the burn-rate tables.</li>
         <li><a href="https://sre.google/workbook/alerting-on-slos/" target="_blank" rel="noopener">Alerting on SLOs</a>: why single-threshold alerts fail and how multi-window burn rates are chosen.</li>
         <li><a href="https://openslo.com/" target="_blank" rel="noopener">OpenSLO</a>: vendor-neutral specification for declaring SLOs as code.</li>
         <li><a href="https://sloth.dev/" target="_blank" rel="noopener">Sloth</a>: generates Prometheus recording and alerting rules from SLO definitions.</li>
@@ -681,42 +669,43 @@ print(f"{hours_left(0.75, 14.4):.1f} h left")     # 35.0 h left</code></pre><div
   </main>
 </div>
 
-<script src="../assets/player.js?v=3658cbc7"></script>
+<script src="../assets/player.js?v=e9bf1ea3"></script>
 <script>
 createAnimation('anim-sli', [
-  { say: 'Four checkout requests land in the load balancer log. Before anything can be judged, the SLI rule has to say what <code>good</code> means — here: status under 500 <em>and</em> served within 300 ms.', hl: ['sb-rule'] },
-  { say: 'The first request returned <code>200</code> in 120 ms. It passes both halves of the rule.', move: { 'sb-r1': [204, 16] }, text: { 'sb-verdict': 'good' }, fill: { 'sb-verdict': '#2f6b3f' } },
-  { say: 'It moves into the good bin and the counter ticks up. Note that nobody asked whether the server was "up" — only whether this request worked.', move: { 'sb-r1': [430, 2] }, text: { 'sb-goodc': 'good 1' } },
-  { say: 'The second also returned <code>200</code> — but it took 410 ms. A success the user waited too long for is still a failure, so the latency half of the rule marks it bad.', move: { 'sb-r2': [204, -18] }, text: { 'sb-verdict': 'bad — too slow' }, fill: { 'sb-verdict': '#c53b3b' } },
-  { say: 'It drops into the bad bin. This is why latency belongs in the SLI and not only on a dashboard: slow is a way of being broken.', move: { 'sb-r2': [430, 62] }, text: { 'sb-badc': 'bad 1' } },
-  { say: 'The third returned <code>500</code> in 90 ms. Fast, and wrong. Bad.', move: { 'sb-r3': [204, -52] }, text: { 'sb-verdict': 'bad — 5xx' } },
-  { say: 'Two bad out of three so far. A ratio this small means nothing yet — SLIs only become meaningful over large numbers of events.', move: { 'sb-r3': [430, 58] }, text: { 'sb-badc': 'bad 2' } },
-  { say: 'The fourth is a <code>429</code>: your own rate limiter turned it away on purpose. That is the system working as designed, so it is not a <em>valid</em> event — it leaves the denominator entirely instead of counting as a failure.', move: { 'sb-r4': [204, -86] }, text: { 'sb-verdict': 'not valid' }, fill: { 'sb-verdict': '#5f6f66' }, show: ['sb-invalid', 'sb-invalid2'], unhl: ['sb-rule'] },
-  { say: 'Now scale up. Over the full 28-day window there were 40,000,000 valid requests, of which 30,000 were bad. The SLI is 99.925%.', move: { 'sb-r4': [560, 60] }, text: { 'sb-goodc': 'good 39,970,000', 'sb-badc': 'bad 30,000', 'sb-sli': 'SLI = 99.925%', 'sb-verdict': '28 days of traffic' } },
-  { say: 'The SLO is 99.9%, so the budget for the window is 0.1% of 40M — exactly 40,000 bad requests allowed.', hl: ['sb-bar'], text: { 'sb-budget': 'budget: 40,000 bad' } },
-  { say: '30,000 of those 40,000 are already spent: 75% of the budget gone with a week of the window still to run. The SLO is <em>not</em> breached — but the policy is about to bite.', show: ['sb-c1', 'sb-c2', 'sb-c3', 'sb-c4', 'sb-c5', 'sb-c6', 'sb-note'], text: { 'sb-budget': '10,000 left · 25%' }, unhl: ['sb-bar'] },
+  { say: "Four checkout requests land in the load balancer log. Before anything can be judged, the SLI rule has to say what <code>good</code> means — here: status under 500 <em>and</em> served within 300 ms.", hl: ["sb-rule"] },
+  { say: "The first request returned <code>200</code> in 120 ms. It passes both halves of the rule.", move: {"sb-r1":[204,16]}, text: {"sb-verdict":"good"}, fill: {"sb-verdict":"#2f6b3f"} },
+  { say: "It moves into the good bin and the counter ticks up. Note that nobody asked whether the server was \"up\" — only whether this request worked.", move: {"sb-r1":[430,2]}, text: {"sb-goodc":"good 1"} },
+  { say: "The second also returned <code>200</code> — but it took 410 ms. A success the user waited too long for is still a failure, so the latency half of the rule marks it bad.", move: {"sb-r2":[204,-18]}, text: {"sb-verdict":"bad — too slow"}, fill: {"sb-verdict":"#c53b3b"} },
+  { say: "It drops into the bad bin. This is why latency belongs in the SLI and not only on a dashboard: slow is a way of being broken.", move: {"sb-r2":[430,62]}, text: {"sb-badc":"bad 1"} },
+  { say: "The third returned <code>500</code> in 90 ms. Fast, and wrong. Bad.", move: {"sb-r3":[204,-52]}, text: {"sb-verdict":"bad — 5xx"} },
+  { say: "Two bad out of three so far. A ratio this small means nothing yet — SLIs only become meaningful over large numbers of events.", move: {"sb-r3":[430,58]}, text: {"sb-badc":"bad 2"} },
+  { say: "The fourth is a <code>429</code>: your own rate limiter turned it away on purpose. That is the system working as designed, so it is not a <em>valid</em> event — it leaves the denominator entirely instead of counting as a failure.", show: ["sb-invalid","sb-invalid2"], unhl: ["sb-rule"], move: {"sb-r4":[204,-86]}, text: {"sb-verdict":"not valid"}, fill: {"sb-verdict":"#5f6f66"} },
+  { say: "Now scale up. Over the full 28-day window there were 40,000,000 valid requests, of which 30,000 were bad. The SLI is 99.925%.", move: {"sb-r4":[560,60]}, text: {"sb-goodc":"good 39,970,000","sb-badc":"bad 30,000","sb-sli":"SLI = 99.925%","sb-verdict":"28 days of traffic"} },
+  { say: "The SLO is 99.9%, so the budget for the window is 0.1% of 40M — exactly 40,000 bad requests allowed.", hl: ["sb-bar"], text: {"sb-budget":"budget: 40,000 bad"} },
+  { say: "30,000 of those 40,000 are already spent: 75% of the budget gone with a week of the window still to run. The SLO is <em>not</em> breached — but the policy is about to bite.", show: ["sb-c1","sb-c2","sb-c3","sb-c4","sb-c5","sb-c6","sb-note"], unhl: ["sb-bar"], text: {"sb-budget":"10,000 left · 25%"} },
 ]);
 
 createAnimation('anim-burn', [
-  { say: 'A normal week: about 0.02% of requests fail. The dashed line marks 0.1% — the error rate that would spend the budget exactly over 28 days, which is burn rate 1&times;.', show: ['bb-s1'] },
-  { say: 'At 0.02% the burn rate is 0.2&times;: you would need 140 days to exhaust a 28-day budget. Both windows are far below threshold, so nothing fires.', hl: ['bb-fast', 'bb-slow'] },
-  { say: 'That is not an invitation to relax — it means budget is accumulating unspent. This is the moment to ship the risky migration, not to admire the green.', unhl: ['bb-fast', 'bb-slow'] },
-  { say: 'Day 12: v2.7 goes out and the error rate jumps to 1.44%.', show: ['bb-deploy', 'bb-s2'] },
-  { say: '1.44% against a 0.1% allowance is a burn rate of 14.4&times;. The 1-hour window crosses the threshold, which qualifies the problem as big enough to page for.', text: { 'bb-fastv': 'burn 14.4x · need 14.4x' }, fill: { 'bb-fastv': '#c53b3b' }, hl: ['bb-fast'] },
-  { say: 'A long window alone is slow to confirm and slow to clear, so the rule also checks a 5-minute window. It is over threshold too: the failure is happening <em>now</em>, not an hour ago.', show: ['bb-hand'], text: { 'bb-outt': 'PAGE · fast burn 14.4x' }, fill: { 'bb-out': '#f9e3df', 'bb-outt': '#c53b3b' } },
-  { say: 'Both windows agree, so the page fires about two minutes in. By the time someone acknowledges it, roughly 2% of the 28-day budget is gone — and another hour at this rate would cost the same again.', text: { 'bb-budget': '98%', 'bb-outs': 'at 14.4x the whole budget is gone in 2 days' } },
-  { say: 'Rollback. The error rate drops back to normal, and because the confirming window is only 5 minutes long, the alert clears within minutes instead of dragging on for an hour.', show: ['bb-roll', 'bb-s3'], text: { 'bb-fastv': 'burn 0.2x · need 14.4x', 'bb-outt': 'resolved — budget stopped burning' }, fill: { 'bb-fastv': '#2f6b3f', 'bb-out': '#e3eedc', 'bb-outt': '#2f6b3f' }, unhl: ['bb-fast'] },
-  { say: 'Now the other failure mode: a slow leak. A bad cache key makes 0.3% of requests fail — burn rate 3&times;. No single hour looks dramatic, so the fast-burn alert never fires.', show: ['bb-s4'], hide: ['bb-s3'], text: { 'bb-slowv': 'burn 3x · need 3x' }, fill: { 'bb-slowv': '#c53b3b' }, hl: ['bb-slow'] },
-  { say: 'The slow rule catches it: 3&times; sustained over a 1-day window, confirmed over 2 hours, consumes 10% of the budget. That deserves a ticket in the morning, not a phone call at 03:00.', text: { 'bb-outt': 'TICKET · slow burn 3x', 'bb-outs': 'budget would be gone in about 9 days' }, fill: { 'bb-out': '#fbf3c4', 'bb-outt': '#23362e' } },
-  { say: 'A week of this and the budget is at 30%. The error budget policy takes over from here: below 20%, non-essential deploys stop until the window rolls forward and the budget recovers.', text: { 'bb-budget': '30%', 'bb-outs': 'policy: freeze non-essential deploys below 20%' }, unhl: ['bb-slow'] },
+  { say: "A normal week: about 0.02% of requests fail. The dashed line marks 0.1% — the error rate that would spend the budget exactly over 28 days, which is burn rate 1×.", show: ["bb-s1"] },
+  { say: "At 0.02% the burn rate is 0.2×: you would need 140 days to exhaust a 28-day budget. Both windows are far below threshold, so nothing fires.", hl: ["bb-fast","bb-slow"] },
+  { say: "That is not an invitation to relax — it means budget is accumulating unspent. This is the moment to ship the risky migration, not to admire the green.", unhl: ["bb-fast","bb-slow"] },
+  { say: "Day 12: v2.7 goes out and the error rate jumps to 1.44%.", show: ["bb-deploy","bb-s2"] },
+  { say: "1.44% against a 0.1% allowance is a burn rate of 14.4×. The 1-hour window crosses the threshold, which qualifies the problem as big enough to page for.", hl: ["bb-fast"], text: {"bb-fastv":"burn 14.4x · need 14.4x"}, fill: {"bb-fastv":"#c53b3b"} },
+  { say: "A long window alone is slow to confirm and slow to clear, so the rule also checks a 5-minute window. It is over threshold too: the failure is happening <em>now</em>, not an hour ago.", show: ["bb-hand"], text: {"bb-outt":"PAGE · fast burn 14.4x"}, fill: {"bb-out":"#f9e3df","bb-outt":"#c53b3b"} },
+  { say: "Both windows agree, so the page fires about two minutes in. By the time someone acknowledges it, roughly 2% of the 28-day budget is gone — and another hour at this rate would cost the same again.", text: {"bb-budget":"98%","bb-outs":"at 14.4x the whole budget is gone in 2 days"} },
+  { say: "Rollback. The error rate drops back to normal, and because the confirming window is only 5 minutes long, the alert clears within minutes instead of dragging on for an hour.", show: ["bb-roll","bb-s3"], unhl: ["bb-fast"], text: {"bb-fastv":"burn 0.2x · need 14.4x","bb-outt":"resolved — budget stopped burning"}, fill: {"bb-fastv":"#2f6b3f","bb-out":"#e3eedc","bb-outt":"#2f6b3f"} },
+  { say: "Now the other failure mode: a slow leak. A bad cache key makes 0.3% of requests fail — burn rate 3×. No single hour looks dramatic, so the fast-burn alert never fires.", show: ["bb-s4"], hide: ["bb-s3"], hl: ["bb-slow"], text: {"bb-slowv":"burn 3x · need 3x"}, fill: {"bb-slowv":"#c53b3b"} },
+  { say: "The slow rule catches it: 3× sustained over a 1-day window, confirmed over 2 hours, consumes 10% of the budget. That deserves a ticket in the morning, not a phone call at 03:00.", text: {"bb-outt":"TICKET · slow burn 3x","bb-outs":"budget would be gone in about 9 days"}, fill: {"bb-out":"#fbf3c4","bb-outt":"#23362e"} },
+  { say: "A week of this and the budget is at 30%. The error budget policy takes over from here: below 20%, non-essential deploys stop until the window rolls forward and the budget recovers.", unhl: ["bb-slow"], text: {"bb-budget":"30%","bb-outs":"policy: freeze non-essential deploys below 20%"} },
 ]);
 
+/* Animations inside key-concept panels */
 window.TERM_ANIMS = {
   dep: [
-    { say: 'The journey needs all three hops to work. Start with auth at 99.9% — three nines on its own.', hl: ['dp-b1'], text: { 'dp-eq': 'journey = 0.999' } },
-    { say: 'Add the orders API, also 99.9%. Availabilities in series multiply: 0.999 x 0.999 = 99.80%. Half a nine has already gone.', hl: ['dp-b2'], unhl: ['dp-b1'], text: { 'dp-eq': 'journey = 0.999^2 = 99.80%' } },
-    { say: 'Add the database: 0.999^3 = 99.70%. Three components each promising three nines deliver a journey with three times the downtime of any one of them.', hl: ['dp-b3'], unhl: ['dp-b2'], text: { 'dp-eq': 'journey = 0.999^3 = 99.70%' } },
-    { say: 'So a 99.9% journey SLO is already unreachable on this topology. Either set component targets higher than the journey target, or add redundancy and degrade gracefully when a hop is down.', unhl: ['dp-b3'], text: { 'dp-sub': 'set component SLOs above the journey SLO, never equal' } },
+    { say: "The journey needs all three hops to work. Start with auth at 99.9% — three nines on its own.", hl: ["dp-b1"], text: {"dp-eq":"journey = 0.999"} },
+    { say: "Add the orders API, also 99.9%. Availabilities in series multiply: 0.999 x 0.999 = 99.80%. Half a nine has already gone.", hl: ["dp-b2"], unhl: ["dp-b1"], text: {"dp-eq":"journey = 0.999^2 = 99.80%"} },
+    { say: "Add the database: 0.999^3 = 99.70%. Three components each promising three nines deliver a journey with three times the downtime of any one of them.", hl: ["dp-b3"], unhl: ["dp-b2"], text: {"dp-eq":"journey = 0.999^3 = 99.70%"} },
+    { say: "So a 99.9% journey SLO is already unreachable on this topology. Either set component targets higher than the journey target, or add redundancy and degrade gracefully when a hop is down.", unhl: ["dp-b3"], text: {"dp-sub":"set component SLOs above the journey SLO, never equal"} },
   ],
 };
 </script>

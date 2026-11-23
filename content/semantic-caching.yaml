@@ -1,0 +1,801 @@
+title: Semantic caching
+slug: semantic-caching
+tagline: A normal cache asks "have I seen this exact key?". A semantic cache asks "have I answered this question before, in any words?".
+asof: Nov 2026 · examples use Redis vector search, pgvector and Microsoft.Extensions.AI
+description: "Semantic caching cheatsheet: caching LLM answers by meaning instead of by exact key — thresholds, namespaces, false hits, invalidation and the savings arithmetic."
+aliases:
+  - Semantic caching
+  - semantic cache
+  - similarity cache
+  - LLM cache
+  - embedding cache
+  - fuzzy cache
+  - GPTCache
+keywords:
+  - semantic caching
+  - llm cache
+  - embeddings
+  - similarity threshold
+  - cost optimisation
+  - redis
+  - vector search
+  - ai
+related: [ rag, vector-database, caching-strategies, redis, agent-harness ]
+overview:
+  - Two users ask "how do I reset my password?" and "I forgot my password, what now?". A key-value cache sees two unrelated strings and calls the model twice. A **semantic cache** embeds the question, searches for a previous question whose vector is close enough, and if one exists returns that stored answer — in tens of milliseconds, for the price of one embedding call instead of one generation.
+  - "The mechanism is small: embed, nearest-neighbour search, compare against a similarity threshold, serve or fall through. The difficulty is entirely in the threshold and the scoping. Set the threshold loose and the cache answers a question nobody asked; scope it badly and user A's answer is served to user B. Unlike an exact cache, a semantic cache can be <em>wrong</em>, which changes it from an optimisation into a correctness decision."
+  - "It is most valuable where traffic is repetitive and answers are stable: support and FAQ bots, documentation search, internal assistants, classification pipelines. In those workloads hit rates of 20–40% are ordinary, and each hit removes a two-second, few-cent call and replaces it with a 30 ms lookup."
+architecture:
+  svg: semantic-caching/architecture.svg
+  alt: "A semantic cache sitting in front of an LLM pipeline: embed the question, search the cache, serve on a hit, otherwise call the model and store the result"
+  caption: Cache-aside, with similarity search instead of a key lookup — and one extra failure mode that a key lookup does not have.
+howItWorks:
+  - md: "The first animation walks three questions through the cache: a miss, a near-identical hit, and a question that is close but not close enough. The second is the failure that makes people turn semantic caching off."
+  - note: a key cache can only be stale. a semantic cache can be wrong.
+  - anim:
+      id: anim-flow
+      title: 1 · Miss, store, hit
+      svg: semantic-caching/anim-flow.svg
+      alt: "Three questions arriving at a semantic cache: the first misses and is stored, the second is a paraphrase and hits, the third is below the threshold and falls through"
+      steps:
+        - say: A user asks `how do I reset my password?`. The cache is empty, so this is going to cost full price — but it is also the request that makes every later paraphrase free.
+          hl: [ sc-q ]
+          text:
+            sc-qt: "\"how do I reset my password?\""
+            sc-s: requests 1 · hits 0 · hit rate 0% · generation spend $0.000
+        - say: "First the exact tier: normalise the text and hash it. Nothing. That lookup cost 0.4 ms and no embedding call — always try it before paying for a vector."
+          hl: [ sc-dec ]
+          unhl: [ sc-q ]
+          text:
+            sc-d2: "exact tier: miss (0.4 ms, no embedding)"
+        - say: Now the semantic tier. The question is embedded and searched against past questions in this namespace — same tenant, same model, same prompt version. There are none, so the nearest neighbour does not exist.
+          text:
+            sc-d2: "semantic tier: index empty → MISS"
+          fill:
+            sc-d2: "#c53b3b"
+        - say: "So the expensive path runs: retrieve chunks, build the prompt, generate. 1.9 seconds and about four tenths of a cent."
+          hl: [ sc-llm ]
+          unhl: [ sc-dec ]
+          text:
+            sc-l1: retrieve 120 ms → generate 1.8 s
+            sc-l2: cost $0.004
+            sc-l3: "cited chunks: pwd-reset#1, pwd-reset#2"
+            sc-o1: "\"Open Settings → Security → Reset password…\""
+            sc-o2: served in 1,940 ms
+            sc-o3: "source: generated"
+          fill:
+            sc-o3: "#c53b3b"
+        - say: "On the way out, the answer is written back twice: once under the exact hash, and once as a vector entry with its question, its answer, the chunk ids it cited and a 24-hour TTL."
+          unhl: [ sc-llm ]
+          text:
+            sc-ct: cache contents — 1 entry
+            sc-c1: "#1 \"how do i reset my password\""
+            sc-c2: "   → \"Open Settings → Security…\""
+            sc-c3: "   cited: pwd-reset#1, pwd-reset#2 · ttl 24h"
+            sc-s: requests 1 · hits 0 · hit rate 0% · generation spend $0.004
+        - say: Minutes later a different user types `I forgot my password, what now?`. Not one word in common with the first question beyond "password" — an exact cache sees nothing at all.
+          hl: [ sc-q ]
+          text:
+            sc-qt: "\"I forgot my password, what now?\""
+            sc-d2: "exact tier: miss"
+            sc-s: requests 2 · hits 0 · hit rate 0% · generation spend $0.004
+        - say: "The semantic tier embeds it and finds entry #1 at cosine 0.962, above the 0.95 threshold. Verification passes: no identifiers, no numbers, no negation on either side."
+          hl: [ sc-dec ]
+          unhl: [ sc-q ]
+          text:
+            sc-d2: "nearest: #1 · similarity 0.962 ≥ 0.95 → HIT"
+          fill:
+            sc-d2: "#2f6b3f"
+        - say: The stored answer is served directly. 28 ms instead of 1,940, and the only cost was one embedding call — roughly a four-hundredth of a generation.
+          hl: [ sc-out ]
+          unhl: [ sc-dec ]
+          text:
+            sc-o1: "\"Open Settings → Security → Reset password…\""
+            sc-o2: served in 28 ms
+            sc-o3: "source: semantic cache, matched #1 @ 0.962"
+            sc-s: requests 2 · hits 1 · hit rate 50% · generation spend $0.004
+          fill:
+            sc-o3: "#2f6b3f"
+        - say: "Third question: `how do I change my email address?`. Same product area, same shape of sentence — and it scores 0.907. Below the threshold, so it falls through."
+          hl: [ sc-dec ]
+          unhl: [ sc-out ]
+          text:
+            sc-qt: "\"how do I change my email address?\""
+            sc-d2: "nearest: #1 · similarity 0.907 < 0.95 → MISS"
+            sc-s: requests 3 · hits 1 · hit rate 33% · generation spend $0.004
+          fill:
+            sc-d2: "#c53b3b"
+        - say: That near-miss is the whole design in one number. At a threshold of 0.90 this would have hit, and a user asking about their email address would have been told how to reset their password — instantly, fluently, and wrongly.
+          unhl: [ sc-dec ]
+          text:
+            sc-phase: the threshold decides which of these two outcomes you get
+            sc-c5: 0.962 → same question, different words → serve
+            sc-c6: 0.907 → related question, different answer → generate
+            sc-c7: the gap between them is all the margin you have
+          fill:
+            sc-c5: "#2f6b3f"
+            sc-c6: "#5f6f66"
+            sc-c7: "#c53b3b"
+        - say: After the third generation the cache holds three entries, and from here the hit rate climbs as paraphrases of all three arrive. In a support workload it typically settles between 20% and 60% within a day.
+          text:
+            sc-ct: cache contents — 3 entries
+            sc-c1: "#1 \"how do i reset my password\"       hits 1"
+            sc-c2: "#2 \"how do i change my email address\"  hits 0"
+            sc-c3: "#3 \"where are my invoices\"             hits 0"
+            sc-c4: ttl 24h · evict LRU above 500k entries
+            sc-s: "steady state: ~1 in 3 requests never reaches the model"
+          fill:
+            sc-s: "#2f6b3f"
+  - anim:
+      id: anim-falsehit
+      title: 2 · The false hit
+      svg: semantic-caching/anim-falsehit.svg
+      alt: Two different questions with very similar embeddings producing a cache hit that serves the wrong answer, and the three fixes
+      steps:
+        - say: "Yesterday someone asked how to cancel an order, and the answer was cached: orders can be cancelled until dispatch, then it becomes a return."
+          hl: [ sf-q1 ]
+        - say: Today a different user asks how to cancel their <em>subscription</em>. The correct answer is unrelated — a 30-day notice period, billed to the end of the term.
+          hl: [ sf-q2 ]
+          unhl: [ sf-q1 ]
+        - say: The two sentences differ by one noun. Everything else — the verb, the possessive, the question form, the topic of ending a commercial relationship — is shared.
+          hl: [ sf-sim ]
+          unhl: [ sf-q2 ]
+          text:
+            sf-simv: computing over 1536 dimensions…
+        - say: "Cosine similarity: 0.941. That is not a bug in the embedding model. The two questions genuinely are highly related — they are simply not the same question."
+          text:
+            sf-simv: "0.941"
+          fill:
+            sf-simv: "#c53b3b"
+        - say: The threshold is 0.92, chosen months ago because it maximised hit rate on a sample. 0.941 clears it.
+          hl: [ sf-thr ]
+          unhl: [ sf-sim ]
+          text:
+            sf-t2: 0.92 — and 0.941 ≥ 0.92, so this is a HIT
+          fill:
+            sf-t2: "#c53b3b"
+        - say: The user is told, in 24 milliseconds, that they can cancel until dispatch. It is fluent, confident, instant, and about a completely different product.
+          hl: [ sf-res ]
+          unhl: [ sf-thr ]
+          text:
+            sf-r2: "served: \"orders can be cancelled until dispatch…\" — wrong, in 24 ms"
+          fill:
+            sf-r2: "#c53b3b"
+            sf-res: "#f9e3df"
+        - say: And nothing marks it. There is no staleness, no error, no log line that differs from a correct hit. Without the similarity score and the matched entry id in your telemetry, this is invisible.
+          text:
+            sf-v: a false hit looks exactly like a good one — unless you logged the score
+          fill:
+            sf-v: "#c53b3b"
+        - say: "Fix one: raise the threshold. At 0.97 this pair misses — and so do some genuine paraphrases, so the hit rate falls. That is the trade, and it is the right trade when a wrong answer is costly."
+          hl: [ sf-thr ]
+          unhl: [ sf-res ]
+          text:
+            sf-t2: 0.97 — 0.941 < 0.97 → miss, and hit rate drops from 38% to 22%
+          fill:
+            sf-t2: "#5f6f66"
+            sf-res: "#e8ece2"
+        - say: "Fix two: verify before serving. A cross-encoder, or just a rules check, compares the two questions properly. Here the head nouns differ — order versus subscription — so the match is rejected."
+          unhl: [ sf-thr ]
+          text:
+            sf-r2: "verifier: head noun mismatch (order ≠ subscription) → reject, generate instead"
+            sf-phase: recall from the threshold, precision from the verifier
+          fill:
+            sf-r2: "#2f6b3f"
+        - say: "Fix three, and the cheapest: scope. If order questions and subscription questions live in different namespaces — by intent, product or document set — they can never be compared in the first place."
+          text:
+            sf-q1t: "ns: t42 | orders | gpt-4.1-mini | v7"
+            sf-q2t: "ns: t42 | billing | gpt-4.1-mini | v7"
+            sf-r2: different namespace → not even a candidate → no comparison, no risk
+          fill:
+            sf-q2t: "#2f6b3f"
+        - say: "With verification in place you can deliberately <em>lower</em> the threshold again: the index casts a wide net, the verifier keeps precision. More hits and fewer false ones — the same split of labour as retrieval and reranking in a RAG pipeline."
+          text:
+            sf-t2: 0.90 + verifier → hit rate 41%, false hits near zero
+            sf-v: threshold alone is a blunt dial. threshold + verifier + namespace is a design.
+          fill:
+            sf-t2: "#2f6b3f"
+            sf-v: "#2f6b3f"
+            sf-verd: "#e3eedc"
+concepts:
+  - term: Similarity threshold
+    short: The cosine score above which a stored question is treated as "the same question".
+    see: [ False hit, Hit rate, Cache namespace, Reranked verification ]
+    detail: |-
+      This single number decides both your savings and your error rate, and the two move in opposite directions. Lower it and more questions hit — including ones that are merely related. Raise it and every hit is safe, but paraphrases stop matching and the hit rate collapses.
+
+      There is no universal value, because it depends on the embedding model and on how close your question space is. Short, templated questions cluster tightly and need a high threshold; long, varied questions spread out and tolerate a lower one. Derive it from data: embed a few hundred real question pairs, label each pair same/different, and plot precision and recall against the threshold.
+
+      #### Common values
+
+      | Workload | Threshold | Reasoning |
+      | --- | --- | --- |
+      | FAQ / support | 0.95–0.97 | questions are short, a wrong answer is costly |
+      | Internal docs assistant | 0.93–0.96 | varied phrasing, tolerant audience |
+      | Classification / tagging | 0.90–0.94 | outputs are coarse, errors are cheap |
+      | Anything transactional or financial | exact match only | do not guess |
+
+      #### How it relates
+
+      - A threshold alone is a blunt instrument. Pair it with a **Cache namespace** so it is only ever comparing questions that could legitimately share an answer.
+  - term: False hit
+    short: Serving a cached answer to a question that only looks similar — a wrong answer delivered fast.
+    see: [ Similarity threshold, Reranked verification, Negative caching ]
+    detail: |-
+      Embeddings measure topical closeness, not equivalence. "How do I cancel my order?" and "How do I cancel my subscription?" differ by one token and share almost all their semantic content, so cosine similarity lands around 0.93–0.95 — above many thresholds. Negations are worse: "can I get a refund?" and "can I <em>not</em> get a refund?" are nearly identical vectors with opposite meaning.
+
+      The reason this is dangerous rather than annoying is invisibility. The answer is fluent, plausible and instant; nothing in the response says it came from a different question. Unless you log the similarity score and the matched question id with every hit, false hits are undetectable in production.
+
+      #### Classic false-hit pairs
+
+      | Pair | Why it matches |
+      | --- | --- |
+      | cancel my order / cancel my subscription | one noun differs |
+      | refund for EU / refund for US | entity swap, same shape |
+      | price in 2025 / price in 2026 | numbers carry little signal |
+      | is X allowed / is X <em>not</em> allowed | negation barely moves the vector |
+
+      #### How it relates
+
+      - The cheap mitigations are a higher threshold, entity and number checks, and a second-stage verification before serving.
+  - term: Cache namespace
+    short: The partition key that keeps answers from leaking across tenants, users, models and prompt versions.
+    see:
+      - Similarity threshold
+      - Invalidation
+      - Caching retrieval vs caching answers
+    detail: |-
+      A semantic cache keyed only by question text is a data-leak waiting to happen. Two users in different tenants can ask the same words and must get different answers — or must not get each other's answers at all. The partition must be a hard pre-filter in the vector query, never a post-filter applied to results.
+
+      The namespace should also include everything that could change the correct answer even for the same user: the model id, the system-prompt version, the retrieval index version, the locale. Bump any of them and the old entries should stop matching rather than quietly serving answers produced by yesterday's prompt.
+
+      #### A workable key
+
+      ```
+      namespace = sha1(tenantId
+                     + ":" + visibilityScope   // public | role:support | user:4412
+                     + ":" + modelId           // gpt-4.1-mini
+                     + ":" + promptVersion     // v7
+                     + ":" + indexVersion      // docs-2026-11-18
+                     + ":" + locale)           // en-GB
+      ```
+
+      #### How it relates
+
+      - If answers depend on the individual user, the only safe scope is that user — which usually makes the cache worthless and tells you to cache something else.
+  - term: Hit rate
+    short: The share of requests served from the cache — the number that decides whether any of this is worth it.
+    see: [ Savings arithmetic, Cold start, Similarity threshold ]
+    detail: |-
+      Hit rate is a property of your traffic, not of your implementation. Support and FAQ workloads are famously head-heavy: a few hundred distinct intents cover most of the volume, and semantic caching captures all the paraphrases of each. Open-ended chat and personalised assistants have a long flat tail and cache badly.
+
+      Measure it before building: take a day of real questions, embed them, and count how many have a previous neighbour above your candidate threshold. It is an afternoon of work and it tells you whether the hit rate is 35% or 3%.
+
+      #### What to expect
+
+      | Workload | Typical hit rate |
+      | --- | --- |
+      | Public FAQ bot | 40–70% |
+      | Internal docs assistant | 20–40% |
+      | Support agent copilot | 15–30% |
+      | Open-ended chat | 2–10% |
+      | Agentic / multi-turn tasks | near zero on full context |
+
+      #### How it relates
+
+      - A low hit rate is not a failure of the cache. It is a signal that **Prompt caching** or a cheaper model is the better lever.
+  - term: Savings arithmetic
+    short: The back-of-the-envelope that says whether the cache pays for itself.
+    see: [ Hit rate, Prompt caching, Cold start ]
+    detail: |-
+      Every request now costs an embedding call plus a vector search, whether it hits or not. Hits avoid a generation. So the saving is `hitRate × generationCost − embeddingCost − searchCost`, and the break-even hit rate is usually tiny because generation is two to three orders of magnitude more expensive than an embedding.
+
+      #### A worked example
+
+      | Item | Per request |
+      | --- | --- |
+      | Embedding (cache key) | ~$0.00001 · 8 ms |
+      | Vector lookup | ~$0 · 5–20 ms |
+      | RAG + generation on a miss | ~$0.004 · 1.9 s |
+      | At 30% hit rate, 1M req/month | saves ~$1,200 and 300k × 1.9 s of waiting |
+      | Break-even hit rate | < 1% |
+
+      The latency saving usually matters more than the money: a cached answer lands in 25–40 ms, which is the difference between a progress spinner and an instant reply.
+
+      #### How it relates
+
+      - The same reasoning appears in **Back-of-the-envelope estimates**: find the dominant term, and ignore the rest.
+  - term: Invalidation
+    short: Removing cached answers when the underlying knowledge, prompt or model changes.
+    see: [ Cache namespace, Eviction, Caching retrieval vs caching answers ]
+    detail: |-
+      A cached answer is a frozen snapshot of a corpus, a prompt and a model. Any of the three can change, and when they do the cached answer becomes confidently out of date — with none of the signals a stale page has.
+
+      Three mechanisms, used together. **Version in the namespace** handles prompt and model changes: bump the version and the old entries become unreachable without a delete. **TTL** bounds everything else. **Targeted invalidation** handles document updates: store the retrieved chunk ids alongside each cached answer, and when a document is re-ingested, delete every cache entry that cited it.
+
+      #### Common values
+
+      | Content | TTL |
+      | --- | --- |
+      | Product documentation | 24 h – 7 days |
+      | Policy and legal text | 1–24 h, plus event-driven purge |
+      | Pricing, stock, anything live | do not cache the answer; cache the retrieval |
+      | Classification results | 30 days or more |
+
+      #### How it relates
+
+      - Reverse-indexing cache entries by cited chunk id is the one piece people skip, and the reason retracted content keeps being quoted.
+  - term: Normalisation
+    short: Canonicalising the question before embedding so trivial variations collapse to one key.
+    see: [ Exact-match tier, Similarity threshold, Cache namespace ]
+    detail: |-
+      Lowercasing, trimming whitespace, stripping trailing punctuation and removing greetings costs microseconds and raises the hit rate on the exact tier for free. "Hi! How do I reset my password?" and "how do i reset my password" become the same string, which means a hash lookup answers them before any embedding call happens.
+
+      Be careful what you strip. Removing numbers, dates or identifiers raises the hit rate and manufactures false hits — those tokens are often the entire question. Normalise form, never content.
+
+      #### Safe and unsafe
+
+      | Transformation | Verdict |
+      | --- | --- |
+      | lowercase, trim, collapse whitespace | safe |
+      | strip greetings and sign-offs | safe |
+      | drop trailing `?` and `!` | safe |
+      | remove stop words | risky — drops negations |
+      | strip digits, dates, ids | unsafe |
+
+      #### How it relates
+
+      - Normalisation is what makes the free **Exact-match tier** actually land.
+  - term: Exact-match tier
+    short: A plain hash lookup in front of the semantic cache, catching identical questions for free.
+    see: [ Normalisation, Hit rate, Savings arithmetic ]
+    detail: |-
+      A surprising share of repeated traffic is byte-identical after normalisation — the same button, the same suggested prompt, the same retry. Those questions do not need an embedding call at all: a Redis `GET` on `sha256(namespace + normalised)` answers them in under a millisecond with zero risk of a false hit.
+
+      So the real shape is three tiers: exact, semantic, generate. The exact tier is cheap, perfectly safe and often handles half of all hits; the semantic tier is what catches paraphrases.
+
+      ```
+      exact   → 0.4 ms, 0 risk,      ~15% of requests
+      semantic→ 20 ms,  threshold risk, ~18% of requests
+      generate→ 1.9 s,  full cost,     ~67% of requests
+      ```
+
+      #### How it relates
+
+      - Build this tier first. It is twenty lines and it is the part that cannot be wrong.
+  - term: Reranked verification
+    short: A cheap second check, after the vector match, that the two questions really are the same question.
+    see: [ False hit, Similarity threshold, Negative caching ]
+    detail: |-
+      Because a false hit is a correctness bug, it is worth spending 20–80 ms to avoid one. The candidate match from the vector search is verified before being served: a cross-encoder scores the pair properly, or a rules check compares the entities, numbers and negations in both questions, or — for high-value flows — a small, fast model is asked "are these the same question? yes/no".
+
+      This lets you lower the vector threshold deliberately, raising the hit rate, because the verification stage catches what the looser threshold lets through. Recall from the index, precision from the verifier — the same division of labour as retrieval and reranking in **RAG**.
+
+      #### Cost of each check
+
+      | Verifier | Latency | Catches |
+      | --- | --- | --- |
+      | Entity / number / negation rules | < 1 ms | the classic pairs |
+      | Cross-encoder | 20–60 ms | most paraphrase errors |
+      | Small LLM judge | 150–400 ms | nearly all, at a real cost |
+
+      #### How it relates
+
+      - If verification costs more than generation, you have reinvented the expensive path. Keep it to rules and a cross-encoder.
+  - term: Prompt caching
+    short: The provider-side cache of a shared prompt prefix — a different mechanism, often confused with this one.
+    see: [ Savings arithmetic, Hit rate, Cache namespace ]
+    detail: |-
+      Prompt caching is offered by the model provider: you mark a long, stable prefix — system instructions, a tool catalogue, a fixed document — and repeated requests that share it are billed and processed more cheaply, because the provider reuses the computed attention state. The model still runs; only the prefix work is saved.
+
+      Semantic caching skips the model entirely. The two are complementary and solve different problems: prompt caching lowers the cost of every miss, semantic caching removes some misses altogether.
+
+      #### Side by side
+
+      |  | Semantic cache | Prompt cache |
+      | --- | --- | --- |
+      | Where | your infrastructure | the provider |
+      | Saves | the whole call | part of the input cost |
+      | Keyed on | question meaning | exact token prefix |
+      | Can be wrong | yes | no |
+      | Latency | ~25 ms total | faster first token, still seconds |
+
+      #### How it relates
+
+      - Put the stable parts of your prompt at the front — it is what makes prompt caching land, and costs nothing.
+  - term: Negative caching
+    short: Remembering that a question had no good answer, so you do not pay to fail twice.
+    see: [ Invalidation, False hit, Hit rate ]
+    detail: |-
+      When retrieval finds nothing above the cut-off and the system answers "I don't have enough information", that outcome is worth caching too — with a much shorter TTL, because it is the entry most likely to be fixed by someone adding a document.
+
+      Negative entries also double as a content backlog. A ranked list of questions that repeatedly produce refusals is the most honest documentation gap report you will ever get.
+
+      #### Common values
+
+      | Outcome | TTL |
+      | --- | --- |
+      | Answered | hours to days |
+      | Refused ("don't know") | 5–30 minutes |
+      | Error / timeout | do not cache |
+
+      #### How it relates
+
+      - Purge negative entries whenever the index is updated — that is exactly the event that might have fixed them.
+  - term: Cold start
+    short: An empty cache serves nothing, and the first hours look like pure added latency.
+    see: [ Hit rate, Savings arithmetic, Exact-match tier ]
+    detail: |-
+      Every entry has to be paid for once. On day one the hit rate is zero and every request carries an extra embedding call and vector search. This is small — under 15 ms — but it is the reason a cache evaluated for an hour looks useless.
+
+      Warming helps where the head of the distribution is known: replay the top few hundred historical questions, or seed from your FAQ, during deployment. Flushing on every deploy is the opposite mistake — version the namespace instead, so old entries age out rather than disappearing at once.
+
+      #### How it relates
+
+      - Watch hit rate over days, not minutes, and segment by question type — one long-tail segment can hide a 60% hit rate in another.
+  - term: Caching retrieval vs caching answers
+    short: You can cache the final text, or just the retrieved chunks — and the trade-offs are different.
+    see: [ Invalidation, False hit, Savings arithmetic ]
+    detail: |-
+      Caching the <em>answer</em> saves everything but freezes the output: if the documents change, or the answer should be personalised, it is wrong. Caching the <em>retrieval result</em> — the chunk ids for a question — saves the search but still runs generation, so the answer reflects the current text of those chunks and can be tailored to the user.
+
+      For live data, caching retrieval is often the only safe choice. It also has a much weaker scoping requirement, because chunk ids with ACL filters re-applied at read time cannot leak the way a rendered answer can.
+
+      #### Which to cache
+
+      | Situation | Cache |
+      | --- | --- |
+      | Stable docs, impersonal answers | the answer |
+      | Answers vary by user | the retrieval |
+      | Underlying text changes hourly | the retrieval |
+      | Classification / extraction | the answer, long TTL |
+
+      #### How it relates
+
+      - Caching retrieval cuts about 120 ms and the search cost; caching answers cuts about 1.9 s and nearly all the cost.
+  - term: Eviction
+    short: How entries leave a cache that would otherwise grow without limit.
+    see: [ Invalidation, Hit rate, Cold start ]
+    detail: |-
+      Semantic caches grow one entry per distinct question, and each entry carries a vector of several kilobytes plus the answer text. A million entries at 1536 dimensions is roughly 6 GB of vectors before the index — affordable in Redis or Postgres, but not free, and every extra entry slightly slows the search and slightly raises false-hit risk.
+
+      LRU or LFU by access is the usual policy, combined with a TTL. Because hit distribution is head-heavy, evicting the cold tail costs almost no hit rate: in most workloads the top 5% of entries serve the large majority of hits.
+
+      #### Common values
+
+      | Setting | Typical |
+      | --- | --- |
+      | Max entries | 100k – 1M |
+      | Policy | `allkeys-lru` or LFU, plus TTL |
+      | Vector size | 6 KB at 1536 dims × float32 |
+      | With int8 quantisation | 1.5 KB |
+
+      #### How it relates
+
+      - The eviction policies here are the ordinary ones from **Redis** and **Caching strategies**; only the key is unusual.
+  - term: Observability
+    short: Logging the similarity, the matched entry and the served source on every request — the only way false hits become visible.
+    see: [ False hit, Hit rate, Reranked verification ]
+    detail: |-
+      A semantic cache that logs only a hit/miss counter is unauditable. Three fields per request make it debuggable: the similarity score, the id of the matched entry, and whether the answer came from exact, semantic or generation. With those you can replay any complaint, plot the score distribution, and see exactly where the threshold sits relative to real traffic.
+
+      Two alerts are worth having: a rising hit rate with no traffic change (the threshold may have become too loose after a model swap) and a cluster of hits in the 0.92–0.95 band, which is where false hits live.
+
+      #### What to record
+
+      | Field | Why |
+      | --- | --- |
+      | `cache.source` | exact / semantic / miss |
+      | `cache.similarity` | histogram, threshold tuning |
+      | `cache.matched_id` | replay the original question |
+      | `cache.namespace` | catch scoping bugs |
+      | user feedback on cached answers | the real false-hit signal |
+
+      #### How it relates
+
+      - Serve a small "this answer was reused" affordance in internal tools; the first false hit a user reports pays for the whole instrumentation.
+commands:
+  heading: Essential code
+  tocLabel: Code
+  groups:
+    - group: The three tiers
+      items:
+        - lang: csharp
+          code: |-
+            // C# — exact tier, then semantic tier, then generate
+            public sealed class SemanticCache(IDatabase redis, IEmbeddingGenerator<string, Embedding<float>> embedder)
+            {
+                private const double Threshold = 0.95;
+
+                public async Task<(string Answer, string Source)> GetOrCreateAsync(
+                    string question, CacheScope scope, Func<Task<string>> generate)
+                {
+                    var norm = Normalise(question);
+                    var ns   = scope.Key();                       // tenant + model + promptVersion + locale
+
+                    // 1. exact tier — sub-millisecond, zero risk
+                    var exactKey = $"sc:{ns}:x:{Sha256(norm)}";
+                    if (await redis.StringGetAsync(exactKey) is { HasValue: true } hit)
+                        return (hit!, "exact");
+
+                    // 2. semantic tier
+                    var vector = (await embedder.GenerateAsync([norm]))[0].Vector;
+                    var match  = await NearestAsync(ns, vector, limit: 1);
+                    if (match is { Similarity: >= Threshold } m && Verify(norm, m.Question))
+                        return (m.Answer, "semantic");
+
+                    // 3. miss — pay once, store for everyone after
+                    var answer = await generate();
+                    await redis.StringSetAsync(exactKey, answer, TimeSpan.FromHours(24));
+                    await StoreAsync(ns, vector, norm, answer, TimeSpan.FromHours(24));
+                    return (answer, "miss");
+                }
+
+                private static string Normalise(string q) =>
+                    string.Join(' ', q.ToLowerInvariant().Trim().TrimEnd('?', '!', '.')
+                                      .Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            }
+          what: Exact before semantic, verification before serving, and the namespace in every key. The shape is cache-aside with a different lookup.
+        - lang: python
+          code: |-
+            # Python — same three tiers with redis-py
+            import hashlib, re
+            from dataclasses import dataclass
+
+            THRESHOLD = 0.95
+
+            def normalise(q: str) -> str:
+                return " ".join(q.lower().strip().rstrip("?!.").split())
+
+            def get_or_create(question: str, scope: str, generate) -> tuple[str, str]:
+                norm = normalise(question)
+                exact_key = f"sc:{scope}:x:{hashlib.sha256(norm.encode()).hexdigest()}"
+
+                if (cached := r.get(exact_key)) is not None:
+                    return cached.decode(), "exact"
+
+                vector = embed(norm)
+                match = nearest(scope, vector, limit=1)
+                if match and match.similarity >= THRESHOLD and verify(norm, match.question):
+                    return match.answer, "semantic"
+
+                answer = generate()
+                r.setex(exact_key, 86_400, answer)
+                store(scope, vector, norm, answer, ttl=86_400)
+                return answer, "miss"
+          what: Identical logic. The interesting lines are `verify` and `scope` — everything else is plumbing.
+    - group: The vector store behind it
+      items:
+        - lang: bash
+          code: |-
+            # Redis — a vector index over cached questions, partitioned by namespace
+            FT.CREATE idx:semcache
+              ON HASH PREFIX 1 "sc:v:"
+              SCHEMA
+                ns        TAG                                  # the hard partition
+                question  TEXT
+                answer    TEXT NOSTEM
+                chunks    TAG                                  # cited chunk ids, for targeted purge
+                embedding VECTOR HNSW 6 TYPE FLOAT32 DIM 1536 DISTANCE_METRIC COSINE
+
+            # query: nearest neighbour WITHIN one namespace — a pre-filter, not a post-filter
+            FT.SEARCH idx:semcache "(@ns:{t42_gpt41mini_v7_enGB})=>[KNN 1 @embedding $vec AS score]"
+              PARAMS 2 vec "$BLOB" RETURN 3 question answer score DIALECT 2
+          what: The `@ns` tag filter runs before the KNN search, so one tenant's entries can never be candidates for another's query.
+        - lang: sql
+          code: |-
+            -- Postgres alternative: pgvector, with the cited chunks kept for invalidation
+            CREATE TABLE semantic_cache (
+              id          bigserial PRIMARY KEY,
+              ns          text        NOT NULL,
+              question    text        NOT NULL,
+              answer      text        NOT NULL,
+              embedding   vector(1536) NOT NULL,
+              cited_chunks text[]     NOT NULL DEFAULT '{}',
+              hits        int         NOT NULL DEFAULT 0,
+              created_at  timestamptz NOT NULL DEFAULT now(),
+              expires_at  timestamptz NOT NULL
+            );
+            CREATE INDEX ON semantic_cache USING hnsw (embedding vector_cosine_ops);
+            CREATE INDEX ON semantic_cache (ns, expires_at);
+            CREATE INDEX ON semantic_cache USING gin (cited_chunks);
+
+            -- lookup
+            SELECT question, answer, 1 - (embedding <=> $1) AS similarity
+            FROM semantic_cache
+            WHERE ns = $2 AND expires_at > now()
+            ORDER BY embedding <=> $1
+            LIMIT 1;
+
+            -- targeted invalidation when a document is re-ingested
+            DELETE FROM semantic_cache WHERE cited_chunks && $1;   -- array overlap
+          what: Storing the cited chunk ids is what turns "we changed a document" into a precise purge instead of a full flush.
+    - group: Guarding against false hits
+      items:
+        - lang: csharp
+          code: |-
+            // C# — cheap rules that catch the classic false-hit pairs before anything expensive
+            private static readonly Regex Tokens = new(@"\b([A-Z]{2,}|\d[\d\-/]*|INV-\w+)\b");
+
+            private static bool Verify(string incoming, string cached)
+            {
+                // 1. identifiers, numbers and codes must match exactly, in both directions
+                var a = Tokens.Matches(incoming).Select(m => m.Value).ToHashSet();
+                var b = Tokens.Matches(cached).Select(m => m.Value).ToHashSet();
+                if (!a.SetEquals(b)) return false;
+
+                // 2. negation must match — embeddings barely move for "not"
+                static bool Negated(string s) => Regex.IsMatch(s, @"\b(not|never|cannot|can't|without)\b");
+                if (Negated(incoming) != Negated(cached)) return false;
+
+                return true;
+            }
+          what: "Twelve lines that remove the two failure modes responsible for most false hits: swapped identifiers and flipped negations."
+        - lang: python
+          code: |-
+            # Python — log enough to tune the threshold from real traffic, not a notebook
+            logger.info(
+                "semantic_cache",
+                extra={
+                    "cache.source": source,            # exact | semantic | miss
+                    "cache.similarity": round(sim, 4) if sim else None,
+                    "cache.matched_id": match.id if match else None,
+                    "cache.namespace": scope,
+                    "question.hash": hashlib.sha256(norm.encode()).hexdigest()[:12],
+                },
+            )
+
+            # then, weekly: where does your threshold actually sit?
+            #   histogram of cache.similarity for served hits
+            #   anything clustered in 0.92–0.95 is where false hits live
+            #   correlate thumbs-down feedback with cache.source == "semantic"
+          what: Without the similarity score and matched id in the logs, a false hit is indistinguishable from a bad answer.
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - Removes the whole generation call, not part of it — typically 1–3 s and most of the cost.
+      - Catches paraphrases, which is the majority of real repetition in natural language traffic.
+      - Break-even hit rate is under 1%, because embeddings are hundreds of times cheaper than generation.
+      - "Works as a capacity buffer: cached answers keep flowing during provider rate limits or outages."
+      - Entirely in your infrastructure, so it works across models and providers.
+      - The cache of refused questions is a free content-gap report.
+  bad:
+    heading: Cons
+    items:
+      - It can serve a <em>wrong</em> answer, which an exact cache structurally cannot.
+      - The threshold must be derived from labelled data and re-derived after any embedding model change.
+      - "Scoping bugs are data leaks: one missing tenant filter crosses a boundary."
+      - Adds 10–25 ms and an embedding call to every request, including misses.
+      - "Invalidation is harder than in a key cache: you must know which documents an answer used."
+      - Near-useless for personalised, multi-turn or agentic traffic.
+      - Hides model improvements — a better model's answers are not served while old entries live.
+when:
+  note: if a wrong answer is expensive, raise the threshold until the cache is almost useless. then ask if you need it.
+  good:
+    heading: Use it when…
+    items:
+      - "Traffic is head-heavy: a few hundred intents cover most requests."
+      - Answers are impersonal — the same question deserves the same answer for everyone in scope.
+      - The underlying corpus changes on a timescale of hours or days, not seconds.
+      - Latency matters and a 25 ms answer is meaningfully better than a 2 s one.
+      - You are rate limited or cost constrained and have measured a hit rate above a few percent.
+  bad:
+    heading: Avoid it when…
+    items:
+      - Answers depend on the individual user or live data. Cache the **retrieval result** instead of the answer.
+      - A wrong answer is unacceptable — medical, legal, financial. Use an **exact-match cache** only.
+      - Traffic is open-ended or multi-turn, so almost nothing repeats. Use **prompt caching** and a cheaper model.
+      - You cannot reliably scope entries per tenant or per permission set. Fix the scoping first.
+      - You have no evaluation set, so a regression from a false hit would be invisible. Build that first.
+      - The expensive part is retrieval, not generation. Cache the search, or use an ordinary **Redis** key cache.
+useCases:
+  - title: Public FAQ assistant
+    body: A help centre bot answers the same forty intents in a thousand phrasings. Hit rate settles near 60%, the public scope means no per-user partitioning, and cached answers return in 30 ms — which also makes the bot feel faster than the search it replaced.
+  - title: Documentation search over a stable corpus
+    body: An internal docs assistant on a corpus that changes weekly. Answers are cached for 24 hours, keyed by prompt version and index version, and purged by cited chunk id whenever a page is republished.
+  - title: Surviving a rate limit
+    body: A provider starts returning 429s at peak. Cached answers continue to serve a third of traffic unaffected, turning a total outage into partial degradation while the rest of the requests queue — the same idea as **graceful degradation**, applied to spend.
+  - title: Classification and extraction pipelines
+    body: Millions of near-duplicate support emails classified into twenty categories. Outputs are short and stable, so a long TTL and a moderate threshold remove most of the model calls, with a rules check on extracted identifiers to prevent cross-contamination.
+  - title: Evaluation and CI runs
+    body: A golden set of 200 questions runs on every pull request. A semantic cache keyed on prompt version makes unrelated changes cost nothing, while a prompt change bumps the version and re-runs everything — which is exactly the behaviour you want.
+gotchas:
+  items:
+    - mistake: Picking the threshold by feel
+      why: 0.9 looks like a high number, so it gets used. In most embedding spaces almost any two questions on the same topic score above 0.9, and the cache starts answering questions that were never asked.
+      fix: label 200–500 real question pairs as same/different, plot precision and recall against the threshold, and pick the point where precision is acceptable. Re-run it whenever the embedding model changes.
+    - mistake: No tenant or permission scope
+      why: The cache key is the question text, so a question asked in tenant A returns an answer built from tenant A's documents to a user in tenant B. It is a data leak with a cache hit rate graph that looks excellent.
+      fix: namespace every entry by tenant and visibility scope, and apply it as a pre-filter inside the vector query. Add a test that proves a cross-tenant lookup returns nothing.
+    - mistake: Ignoring negation and numbers
+      why: "\"Can I return an item after 30 days?\" and \"Can I return an item after 60 days?\" are nearly the same vector. So are a question and its negation. Both serve confidently wrong answers."
+      fix: a verification step that compares extracted numbers, dates, identifiers and negation words, and rejects the match when they differ. It is a regex and a set comparison.
+    - mistake: Caching the answer when the data is live
+      why: Stock levels, prices, open tickets and account balances get frozen into cached text, and the system confidently reports yesterday's number for a day.
+      fix: cache the retrieval result, not the answer, for anything time-sensitive; or exclude those intents from the cache entirely with a classifier on the question.
+    - mistake: Flushing the whole cache on deploy
+      why: Every release throws away a warm cache, so hit rate restarts at zero and the first hour after each deploy is slow and expensive.
+      fix: put the prompt and model version in the namespace. Entries from the previous version stop matching and expire naturally; nothing has to be deleted.
+    - mistake: No way to tell a cached answer from a fresh one
+      why: A user reports a wrong answer. Nobody can tell whether the model produced it just now or the cache served it from a different question three days ago, so the investigation starts from nothing.
+      fix: log source, similarity and matched entry id on every request, and propagate a `cache.source` attribute into your traces.
+    - mistake: Changing the embedding model in place
+      why: New entries are written with new-model vectors while old entries hold old-model vectors. Distances between the two spaces are meaningless, so the threshold no longer means what it meant.
+      fix: include the embedding model id in the namespace. New entries simply form a new partition, and the old one expires.
+    - mistake: Caching whole conversations
+      why: In a multi-turn assistant the cache key is the full history, which is unique almost every time. Hit rate is near zero and the embedding call is pure overhead.
+      fix: cache on the <em>condensed standalone question</em> produced by query rewriting, not on the raw transcript — or accept that this workload does not cache and spend the effort on prompt caching.
+alternatives:
+  columns:
+    - Approach
+    - Best for
+    - Complexity
+    - Cost
+    - Key difference vs semantic caching
+  rows:
+    - self: true
+      cells:
+        - "**Semantic caching**"
+        - repetitive, impersonal questions
+        - Medium
+        - vector store + embeddings
+        - —
+    - cells:
+        - "**Exact-match cache**"
+        - identical requests, zero risk tolerance
+        - Very low
+        - a Redis key
+        - Cannot be wrong, cannot match paraphrases; use it as tier one anyway
+    - cells:
+        - "**Provider prompt caching**"
+        - long shared prefixes
+        - Very low
+        - discounted input tokens
+        - Still runs the model; saves part of the input cost, never the whole call
+    - cells:
+        - "**Precomputed FAQ answers**"
+        - a known, small intent set
+        - Low
+        - near zero
+        - Human-reviewed and auditable; needs an intent classifier and manual upkeep
+    - cells:
+        - "**Smaller / distilled model**"
+        - high-volume simple tasks
+        - Medium
+        - lower per call
+        - Cuts the cost of every call rather than removing some calls
+    - cells:
+        - "**Caching retrieval results**"
+        - live data, personalised answers
+        - Low
+        - small
+        - Saves the search, keeps generation fresh and per-user
+    - cells:
+        - "**HTTP / CDN caching**"
+        - fully public, identical responses
+        - Low
+        - near zero
+        - Keyed on the URL; no notion of meaning, but free and battle-tested
+  notes:
+    - "**Pick an exact-match cache** as tier one always — it is cheaper, safer and catches a surprising share of traffic."
+    - "**Pick prompt caching** when the repetition is in your system prompt and tool catalogue rather than in user questions."
+    - "**Pick precomputed answers** when a small set of questions dominates and the answers deserve human review."
+    - "**Pick retrieval caching** whenever the answer must reflect live data or differ per user."
+    - "**Pick a smaller model** when the hit rate measurement comes back in low single digits — your traffic simply does not repeat."
+resources:
+  - url: https://redis.io/docs/latest/develop/get-started/vector-database/
+    title: Redis vector search
+    why: index definitions, KNN queries and tag pre-filtering, which is what a cache lookup needs.
+  - url: https://github.com/zilliztech/GPTCache
+    title: GPTCache
+    why: the reference open-source implementation, useful mainly for its taxonomy of evaluators and eviction policies.
+  - url: https://github.com/pgvector/pgvector
+    title: pgvector
+    why: if you already run Postgres, the cache can be one more table.
+  - url: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+    title: Prompt caching
+    why: the provider-side mechanism this page is frequently confused with, and a good complement to it.
+  - url: https://learn.microsoft.com/en-us/azure/api-management/azure-openai-enable-semantic-caching
+    title: Semantic caching in Azure API Management
+    why: the same pattern implemented at the gateway, with the policy configuration shown.

@@ -1,0 +1,792 @@
+title: JWT & token handling
+slug: jwt
+tagline: Signed, not secret. Verifiable, not revocable. Everything else follows from those two facts.
+asof: Nov 2026 · RFC 7519 (JWT), RFC 7515 (JWS), RFC 7517 (JWK), RFC 8725 (BCP) · examples in C# and Python
+description: "JWT cheatsheet: the three segments, the validation checks in order, the alg-confusion and none attacks, the revocation problem, and where to store a token."
+aliases:
+  - JWT
+  - JSON Web Token
+  - JWS
+  - JWE
+  - JWKS
+  - alg none
+  - alg confusion
+  - bearer token
+  - token validation
+  - claims
+keywords:
+  - jwt
+  - json web token
+  - jws
+  - jwks
+  - token validation
+  - security
+  - claims
+  - bearer
+  - signature
+  - revocation
+related:
+  - oauth2
+  - openid-connect
+  - azure-api-management
+  - multitenancy
+  - backend-for-frontend
+overview:
+  - "A JSON Web Token is three Base64URL segments joined by dots: a header saying how it was signed, a payload of claims, and a signature over the first two. Its single advantage is that anyone holding the issuer's public key can verify it <em>offline</em> — no database lookup, no call to an auth service, no shared session store. That is what lets a token minted in one place be trusted by a hundred services."
+  - "Two properties cause most of the trouble. First, **a signed JWT is not encrypted**: the payload is readable by anyone who has the token, including the browser and anyone who finds it in a log. Second, **a JWT cannot be revoked** — validation is a pure function of the token and a public key, so nothing you do server-side can make an already-issued token stop working before it expires."
+  - "The rest is validation discipline. The checks have an order, several are routinely skipped, and the two famous attacks — `alg: none` and algorithm confusion — both work by persuading your library to take instructions from the very token it is meant to be checking. Use a maintained library, pin the algorithms yourself, and validate the audience."
+architecture:
+  svg: jwt/architecture.svg
+  alt: The three segments of a JWT, what each contains, and the order of the validation checks
+  caption: "Stateless validation is the whole point and the whole cost: no lookup needed, and no way to take it back."
+howItWorks:
+  - md: The first animation decodes a token and runs the checks. The second is the pair of attacks that exist because libraries used to let the token choose how it was verified.
+  - note: the token is the attacker's input. never let it tell you how to check it.
+  - anim:
+      id: anim-anatomy
+      title: 1 · Decode it, then actually validate it
+      svg: jwt/anim-anatomy.svg
+      alt: A JWT split into header, payload and signature, then validated check by check
+      steps:
+        - say: "A request arrives with `Authorization: Bearer eyJhbGci…`. Right now it is a string an attacker could have written. Nothing about it is trustworthy yet."
+          hl: [ ja-h, ja-p, ja-s ]
+        - say: "Split on the dots and Base64URL-decode the first segment: the header. It names the algorithm and, through `kid`, which public key was used."
+          hl: [ ja-h ]
+          unhl: [ ja-h, ja-p, ja-s ]
+          text:
+            ja-hd1: "\"alg\": \"RS256\""
+            ja-hd2: "\"kid\": \"a1b2c3\""
+            ja-hd3: "\"typ\": \"JWT\""
+            ja-hd4: attacker-controlled — a hint
+        - say: "The second segment is the payload. Note that decoding it needed no key at all: anyone holding this token can read every claim in it."
+          hl: [ ja-p ]
+          unhl: [ ja-h ]
+          text:
+            ja-pd1: "\"iss\": \"https://login.example.com\"  \"sub\": \"248289761001\""
+            ja-pd2: "\"aud\": \"api://orders\"               \"scope\": \"orders.read\""
+            ja-pd3: "\"exp\": 1763640000                   \"jti\": \"0f9c…\""
+            ja-pd4: base64 is an encoding — never put a secret here
+        - say: The third is the signature, computed over the exact text of the first two. It is the only reason to believe any of it.
+          hl: [ ja-s ]
+          unhl: [ ja-p ]
+          text:
+            ja-sd1: RSA-SHA256 over header.payload
+            ja-sd2: signed with the private key
+            ja-sd3: verified with the public one
+        - say: "Check one: the signature — using an algorithm from <em>your</em> allow-list, and a key fetched from the JWKS by `kid`. The header gets a vote, not a decision."
+          unhl: [ ja-s ]
+          text:
+            ja-c1: 1 · signature ✓  (RS256, from my pinned list)
+            ja-v: now, and only now, the claims are worth reading
+          fill:
+            ja-c1: "#2f6b3f"
+        - say: "Check two: the issuer, matched exactly. A valid signature from the wrong issuer is still the wrong token."
+          text:
+            ja-c2: 2 · iss ✓  https://login.example.com
+          fill:
+            ja-c2: "#2f6b3f"
+        - say: "Check three: the audience. This is the one teams skip, and skipping it means any token the issuer ever signed is accepted here — including ID tokens and tokens for other services."
+          text:
+            ja-c3: 3 · aud ✓  api://orders — minted for me
+            ja-v: without this check, one issuer's every token is a key to this API
+          fill:
+            ja-c3: "#2f6b3f"
+        - say: "Check four: expiry and not-before, with a small skew allowance. Thirty seconds, not the five minutes several libraries default to."
+          text:
+            ja-c4: 4 · exp / nbf ✓  (30 s skew)
+          fill:
+            ja-c4: "#2f6b3f"
+        - say: "Checks five and six belong to your application: does the token carry the scope for this operation, and may <em>this user</em> touch <em>this record</em>? The token answers the first and knows nothing about the second."
+          text:
+            ja-c5: 5 · scope ✓  orders.read
+            ja-c6: 6 · may this user read order 42? — your code
+            ja-v: scopes are delegation; row-level permission is still yours to enforce
+          fill:
+            ja-c5: "#2f6b3f"
+            ja-c6: "#2f6b3f"
+        - say: "And notice what no check could establish: whether the token is <em>still</em> meant to work. Nothing here contacts the issuer, so a user deactivated two minutes ago still passes every test until `exp`."
+          hl: [ ja-check ]
+          text:
+            ja-phase: validation is a pure function of the token and a public key
+            ja-v: a JWT tells you "not yet expired" — never "still valid"
+  - anim:
+      id: anim-alg
+      title: 2 · Two ways to forge a token, and the one line that stops both
+      svg: jwt/anim-alg.svg
+      alt: An attacker forging a token using alg none and algorithm confusion, defeated by pinning the algorithm
+      steps:
+        - say: The API expects RS256. The issuer signs with a private key; everyone else verifies with the public key, which is published at the JWKS endpoint for exactly that purpose.
+          hl: [ jg-keys ]
+        - say: "The attacker has an ordinary valid token for their own account, and wants one that says `role: admin`. Editing the payload is trivial — producing a matching signature is not."
+          hl: [ jg-tok ]
+          unhl: [ jg-keys ]
+          text:
+            jg-t2: "payload: { \"sub\": \"mallory\", \"role\": \"admin\" }  ← edited"
+            jg-t3: "signature: no longer matches"
+            jg-t4: they cannot sign RS256 without the private key
+          fill:
+            jg-t2: "#c53b3b"
+            jg-t3: "#c53b3b"
+        - say: "Attack one: change the algorithm to `none` and drop the signature entirely. The spec does define unsecured JWTs, and a library that takes the header at its word will skip verification."
+          unhl: [ jg-tok ]
+          text:
+            jg-t1: "header:  { \"alg\": \"none\" }"
+            jg-t3: "signature: (empty)"
+            jg-t4: declared unsecured — nothing to verify
+            jg-v: the verifier asks the token how to check the token
+          fill:
+            jg-v: "#c53b3b"
+            jg-verd: "#f9e3df"
+        - say: "The API reads `alg: none`, performs no verification, and reads the claims. Admin granted."
+          hl: [ jg-api ]
+          text:
+            jg-cfg: alg = none → skipping verification
+            jg-cfg2: claims accepted as-is ✗
+          fill:
+            jg-cfg: "#c53b3b"
+            jg-cfg2: "#c53b3b"
+        - say: Attack two is subtler and survives a library that rejects `none`. Set the algorithm to HS256 — a symmetric algorithm — and sign the forged token using the issuer’s <em>public</em> key as the HMAC secret.
+          unhl: [ jg-api ]
+          text:
+            jg-t1: "header:  { \"alg\": \"HS256\" }"
+            jg-t3: "signature: HMAC-SHA256(public key, …)"
+            jg-t4: the public key is published — the attacker has it
+            jg-cfg: alg = HS256 → verify with HMAC
+            jg-cfg2: "using the key it has: the RSA public key"
+        - say: "The verifier does exactly what it was told: HMAC-SHA256 with the key it holds. That key is the public key. The attacker used the same key. The signature matches."
+          hl: [ jg-api ]
+          text:
+            jg-cfg2: HMAC matches ✗ — admin granted
+            jg-v: "algorithm confusion: one key, two algorithms, total compromise"
+        - say: Neither attack is about cryptography being weak. Both work because the verifier let the token choose the verification method.
+          unhl: [ jg-api ]
+          text:
+            jg-v2: RSA was never broken — it was simply not used
+        - say: "The fix is one configuration line: pin the algorithms you accept. The header’s `alg` becomes a filter, not an instruction."
+          hl: [ jg-api ]
+          text:
+            jg-cfg: ValidAlgorithms = ["RS256", "ES256"]
+            jg-cfg2: header says HS256 → not in the list → reject
+            jg-v: the token no longer gets a say in how it is checked
+          fill:
+            jg-cfg: "#2f6b3f"
+            jg-cfg2: "#2f6b3f"
+            jg-v: "#2f6b3f"
+            jg-verd: "#e3eedc"
+        - say: "Both forgeries now fail before any claim is read: `none` is not in the list, and neither is HS256. The genuine RS256 token verifies normally."
+          text:
+            jg-t1: "header:  { \"alg\": \"none\" | \"HS256\" }"
+            jg-t3: rejected before parsing the payload
+            jg-t4: and a real RS256 token still works
+            jg-v2: two attacks closed by refusing to take instructions from your input
+          fill:
+            jg-t1: "#5f6f66"
+            jg-t3: "#2f6b3f"
+        - say: Two habits follow. Never use one key for more than one algorithm, and never write the validation yourself — every one of these has shipped in library code written by people who knew the risk.
+          unhl: [ jg-api ]
+          text:
+            jg-phase: pin the algorithms · one key one algorithm · use a maintained library
+            jg-k2: public key — published, and therefore attacker-held by design
+concepts:
+  - term: JWS
+    short: A signed JWT — the kind you almost always mean. Three segments, integrity-protected, publicly readable.
+    see: [ JWE, Signature, Payload ]
+    detail: |-
+      JSON Web Signature is the structure behind the familiar `a.b.c` string. The signature covers the Base64URL-encoded header and payload exactly as transmitted, which is why re-encoding a token can invalidate it even when the JSON is equivalent.
+
+      "JWT" in conversation almost always means a JWS. A plain unsecured JWT — `alg: none`, no signature — is part of the spec and should be treated as a forgery in every production context.
+
+      #### How it relates
+
+      - Compact serialisation is what makes it fit in a header; the JSON serialisation exists but is rarely used.
+  - term: JWE
+    short: An encrypted JWT, five segments instead of three — for when the claims themselves must be hidden.
+    see: [ JWS, Payload, Claims ]
+    detail: |-
+      JWS gives integrity; JWE gives confidentiality. If a token must carry something the holder should not read — an internal identifier, a sensitive attribute — encryption is the mechanism, not base64.
+
+      In practice JWE is uncommon. The usual and better answer is to keep sensitive data out of the token and look it up server-side by `sub`.
+
+      #### Which one
+
+      | Need | Use |
+      | --- | --- |
+      | Nobody may tamper with it | JWS |
+      | Nobody may read it | JWE, or keep it out |
+      | Both | JWS inside JWE (nested) |
+
+      #### How it relates
+
+      - Reaching for JWE is usually a sign the token is carrying data that belongs in a database.
+  - term: Header
+    short: "The first segment: which algorithm signed the token and which key to verify it with."
+    see: [ alg confusion, JWKS, Signature ]
+    detail: |-
+      Three fields matter. `alg` names the algorithm — and is attacker-controlled, so it must never decide how you verify. `kid` selects a key from the JWKS, which is what allows rotation. `typ` distinguishes token types and matters where several kinds circulate.
+
+      The correct use of `alg` is as a filter against your own allow-list: if it is not in your list, reject before doing anything else.
+
+      #### Fields
+
+      | Field | Use | Trust it? |
+      | --- | --- | --- |
+      | `alg` | algorithm | no — check against your list |
+      | `kid` | which public key | as a lookup hint only |
+      | `typ` | token type | useful for token confusion defence |
+
+      #### How it relates
+
+      - Both attacks in the second animation are header manipulation.
+  - term: Payload
+    short: The claims — and a reminder that Base64URL is an encoding, not a protection.
+    see: [ Claims, JWE, Token size ]
+    detail: |-
+      Anyone holding the token can read every claim: paste it into a decoder and it is plain JSON. This surprises people regularly, and it is how internal identifiers, email addresses and role structures end up visible to users and to anyone who finds the token in a log.
+
+      The payload is also the thing that grows. Large group lists and custom claim sets produce tokens of several kilobytes, which then hit header size limits in proxies.
+
+      #### Do not put in it
+
+      | Never | Instead |
+      | --- | --- |
+      | Secrets, keys, passwords | nowhere near a token |
+      | Personal data you would not log | look up by `sub` |
+      | Hundreds of group ids | a claim pointing at a lookup |
+      | Anything that changes often | your own session store |
+
+      #### How it relates
+
+      - "It's encoded" is not a security property; treat the payload as public.
+  - term: Registered claims
+    short: "The standard seven: iss, sub, aud, exp, nbf, iat, jti — each with a defined meaning and a reason to check it."
+    see: [ Validation, Audience, Expiry ]
+    detail: |-
+      They exist so that validation can be generic. A library given an issuer and an audience can check a token from any provider, because these names mean the same thing everywhere.
+
+      `jti` is the one most often ignored and the one you need if you ever want replay protection or a revocation list — it is the token's unique id.
+
+      #### The seven
+
+      | Claim | Meaning | Check |
+      | --- | --- | --- |
+      | `iss` | issuer | exact match |
+      | `sub` | subject | key your data on it |
+      | `aud` | intended recipient | must be you |
+      | `exp` | expires at | now < exp |
+      | `nbf` | not before | now ≥ nbf |
+      | `iat` | issued at | sanity / max age |
+      | `jti` | token id | replay and revocation lists |
+
+      #### How it relates
+
+      - All times are seconds since the Unix epoch, in UTC — not milliseconds, which is a common integration bug.
+  - term: Signature
+    short: The only part that makes the other two trustworthy, and the only part an attacker cannot forge.
+    see: [ Symmetric vs asymmetric, alg confusion, JWKS ]
+    detail: |-
+      Computed over the exact Base64URL text of the header and payload. Any change to either — a single character in a claim — invalidates it, which is what lets a service trust claims it did not create.
+
+      Verification must be constant-time and must happen <em>before</em> any claim is read. Code that decodes the payload, acts on it, and verifies afterwards is code that trusts an attacker's input.
+
+      #### How it relates
+
+      - Decoding without verifying is fine for logging and debugging, and a vulnerability anywhere else.
+  - term: Symmetric vs asymmetric
+    short: HS256 shares one secret; RS256 and ES256 split signing from verification. The choice decides who can mint tokens.
+    see: [ JWKS, alg confusion, Signature ]
+    detail: |-
+      With HMAC, the key that verifies is the key that signs — so every service able to validate a token is also able to forge one. That is acceptable inside a single application and unacceptable across a fleet.
+
+      With RSA or ECDSA the issuer holds a private key and everyone else holds only the public one. That asymmetry is what makes JWKS and key rotation possible, and it is the right default for anything multi-service.
+
+      #### Choosing
+
+      | Algorithm | Use when |
+      | --- | --- |
+      | HS256 | one app signs and verifies its own tokens |
+      | RS256 | the default for an identity provider |
+      | ES256 | same, smaller signatures; good for mobile |
+      | EdDSA | modern, fast; check library support |
+      | `none` | never |
+
+      #### How it relates
+
+      - Using one key for both HMAC and RSA is what makes algorithm confusion possible.
+  - term: JWKS
+    short: The issuer's public keys as JSON, fetched over HTTPS and cached — what makes rotation invisible.
+    see: [ Header, Validation, Discovery ]
+    detail: |-
+      Each key carries a `kid`; the token's header names the one it used. Providers publish a new key before signing with it, so a client that caches the set and refreshes on an unknown `kid` keeps working across a rotation with no coordination.
+
+      Rate-limit that refresh. A stream of tokens with random `kid` values is otherwise a cheap denial-of-service against your identity provider — and, through it, against you.
+
+      #### Caching rules
+
+      | Rule | Why |
+      | --- | --- |
+      | Cache for minutes to hours | never fetch per request |
+      | Refresh on unknown `kid` | handles rotation |
+      | Rate-limit the refresh | prevents amplification |
+      | HTTPS, validated certificate | the keys are the trust anchor |
+
+      #### How it relates
+
+      - Most frameworks do all of this if you give them the authority URL instead of a hard-coded key.
+  - term: alg confusion
+    short: Forging a token by changing the header so the verifier uses an algorithm — and a key — the attacker controls.
+    see: [ Header, Symmetric vs asymmetric, Validation ]
+    detail: |-
+      The API expects RS256 and verifies with a public key. The attacker edits the header to say HS256 and signs the token using that same public key as the HMAC secret. A library that reads the algorithm from the header will dutifully run HMAC-SHA256 with the key it has — and the signature matches, because the attacker used the same key.
+
+      The sibling attack is `alg: none`: strip the signature and declare the token unsecured. Both exist only because the verifier asked the token how to verify itself.
+
+      #### The fix, in both cases
+
+      | Do | Not |
+      | --- | --- |
+      | Pin an algorithm allow-list | read `alg` from the token |
+      | One key, one algorithm | reuse a key across algorithms |
+      | Reject `none` explicitly | assume the library does |
+
+      #### How it relates
+
+      - The second animation walks both attacks and the one configuration line that ends them.
+  - term: Expiry & clock skew
+    short: exp and nbf decide whether a token is current — and servers whose clocks disagree decide whether that works.
+    see: [ Registered claims, Revocation, Validation ]
+    detail: |-
+      Both are Unix seconds in UTC. Because clocks drift, validators allow a small tolerance — but several libraries default to five minutes, which quietly extends every token's life by five minutes in both directions.
+
+      Thirty seconds is plenty on machines running NTP, and shortening it is one of the cheapest hardening changes available.
+
+      #### Skew defaults
+
+      | Setting | Recommended |
+      | --- | --- |
+      | Clock skew | 30 s (not the 5 min default) |
+      | Access token lifetime | 5–60 min |
+      | ID token lifetime | minutes |
+      | Require `exp` | always — reject tokens without it |
+
+      #### How it relates
+
+      - Lifetime is also your revocation window, which is the next concept.
+  - term: Revocation
+    short: The thing a JWT cannot do. Validation is offline, so nothing server-side can stop an issued token early.
+    see: [ Expiry, Introspection, jti ]
+    anim:
+      key: rev
+      title: The revocation window
+      svg: jwt/rev.svg
+      alt: A token remaining valid after the user is deactivated, until it expires
+      steps:
+        - say: A token is issued at 10:00 with a fifteen-minute lifetime. Services across the estate will accept it until 10:15 without asking anyone.
+          hl: [ rv-iss ]
+        - say: At 10:05 the user is deactivated — they leave the company, or an admin revokes their access. The identity provider updates its own records immediately.
+          show: [ rv-rev ]
+          hl: [ rv-rev ]
+          unhl: [ rv-iss ]
+          text:
+            rv-msg: the provider knows. the token does not, and the APIs never ask.
+        - say: But validation is a pure function of the token and a public key. There is no lookup to fail, so every API keeps accepting it.
+          show: [ rv-gap, rv-gapt ]
+          unhl: [ rv-rev ]
+          text:
+            rv-msg: ten minutes of access that nobody authorised and nobody can stop
+        - say: At 10:15 it expires and the problem ends by itself. The window was exactly the token lifetime — which is why that number is a security decision, not a convenience one.
+          show: [ rv-exp ]
+          hl: [ rv-exp ]
+          text:
+            rv-gapt: the revocation window = the token lifetime
+            rv-msg: shorten the lifetime and you shorten the exposure, linearly
+        - say: "Three answers, in increasing cost: minutes-long access tokens so the gap is small; a `jti` denylist for the few tokens worth the state; or opaque tokens with introspection, which revoke instantly and put a network call back on every request."
+          unhl: [ rv-exp ]
+          text:
+            rv-gapt: short lifetimes · jti denylist · introspection
+            rv-msg: stateless validation and instant revocation are the two things you cannot have at once
+    detail: |-
+      Deactivate a user at 10:05 and their token minted at 10:00 with a 10:15 expiry keeps working until 10:15, because the API never asks anyone whether it should. That window is the price of stateless validation.
+
+      There are three answers, in increasing cost: short lifetimes so the window is small; a denylist of `jti` values for high-value tokens; or introspection, which gives immediate revocation and reintroduces the per-request dependency JWTs existed to remove.
+
+      ::anim rev::
+
+      #### How it relates
+
+      - Short access tokens plus revocable refresh tokens is the standard compromise.
+  - term: jti & replay
+    short: The token's unique id — the hook for one-time use and for denylists.
+    see: [ Revocation, Registered claims, Validation ]
+    detail: |-
+      A bearer token can be used any number of times until it expires, which is usually fine for an access token and unacceptable for a one-shot artefact like a password-reset or magic-link token. Recording the `jti` on first use and rejecting repeats turns it into a single-use credential.
+
+      The same store doubles as a revocation denylist for high-value tokens — small, bounded by the token lifetime, and cheap to check.
+
+      #### When to track jti
+
+      | Token | Track? |
+      | --- | --- |
+      | Password reset, magic link | yes — one use only |
+      | Refresh token | yes — rotation and reuse detection |
+      | Ordinary access token | no — that is a session store again |
+
+      #### How it relates
+
+      - Tracking every access token's `jti` reintroduces exactly the state JWTs were chosen to avoid.
+  - term: Audience
+    short: Which service the token was minted for — and the check whose absence turns one compromise into many.
+    see: [ Registered claims, Validation, Token confusion ]
+    detail: |-
+      Without it, any token your issuer ever signed is accepted by your API: a token for another service, an ID token meant for a client, a token obtained by a different application entirely. One service can then replay a token at another and act as the user.
+
+      When a service genuinely needs to call another on the user's behalf, exchange the token for one with the right audience rather than forwarding yours.
+
+      #### How it relates
+
+      - This is the single most commonly skipped check, and the most commonly exploited.
+  - term: Token confusion
+    short: Accepting a token of the wrong kind — an ID token where an access token belongs, or a refresh token at an API.
+    see: [ Audience, Header, Validation ]
+    detail: |-
+      All of them are JWTs from the same issuer with valid signatures, so signature-only validation accepts all of them. Audience catches most cases; the `typ` header and an explicit check on token-type claims catch the rest.
+
+      Deciding which token types your API accepts, and rejecting everything else, is a five-line policy that closes a whole class of confusion.
+
+      #### How it relates
+
+      - The OIDC page's first animation is this failure mode in full.
+  - term: Token size
+    short: JWTs are sent on every request, and a fat one costs bandwidth, cache space and sometimes a 431.
+    see: [ Payload, Claims, Storage ]
+    detail: |-
+      A token with a few standard claims is around 500–800 bytes. Add group memberships, permissions and custom claims and it reaches several kilobytes — at which point proxies start rejecting the request, because default header limits are commonly 4–8 KB.
+
+      The fix is to carry an identifier rather than the data: put `sub` and a tenant in the token, and look up roles and groups server-side with a cache.
+
+      #### Rough sizes
+
+      | Contents | Size |
+      | --- | --- |
+      | Standard claims only | ~0.5 KB |
+      | Plus a few roles | ~1 KB |
+      | Plus 200 group ids | 8 KB+ — expect 431s |
+
+      #### How it relates
+
+      - Cookie storage makes this worse: browsers cap total cookie size per domain at around 4 KB.
+  - term: Storage
+    short: Where a browser keeps a token, and why every option is a trade rather than a solution.
+    see: [ Revocation, Token size, Audience ]
+    detail: |-
+      `localStorage` is readable by any script on the page, so one XSS or one compromised dependency is a full account takeover. An httpOnly cookie is unreadable by scripts but is sent automatically, which reintroduces CSRF and needs `SameSite` plus a token or origin check.
+
+      The honest answer for a browser application is not to hold tokens at all: a BFF keeps them server-side and gives the browser a session cookie instead.
+
+      #### Options
+
+      | Where | XSS | CSRF |
+      | --- | --- | --- |
+      | `localStorage` | exposed | safe |
+      | httpOnly cookie | protected | needs SameSite + checks |
+      | In memory only | partly | safe; lost on reload |
+      | BFF, server-side | best available | cookie rules apply |
+
+      #### How it relates
+
+      - The BFF page covers the server-side-token arrangement in detail.
+  - term: Sender-constrained tokens
+    short: Binding a token to the client that obtained it, so a stolen copy cannot be used — DPoP or mTLS.
+    see: [ Storage, Revocation, Signature ]
+    detail: |-
+      Everything above assumes a bearer token: possession is sufficient. Sender-constraining breaks that by requiring an additional proof only the legitimate client can produce — a per-request signed JWT in DPoP, or a client certificate with mTLS.
+
+      It is the strongest defence against theft, and it is the direction the specifications are moving, but support across providers and SDKs is still uneven.
+
+      #### How it relates
+
+      - It does not remove the need for short lifetimes; it removes the value of a stolen token.
+  - term: Don't write your own
+    short: Token validation is a solved problem with many sharp edges — use a maintained library and configure it.
+    see: [ alg confusion, Validation, JWKS ]
+    detail: |-
+      The failures are not exotic: algorithm confusion, missing audience checks, unverified signatures, generous clock skew, non-constant-time comparison, mishandled `kid`. Every one has appeared in widely used code written by competent people.
+
+      Your job is configuration, not cryptography: pin the algorithms, set the issuer and audience, tighten the skew, point at the authority and let it manage JWKS.
+
+      #### How it relates
+
+      - If you find yourself splitting a token on `'.'` in application code, stop.
+commands:
+  heading: Essential code & commands
+  tocLabel: Code & commands
+  groups:
+    - group: Validating one properly
+      items:
+        - lang: csharp
+          code: |-
+            builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+                .AddJwtBearer(o =>
+                {
+                    o.Authority = "https://login.example.com";   // discovery + JWKS, cached and rotated
+                    o.TokenValidationParameters = new TokenValidationParameters
+                    {
+                        ValidateIssuer           = true,
+                        ValidIssuer              = "https://login.example.com",
+                        ValidateAudience         = true,
+                        ValidAudience            = "api://orders",        // the skipped check
+                        ValidateLifetime         = true,
+                        ValidateIssuerSigningKey = true,
+                        ValidAlgorithms          = ["RS256", "ES256"],    // pinned — never from the header
+                        ClockSkew                = TimeSpan.FromSeconds(30),  // not the 5-minute default
+                        RequireExpirationTime    = true,
+                        RequireSignedTokens      = true,                  // rejects alg: none outright
+                    };
+                });
+          what: Six lines of policy. `ValidAlgorithms` and `ValidAudience` are the two that turn a generic verifier into a safe one.
+        - lang: python
+          code: |-
+            import jwt                                   # PyJWT
+            from jwt import PyJWKClient
+
+            jwks = PyJWKClient("https://login.example.com/.well-known/jwks.json",
+                               cache_keys=True, lifespan=3600)       # cache, refresh on new kid
+
+            def validate(token: str) -> dict:
+                key = jwks.get_signing_key_from_jwt(token).key
+                return jwt.decode(
+                    token,
+                    key,
+                    algorithms=["RS256", "ES256"],        # REQUIRED — pinned, not read from the header
+                    issuer="https://login.example.com",
+                    audience="api://orders",              # raises if it does not match
+                    leeway=30,                            # clock skew, in seconds
+                    options={"require": ["exp", "iat", "iss", "aud"],
+                             "verify_signature": True, "verify_exp": True, "verify_aud": True},
+                )
+          what: PyJWT makes `algorithms` mandatory precisely because omitting it was the bug. `options["require"]` rejects tokens that simply leave a claim out.
+    - group: What not to write
+      items:
+        - lang: csharp
+          code: |-
+            // every line of this is a vulnerability
+            var parts   = token.Split('.');
+            var header  = JsonSerializer.Deserialize<Header>(Base64UrlDecode(parts[0]));
+            var payload = JsonSerializer.Deserialize<Claims>(Base64UrlDecode(parts[1]));
+
+            if (payload.Exp < DateTimeOffset.UtcNow.ToUnixTimeSeconds()) return Unauthorized();
+            if (payload.Role == "admin") return AdminPanel();     // the signature was never checked
+
+            // no signature verification · algorithm taken on trust · no issuer · no audience
+          what: Decoding without verifying is fine for a log line and nothing else. The payload is attacker-controlled until the signature says otherwise.
+        - lang: python
+          code: |-
+            # and the Python version of the same mistake
+            import base64, json
+            payload = json.loads(base64.urlsafe_b64decode(token.split(".")[1] + "=="))
+            if payload["role"] == "admin":        # unsigned, unverified, attacker-supplied
+                ...
+
+            # jwt.decode(token, options={"verify_signature": False})  — debugging only, never a decision
+          what: Both forms show up in real code, usually written to "just read the user id" and then quietly relied on for authorization.
+    - group: Issuing one, when it is genuinely yours to issue
+      items:
+        - lang: csharp
+          code: |-
+            // a short-lived, narrowly scoped token signed with an asymmetric key
+            var handler = new JsonWebTokenHandler();
+            var token = handler.CreateToken(new SecurityTokenDescriptor
+            {
+                Issuer   = "https://login.example.com",
+                Audience = "api://orders",
+                Expires  = DateTime.UtcNow.AddMinutes(10),          // minutes, not days
+                Claims   = new Dictionary<string, object>
+                {
+                    ["sub"]   = userId,
+                    ["scope"] = "orders.read",
+                    ["jti"]   = Guid.CreateVersion7().ToString(),    // so it can be denylisted
+                },
+                SigningCredentials = new SigningCredentials(rsaKey, SecurityAlgorithms.RsaSha256),
+            });
+          what: Asymmetric signing means consumers can verify without being able to mint. With HS256 every validator is also an issuer.
+        - code: |-
+            import jwt, uuid, datetime as dt
+
+            token = jwt.encode(
+                {
+                    "iss":   "https://login.example.com",
+                    "aud":   "api://orders",
+                    "sub":   user_id,
+                    "scope": "orders.read",
+                    "jti":   str(uuid.uuid4()),
+                    "iat":   dt.datetime.now(dt.UTC),
+                    "exp":   dt.datetime.now(dt.UTC) + dt.timedelta(minutes=10),
+                },
+                private_key_pem,                 # the private half only
+                algorithm="RS256",
+                headers={"kid": "a1b2c3"},       # so verifiers can pick the right public key
+            )
+          what: Always set `kid` when you issue. Without it, rotating your signing key means a flag day for every consumer.
+    - group: Inspecting a token
+      items:
+        - lang: bash
+          code: |-
+            # decode the payload without verifying — for debugging only
+            cut -d. -f2 <<< "$TOKEN" | base64 -d 2>/dev/null | jq .
+
+            # which key signed it?
+            cut -d. -f1 <<< "$TOKEN" | base64 -d 2>/dev/null | jq '{alg, kid, typ}'
+
+            # and the keys the issuer currently publishes
+            curl -s https://login.example.com/.well-known/jwks.json | jq '.keys[] | {kid, alg, kty}'
+          what: Use a local decode rather than pasting a production token into a website — it is a live credential until it expires.
+    - group: Short lifetimes, plus a denylist where it matters
+      items:
+        - lang: csharp
+          code: |-
+            // revocation for the few tokens worth the state
+            public async Task<bool> IsRevokedAsync(string jti, DateTimeOffset exp)
+                => await cache.KeyExistsAsync($"revoked:{jti}");
+
+            public async Task RevokeAsync(string jti, DateTimeOffset exp)
+                => await cache.StringSetAsync($"revoked:{jti}", "1",
+                                              expiry: exp - DateTimeOffset.UtcNow);  // self-cleaning
+          what: The denylist only has to outlive the token, so it stays small. Do this for refresh and high-value tokens, not for every access token.
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - Validated offline against a public key — no lookup, no shared session store, no coupling.
+      - Any number of services can trust tokens minted by one issuer.
+      - Compact enough for an HTTP header, and URL-safe by construction.
+      - Standardised claims make generic validation possible across providers.
+      - Asymmetric signing means verifiers cannot forge what they verify.
+      - JWKS and `kid` allow key rotation with no coordinated deployment.
+  bad:
+    heading: Cons
+    items:
+      - Cannot be revoked — only expired, which makes lifetime a security decision.
+      - Readable by anyone holding it; "encoded" is not "encrypted".
+      - "A bearer credential: theft equals full access for the remaining lifetime."
+      - Validation has many steps and several have well-known exploits when skipped.
+      - Grows easily, and a fat token breaks proxies and cookie limits.
+      - Browser storage has no genuinely safe option without a backend.
+when:
+  note: short lifetimes, pinned algorithms, checked audience — the rest is detail
+  good:
+    heading: Use it when…
+    items:
+      - Several services must trust credentials issued somewhere else.
+      - Per-request validation has to be local and fast.
+      - You are already using OAuth or OIDC — the tokens are JWTs anyway.
+      - You need short-lived, self-contained, single-use artefacts like reset links.
+      - Verifiers must not be able to mint tokens, so asymmetric signing matters.
+  bad:
+    heading: Avoid it when…
+    items:
+      - It is one application with its own users. Use **a server session and a cookie** — revocation is then free.
+      - You need immediate revocation. Use **opaque tokens with introspection**, or very short lifetimes.
+      - The data must be hidden from the holder. Use **a lookup by `sub`**, or JWE if it genuinely must travel.
+      - You are tempted to track every token's `jti`. Use **sessions**; you have rebuilt them with extra steps.
+      - You would write the signing and validation yourself. Use **a maintained library**.
+useCases:
+  - title: One issuer, forty services
+    body: An identity provider mints access tokens; every service validates them locally against the cached JWKS. No service calls the provider per request, and adding a service means configuring an audience rather than provisioning credentials.
+  - title: A gateway that validates once
+    body: The API gateway verifies the signature, issuer, audience and expiry, then forwards the request with the claims it extracted. Internal services trust the gateway and skip the cryptography — provided nothing can reach them directly.
+  - title: Single-use password reset links
+    body: A short-lived JWT with a `jti` and a ten-minute expiry. The `jti` is recorded on first use, so clicking the link twice fails — a one-shot credential with no table of reset tokens to manage.
+  - title: Service-to-service with no shared secret
+    body: Each service presents a token signed by the platform's identity. Verification needs only the public keys, so there is no secret to distribute, rotate or leak, and a compromised service cannot mint tokens for others.
+  - title: Carrying tenant context
+    body: The token includes a tenant claim, and every service reads the tenant from the validated token rather than from a header or the URL — which is what stops a user asking for another tenant's data by editing a request.
+gotchas:
+  items:
+    - mistake: Trusting the header's algorithm
+      why: "Letting the token say how it should be verified enables both `alg: none` and algorithm confusion, where the attacker signs with the public key as an HMAC secret."
+      fix: pin an allow-list in configuration — `ValidAlgorithms` in .NET, the mandatory `algorithms=` in PyJWT — and never use one key with two algorithms.
+    - mistake: Not validating the audience
+      why: "Signature-only validation accepts every token your issuer ever signed: tokens for other services, ID tokens meant for a client, tokens obtained by another application."
+      fix: always set the expected audience, and use token exchange rather than forwarding a token to a downstream service.
+    - mistake: Putting secrets in the payload
+      why: Base64URL is an encoding. Anyone with the token — the browser, a log aggregator, a support engineer — can read every claim in it.
+      fix: treat the payload as public. Carry identifiers and look sensitive data up server-side; reach for JWE only when something truly must travel hidden.
+    - mistake: Expecting revocation to work
+      why: Deactivating a user does not invalidate their token. It keeps working until `exp`, because the API never asks anyone.
+      fix: keep access tokens to minutes, revoke the refresh token, and add a `jti` denylist for the few tokens where the window is unacceptable.
+    - mistake: Five-minute clock skew
+      why: Several libraries default to it, which silently extends every token's usable life by five minutes past expiry.
+      fix: set it to about 30 seconds and run NTP. If you need more than that, fix the clocks rather than the validator.
+    - mistake: Decoding to read a claim, then relying on it
+      why: Code that decodes the payload "just to get the user id" tends to become code that authorizes on it, and the signature was never checked.
+      fix: verify first, read second. If you need an unverified peek for logging, name the function so it cannot be mistaken for validation.
+    - mistake: Tokens in localStorage
+      why: Readable by any script on the page, so one XSS or one bad dependency is a complete account takeover for the token's lifetime.
+      fix: a BFF holding tokens server-side with an httpOnly, SameSite cookie to the browser. If that is impossible, keep tokens in memory only and accept the reload cost.
+    - mistake: Stuffing claims until the token breaks
+      why: Group lists and permission sets push tokens past 8 KB, and proxies start returning 431 or truncating headers — usually for your largest customer first.
+      fix: carry `sub`, tenant and a few roles. Look up anything large server-side and cache it; a token is a credential, not a profile.
+alternatives:
+  columns: [ Approach, Best for, Complexity, Cost / license, Key difference vs JWT ]
+  rows:
+    - self: true
+      cells: [ "**JWT (JWS)**", "stateless, cross-service credentials", Medium, free, — ]
+    - cells:
+        - "**Opaque tokens + introspection**"
+        - when revocation must be immediate
+        - Medium
+        - free; a call per request
+        - "Random string, state at the issuer: instantly revocable, but every validation is a network call"
+    - cells:
+        - "**Server sessions**"
+        - a single application
+        - Low
+        - a session store
+        - Revocation is free and nothing is readable by the client; does not cross service boundaries
+    - cells:
+        - "**PASETO**"
+        - avoiding JWT's footguns
+        - Low
+        - free
+        - Versioned, no algorithm negotiation — so no alg confusion; far less ecosystem support
+    - cells:
+        - "**Macaroons**"
+        - delegation with attenuation
+        - High
+        - free
+        - Holders can narrow a token's scope without the issuer; powerful, rarely supported
+    - cells:
+        - "**mTLS**"
+        - service-to-service identity
+        - Medium
+        - certificate infrastructure
+        - Identity at the transport layer, not a bearer credential; no claims, no user delegation
+    - cells:
+        - "**API keys**"
+        - simple server-to-server
+        - Very low
+        - free
+        - One long-lived secret, no expiry, no claims — revocable, but opaque and easily leaked
+  notes:
+    - "**Pick opaque tokens** when a compromised session must die immediately and you can afford the introspection call."
+    - "**Pick server sessions** for a single application — they are simpler and revocation costs nothing."
+    - "**Pick PASETO** if you control both ends and want a format with no algorithm negotiation to get wrong."
+    - "**Pick mTLS** for machine identity; it is stronger than any bearer token because it cannot be replayed."
+resources:
+  - url: https://datatracker.ietf.org/doc/html/rfc7519
+    title: RFC 7519 — JSON Web Token
+    why: the format and the registered claims, in about twenty readable pages.
+  - url: https://datatracker.ietf.org/doc/html/rfc8725
+    title: RFC 8725 — JWT Best Current Practices
+    why: the one to read. Algorithm pinning, audience checks and the attacks they prevent.
+  - url: https://datatracker.ietf.org/doc/html/rfc7515
+    title: RFC 7515 — JSON Web Signature
+    why: how the signature is computed, including why re-encoding breaks it.
+  - url: https://portswigger.net/web-security/jwt
+    title: PortSwigger — JWT attacks
+    why: "hands-on labs for `alg: none`, algorithm confusion and `kid` injection."
+  - url: https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html
+    title: OWASP — JWT cheat sheet
+    why: a checklist of the validation and storage decisions.
+  - url: https://www.rfc-editor.org/rfc/rfc9449
+    title: RFC 9449 — DPoP
+    why: sender-constrained tokens, for when a stolen bearer token is unacceptable.

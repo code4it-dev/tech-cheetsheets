@@ -3717,7 +3717,7 @@
           "id": "term-request-fingerprint",
           "term": "Request fingerprint",
           "def": "A hash of the request body stored with the key, so the same key with different content is rejected rather than silently answered.",
-          "detail": "If a client sends key K with a &euro;40 charge and later sends K with a &euro;4,000 charge, replaying the first response would silently swallow the second request. That is a client bug, and the only safe behaviour is to say so. Stripe returns a 422 in this case. Hash the canonical body at write time, compare on every repeat, and fail loudly when it differs. Responses Situation Return New key process; 200/201 Same key, same body, complete replay the stored response Same key, same body, in flight 409 or wait Same key, different body 422 — never replay How it relates Canonicalise before hashing, or whitespace and key order produce false mismatches."
+          "detail": "If a client sends key K with a €40 charge and later sends K with a €4,000 charge, replaying the first response would silently swallow the second request. That is a client bug, and the only safe behaviour is to say so. Stripe returns a 422 in this case. Hash the canonical body at write time, compare on every repeat, and fail loudly when it differs. Responses Situation Return New key process; 200/201 Same key, same body, complete replay the stored response Same key, same body, in flight 409 or wait Same key, different body 422 — never replay How it relates Canonicalise before hashing, or whitespace and key order produce false mismatches."
         },
         {
           "id": "term-response-replay",
@@ -4336,7 +4336,7 @@
           "id": "term-session-affinity",
           "term": "Session affinity",
           "def": "Pinning a client to a backend — useful, and a constraint you pay for in every other dimension.",
-          "detail": "L4 does it by hashing the source IP; L7 does it properly with a cookie, which survives NAT and mobile network changes. Either way it trades away even distribution, easy scaling and graceful draining. Prefer removing the need: put session state in Redis or a signed cookie, and any instance can serve any request. Keep affinity for genuine cases — in-memory caches with high hit rates, stateful connections like WebSockets. Cost of affinity You lose Because Even load clients are not equal Easy scale-out existing clients stay put Clean draining pinned sessions must move Pooling gains dedicated queues, by definition How it relates Queueing theory prices this exactly: at &rho; = 0.8, pinning costs about four times the queueing delay."
+          "detail": "L4 does it by hashing the source IP; L7 does it properly with a cookie, which survives NAT and mobile network changes. Either way it trades away even distribution, easy scaling and graceful draining. Prefer removing the need: put session state in Redis or a signed cookie, and any instance can serve any request. Keep affinity for genuine cases — in-memory caches with high hit rates, stateful connections like WebSockets. Cost of affinity You lose Because Even load clients are not equal Easy scale-out existing clients stay put Clean draining pinned sessions must move Pooling gains dedicated queues, by definition How it relates Queueing theory prices this exactly: at ρ = 0.8, pinning costs about four times the queueing delay."
         },
         {
           "id": "term-consistent-hashing",
@@ -4478,8 +4478,8 @@
         {
           "id": "term-utilisation",
           "term": "utilisation",
-          "def": "&rho; = λ/&mu;, the fraction of capacity in use. Little's Law does not mention it, and that omission is the point.",
-          "detail": "μ is the service rate — how many items a server could finish per second if never idle. ρ is how much of that you are using. ρ What it feels like < 50% queue mostly empty, W ≈ service time 70% queueing becomes visible in the tail 85% W is several times service time; p99 is much worse 95% W is around 20× service time for a simple queue ≥ 100% unstable: the queue grows until something sheds it For a single-server queue with exponential service, W = S / (1 − &rho;). That denominator is the whole story: it is why the last 10% of capacity costs more than the first 70%. Little's Law is perfectly happy at ρ = 0.99 — it will multiply your enormous W by your λ and hand you an enormous L. It is an identity, so it cannot warn you. The warning has to come from the utilisation curve."
+          "def": "ρ = λ/μ, the fraction of capacity in use. Little's Law does not mention it, and that omission is the point.",
+          "detail": "μ is the service rate — how many items a server could finish per second if never idle. ρ is how much of that you are using. ρ What it feels like < 50% queue mostly empty, W ≈ service time 70% queueing becomes visible in the tail 85% W is several times service time; p99 is much worse 95% W is around 20× service time for a simple queue ≥ 100% unstable: the queue grows until something sheds it For a single-server queue with exponential service, W = S / (1 − ρ). That denominator is the whole story: it is why the last 10% of capacity costs more than the first 70%. Little's Law is perfectly happy at ρ = 0.99 — it will multiply your enormous W by your λ and hand you an enormous L. It is an identity, so it cannot warn you. The warning has to come from the utilisation curve."
         },
         {
           "id": "term-the-latency-wall",
@@ -4539,7 +4539,7 @@
           "id": "term-headroom",
           "term": "headroom",
           "def": "The gap between λ and μ. Little's Law tells you what you need; headroom is what keeps W off the wall.",
-          "detail": "Having sized a pool or a fleet with the law, the follow-up question is where on the utilisation curve you intend to sit. Target ρ Suitable for 30–50% bursty traffic, slow-scaling tiers, anything where a failover doubles a neighbour's load 50–70% ordinary stateless services — the usual default 70–80% smooth, well-understood, fast-autoscaling workloads > 85% batch work that can wait, and nothing a user is waiting for These are the same numbers as on the back-of-the-envelope page, and now you can see where they come from: they are the region where 1/(1−&rho;) is still small enough that a traffic bump costs you a little latency rather than an incident. Lower the target when variability is high. Kingman's middle term scales the whole curve, so bursty arrivals mean the wall arrives at a utilisation you would otherwise have considered comfortable."
+          "detail": "Having sized a pool or a fleet with the law, the follow-up question is where on the utilisation curve you intend to sit. Target ρ Suitable for 30–50% bursty traffic, slow-scaling tiers, anything where a failover doubles a neighbour's load 50–70% ordinary stateless services — the usual default 70–80% smooth, well-understood, fast-autoscaling workloads > 85% batch work that can wait, and nothing a user is waiting for These are the same numbers as on the back-of-the-envelope page, and now you can see where they come from: they are the region where 1/(1−ρ) is still small enough that a traffic bump costs you a little latency rather than an incident. Lower the target when variability is high. Kingman's middle term scales the whole curve, so bursty arrivals mean the wall arrives at a utilisation you would otherwise have considered comfortable."
         },
         {
           "id": "term-measurement",
@@ -5927,7 +5927,7 @@
           "id": "term-histogram-and-buckets",
           "term": "histogram and buckets",
           "def": "How percentiles are actually computed at scale: count observations into predefined ranges, then interpolate. Cheap, aggregatable, approximate.",
-          "detail": "Storing every measurement is impossible at volume, so systems store counts per bucket. The percentile is then interpolated inside whichever bucket contains the target rank. le=\"0.005\" 12043 # 12,043 requests took Property Consequence Accuracy is bounded by bucket width a p99 landing in a 100 ms–1 s bucket is accurate to within that range Buckets are chosen in advance pick them around your SLO: if the target is 300 ms, you need a boundary at 300 ms Everything above the last bucket is +Inf if the top bucket is 1 s and your tail is 8 s, the tool reports 1 s Counters are additive histograms from many instances can be summed, then the percentile computed once — this is the whole point In Prometheus terms: histograms are aggregatable and approximate (compute percentiles at query time with histogram_quantile ); summaries compute exact percentiles per instance but cannot be combined across instances. Choose histograms unless you have exactly one instance, forever."
+          "detail": "Storing every measurement is impossible at volume, so systems store counts per bucket. The percentile is then interpolated inside whichever bucket contains the target rank. le=\"0.005\" 12043 # 12,043 requests took <= 5 ms le=\"0.01\" 45110 le=\"0.025\" 98400 le=\"0.05\" 99850 le=\"0.1\" 99960 le=\"+Inf\" 100000 Property Consequence Accuracy is bounded by bucket width a p99 landing in a 100 ms–1 s bucket is accurate to within that range Buckets are chosen in advance pick them around your SLO: if the target is 300 ms, you need a boundary at 300 ms Everything above the last bucket is +Inf if the top bucket is 1 s and your tail is 8 s, the tool reports 1 s Counters are additive histograms from many instances can be summed, then the percentile computed once — this is the whole point In Prometheus terms: histograms are aggregatable and approximate (compute percentiles at query time with histogram_quantile ); summaries compute exact percentiles per instance but cannot be combined across instances. Choose histograms unless you have exactly one instance, forever."
         },
         {
           "id": "term-quantile-estimation",
@@ -6082,7 +6082,7 @@
           "id": "term-utilisation",
           "term": "Utilisation",
           "def": "ρ = λ / (cμ): the fraction of capacity in use, and the single number that drives waiting time.",
-          "detail": "The trap is that it feels linear and is not. Going from 50% to 80% utilisation adds 30 points and multiplies the wait by 2.5. Going from 80% to 95% adds 15 points and multiplies it by four. The resource you are consuming as you approach 100% is not capacity — it is latency headroom, and it runs out much faster than the capacity does. It also explains why high utilisation is a target in batch systems and a mistake in interactive ones: nobody is waiting for a batch job, so you may as well run the machine flat out. W / S for M/M/1 &rho; Multiplier 20 ms of work takes 0.50 2× 40 ms 0.80 5× 100 ms 0.90 10× 200 ms 0.95 20× 400 ms 0.99 100× 2 s How it relates Autoscale on latency or concurrency rather than CPU: CPU looks fine right up to the cliff."
+          "detail": "The trap is that it feels linear and is not. Going from 50% to 80% utilisation adds 30 points and multiplies the wait by 2.5. Going from 80% to 95% adds 15 points and multiplies it by four. The resource you are consuming as you approach 100% is not capacity — it is latency headroom, and it runs out much faster than the capacity does. It also explains why high utilisation is a target in batch systems and a mistake in interactive ones: nobody is waiting for a batch job, so you may as well run the machine flat out. W / S for M/M/1 ρ Multiplier 20 ms of work takes 0.50 2× 40 ms 0.80 5× 100 ms 0.90 10× 200 ms 0.95 20× 400 ms 0.99 100× 2 s How it relates Autoscale on latency or concurrency rather than CPU: CPU looks fine right up to the cliff."
         },
         {
           "id": "term-arrival-rate",
@@ -6106,7 +6106,7 @@
           "id": "term-m-m-1",
           "term": "M/M/1",
           "def": "The single-server model, and the source of W = S / (1 − ρ).",
-          "detail": "One queue, one server, random arrivals, random service times. It is the simplest model that produces the hockey-stick curve, and its formulas are worth memorising because they give you the right order of magnitude in seconds. Its practical relevance is higher than it looks: a single-threaded event loop, one database connection, a lock, a partition consumer and a leader replica are all M/M/1-ish. The formulas Quantity Formula Utilisation &rho; = λ/&mu; Time in system W = S / (1 − &rho;) Time queueing Wₔ = S&rho; / (1 − &rho;) Number in system L = &rho; / (1 − &rho;) Number queueing Lₔ = &rho;² / (1 − &rho;) How it relates L = λW connects these: Little's Law holds for every row in that table."
+          "detail": "One queue, one server, random arrivals, random service times. It is the simplest model that produces the hockey-stick curve, and its formulas are worth memorising because they give you the right order of magnitude in seconds. Its practical relevance is higher than it looks: a single-threaded event loop, one database connection, a lock, a partition consumer and a leader replica are all M/M/1-ish. The formulas Quantity Formula Utilisation ρ = λ/μ Time in system W = S / (1 − ρ) Time queueing Wₔ = Sρ / (1 − ρ) Number in system L = ρ / (1 − ρ) Number queueing Lₔ = ρ² / (1 − ρ) How it relates L = λW connects these: Little's Law holds for every row in that table."
         },
         {
           "id": "term-m-m-c",
@@ -6130,13 +6130,13 @@
           "id": "term-kingman-s-formula",
           "term": "Kingman's formula",
           "def": "The practical approximation for a realistic queue: wait = utilisation factor × variability factor × service time.",
-          "detail": "Wₔ ≈ (&rho;/(1−&rho;)) × ((cₐ²+cₛ²)/2) × S. Sometimes called the VUT equation — Variability, Utilisation, Time — and it is the most useful single formula in applied queueing, because it tells you there are exactly three levers and lets you compare them. Check it against M/M/1: with cₐ = cₛ = 1 the middle term is 1 and you recover &rho;/(1−&rho;) × S. With deterministic everything, the middle term is 0 and there is no queue at all. Three levers Lever How Typical gain Lower &rho; add capacity, shed load large, costs money Lower variability jitter, batching, caps on outliers large, often free Lower S make the work faster helps twice over How it relates The variability lever is the one teams forget, and it rarely requires new hardware."
+          "detail": "Wₔ ≈ (ρ/(1−ρ)) × ((cₐ²+cₛ²)/2) × S. Sometimes called the VUT equation — Variability, Utilisation, Time — and it is the most useful single formula in applied queueing, because it tells you there are exactly three levers and lets you compare them. Check it against M/M/1: with cₐ = cₛ = 1 the middle term is 1 and you recover ρ/(1−ρ) × S. With deterministic everything, the middle term is 0 and there is no queue at all. Three levers Lever How Typical gain Lower ρ add capacity, shed load large, costs money Lower variability jitter, batching, caps on outliers large, often free Lower S make the work faster helps twice over How it relates The variability lever is the one teams forget, and it rarely requires new hardware."
         },
         {
           "id": "term-instability",
           "term": "Instability",
           "def": "At ρ ≥ 1 there is no steady state: the queue grows without bound and no formula applies.",
-          "detail": "Every result on this page assumes a steady state, which requires arrivals to be slower than service. Once ρ reaches 1 the queue grows linearly forever, latency grows linearly forever, and the only question is which runs out first — memory, patience or the client's timeout. This is why an overloaded system does not settle at a worse-but-stable latency: there is no such equilibrium to settle into. It needs the arrival rate reduced, which is what shedding does. Regimes &rho; Behaviour < 0.7 comfortable; queue mostly empty 0.7–0.85 sensitive; bursts hurt 0.85–1 the cliff ≥ 1 unbounded; shed or fail How it relates Load shedding is the operational way to force ρ back below 1."
+          "detail": "Every result on this page assumes a steady state, which requires arrivals to be slower than service. Once ρ reaches 1 the queue grows linearly forever, latency grows linearly forever, and the only question is which runs out first — memory, patience or the client's timeout. This is why an overloaded system does not settle at a worse-but-stable latency: there is no such equilibrium to settle into. It needs the arrival rate reduced, which is what shedding does. Regimes ρ Behaviour < 0.7 comfortable; queue mostly empty 0.7–0.85 sensitive; bursts hurt 0.85–1 the cliff ≥ 1 unbounded; shed or fail How it relates Load shedding is the operational way to force ρ back below 1."
         },
         {
           "id": "term-queue-discipline",
@@ -6166,7 +6166,7 @@
           "id": "term-waiting-vs-sojourn-time",
           "term": "Waiting vs sojourn time",
           "def": "Wq is time queueing; W is time in the system, including service. Mixing them up changes answers by a lot.",
-          "detail": "W = Wₔ + S. At low utilisation they differ hugely in relative terms (Wq near zero, W near S); at high utilisation they converge, because queueing dominates. Published formulas use both, often without saying which, so check before you compare numbers. Your monitoring almost always measures W — the client sees the whole thing — while the interesting engineering quantity is usually Wq, because that is the part you can remove. At S = 20 ms &rho; Wₔ W 0.5 20 ms 40 ms 0.8 80 ms 100 ms 0.9 180 ms 200 ms How it relates The gap between an idle-system benchmark and production p99 is almost entirely Wₔ."
+          "detail": "W = Wₔ + S. At low utilisation they differ hugely in relative terms (Wq near zero, W near S); at high utilisation they converge, because queueing dominates. Published formulas use both, often without saying which, so check before you compare numbers. Your monitoring almost always measures W — the client sees the whole thing — while the interesting engineering quantity is usually Wq, because that is the part you can remove. At S = 20 ms ρ Wₔ W 0.5 20 ms 40 ms 0.8 80 ms 100 ms 0.9 180 ms 200 ms How it relates The gap between an idle-system benchmark and production p99 is almost entirely Wₔ."
         },
         {
           "id": "term-bounded-queues",
@@ -6178,7 +6178,7 @@
           "id": "term-measuring-it",
           "term": "Measuring it",
           "def": "Which numbers to collect so that the theory becomes usable rather than decorative.",
-          "detail": "You need four: arrival rate, service time on an unloaded system, concurrency in flight, and queue sojourn time. From those you get ρ, you can compute the coefficient of variation, and you can check Little's Law as a sanity test — if L ≠ λW your instrumentation is wrong somewhere. Note what is not on the list: CPU. It is a poor proxy for ρ in anything that waits on I/O, and it gives no warning before the cliff. The four measurements Measure Gives you Arrival rate λ load Service time S (unloaded) &mu;, and &rho; with λ Concurrency in flight L, and &rho; against the limit Queue sojourn p50/p99 Wₔ and its variability How it relates These are the same signals load shedding triggers on, which is not a coincidence."
+          "detail": "You need four: arrival rate, service time on an unloaded system, concurrency in flight, and queue sojourn time. From those you get ρ, you can compute the coefficient of variation, and you can check Little's Law as a sanity test — if L ≠ λW your instrumentation is wrong somewhere. Note what is not on the list: CPU. It is a poor proxy for ρ in anything that waits on I/O, and it gives no warning before the cliff. The four measurements Measure Gives you Arrival rate λ load Service time S (unloaded) μ, and ρ with λ Concurrency in flight L, and ρ against the limit Queue sojourn p50/p99 Wₔ and its variability How it relates These are the same signals load shedding triggers on, which is not a coincidence."
         }
       ],
       "related": [
@@ -6294,7 +6294,7 @@
           "id": "term-reciprocal-rank-fusion",
           "term": "Reciprocal Rank Fusion",
           "def": "Combining ranked lists by summing 1/(k + rank) instead of trying to compare incompatible scores.",
-          "detail": "RRF ignores scores entirely and uses only positions. For each document, score = &Sigma; 1/(k + rank i) across the lists it appears in, with k typically 60. A document ranked 1st in one list and 3rd in another beats one ranked 2nd in a single list — agreement across retrievers is rewarded, and no calibration is needed. How it relates RRF produces the candidate set a Reranker then scores properly."
+          "detail": "RRF ignores scores entirely and uses only positions. For each document, score = Σ 1/(k + rank i) across the lists it appears in, with k typically 60. A document ranked 1st in one list and 3rd in another beats one ranked 2nd in a single list — agreement across retrievers is rewarded, and no calibration is needed. How it relates RRF produces the candidate set a Reranker then scores properly."
         },
         {
           "id": "term-reranker",
@@ -6825,7 +6825,7 @@
           "id": "term-retry-amplification",
           "term": "Retry amplification",
           "def": "Retries at several layers multiplying rather than adding — the reason one blip becomes an outage.",
-          "detail": "Three layers each retrying three times is 3&sup3; = 27 requests from one user action, all aimed at a dependency that is already failing. The load arrives precisely when there is least capacity to absorb it, which is how a recoverable degradation becomes congestion collapse. The rule is to retry at exactly one layer. Usually the one closest to the failure, because it knows most about the error and wastes the least work; sometimes the edge, if only it can see the whole operation. Multiplication Layers retrying Calls per request 1 3 2 9 3 27 4 81 How it relates The second animation builds this number step by step."
+          "detail": "Three layers each retrying three times is 3³ = 27 requests from one user action, all aimed at a dependency that is already failing. The load arrives precisely when there is least capacity to absorb it, which is how a recoverable degradation becomes congestion collapse. The rule is to retry at exactly one layer. Usually the one closest to the failure, because it knows most about the error and wastes the least work; sometimes the edge, if only it can see the whole operation. Multiplication Layers retrying Calls per request 1 3 2 9 3 27 4 81 How it relates The second animation builds this number step by step."
         },
         {
           "id": "term-retry-budget",
@@ -7895,7 +7895,7 @@
           "id": "term-ivf",
           "term": "IVF",
           "def": "Partition the space into clusters, search only the few nearest clusters.",
-          "detail": "An inverted file index runs k-means over a sample to find nlist centroids, assigns every vector to one, and at query time compares the query to the centroids and scans only the nprobe closest lists. Much less memory than HNSW, much faster to build — and lower recall at the same speed. Its weakness is the boundary problem: a true nearest neighbour sitting just across a cluster boundary is invisible unless nprobe covers that cluster. It also needs training on representative data, and a collection whose distribution drifts away from the training sample degrades until it is retrained. Common values Parameter Typical nlist &radic;n, so ~1,000 for 1M vectors nprobe 1–5% of nlist Training sample 30–256 × nlist vectors Best for huge collections, memory-constrained How it relates IVF-PQ combines it with product quantisation for billion-scale collections where HNSW would not fit in memory at any price."
+          "detail": "An inverted file index runs k-means over a sample to find nlist centroids, assigns every vector to one, and at query time compares the query to the centroids and scans only the nprobe closest lists. Much less memory than HNSW, much faster to build — and lower recall at the same speed. Its weakness is the boundary problem: a true nearest neighbour sitting just across a cluster boundary is invisible unless nprobe covers that cluster. It also needs training on representative data, and a collection whose distribution drifts away from the training sample degrades until it is retrained. Common values Parameter Typical nlist √n, so ~1,000 for 1M vectors nprobe 1–5% of nlist Training sample 30–256 × nlist vectors Best for huge collections, memory-constrained How it relates IVF-PQ combines it with product quantisation for billion-scale collections where HNSW would not fit in memory at any price."
         },
         {
           "id": "term-recall-k",

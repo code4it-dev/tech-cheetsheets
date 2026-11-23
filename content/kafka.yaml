@@ -1,0 +1,605 @@
+title: Apache Kafka
+slug: kafka
+tagline: "A distributed, append-only log for events: write once, read by many, replay any time."
+asof: Nov 2026 · release line 4.x (KRaft only)
+description: "Apache Kafka cheatsheet: architecture, animated produce and consumer-group walk-throughs, key concepts, CLI commands, trade-offs and alternatives."
+aliases: [ Kafka, Apache Kafka ]
+keywords:
+  - event streaming
+  - message broker
+  - pub/sub
+  - log
+  - event-driven
+  - microservices
+  - kraft
+  - cdc
+overview:
+  - "Kafka stores streams of records (events such as \"order paid\" or \"user signed up\") in **topics**. A topic is split into **partitions**, and each partition is an ordered log on disk: new records are appended at the end and get an increasing number, the **offset**. Records are not removed when they are read; they stay until a retention limit (time or size) is reached."
+  - Producers write records; consumers read them at their own pace and remember how far they got by committing offsets. Many independent applications can read the same topic, and a slow or new consumer can start from the beginning and replay history. Partitions are spread and replicated across several servers (**brokers**), which gives both horizontal scale and fault tolerance.
+  - Kafka is the backbone of event-driven architectures, change data capture and real-time data pipelines. Since Kafka 4.0 the cluster manages its own metadata with the built-in KRaft protocol; ZooKeeper is gone. It is open source under the Apache 2.0 license, with managed offerings such as Confluent Cloud, Amazon MSK and Azure Event Hubs (Kafka-compatible API).
+architecture:
+  svg: kafka/architecture.svg
+  alt: Producers write to a Kafka cluster of three brokers holding replicated partitions of the orders topic, coordinated by a KRaft controller quorum; two consumer groups read independently
+  caption: Think of a topic as a set of append-only log files, copied to several machines. Producers append; consumers keep a bookmark (offset) per partition and read forward.
+howItWorks:
+  - anim:
+      id: anim-produce
+      title: Producing a record with a key
+      svg: kafka/anim-produce.svg
+      alt: Animated walk-through of producing a keyed record to a partition, replicating it and acknowledging it
+      steps:
+        - say: "`order-service` sends a record to topic `orders` with key `user-42` and value `\"paid\"`. The key is optional, but it decides where the record goes."
+          show: [ p-msg ]
+          hl: [ p-prod ]
+        - say: Before anything leaves the client, the producer's **partitioner** picks the partition. The broker does not decide.
+          hl: [ p-part ]
+          unhl: [ p-prod ]
+          move:
+            p-msg: [ 205, 0 ]
+          text:
+            p-part-label: key = "user-42"
+        - say: For keyed records it hashes the key and takes it modulo the partition count. Same key → same partition, every time. That is how Kafka keeps **per-key ordering**.
+          show: [ p-arrow ]
+          hl: [ p-row-1 ]
+          text:
+            p-part-label: murmur2("user-42") % 3 = 1
+        - say: The record is sent to the **leader** of partition 1 (broker B2), which appends it to the end of its log. Its position, **offset 4**, is its permanent ID in that partition. Nothing is updated in place.
+          show: [ p-new ]
+          hide: [ p-msg ]
+          unhl: [ p-part ]
+        - say: Follower replicas on B1 and B3 fetch the new record from the leader. Replicas that are caught up form the **in-sync replica set (ISR)**.
+          show: [ p-rep-arrow ]
+          unhl: [ p-row-1 ]
+          text:
+            p-f1-t: B1 · offsets 0…4 ✓
+            p-f3-t: B3 · offsets 0…4 ✓
+          fill:
+            p-f1: "#e3eedc"
+            p-f3: "#e3eedc"
+        - say: With `acks=all` (the default), the leader answers only once every in-sync replica has the record, so losing one broker loses nothing.
+          show: [ p-ack ]
+        - say: The producer receives the partition and offset. Retries plus idempotence (on by default) mean a network hiccup won't write the record twice.
+          hl: [ p-prod ]
+          move:
+            p-ack: [ -210, 0 ]
+        - say: The record now stays on disk until retention expires (7 days by default), whether or not anyone reads it. Consumers only move their own offset; any number of groups can read it.
+          show: [ p-note ]
+          unhl: [ p-prod ]
+  - anim:
+      id: anim-group
+      title: "Consumer group: offsets, rebalance, failure"
+      svg: kafka/anim-group.svg
+      alt: Animated walk-through of a consumer group sharing partitions, committing offsets and rebalancing
+      steps:
+        - say: "Group `billing` has two consumers. Kafka assigns each partition to exactly one member: C1 gets P0 and P1, C2 gets P2."
+          show: [ g-a-p0-c1, g-a-p1-c1, g-a-p2-c2 ]
+        - say: C1 polls P0 starting from the group's committed offset (12) and processes records 12, 13 and 14.
+          hl: [ g-c1, g-p0 ]
+          text:
+            g-p0-off: processing 12…14
+        - say: After processing, C1 **commits offset 15** (the next record to read) to the internal topic `__consumer_offsets`. That is the group's bookmark.
+          show: [ g-commit ]
+          unhl: [ g-p0 ]
+          text:
+            g-p0-off: "committed: 15"
+          fill:
+            g-p0: "#e3eedc"
+        - say: A third consumer, C3, starts with the same `group.id`. The group coordinator triggers a **rebalance**.
+          show: [ g-c3 ]
+          hide: [ g-commit ]
+          hl: [ g-group ]
+          unhl: [ g-c1 ]
+        - say: P1 moves from C1 to C3. Each consumer now owns one partition, which is the maximum parallelism for a 3-partition topic.
+          show: [ g-a-p1-c3 ]
+          hide: [ g-a-p1-c1 ]
+          unhl: [ g-group ]
+          text:
+            g-c1-sub: reads P0
+            g-c3-sub: reads P1
+        - say: C2 crashes and stops sending heartbeats. After `session.timeout.ms` (45 s by default) the coordinator removes it and rebalances again.
+          hide: [ g-a-p2-c2 ]
+          hl: [ g-c2 ]
+          text:
+            g-c2-title: C2 (crashed)
+            g-c2-sub: no heartbeat
+          fill:
+            g-c2: "#f9e3df"
+        - say: P2 goes to C1, which resumes from P2's **last committed offset** (30). Records C2 processed but never committed are delivered again. This is **at-least-once** delivery, so handlers must be idempotent.
+          show: [ g-a-p2-c1 ]
+          hl: [ g-p2 ]
+          unhl: [ g-c2 ]
+          text:
+            g-c1-sub: reads P0, P2
+            g-p2-off: resume at 30
+        - say: "Adding a 4th consumer would not speed anything up: with 3 partitions it would get no assignment. Plan the partition count for your peak parallelism."
+          show: [ g-note ]
+          unhl: [ g-p2 ]
+concepts:
+  - term: record
+    short: "One event: optional key, value (bytes), timestamp and headers. Kafka does not care about the format; JSON, Avro and Protobuf are common."
+    see: [ topic, partition, offset, producer ]
+    detail: |-
+      | Field | Example | Notes |
+      | --- | --- | --- |
+      | key | `user-42` | optional; decides the partition and enables compaction |
+      | value | `{"status":"paid"}` | bytes: JSON, Avro, Protobuf… |
+      | timestamp | `1731234567890` | creation or append time (ms) |
+      | headers | `trace-id: ab12` | metadata, e.g. tracing, content type |
+
+      Default maximum size is about **1 MB** (`message.max.bytes`). Typical events are 0.5–10 KB. Records are batched and compressed (lz4, zstd) by the producer, which is why throughput is so high.
+
+      Use a **schema registry** with Avro or Protobuf so producers and consumers agree on the format as it evolves.
+  - term: topic
+    short: A named stream of records, like `orders` or `user-signups`. Roughly a table name for events.
+    see: [ partition, retention, log compaction, record ]
+    detail: |-
+      A topic is a named, partitioned log. Name it after the event, in a consistent style: `orders.placed.v1`, `payments.refunded`, `user-profiles` (compacted).
+
+      #### Settings you'll set per topic
+
+      - **partitions**: parallelism and ordering unit (e.g. 6–12 for a busy topic).
+      - **replication factor**: copies across brokers (3 in production).
+      - **retention**: `retention.ms` (7 days default) or `retention.bytes`.
+      - **cleanup.policy**: `delete` (by age/size) or `compact` (latest per key).
+
+      Avoid auto-created topics in production (`auto.create.topics.enable=false`): a typo silently creates a new, empty topic with default settings.
+  - term: partition
+    short: A topic is split into partitions. Each one is an ordered, append-only log and the unit of parallelism and ordering.
+    see: [ topic, offset, consumer group, producer, leader / follower ]
+    detail: |-
+      Each partition is an ordered log stored as segment files on a broker's disk, replicated to others. It is the unit of:
+
+      - **Ordering**: guaranteed within a partition only.
+      - **Parallelism**: in a consumer group, at most one consumer per partition.
+      - **Placement**: each partition has one leader broker.
+
+      #### Choosing a count
+
+      Rule of thumb: `max(target throughput / per-consumer throughput, peak consumers)`. If one consumer handles 5 MB/s and you need 30 MB/s, you need at least 6. Common values: 3–12 for most topics, 30–100 for very high volume.
+
+      You can add partitions later but never remove them, and adding them changes which partition each key maps to.
+  - term: offset
+    short: The position of a record inside a partition (0, 1, 2…). Never reused. Consumers track progress by offset.
+    see: [ partition, committed offset, consumer group ]
+    detail: |-
+      An offset is a record's position in its partition: 0, 1, 2… It never changes and is never reused, even after old records are deleted by retention or compaction (gaps are normal).
+
+      - **Log end offset**: where the next record will be written.
+      - **Committed offset**: where a consumer group will resume.
+      - **Lag** = log end offset − committed offset. The key health metric.
+
+      Reset where a group starts with `auto.offset.reset` (`earliest` / `latest`) for new groups, or explicitly with `kafka-consumer-groups.sh --reset-offsets --to-datetime 2026-11-10T08:00:00.000`.
+  - term: broker
+    short: A Kafka server. It stores partition replicas on disk and serves producers and consumers. A cluster usually has 3 or more.
+    see: [ KRaft controller, replication factor, leader / follower, partition ]
+    detail: |-
+      A broker is one Kafka server process. It stores partition replicas in log segments on disk, serves producer and consumer requests for partitions it leads, and replicates from leaders for the others.
+
+      #### Typical sizing
+
+      3 brokers is the minimum for production with replication factor 3. Brokers commonly have 8–32 vCPU, 32–64 GB RAM (much of it used as OS page cache) and fast disks. A single broker can handle hundreds of MB/s and thousands of partitions.
+
+      Clients connect to any broker via `bootstrap.servers`, fetch metadata, then talk directly to each partition's leader.
+  - term: KRaft controller
+    short: The built-in Raft quorum that manages cluster metadata and elects partition leaders. Replaced ZooKeeper, which was removed in Kafka 4.0.
+    see: [ broker, leader / follower, ISR ]
+    detail: |-
+      KRaft (Kafka Raft) is Kafka's built-in metadata quorum. A few controller nodes (3 or 5) replicate a metadata log containing topics, partitions, configs, ACLs and who leads what.
+
+      - Elects partition leaders when a broker fails.
+      - Replaced ZooKeeper; ZooKeeper mode was removed in Kafka 4.0. Older clusters must migrate on 3.x first.
+      - Controllers can run on dedicated nodes (production) or combined with brokers (dev).
+
+      Benefit: one system to operate and secure, faster failover, and support for millions of partitions.
+  - term: replication factor
+    short: How many copies of each partition exist on different brokers. 3 is the usual production value.
+    see: [ ISR, leader / follower, acks, broker ]
+    detail: |-
+      RF = number of copies of each partition, each on a different broker.
+
+      | RF | Survives | Use |
+      | --- | --- | --- |
+      | 1 | nothing: one disk failure loses data | local dev only |
+      | 2 | 1 broker, but no safety margin with `acks=all` | rarely a good idea |
+      | 3 | 1 broker down while still accepting writes | production standard |
+
+      Pair RF 3 with `min.insync.replicas=2` and `acks=all`: every acknowledged write is on at least 2 brokers. Storage cost is RF × data size.
+  - term: leader / follower
+    short: Each partition has one leader replica that handles reads and writes. Followers copy it and take over if it fails.
+    see: [ ISR, replication factor, broker, KRaft controller ]
+    detail: |-
+      For each partition one replica is the **leader**: producers write to it and (by default) consumers read from it. **Followers** continuously fetch from the leader to stay in sync.
+
+      When a leader's broker dies, the controller promotes an in-sync follower within seconds; clients refresh metadata and continue.
+
+      Leaders are spread across brokers so load is balanced. Consumers can read from a nearby follower (rack-aware fetching) to save cross-zone traffic costs.
+  - term: ISR
+    short: "In-sync replicas: the followers that are caught up with the leader. Only they can become leader without data loss."
+    see: [ leader / follower, acks, replication factor ]
+    detail: |-
+      The in-sync replica set is the leader plus the followers that have caught up within `replica.lag.time.max.ms` (30 s by default).
+
+      - With `acks=all`, a write is acknowledged when every ISR member has it.
+      - If the ISR shrinks below `min.insync.replicas`, producers using `acks=all` get `NotEnoughReplicas` errors: Kafka chooses consistency over availability.
+      - `unclean.leader.election.enable=false` (default) prevents an out-of-sync replica from becoming leader and silently losing data.
+
+      Alert on "under-replicated partitions": it means a broker is slow or down.
+  - term: acks
+    short: "Producer setting for durability: `0` (fire and forget), `1` (leader only), `all` (every in-sync replica, the default since 3.0)."
+    see: [ ISR, producer, replication factor ]
+    detail: |-
+      | acks | Producer waits for | Risk | Latency |
+      | --- | --- | --- | --- |
+      | `0` | nothing | lost silently on any error | lowest |
+      | `1` | the leader | lost if the leader dies before followers copy it | low |
+      | `all` / `-1` (default) | all in-sync replicas | none, with min.insync.replicas ≥ 2 | a few ms more |
+
+      Since Kafka 3.0 producers default to `acks=all` and `enable.idempotence=true`, so retries can't create duplicates. Only lower them for metrics or logs you can afford to lose.
+  - term: producer
+    short: Client that writes records. It batches and compresses them, and picks the partition by hashing the key.
+    see: [ record, partition, acks ]
+    detail: |-
+      The producer client batches records per partition, compresses them and sends them asynchronously.
+
+      #### Settings worth knowing
+
+      | Setting | Typical | Effect |
+      | --- | --- | --- |
+      | `linger.ms` | 5–20 (default 5) | wait a bit to fill bigger batches |
+      | `batch.size` | 16–256 KB | max bytes per partition batch |
+      | `compression.type` | `lz4` / `zstd` | less network and disk |
+      | `enable.idempotence` | `true` | no duplicates on retry |
+
+      Partitioning: keyed records go to `murmur2(key) % partitions`; records without a key are spread with a "sticky" partitioner that fills one batch at a time. For atomic writes across partitions, use **transactions** (`transactional.id`).
+  - term: consumer group
+    short: Consumers sharing a `group.id`. Partitions are divided among them, so each record is processed by one member of the group.
+    see: [ committed offset, rebalance, partition ]
+    detail: |-
+      All consumers with the same `group.id` share the work: each partition is assigned to exactly one member. Different groups are completely independent and each sees every record.
+
+      | Partitions | Consumers | Result |
+      | --- | --- | --- |
+      | 6 | 3 | 2 partitions each |
+      | 6 | 6 | 1 each: maximum parallelism |
+      | 6 | 8 | 2 consumers idle |
+
+      Name groups after the application, not the instance: `billing-service`. Inspect with `kafka-consumer-groups.sh --describe --group billing-service`.
+  - term: committed offset
+    short: The group's bookmark per partition, stored in the internal topic `__consumer_offsets`. A restart resumes from it.
+    see: [ offset, consumer group, rebalance ]
+    detail: |-
+      The bookmark a group stores per partition in the internal topic `__consumer_offsets`. By convention it's the offset of the **next** record to read.
+
+      | Commit… | Crash in between means | Delivery |
+      | --- | --- | --- |
+      | after processing | reprocessing some records | at-least-once (usual) |
+      | before processing | skipping some records | at-most-once |
+      | in a transaction with the output | nothing duplicated | exactly-once (Kafka-to-Kafka) |
+
+      `enable.auto.commit=true` commits every 5 s in the background, regardless of whether you finished processing: convenient but imprecise.
+  - term: rebalance
+    short: Reassignment of partitions when consumers join, leave or crash. Processing pauses for affected partitions while it runs.
+    see: [ consumer group, committed offset, partition ]
+    detail: |-
+      Triggered when a consumer joins, leaves, crashes (no heartbeat within `session.timeout.ms`, 45 s default) or takes too long between polls (`max.poll.interval.ms`, 5 min default).
+
+      - **Classic eager protocol**: everyone stops, all partitions are reassigned. "Stop-the-world".
+      - **Cooperative** (incremental): only moved partitions pause.
+      - **New consumer protocol** (KIP-848, Kafka 4.0+, `group.protocol=consumer`): the broker coordinates assignments; rebalances are faster and less disruptive.
+
+      Use `group.instance.id` (static membership) so a restarting pod gets its partitions back without a rebalance.
+  - term: retention
+    short: "How long records are kept: by time (`retention.ms`, 7 days by default) or size, whether consumed or not."
+    see: [ topic, log compaction, offset ]
+    detail: |-
+      Kafka deletes old data per **segment** file (default 1 GB or 7 days per segment), once the whole segment is older than the retention limit.
+
+      | Setting | Default | Typical |
+      | --- | --- | --- |
+      | `retention.ms` | 7 days | 1–30 days; `-1` = forever |
+      | `retention.bytes` | unlimited | cap per partition |
+
+      Retention is independent of consumption: unread records are deleted too, so lag must stay well below retention. **Tiered storage** can move old segments to object storage (S3, Azure Blob) for cheap long retention.
+  - term: log compaction
+    short: Alternative cleanup policy that keeps only the latest record per key. Turns a topic into a changelog or table snapshot.
+    see: [ retention, record, topic ]
+    anim:
+      key: compact
+      title: Compacting a user-address topic
+      svg: kafka/compact.svg
+      alt: Animated log compaction keeping the latest record per key
+      steps:
+        - say: A compacted topic of user addresses. The key is the user, the value is their latest address. Replaying it gives `user-1=Turin`, `user-2=Bern`, and no user-3.
+        - say: "`user-1` appears three times. Anyone rebuilding state only needs the last value, Turin at offset 6."
+          hl: [ c-r0-r, c-r2-r, c-r6-r ]
+        - say: The log cleaner, a background thread on the broker, marks every record that has a newer record with the same key.
+          unhl: [ c-r0-r, c-r2-r, c-r6-r ]
+          fill:
+            c-r0-r: "#f9e3df"
+            c-r1-r: "#f9e3df"
+            c-r2-r: "#f9e3df"
+            c-r3-r: "#f9e3df"
+        - say: Those older versions are deleted. The survivors keep their original offsets 4, 5 and 6.
+          show: [ c-note ]
+          hide: [ c-r0, c-r1, c-r2, c-r3 ]
+        - say: "Offset 5 is a **tombstone**: key `user-3` with a `null` value means \"delete user-3\". It is kept for `delete.retention.ms` (24 h by default) so consumers see the deletion."
+          hl: [ c-r5-r ]
+          fill:
+            c-r5-r: "#fbf3c4"
+        - say: "Then the tombstone goes too. One record per live key remains: a table, stored as a log. A new consumer reading from the start gets exactly the current state."
+          hide: [ c-r5 ]
+          unhl: [ c-r5-r ]
+          text:
+            c-state: "compacted: user-1=Turin, user-2=Bern"
+          fill:
+            c-r4-r: "#e3eedc"
+            c-r6-r: "#e3eedc"
+    detail: |-
+      With `cleanup.policy=compact`, Kafka keeps at least the **latest record per key** instead of deleting by age. The topic becomes a changelog: replaying it rebuilds the current state.
+
+      ::anim compact::
+
+      Used for Kafka Streams state stores, CDC tables, configuration and `__consumer_offsets` itself. Compaction runs in the background and never touches the active segment, so recent duplicates can still be read.
+  - term: Kafka Connect / Streams
+    short: Connect moves data between Kafka and other systems (databases, S3). Streams is a Java library for processing topics into new topics.
+    see: [ topic, consumer group, log compaction ]
+    detail: |-
+      #### Kafka Connect
+
+      A framework to move data in and out of Kafka with configuration instead of code. **Source** connectors read from systems (Debezium for PostgreSQL/MySQL CDC, JDBC, MQTT); **sink** connectors write to them (Elasticsearch, S3, Snowflake). Runs as a scalable cluster of workers.
+
+      #### Kafka Streams
+
+      A Java/Kotlin library (not a cluster) for processing topics into topics: filter, map, join, aggregate over time windows, with local state backed by compacted changelog topics and exactly-once support. Scales like a consumer group.
+
+      Alternatives for processing: Apache Flink (bigger, any language via SQL), ksqlDB, or plain consumers in Python with `confluent-kafka` or Faust-style libraries.
+commands:
+  heading: Essential commands & syntax
+  tocLabel: Commands
+  groups:
+    - group: Setup
+      items:
+        - lang: bash
+          code: docker run -d --name kafka -p 9092:9092 apache/kafka:4.0.0
+          what: Single-node KRaft broker for local development. CLI scripts live in `/opt/kafka/bin` inside the container.
+        - lang: bash
+          code: |-
+            docker exec -it kafka bash
+            cd /opt/kafka/bin
+          what: Open a shell where the `kafka-*.sh` tools are available. All tools take `--bootstrap-server localhost:9092`.
+    - group: Topics
+      items:
+        - lang: bash
+          code: |-
+            kafka-topics.sh --bootstrap-server localhost:9092 \
+              --create --topic orders --partitions 3 --replication-factor 1
+          what: Create a topic. Pick the partition count for your peak consumer parallelism; use RF 3 in production.
+        - lang: bash
+          code: kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic orders
+          what: Shows each partition's leader, replicas and ISR.
+        - lang: bash
+          code: |-
+            kafka-configs.sh --bootstrap-server localhost:9092 --alter \
+              --entity-type topics --entity-name orders --add-config retention.ms=604800000
+          what: Change a topic setting (here retention = 7 days).
+    - group: Produce & consume
+      items:
+        - lang: bash
+          code: |-
+            kafka-console-producer.sh --bootstrap-server localhost:9092 --topic orders \
+              --property parse.key=true --property key.separator=:
+          what: Type `user-42:paid` to send a record with key `user-42`.
+        - lang: bash
+          code: |-
+            kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic orders \
+              --group billing --from-beginning --property print.key=true
+          what: Read as a member of group `billing`, starting from the oldest record.
+        - lang: csharp
+          code: |-
+            // dotnet add package Confluent.Kafka
+            using var producer = new ProducerBuilder<string, string>(
+                new ProducerConfig { BootstrapServers = "localhost:9092", Acks = Acks.All }).Build();
+
+            await producer.ProduceAsync("orders", new Message<string, string>
+            {
+                Key   = "user-42",                    // same key -> same partition -> ordered
+                Value = """{"status":"paid"}""",
+            });
+
+            producer.Flush(TimeSpan.FromSeconds(10));  // wait for delivery before exiting
+          what: The .NET producer. `Acks.All` waits for the in-sync replicas; `Flush` is what stops a short-lived process dropping buffered records.
+        - lang: python
+          code: |-
+            from confluent_kafka import Producer
+            p = Producer({"bootstrap.servers": "localhost:9092", "acks": "all"})
+            p.produce("orders", key="user-42", value='{"status": "paid"}')
+            p.flush()
+          what: Python producer (`pip install confluent-kafka`). `flush()` waits for delivery.
+        - lang: csharp
+          code: |-
+            using var consumer = new ConsumerBuilder<string, string>(new ConsumerConfig
+            {
+                BootstrapServers = "localhost:9092",
+                GroupId          = "billing",
+                AutoOffsetReset  = AutoOffsetReset.Earliest,
+                EnableAutoCommit = false,              // commit only after the work succeeded
+            }).Build();
+
+            consumer.Subscribe("orders");
+
+            while (!ct.IsCancellationRequested)
+            {
+                var cr = consumer.Consume(TimeSpan.FromSeconds(1));
+                if (cr is null) continue;
+                Handle(cr.Message.Value);
+                consumer.Commit(cr);                   // at-least-once: handler must be idempotent
+            }
+          what: "Manual commits are the whole point: commit after the side effect, not before, and accept that a redelivery can happen."
+        - lang: python
+          code: |-
+            from confluent_kafka import Consumer
+            c = Consumer({"bootstrap.servers": "localhost:9092", "group.id": "billing",
+                          "auto.offset.reset": "earliest", "enable.auto.commit": False})
+            c.subscribe(["orders"])
+            while True:
+                msg = c.poll(1.0)
+                if msg and not msg.error():
+                    handle(msg.value())
+                    c.commit(msg)
+          what: "Python consumer with manual commit after processing: at-least-once delivery."
+    - group: Operate & debug
+      items:
+        - lang: bash
+          code: kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group billing
+          what: "Per partition: current offset, log end offset and **LAG**. The first thing to check when consumers fall behind."
+        - lang: bash
+          code: |-
+            kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group billing \
+              --topic orders --reset-offsets --to-earliest --execute
+          what: Replay a topic for a group (stop the consumers first). Also `--to-datetime`, `--shift-by`.
+        - lang: bash
+          code: kafka-topics.sh --bootstrap-server localhost:9092 --list
+          what: List all topics, including internal ones like `__consumer_offsets`.
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - Very high throughput (hundreds of MB/s per broker) thanks to sequential disk writes, batching and zero-copy reads.
+      - "Durable and replicated: records survive broker failures with RF 3 and `acks=all`."
+      - "Replayable history: new consumers can start from the beginning, and bugs can be fixed by reprocessing."
+      - "Decouples services: producers don't know who reads, and many consumer groups read the same data independently."
+      - Scales horizontally by adding partitions and brokers.
+      - "Huge ecosystem: Connect, Streams, Debezium, Flink, and managed services on every cloud."
+  bad:
+    heading: Cons
+    items:
+      - "Operationally heavy: brokers, controllers, disks, partition planning, upgrades and monitoring."
+      - Ordering is guaranteed only within a partition, not across a topic.
+      - No per-message routing, priorities or delayed delivery like a classic queue.
+      - Consumer parallelism is capped by the partition count, and changing it later breaks key-to-partition mapping.
+      - Consuming correctly (commits, retries, idempotency, rebalances) is harder than it looks.
+      - "Overkill for low volumes: a few thousand messages a day don't need a distributed log."
+when:
+  note: "Rule of thumb: Kafka is a log you can replay, not a to-do list of jobs."
+  good:
+    heading: Use it when…
+    items:
+      - Several independent systems need the same stream of events.
+      - You need to replay history, rebuild state or backfill a new consumer.
+      - Volume is high (thousands to millions of events per second) and must survive broker failures.
+      - You are building CDC, data pipelines or stream processing.
+      - Per-key ordering matters (all events for `user-42` in order).
+  bad:
+    heading: Avoid it when…
+    items:
+      - You need a simple task queue with per-message acks, retries and delays. Use **RabbitMQ** or **SQS**.
+      - Volume is low and the team is small. Use **Redis Streams** or a **database table** as a queue.
+      - You need request/response between services. Use **HTTP** or **gRPC**.
+      - You need ad-hoc queries over events. Store them in a **database** or **warehouse** (fed by Kafka if you like).
+      - You can't run it well and have no managed option. Use a managed service such as **Confluent Cloud**, **MSK** or **Event Hubs**.
+useCases:
+  - title: Event-driven microservices
+    body: An e-commerce platform publishes `OrderPlaced` to Kafka. Billing, shipping, email and analytics each consume it in their own group, and new services can subscribe without touching the order service.
+  - title: Change data capture (CDC)
+    body: Debezium reads PostgreSQL's write-ahead log and streams every row change into Kafka topics. A search index and a data warehouse stay in sync without dual writes in the application.
+  - title: Log and metrics pipeline
+    body: Thousands of servers ship logs to Kafka, which absorbs traffic spikes. Downstream consumers load them into Elasticsearch and object storage at their own pace.
+  - title: Real-time stream processing
+    body: A bank runs Kafka Streams or Flink over card transactions to flag fraud within seconds, joining the stream with customer profiles from a compacted topic.
+  - title: Activity tracking
+    body: A media site records clicks and page views as events. Recommendation models and dashboards consume the same stream, and history can be replayed to train new models.
+gotchas:
+  note: Number 3 has caused more duplicate emails than any other bug!
+  items:
+    - mistake: Expecting global ordering across a topic
+      why: Records in different partitions are read in parallel, in no particular order.
+      fix: use a key for everything that must stay ordered (e.g. the order ID), so it always lands in the same partition.
+    - mistake: More consumers than partitions
+      why: Extra consumers in the group get no partition and sit idle.
+      fix: size partitions for peak parallelism up front (e.g. 6–12 for a busy topic).
+    - mistake: Committing before processing (or auto-commit)
+      why: A crash after the commit but before processing loses records. Committing after processing can produce duplicates.
+      fix: disable auto-commit, commit after processing, and make handlers idempotent (dedupe by event ID).
+    - mistake: Adding partitions to a keyed topic
+      why: "`hash(key) % partitions` changes, so new records for a key land in a different partition than old ones. Per-key ordering breaks."
+      fix: over-provision partitions at creation, or migrate to a new topic.
+    - mistake: Slow processing triggers endless rebalances
+      why: If `poll()` isn't called within `max.poll.interval.ms` (5 minutes by default), the consumer is kicked out and its partitions move.
+      fix: process smaller batches (`max.poll.records`), move slow work to a worker pool, or raise the interval.
+    - mistake: Replication factor 1 in production
+      why: Losing one disk or broker loses the partition's data.
+      fix: RF 3, `min.insync.replicas=2`, `acks=all`.
+    - mistake: Sending large payloads
+      why: The default maximum message size is about 1 MB. Big messages slow down the whole cluster.
+      fix: put files in object storage and send a reference (the claim-check pattern).
+    - mistake: Ignoring consumer lag
+      why: Consumers fall behind silently until retention deletes records they never read.
+      fix: alert on lag per group (`kafka-consumer-groups.sh --describe`, Burrow, or your cloud's metrics).
+alternatives:
+  columns: [ Tool, Best for, Complexity, Cost / license, Key difference vs Kafka ]
+  rows:
+    - self: true
+      cells:
+        - "**Apache Kafka**"
+        - High-volume, replayable event streams
+        - High
+        - Apache 2.0; managed by Confluent, AWS MSK, Aiven…
+        - —
+    - cells:
+        - "**RabbitMQ**"
+        - Task queues, routing, request/reply
+        - Medium
+        - MPL 2.0
+        - Smart broker that pushes and deletes messages on ack. Rich routing; Streams add a log mode.
+    - cells:
+        - "**Redpanda**"
+        - Kafka API with simpler operations
+        - Medium
+        - BSL 1.1 (community) + enterprise
+        - Kafka-compatible, single C++ binary, no JVM
+    - cells:
+        - "**Apache Pulsar**"
+        - Multi-tenant streaming + queuing
+        - High
+        - Apache 2.0
+        - Separates serving (brokers) and storage (BookKeeper). Built-in tiered storage and geo-replication.
+    - cells:
+        - "**Amazon Kinesis / Azure Event Hubs**"
+        - Fully managed streams on one cloud
+        - Low
+        - Pay per shard / throughput unit
+        - No servers to run. Event Hubs speaks the Kafka protocol; Kinesis has its own API.
+    - cells:
+        - "**Redis Streams**"
+        - Small to medium event logs
+        - Low
+        - Redis license (AGPL/RSAL/SSPL) or Valkey (BSD)
+        - In memory, consumer groups included. Simple, but bounded by RAM.
+    - cells:
+        - "**NATS JetStream**"
+        - Lightweight messaging, edge and IoT
+        - Low
+        - Apache 2.0
+        - Tiny single binary. Pub/sub first, with persistence added by JetStream.
+  notes:
+    - "**Pick RabbitMQ** if you need a job queue with per-message acks, routing keys, priorities or delays."
+    - "**Pick Redpanda** if you want the Kafka API and ecosystem but fewer moving parts to operate."
+    - "**Pick Pulsar** if you need strong multi-tenancy or geo-replication built in."
+    - "**Pick Kinesis or Event Hubs** if you're all-in on one cloud and don't want to run brokers."
+    - "**Pick Redis Streams or NATS** if volumes are modest and simplicity matters more than long retention."
+resources:
+  - url: https://kafka.apache.org/documentation/
+    title: Apache Kafka documentation
+    why: design, configuration reference and operations.
+  - url: https://kafka.apache.org/quickstart
+    title: Kafka quickstart
+    why: run a broker and produce and consume records in 10 minutes.
+  - url: https://developer.confluent.io/
+    title: Confluent Developer
+    why: free courses on Kafka fundamentals, Streams, Connect and patterns.
+  - url: https://github.com/confluentinc/confluent-kafka-python
+    title: confluent-kafka-python
+    why: the Python client used in the snippets above.
+  - url: https://debezium.io/
+    title: Debezium
+    why: change data capture from databases into Kafka.

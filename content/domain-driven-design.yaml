@@ -1,0 +1,797 @@
+title: Domain-Driven Design
+slug: domain-driven-design
+tagline: Model the business, not the database — and stop pretending one word means the same thing everywhere.
+asof: Nov 2026 · Eric Evans, 2003; examples in C# and Python, framework-agnostic
+description: "Domain-Driven Design cheatsheet: bounded contexts and context maps on the strategic side, aggregates, value objects and domain events on the tactical side — animated."
+aliases:
+  - Domain-Driven Design
+  - DDD
+  - domain driven design
+  - ubiquitous language
+  - bounded context
+  - bounded contexts
+  - aggregate
+  - aggregates
+  - anti-corruption layer
+keywords:
+  - ddd
+  - domain driven design
+  - bounded context
+  - aggregate
+  - ubiquitous language
+  - architecture
+  - modelling
+  - domain events
+  - strategic design
+  - tactical design
+related: [ modular-monolith, cqrs, cqs, multitenancy, backend-for-frontend ]
+overview:
+  - Domain-Driven Design is a way of building software whose structure follows the structure of the business problem instead of the structure of the storage. Its premise is that in a complex domain the expensive part is not the code, it is the <em>understanding</em> — so the model, the conversations and the code should all use exactly the same words, and those words should be allowed to change when the understanding changes.
+  - "It comes in two halves that are often confused. **Strategic design** is about drawing boundaries: splitting a tangled domain into bounded contexts, deciding which ones are core business and which are commodity, and writing down how they talk to each other. **Tactical design** is the pattern catalogue inside one context: entities, value objects, aggregates, repositories, domain events, domain services. The strategic half is where most of the value is, and the half most teams skip."
+  - DDD is not a framework and has no runtime. It pays off in domains with genuine business complexity — insurance, logistics, trading, billing, healthcare — and is usually a net loss on CRUD applications, reporting tools and simple content sites, where a transaction script and a good ORM are faster to write and easier to read.
+architecture:
+  svg: domain-driven-design/architecture.svg
+  alt: A context map of three bounded contexts with their own models, connected by an anti-corruption layer and a published language
+  caption: A bounded context is where one model and one language are consistent. Outside it, the same word is a different thing — and the translation is explicit.
+howItWorks:
+  - md: "The first animation is strategic design: why one word cannot have one model. The second is tactical: a command passing through an aggregate, which is where the business rules actually live."
+  - note: strategic first — aggregates inside the wrong boundary are just expensive classes
+  - anim:
+      id: anim-ctx
+      title: 1 · One word, three models
+      svg: domain-driven-design/anim-ctx.svg
+      alt: The word Customer travelling across sales, shipping and billing contexts, meaning something different in each
+      steps:
+        - say: The business asks for "a view of the customer". Three teams nod, and each one writes down something different. Watch the word travel.
+          hl: [ cx-word ]
+        - say: "In **Sales**, a customer is a commercial relationship: which tier they are on, what discount applies, how warm the lead is. There is no delivery address anywhere in the model, because sales never needs one."
+          hl: [ cx-sales ]
+          unhl: [ cx-word ]
+          text:
+            cx-s1: tier, discount, lead score
+            cx-s2: "lifecycle: lead → customer"
+            cx-s3: no address, no VAT number
+            cx-s4: "rule: gold tier gets 15% off"
+            cx-msg: "Sales: \"customer\" = a commercial relationship"
+        - say: "Push the same word into **Shipping** and it mutates. Here a customer is a consignee: an address, an access code, a delivery window. Their discount tier is meaningless."
+          hl: [ cx-ship ]
+          unhl: [ cx-sales ]
+          move:
+            cx-word: [ 262, 0 ]
+          text:
+            cx-h1: address, access code, slot
+            cx-h2: "lifecycle: per shipment"
+            cx-h3: no tier, no discount
+            cx-h4: "rule: no delivery before 08:00"
+            cx-msg: "Shipping: \"customer\" = a consignee at an address"
+        - say: "And in **Billing** it changes again: a payer is a legal entity with a VAT number and a billing address, which is frequently <em>not</em> the person who placed the order or the one who receives the parcel."
+          hl: [ cx-bill ]
+          unhl: [ cx-ship ]
+          move:
+            cx-word: [ 524, 0 ]
+          text:
+            cx-b1: legal name, VAT id, terms
+            cx-b2: "lifecycle: per invoice"
+            cx-b3: often a different company
+            cx-b4: "rule: net 30, dunning after 45"
+            cx-msg: "Billing: \"customer\" = a legal entity that pays"
+        - say: The tempting move is one shared `Customer` class holding the union of all three. It ends as a 90-field object where most fields are null, no invariant can be stated, and every change needs three teams to agree.
+          unhl: [ cx-bill ]
+          text:
+            cx-msg: one shared class = union of fields, intersection of rules
+        - say: "DDD takes the opposite route: each context keeps its own model, its own schema and its own meaning for the word. The duplication is deliberate — they are genuinely different concepts that share a label."
+          text:
+            cx-msg: three models, three schemas, one business concept
+        - say: "They still have to talk, so translation becomes explicit code at the border: an anti-corruption layer maps a Sales customer onto a Shipping consignee, and nothing of the Sales model leaks across."
+          show: [ cx-acl, cx-hand ]
+          text:
+            cx-msg: "ACL: translate at the boundary, never share the class"
+        - say: Writing those relationships down — who translates, who conforms, who publishes — is the context map. That document, not the class diagram, is the architecture.
+          text:
+            cx-msg: "Sales → Shipping: customer/supplier via ACL · Sales → Billing: published language"
+  - anim:
+      id: anim-agg
+      title: 2 · A command through an aggregate
+      svg: domain-driven-design/anim-agg.svg
+      alt: A command flowing through an application service, repository and aggregate root, enforcing an invariant and raising a domain event
+      steps:
+        - say: "A command arrives: add 3 units of SKU-91 to order 42. A command is an <em>intention</em> — it can still be refused, which is the whole point of what follows."
+          hl: [ ag-app ]
+        - say: "The application service opens a transaction. It contains no business rules at all: its job is authorisation, transaction boundaries and orchestration."
+          move:
+            ag-cmd: [ 0, 0 ]
+          text:
+            ag-cmdt: begin transaction
+        - say: It asks the repository for order 42 — by identity, never by filter. A repository deals in whole aggregates, so there is no way to load half an order.
+          hl: [ ag-repo ]
+          unhl: [ ag-app ]
+          move:
+            ag-cmd: [ 220, 0 ]
+          text:
+            ag-cmdt: repo.Get(OrderId 42)
+        - say: "The repository reads orders and order_lines and rebuilds the aggregate: the root plus the one existing line. The database shape is its problem, not the domain's."
+          show: [ ag-l1, ag-l1t ]
+          hl: [ ag-db ]
+          text:
+            ag-dbt: "read: 1 order, 1 line"
+        - say: "Now the only business call: `order.AddItem(SKU-91, 3)`. The service cannot touch the lines collection — it is read-only — so the rule cannot be bypassed."
+          show: [ ag-hand ]
+          hl: [ ag-aggr ]
+          unhl: [ ag-repo, ag-db ]
+          move:
+            ag-cmd: [ 390, 0 ]
+          text:
+            ag-cmdt: order.AddItem(SKU-91, 3)
+        - say: "The root checks the invariant against the <em>whole</em> aggregate: 2 items already there plus 3 more is 5, under the limit of 10. Allowed — so the line is added."
+          show: [ ag-l2, ag-l2t ]
+          text:
+            ag-status: "state: 2 lines, 5 items — invariant holds"
+          fill:
+            ag-status: "#2f6b3f"
+        - say: "The root also records what happened: `ItemAdded`, past tense, a fact. It stays inside the aggregate for now — publishing before the commit would announce work that might roll back."
+          text:
+            ag-cmdt: ItemAdded recorded
+        - say: "The repository saves the whole aggregate in one transaction. This is what \"aggregate = consistency boundary\" means in practice: everything inside is atomic, and nothing outside is touched."
+          hl: [ ag-db ]
+          unhl: [ ag-aggr ]
+          move:
+            ag-cmd: [ 220, 100 ]
+          text:
+            ag-cmdt: commit · 1 transaction
+            ag-dbt: "write: 1 order, 2 lines"
+        - say: Only after the commit is the event published. Shipping and Billing react in their own transactions, in their own time — eventual consistency between aggregates, no distributed lock anywhere.
+          hl: [ ag-bus ]
+          unhl: [ ag-db ]
+          move:
+            ag-cmd: [ 660, 0 ]
+          text:
+            ag-cmdt: publish ItemAdded
+            ag-bust: ItemAdded →
+        - say: Now try to add 9 more units. The root recomputes against the whole aggregate — 5 + 9 = 14 — and refuses. Nothing is persisted, nothing is published, and the rule was enforced in exactly one place.
+          hl: [ ag-aggr ]
+          unhl: [ ag-bus ]
+          text:
+            ag-cmdt: AddItem(SKU-77,9) ✗
+            ag-status: 5 + 9 = 14 > 10 — DomainException
+          fill:
+            ag-status: "#c53b3b"
+            ag-bust: "#5f6f66"
+concepts:
+  - term: Ubiquitous language
+    short: One vocabulary shared by developers and domain experts, used in conversation, in documentation and literally in the code.
+    see: [ Bounded context, Domain expert, Aggregate ]
+    detail: |-
+      The ubiquitous language is the deliverable that makes everything else possible. If the business says "a policy lapses" and the code says `UpdateStatus(3)`, every conversation needs a translation step, and translations are where bugs and misunderstanding accumulate. When the model is right, a domain expert can read a method name out loud and say whether it is true.
+
+      Crucially the language is scoped to one bounded context. "Account" in trading and "account" in support are different words that happen to be spelled the same; forcing one definition across both is the mistake the first animation is about.
+
+      #### Translating badly vs well
+
+      | Business says | Weak code | Ubiquitous |
+      | --- | --- | --- |
+      | the policy lapses | `status = 3` | `policy.Lapse()` |
+      | reserve stock | `qty -= n` | `stock.Reserve(n)` |
+      | settle the invoice | `paid = true` | `invoice.Settle(payment)` |
+
+      #### How it relates
+
+      - The language is bounded by the **bounded context**; outside it, it stops being valid.
+      - Event storming is the usual workshop for discovering it.
+  - term: Domain expert
+    short: The person who actually knows how the business works, and whose vocabulary the model is built from.
+    see: [ Ubiquitous language, Subdomain, Event storming ]
+    detail: |-
+      DDD assumes continuous access to someone who can answer "what happens if the shipment is refused at the door?" without going to ask. That is not a product owner translating tickets — it is the underwriter, the dispatcher, the credit controller. Without that access the model is a guess dressed in patterns, and most failed DDD efforts fail here rather than on the code.
+
+      The practical test: can you get an hour a week with someone who would notice if the model were wrong? If not, use something cheaper than DDD.
+
+      #### How it relates
+
+      - Their words become the **ubiquitous language**.
+      - They are the ones who tell you which **subdomain** is actually core.
+  - term: Subdomain
+    short: A part of the business problem, classified as core, supporting or generic to decide how much effort it deserves.
+    see: [ Bounded context, Context map, Domain expert ]
+    detail: |-
+      Subdomains are discovered in the problem space, before any software exists. The classification is a budgeting decision: the **core** subdomain is what makes the company money and is worth your best people and full DDD; **supporting** subdomains are necessary but not differentiating, so keep them simple; **generic** subdomains are solved problems that you buy.
+
+      Getting this wrong is expensive in both directions — hand-rolling an invoicing engine, or treating your pricing algorithm as "just CRUD".
+
+      #### Classification
+
+      | Type | Example | Approach |
+      | --- | --- | --- |
+      | Core | dynamic pricing, risk scoring | full DDD, best team, build |
+      | Supporting | shipping schedules, catalogue | simple model, build cheaply |
+      | Generic | auth, invoicing, email | buy or use a library |
+
+      #### How it relates
+
+      - A subdomain is the problem; a **bounded context** is the solution you build for it — ideally one to one.
+  - term: Bounded context
+    short: An explicit boundary inside which one model and one language are consistent and unambiguous.
+    see: [ Ubiquitous language, Context map, Anti-corruption layer, Subdomain ]
+    detail: |-
+      The single most valuable idea in DDD. Instead of trying to build one enterprise-wide model of "Customer" that satisfies sales, shipping and billing simultaneously — which produces a class with ninety fields and no invariants — you accept that each context has its own model, its own schema and its own meaning for the word, and you translate at the border.
+
+      The boundary should be aligned with a team, so that one team owns one context end to end. A context that two teams both change is not a boundary, it is a shared mutable object with extra ceremony.
+
+      #### Signals you crossed a boundary
+
+      | Signal | Meaning |
+      | --- | --- |
+      | The same word needs qualifying | two models hiding in one |
+      | Half the fields are always null | two lifecycles in one class |
+      | Two teams fight over a table | boundary runs through it |
+      | A change is "only for report X" | a read model wants its own context |
+
+      #### How it relates
+
+      - In a modular monolith, a context is a module; in microservices, usually a service.
+      - Relationships between contexts are recorded on the **context map**.
+  - term: Context map
+    short: A diagram and a document describing every bounded context and the political and technical relationship between each pair.
+    see: [ Bounded context, Anti-corruption layer, Shared kernel ]
+    detail: |-
+      The context map is the architecture. It names each relationship using a small vocabulary — who depends on whom, who can impose changes, who has to absorb them — and it makes organisational reality visible, including the parts nobody enjoys admitting.
+
+      Keep it on one page and date it. Its value is in being discussed, not in being complete.
+
+      #### Relationship patterns
+
+      | Pattern | Means |
+      | --- | --- |
+      | Partnership | two teams succeed or fail together; coordinate releases |
+      | Customer / supplier | downstream needs are planned by upstream |
+      | Conformist | downstream adopts the upstream model as-is |
+      | Anti-corruption layer | downstream translates and refuses to adopt it |
+      | Shared kernel | a small shared model, jointly owned |
+      | Open host / published language | upstream publishes a stable contract for everyone |
+      | Separate ways | no integration; duplicate instead |
+
+      #### How it relates
+
+      - Every arrow on the map is a place where translation code, or a future incident, lives.
+  - term: Anti-corruption layer
+    short: A translation layer that converts another context's model into yours, so their concepts never leak into your domain.
+    see: [ Context map, Bounded context, Ubiquitous language ]
+    detail: |-
+      An ACL is a deliberate, owned piece of code at the border: adapters, mappers and a façade that speak the foreign model on one side and your ubiquitous language on the other. It is how you integrate with a legacy system, a vendor API or another team's service without letting their naming, their nulls and their lifecycle rules spread through your codebase.
+
+      It costs real effort and it is almost always worth it on the upstream dependency you do not control. When the vendor changes their payload, exactly one package changes.
+
+      #### What goes in it
+
+      | Concern | Example |
+      | --- | --- |
+      | Naming | `CUST_TYP=2` → `CustomerTier.Gold` |
+      | Missing data | default or reject, decided here |
+      | Shape | flatten a 5-level XML into a value object |
+      | Failure | map HTTP 503 to a domain-meaningful error |
+
+      #### How it relates
+
+      - Shown as the red ACL box in both the context map and the first animation.
+  - term: Shared kernel
+    short: A small model deliberately shared by two contexts, jointly owned and changed only by agreement.
+    see: [ Context map, Bounded context, Value object ]
+    detail: |-
+      Sometimes duplicating a concept costs more than sharing it — `Money`, `IsoCountry`, a currency conversion table. A shared kernel is the explicit decision to share a small, stable piece, with the condition that neither team changes it unilaterally and both teams' tests run on every change.
+
+      It is the most abused pattern in DDD, because "shared kernel" is what a shared library of 200 entities calls itself. Keep it tiny, keep it stable, and prefer duplication when in doubt.
+
+      #### Share or duplicate?
+
+      | Candidate | Verdict |
+      | --- | --- |
+      | Money, Currency, Percentage | share — stable, universal |
+      | Customer, Order, Product | duplicate — means different things |
+      | Event contracts | publish instead, versioned |
+
+      #### How it relates
+
+      - The alternative to a kernel is translation through an **anti-corruption layer**.
+  - term: Entity
+    short: "An object with an identity that persists through change: two entities differ even when every field matches."
+    see: [ Value object, Aggregate, Aggregate root ]
+    detail: |-
+      An entity is defined by continuity, not by content. A customer who changes name, address and email is still the same customer, because identity is carried by an id that is assigned once and never reused. Equality is by id; everything else can change.
+
+      The practical consequence is that entities have a lifecycle — created, modified, archived — and that the model must say who assigns the identity and when, which is usually the moment the aggregate is created rather than the moment the database assigns a key.
+
+      #### Entity or value object?
+
+      | Question | Entity | Value object |
+      | --- | --- | --- |
+      | Do we track it over time? | yes | no |
+      | Equality | by id | by all fields |
+      | Mutable | yes, through methods | never — replace it |
+
+      #### How it relates
+
+      - An **aggregate root** is always an entity.
+  - term: Value object
+    short: "An immutable object defined entirely by its values, with no identity: two with the same values are interchangeable."
+    see: [ Entity, Aggregate, Invariant ]
+    anim:
+      key: vo
+      title: Identity versus value
+      svg: domain-driven-design/vo.svg
+      alt: Two Money value objects compared by value and two customers compared by identity
+      steps:
+        - say: Two `Money` objects, both 10 euros. They were created separately and live at different addresses in memory.
+          hl: [ vo-m1, vo-m2 ]
+        - say: They are equal, because a value object is nothing but its values. Either one can be used wherever the other was — there is no "which ten euros" question to ask.
+          unhl: [ vo-m1, vo-m2 ]
+          text:
+            vo-vt: equal — interchangeable
+          fill:
+            vo-vt: "#2f6b3f"
+        - say: Two customers, both called Ada, with identical fields. Same values, different entities.
+          hl: [ vo-e1, vo-e2 ]
+        - say: "They are <em>not</em> equal, because identity is the point: customer 7 and customer 9 stay different objects forever, even if every attribute matches. Change one and the other is unaffected."
+          unhl: [ vo-e1, vo-e2 ]
+          text:
+            vo-et: not equal — identity wins
+          fill:
+            vo-et: "#c53b3b"
+    detail: |-
+      Value objects are the most under-used and highest-return pattern in tactical DDD. Replacing `decimal amount` and `string currency` with a `Money` type removes a whole class of bugs: you can no longer add euros to dollars, you cannot construct a negative price, and the rounding rule lives in one place.
+
+      They are immutable by definition — "changing" one means producing a new one — which makes them free to share, trivially thread-safe and easy to test. Validate in the constructor so an invalid instance cannot exist.
+
+      ::anim vo::
+
+      #### How it relates
+
+      - Most **invariants** about a single field belong in a value object, not in the aggregate.
+  - term: Aggregate
+    short: A cluster of entities and value objects treated as one unit for changes, with a single root as the only entry point.
+    see: [ Aggregate root, Invariant, Repository, Entity ]
+    detail: |-
+      The aggregate answers the question "what must be consistent <em>right now</em>, in the same transaction?" An `Order` with its lines is one aggregate because "at most ten items" is a rule about the whole order. The customer who placed it is a different aggregate, referenced by id, because no rule requires the customer and the order to change together.
+
+      Keep them small. Large aggregates mean long transactions, lock contention and loading hundreds of rows to change one field. The usual advice — one aggregate changed per transaction, other aggregates updated eventually via domain events — is what makes a model scale.
+
+      #### Sizing rules
+
+      | Rule | Why |
+      | --- | --- |
+      | Reference other aggregates by id | keeps the loaded graph small |
+      | One aggregate per transaction | avoids distributed locking |
+      | Group only true invariants | "shown together" is not a reason |
+      | Prefer eventual consistency outside | cross-aggregate rules via events |
+
+      #### How it relates
+
+      - The second animation loads, mutates and saves exactly one aggregate.
+      - The aggregate boundary is also the **repository**'s unit of work.
+  - term: Aggregate root
+    short: The single entity through which everything inside an aggregate is reached and changed.
+    see: [ Aggregate, Invariant, Repository ]
+    detail: |-
+      Outside code may hold a reference to the root and nothing else. There is no `order.Lines.Add(...)` from a service — only `order.AddItem(sku, qty)`, because only the root can see enough state to check the invariant. That single restriction is what keeps business rules from leaking into controllers.
+
+      Practically: expose child collections as read-only, put behaviour on the root, and give the root the identity that the outside world uses.
+
+      #### Allowed or not
+
+      | Call | Verdict |
+      | --- | --- |
+      | `repo.Get(orderId)` | yes — roots only |
+      | `order.AddItem(sku, 3)` | yes — behaviour on the root |
+      | `repo.GetLine(lineId)` | no — children are not addressable |
+      | `order.Lines.Add(line)` | no — bypasses the invariant |
+
+      #### How it relates
+
+      - Step 4 of the aggregate animation is the root refusing to be bypassed.
+  - term: Invariant
+    short: A business rule that must be true before and after every change — the reason an aggregate exists at all.
+    see: [ Aggregate, Aggregate root, Value object ]
+    detail: |-
+      Invariants are what decide aggregate boundaries. "An order has at most ten items" needs the whole order, so lines belong inside it. "A customer cannot have two orders in flight" needs two aggregates, so it cannot be a transactional invariant — it becomes an eventually consistent check, or the model is wrong.
+
+      Enforce them in the constructor and in every mutating method, and throw a domain-specific exception rather than returning false. An object that cannot be constructed in an invalid state removes most defensive code elsewhere.
+
+      #### Where each rule lives
+
+      | Rule | Home |
+      | --- | --- |
+      | Quantity must be positive | value object constructor |
+      | At most 10 lines per order | aggregate root method |
+      | SKU must exist in the catalogue | domain service / another context |
+      | Email must be unique | not an invariant — a uniqueness constraint |
+
+      #### How it relates
+
+      - The last step of the aggregate animation is an invariant rejecting a command.
+  - term: Repository
+    short: A collection-like abstraction for loading and saving whole aggregates by identity.
+    see: [ Aggregate, Aggregate root, Application service ]
+    detail: |-
+      A repository hides persistence behind a domain-shaped interface: `Get(id)`, `Add(order)`, `Remove(order)`. One repository per aggregate root, never one per table. It deals in whole aggregates, so partial loads and lazy children are a smell that the aggregate is too big.
+
+      It is deliberately not a query API. Arbitrary filtering, joins and projections for screens belong on the read side, which is exactly the split that CQRS formalises.
+
+      #### Repository or query?
+
+      | Need | Where |
+      | --- | --- |
+      | Load order 42 to change it | repository |
+      | List 50 orders with customer names | read model / query service |
+      | Count orders per region | read model |
+
+      #### How it relates
+
+      - CQRS grows naturally out of this restriction.
+  - term: Domain event
+    short: A record that something business-meaningful has happened, named in the past tense and published after the fact.
+    see: [ Aggregate, Bounded context, Context map ]
+    detail: |-
+      `OrderPlaced`, `PaymentDeclined`, `ShipmentDelayed`. Domain events are how one aggregate tells the rest of the system what happened without knowing who is listening, and they are the main integration mechanism between bounded contexts. Raising them inside the aggregate and dispatching them after the transaction commits keeps the model clean and avoids publishing events for work that then rolled back.
+
+      Distinguish internal domain events (rich, private to the context) from integration events (small, versioned, part of your published language). Leaking the internal one across a boundary is how two contexts become coupled again.
+
+      #### Naming and payload
+
+      | Rule | Example |
+      | --- | --- |
+      | Past tense, business words | `OrderPlaced`, not `OrderInsert` |
+      | Carry ids plus what changed | orderId, total, placedAt |
+      | Never carry the whole entity | that couples the consumer to your model |
+      | Version the integration shape | `OrderPlaced.v2` |
+
+      #### How it relates
+
+      - Steps 6–8 of the aggregate animation raise, commit and then publish one.
+  - term: Domain service
+    short: A piece of domain logic that does not belong to any single entity or value object, expressed in the ubiquitous language.
+    see: [ Application service, Aggregate, Invariant ]
+    detail: |-
+      Some rules genuinely span several aggregates or need outside knowledge — a transfer between two accounts, a pricing calculation that needs the catalogue and the customer's tier. Putting that on either aggregate would be arbitrary, so it becomes a stateless domain service with a business name: `FundsTransferService`, `PricingPolicy`.
+
+      The trap is using it as a dumping ground. If most of your logic lives in services and your entities are property bags, you have built an anemic domain model with extra layers.
+
+      #### Service or method?
+
+      | Logic | Goes to |
+      | --- | --- |
+      | Uses only one aggregate's state | a method on the root |
+      | Spans two aggregates | domain service |
+      | Orchestrates transaction + repo + bus | application service |
+
+      #### How it relates
+
+      - Contrast with the **application service**, which holds no rules at all.
+  - term: Application service
+    short: "The thin orchestration layer: it opens the transaction, loads an aggregate, calls one method on it and saves. No business rules."
+    see: [ Domain service, Repository, Aggregate, Domain event ]
+    detail: |-
+      Also called a command handler or use-case. Its whole job is plumbing: authorisation, transaction boundaries, fetching the aggregate, invoking a single intention-revealing method, persisting and dispatching events. If it contains an `if` about business meaning, that `if` belongs in the domain.
+
+      Keeping it this thin is what makes the domain testable without a database and what makes the same domain usable from HTTP, a message consumer and a CLI without duplication.
+
+      #### Typical body
+
+      ```csharp
+      var order = await repo.Get(cmd.OrderId);
+      order.AddItem(cmd.Sku, cmd.Quantity);
+      await repo.Save(order);
+      await bus.Publish(order.ReleaseEvents());
+      ```
+
+      #### How it relates
+
+      - It is the leftmost box in the aggregate animation.
+  - term: Event storming
+    short: A workshop where domain experts and developers map the business as a wall of past-tense events, then find boundaries in it.
+    see: [ Domain event, Bounded context, Ubiquitous language ]
+    detail: |-
+      Invented by Alberto Brandolini: orange sticky notes for domain events along a timeline, then commands, actors, policies and external systems layered on top. It is fast — a day gets you a useful map of a domain nobody could previously explain — and it surfaces disagreement between experts, which is usually the most valuable output.
+
+      The clusters where events stop referring to each other are candidate bounded contexts. That is the cheapest way to find boundaries before committing them to code.
+
+      #### The sticky notes
+
+      | Colour | Meaning |
+      | --- | --- |
+      | Orange | domain event — `OrderPlaced` |
+      | Blue | command — `PlaceOrder` |
+      | Yellow | actor / aggregate |
+      | Purple | policy — "whenever X, then Y" |
+      | Pink | external system |
+      | Red | problem, question, disagreement |
+
+      #### How it relates
+
+      - It is how most teams actually discover their **context map**.
+  - term: Anemic domain model
+    short: The anti-pattern where entities are property bags and all behaviour sits in services — DDD vocabulary with none of the benefit.
+    see: [ Aggregate root, Domain service, Invariant ]
+    detail: |-
+      Named by Martin Fowler. The shape is familiar: `Order` with twenty public setters, `OrderService` with twenty methods that mutate it, and validation sprinkled across controllers. It is not automatically wrong — for genuine CRUD it is the simpler choice — but it is wrong when the team has paid the cost of DDD and expected the benefit.
+
+      The tell is that you cannot answer "where is the rule that an order cannot exceed ten items?" by looking at `Order`. If that rule can be broken by anyone with a setter, the aggregate is decorative.
+
+      #### Symptoms
+
+      | Symptom | Fix |
+      | --- | --- |
+      | Public setters everywhere | private setters, intention-revealing methods |
+      | Validation in the controller | move into constructors and methods |
+      | Primitive obsession | introduce value objects |
+      | Services named `XManager` | find the missing domain concept |
+
+      #### How it relates
+
+      - If this describes your code, strategic design — not more patterns — is usually what is missing.
+commands:
+  heading: Essential code patterns
+  tocLabel: Code patterns
+  groups:
+    - group: Tactical building blocks (C#)
+      items:
+        - lang: csharp
+          code: |-
+            public readonly record struct Money(decimal Amount, string Currency)
+            {
+                public Money
+                {
+                    if (Amount < 0) throw new DomainException("amount cannot be negative");
+                    if (Currency.Length != 3) throw new DomainException("ISO currency required");
+                }
+
+                public static Money operator +(Money a, Money b) =>
+                    a.Currency == b.Currency
+                        ? a with { Amount = a.Amount + b.Amount }
+                        : throw new DomainException("currency mismatch");
+            }
+          what: "A value object: immutable, validated in the constructor, equal by value, with the currency rule impossible to bypass."
+        - lang: csharp
+          code: |-
+            public sealed class Order                      // aggregate root
+            {
+                private readonly List<OrderLine> _lines = new();
+                private readonly List<IDomainEvent> _events = new();
+
+                public OrderId Id { get; }
+                public IReadOnlyList<OrderLine> Lines => _lines;   // read-only on purpose
+
+                public void AddItem(Sku sku, int quantity)
+                {
+                    if (quantity <= 0) throw new DomainException("quantity must be positive");
+                    if (_lines.Sum(l => l.Quantity) + quantity > 10)
+                        throw new DomainException("an order cannot hold more than 10 items");
+
+                    _lines.Add(new OrderLine(sku, quantity));
+                    _events.Add(new ItemAdded(Id, sku, quantity));
+                }
+
+                public IReadOnlyList<IDomainEvent> ReleaseEvents()
+                {
+                    var e = _events.ToArray(); _events.Clear(); return e;
+                }
+            }
+          what: The root owns the invariant and records what happened. Nothing outside can add a line directly.
+        - lang: csharp
+          code: |-
+            public interface IOrderRepository
+            {
+                Task<Order?> Get(OrderId id, CancellationToken ct = default);
+                Task Add(Order order, CancellationToken ct = default);
+                Task Save(Order order, CancellationToken ct = default);
+            }
+          what: One repository per aggregate root, by identity, whole aggregates only — no query methods for screens.
+        - lang: csharp
+          code: |-
+            public sealed class AddItemHandler(IOrderRepository repo, IEventBus bus)
+            {
+                public async Task Handle(AddItem cmd, CancellationToken ct)
+                {
+                    var order = await repo.Get(cmd.OrderId, ct)
+                                ?? throw new NotFoundException(cmd.OrderId);
+
+                    order.AddItem(cmd.Sku, cmd.Quantity);   // the only business call
+
+                    await repo.Save(order, ct);
+                    await bus.Publish(order.ReleaseEvents(), ct);   // after commit
+                }
+            }
+          what: "An application service: transaction, load, one domain call, save, publish. No rules."
+    - group: Python
+      items:
+        - lang: python
+          code: |-
+            from dataclasses import dataclass, field
+
+            @dataclass(frozen=True, slots=True)
+            class Money:
+                amount: int          # minor units, never float
+                currency: str
+
+                def __post_init__(self):
+                    if self.amount < 0:
+                        raise DomainError("amount cannot be negative")
+
+                def __add__(self, other: "Money") -> "Money":
+                    if self.currency != other.currency:
+                        raise DomainError("currency mismatch")
+                    return Money(self.amount + other.amount, self.currency)
+          what: "The same value object in Python: frozen dataclass, validated once, equality by value for free."
+        - lang: python
+          code: |-
+            class Order:
+                MAX_ITEMS = 10
+
+                def __init__(self, order_id: OrderId):
+                    self.id = order_id
+                    self._lines: list[OrderLine] = []
+                    self._events: list[DomainEvent] = []
+
+                def add_item(self, sku: Sku, quantity: int) -> None:
+                    if quantity <= 0:
+                        raise DomainError("quantity must be positive")
+                    if sum(l.quantity for l in self._lines) + quantity > self.MAX_ITEMS:
+                        raise DomainError("an order cannot hold more than 10 items")
+                    self._lines.append(OrderLine(sku, quantity))
+                    self._events.append(ItemAdded(self.id, sku, quantity))
+          what: "The aggregate root: private children, one public intention, the invariant checked against the whole aggregate."
+    - group: Boundaries in the repository layout
+      items:
+        - code: |-
+            src/
+              Sales/                    # bounded context — owns its schema
+                Domain/                 # entities, value objects, events (no framework)
+                Application/            # command handlers, ports
+                Infrastructure/         # EF Core, HTTP clients, ACL to Shipping
+              Shipping/
+                Domain/ Application/ Infrastructure/
+              Billing/
+              SharedKernel/             # Money, DateRange — tiny, stable, jointly owned
+          what: Folders follow contexts, not layers-first. Layer folders live inside each context so a boundary violation is visible in a diff.
+        - lang: bash
+          code: |-
+            # fail the build when Domain depends on anything infrastructural
+            dotnet add package NetArchTest.Rules
+            # or, in Java/Kotlin: ArchUnit  ·  in Python: import-linter
+          what: Architecture tests are the only thing that keeps a bounded context bounded once the team grows.
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - Business rules live in one findable place instead of being spread across controllers, triggers and validators.
+      - Bounded contexts give a principled way to split a system — and a reason not to split it at the wrong seam.
+      - The ubiquitous language makes conversations with domain experts cheap and misunderstandings visible early.
+      - Aggregates give explicit, small transaction boundaries, which is what lets the model scale later.
+      - The domain layer has no framework dependencies, so it is fast to test without a database.
+      - Domain events make integration between contexts loose and auditable.
+  bad:
+    heading: Cons
+    items:
+      - "Real cost in ceremony: many small types, mappers, and more code for the same CRUD screen."
+      - Needs sustained access to a domain expert; without one it degenerates into pattern cosplay.
+      - Steep learning curve, and the tactical patterns are easy to apply while missing the point.
+      - Boundaries drawn wrong early are expensive to move later.
+      - Eventual consistency between aggregates surprises stakeholders who expected everything to be immediate.
+      - Poor fit for read-heavy, report-shaped work, which needs queries the repository deliberately refuses.
+when:
+  note: if you can explain the whole domain in ten minutes, you do not need DDD
+  good:
+    heading: Use it when…
+    items:
+      - The complexity is in the business rules, not in the throughput or the UI.
+      - Domain experts disagree with each other — that is the signal that several models are hiding in one.
+      - The system will live for years and the rules will keep changing.
+      - Several teams need to work in parallel and you need real boundaries between them.
+      - You are about to split a monolith and need a principled place to cut.
+  bad:
+    heading: Avoid it when…
+    items:
+      - The application is forms over data. Use **CRUD with a good ORM**, or **transaction scripts**.
+      - The hard part is volume, latency or data movement, not rules. Use **a pipeline and good data modelling**.
+      - You have no access to a domain expert. Use **a simpler design** until you do.
+      - It is a short-lived prototype or a one-off migration. Use **the shortest thing that works**.
+      - The team has never done it and there is no time to learn. Use **a modular monolith with clear modules** and adopt tactical DDD inside the one module that needs it.
+useCases:
+  - title: Insurance policy administration
+    body: Underwriting, claims and billing all say "policy" and mean different things, and the rules change every regulatory season. Three bounded contexts with their own models, plus an anti-corruption layer over the 1990s mainframe, let each team change its rules without renegotiating a shared schema.
+  - title: Splitting a monolith that resists splitting
+    body: A team wants microservices but every candidate service needs the same tables. Event storming reveals that the real boundary runs through the `customers` table, not around it. They extract contexts one at a time inside a modular monolith first, and only then move the ones that actually need separate deployment.
+  - title: Logistics planning
+    body: "\"Delivered\" means a scan at the door to operations, a signature to customer service and a revenue event to finance. Separate contexts with explicit integration events end a year-long argument about what the status column should contain."
+  - title: Trading and risk
+    body: Position limits, margin rules and settlement windows are genuine invariants with money attached. Aggregates make the transaction boundary explicit, and value objects (`Money`, `Notional`, `Tenor`) remove a whole family of unit and rounding bugs.
+  - title: Multi-tenant SaaS with per-tenant rules
+    body: Tenants want their own approval workflows. Modelling the workflow as a core subdomain with explicit policies — instead of a forest of `if (tenantId == ...)` — keeps customisation inside one context and out of the rest of the product.
+gotchas:
+  items:
+    - mistake: Doing only the tactical half
+      why: Entities, repositories and value objects applied inside one undivided model give you all of the ceremony and none of the benefit — the god object is now a god aggregate.
+      fix: start with event storming and bounded contexts. Tactical patterns are an implementation detail inside a boundary you have already drawn.
+    - mistake: One canonical model for the whole company
+      why: The "enterprise Customer" eventually has ninety nullable fields, no invariants and a change-approval committee.
+      fix: let each context own its model and translate at the border. Duplication across contexts is correct, not a defect.
+    - mistake: Aggregates that are too big
+      why: Modelling `Customer` as the root of all their orders means loading thousands of rows to change an address, and two users editing different orders collide.
+      fix: group only what must be transactionally consistent. Reference other aggregates by id and connect them with domain events.
+    - mistake: Changing several aggregates in one transaction
+      why: "It works until it does not: long locks, deadlocks and a model that cannot be split later because everything commits together."
+      fix: one aggregate per transaction. For the rest, publish a domain event and converge, with an outbox so the event cannot be lost.
+    - mistake: Repositories that grow a query API
+      why: "`FindByStatusAndDateAndCustomerWithLines` appears, then projections, then paging — and the aggregate is now shaped by screens."
+      fix: keep repositories to get/add/save by identity and build a separate read model for queries. This is the moment CQRS starts paying for itself.
+    - mistake: Treating the ORM mapping as the model
+      why: Letting Entity Framework or Hibernate dictate public setters, parameterless constructors and exposed collections quietly produces an anemic model.
+      fix: map to private fields and backing collections; keep the domain free of persistence attributes. If the ORM cannot express the model, that is the ORM's problem, not the model's.
+    - mistake: Publishing internal domain events across contexts
+      why: Consumers start depending on your internal shape, and you cannot refactor your own model without breaking three other teams.
+      fix: separate internal domain events from versioned integration events, and treat the integration shape as a published contract.
+    - mistake: Boundaries that do not match the teams
+      why: If two teams change the same context, every release becomes a negotiation and the boundary stops being real.
+      fix: align one context to one team (Conway's law is not optional). If you cannot, merge the contexts and be honest about it.
+alternatives:
+  columns: [ Approach, Best for, Complexity, Cost / license, Key difference vs DDD ]
+  rows:
+    - self: true
+      cells:
+        - "**Domain-Driven Design**"
+        - complex, long-lived business rules
+        - High
+        - free; cost is learning and ceremony
+        - —
+    - cells:
+        - "**Transaction script**"
+        - simple, procedural use cases
+        - Low
+        - free
+        - One function per use case; no model, no boundaries — fine until the rules multiply
+    - cells:
+        - "**Active Record / CRUD**"
+        - forms over data
+        - Low
+        - free
+        - The table <em>is</em> the model; fast to build, no place to put invariants
+    - cells:
+        - "**Clean / hexagonal architecture**"
+        - keeping frameworks at arm's length
+        - Medium
+        - free
+        - Dependency rules only; says nothing about boundaries or language. Pairs well with DDD
+    - cells:
+        - "**CQRS + event sourcing**"
+        - audit, temporal queries, high read/write asymmetry
+        - High
+        - free; operational cost real
+        - A storage and read strategy, not a modelling method; usually applied <em>inside</em> a DDD context
+    - cells:
+        - "**Modular monolith**"
+        - boundaries without distribution
+        - Medium
+        - free
+        - The deployment shape; DDD supplies the criterion for where the modules go
+  notes:
+    - "**Pick transaction scripts** if each use case is a short procedure and the rules rarely interact."
+    - "**Pick CRUD** if the business value is in the screens and the data, not in the behaviour."
+    - "**Pick clean architecture** alongside DDD — it answers \"which way do dependencies point?\", not \"what is the model?\"."
+    - "**Pick CQRS** once the repository starts growing query methods, and event sourcing only if you need history as a first-class fact."
+    - "**Pick a modular monolith** as the first physical shape for your contexts; split out services only when a context needs its own scaling or release cadence."
+resources:
+  - url: https://www.domainlanguage.com/ddd/reference/
+    title: Domain-Driven Design Reference (Evans)
+    why: the free pattern summary — the whole vocabulary in about 50 pages.
+  - url: https://martinfowler.com/bliki/BoundedContext.html
+    title: Martin Fowler — Bounded Context
+    why: the shortest good explanation of the central idea.
+  - url: https://martinfowler.com/bliki/AnemicDomainModel.html
+    title: Martin Fowler — Anemic Domain Model
+    why: what it looks like when the patterns are applied without the point.
+  - url: https://www.dddcommunity.org/library/vernon_2011/
+    title: Effective Aggregate Design (Vernon)
+    why: three free papers on sizing aggregates — the most practical thing written on the subject.
+  - url: https://github.com/ddd-crew/context-mapping
+    title: DDD Crew — Context Mapping
+    why: printable cheat sheets for the relationship patterns.
+  - url: https://www.eventstorming.com/
+    title: EventStorming
+    why: Brandolini's own site, including how to run the workshop.

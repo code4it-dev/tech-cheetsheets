@@ -39,9 +39,9 @@
       <h1>Sidecar pattern</h1>
       <p class="tagline">Put the cross-cutting concern in a container next door, not in every application's dependency list.</p>
       <span class="meta">As of Nov 2026 · Kubernetes native sidecar containers are GA since 1.29; examples use Istio/Envoy, Fluent Bit and Cloud SQL Proxy</span>
-      <p>A sidecar is a second container deployed alongside the main application in the same unit &mdash; a Kubernetes pod, or a host &mdash; sharing its lifecycle, its network namespace and, when you want, its filesystem. Because they share <code>localhost</code>, the two can talk with no network hop and no authentication; because they share a lifecycle, the sidecar is scheduled, scaled and deleted with the thing it serves.</p>
+      <p>A sidecar is a second container deployed alongside the main application in the same unit — a Kubernetes pod, or a host — sharing its lifecycle, its network namespace and, when you want, its filesystem. Because they share <code>localhost</code>, the two can talk with no network hop and no authentication; because they share a lifecycle, the sidecar is scheduled, scaled and deleted with the thing it serves.</p>
       <p>The point is to move concerns that every service needs and no service wants to own: mutual TLS, retries and circuit breaking, metrics and tracing, log shipping, secret rotation, config reloading, database proxies. Those become somebody else's container image, updated on its own cadence, instead of a library you must bump in forty repositories across five languages.</p>
-      <p>The classic variants have names worth knowing: an <b>ambassador</b> is a sidecar that proxies outbound traffic, an <b>adapter</b> is one that normalises what the app exposes (turning its idiosyncratic metrics into Prometheus format, for example). A <b>service mesh</b> is simply this pattern applied to every pod in the cluster, with a control plane configuring them all. And the current counter-trend &mdash; eBPF and ambient meshes &mdash; exists because the per-pod tax of thousands of sidecars eventually becomes the dominant cost.</p>
+      <p>The classic variants have names worth knowing: an <b>ambassador</b> is a sidecar that proxies outbound traffic, an <b>adapter</b> is one that normalises what the app exposes (turning its idiosyncratic metrics into Prometheus format, for example). A <b>service mesh</b> is simply this pattern applied to every pod in the cluster, with a control plane configuring them all. And the current counter-trend — eBPF and ambient meshes — exists because the per-pod tax of thousands of sidecars eventually becomes the dominant cost.</p>
     </header>
 
     <section id="architecture">
@@ -99,11 +99,10 @@
 
     <section id="how-it-works">
       <h2>How it works</h2>
-      <p style="margin:0 0 18px">The first animation follows one request in and one request out, and shows what the application is spared. The second is the part teams actually get burned by: who starts first, who stops last, and who decides the pod is finished.</p>
-      <span class="note" style="margin:-8px 0 18px">a sidecar is free in code and expensive in lifecycle &mdash; budget for the second</span>
-
+      <p>The first animation follows one request in and one request out, and shows what the application is spared. The second is the part teams actually get burned by: who starts first, who stops last, and who decides the pod is finished.</p>
+      <span class="note" style="margin:-6px 0 14px">a sidecar is free in code and expensive in lifecycle — budget for the second</span>
       <div class="anim" id="anim-req">
-        <h3>1 &middot; One request in, one request out</h3>
+        <h3>1 · One request in, one request out</h3>
         <div class="stage">
           <svg viewBox="0 0 800 320" role="img" aria-label="A request intercepted by a sidecar proxy, forwarded over localhost to the application, and an outbound call handled by the same sidecar">
             <defs>
@@ -151,9 +150,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-life">
-        <h3>2 &middot; Who starts first, who stops last, who decides it's done</h3>
+        <h3>2 · Who starts first, who stops last, who decides it's done</h3>
         <div class="stage">
           <svg viewBox="0 0 800 300" role="img" aria-label="Startup and shutdown races between an application container and a sidecar, fixed by native sidecar containers">
             <text id="lf-phase" x="400" y="22" font-size="12.5" text-anchor="middle" fill="#5f6f66">startup &mdash; both containers start at the same moment</text>
@@ -187,258 +185,248 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>Sidecar</b><span>A helper container deployed in the same unit as the application, sharing its lifecycle and extending it without changing its code.</span><template class="term-detail" data-see="Pod, Shared network namespace, Ambassador, Adapter">
-          <p>The defining properties are co-location and co-lifecycle: the sidecar is scheduled onto the same node, starts and stops with the application, and reaches it over loopback. That makes it fundamentally different from a shared service &mdash; there is no network partition between the two, and no multi-tenancy to reason about.</p>
-          <p>The motivation is language independence. A retry policy as a library must be written once per language and released once per service; as a sidecar it is one image everybody uses, including the Python script and the 2009 Java application nobody dares to touch.</p>
-          <h4>What usually goes in one</h4>
-          <table>
-            <tr><th>Concern</th><th>Typical sidecar</th></tr>
-            <tr><td>mTLS, retries, routing</td><td>Envoy / Linkerd proxy</td></tr>
-            <tr><td>Log shipping</td><td>Fluent Bit, Vector</td></tr>
-            <tr><td>Metrics translation</td><td>an exporter</td></tr>
-            <tr><td>Secrets and config</td><td>Vault agent, config reloader</td></tr>
-            <tr><td>Database access</td><td>Cloud SQL Proxy, PgBouncer</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>A service mesh is this pattern applied to every pod, plus a control plane.</li></ul>
+        <p>The defining properties are co-location and co-lifecycle: the sidecar is scheduled onto the same node, starts and stops with the application, and reaches it over loopback. That makes it fundamentally different from a shared service — there is no network partition between the two, and no multi-tenancy to reason about.</p>
+        <p>The motivation is language independence. A retry policy as a library must be written once per language and released once per service; as a sidecar it is one image everybody uses, including the Python script and the 2009 Java application nobody dares to touch.</p>
+        <h4>What usually goes in one</h4>
+        <table><tr><th>Concern</th><th>Typical sidecar</th></tr>
+        <tr><td>mTLS, retries, routing</td><td>Envoy / Linkerd proxy</td></tr>
+        <tr><td>Log shipping</td><td>Fluent Bit, Vector</td></tr>
+        <tr><td>Metrics translation</td><td>an exporter</td></tr>
+        <tr><td>Secrets and config</td><td>Vault agent, config reloader</td></tr>
+        <tr><td>Database access</td><td>Cloud SQL Proxy, PgBouncer</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>A service mesh is this pattern applied to every pod, plus a control plane.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Pod</b><span>The deployment unit the pattern depends on: one or more containers that are scheduled, scaled and deleted together.</span><template class="term-detail" data-see="Sidecar, Shared network namespace, Shared volume, Native sidecar">
-          <p>A pod gives the sidecar everything it needs: the same node, the same IP, the same lifecycle, and optionally the same volumes. Scaling the application scales the sidecar with it, one to one &mdash; which is both the pattern's convenience and the source of its cost.</p>
-          <p>Outside Kubernetes the same idea appears as a companion process under systemd, an ECS task with two containers, or a daemon on the same VM. The pattern predates the word "pod".</p>
-          <h4>What is shared</h4>
-          <table>
-            <tr><th>Resource</th><th>Shared?</th></tr>
-            <tr><td>Network namespace / IP</td><td>yes &mdash; always</td></tr>
-            <tr><td>Lifecycle and node</td><td>yes</td></tr>
-            <tr><td>Volumes</td><td>opt in</td></tr>
-            <tr><td>Process namespace</td><td>opt in</td></tr>
-            <tr><td>Filesystem root, memory limits</td><td>no &mdash; per container</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Kubernetes is the page to read for how pods, probes and scheduling actually work.</li></ul>
+        <p>A pod gives the sidecar everything it needs: the same node, the same IP, the same lifecycle, and optionally the same volumes. Scaling the application scales the sidecar with it, one to one — which is both the pattern's convenience and the source of its cost.</p>
+        <p>Outside Kubernetes the same idea appears as a companion process under systemd, an ECS task with two containers, or a daemon on the same VM. The pattern predates the word "pod".</p>
+        <h4>What is shared</h4>
+        <table><tr><th>Resource</th><th>Shared?</th></tr>
+        <tr><td>Network namespace / IP</td><td>yes — always</td></tr>
+        <tr><td>Lifecycle and node</td><td>yes</td></tr>
+        <tr><td>Volumes</td><td>opt in</td></tr>
+        <tr><td>Process namespace</td><td>opt in</td></tr>
+        <tr><td>Filesystem root, memory limits</td><td>no — per container</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Kubernetes is the page to read for how pods, probes and scheduling actually work.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Shared network namespace</b><span>Both containers see the same loopback interface, so they reach each other on 127.0.0.1 with no network hop.</span><template class="term-detail" data-see="Pod, Traffic interception, Sidecar">
-          <p>This is what makes a sidecar cheap enough to be useful. Traffic between the app and the proxy never leaves the kernel: no DNS, no TLS, no routing, just loopback. It also means the two containers share one port space, so a collision is a startup failure rather than a subtle bug.</p>
-          <p>And it is a security boundary you have given up: anything in the sidecar can talk to anything the app binds on localhost, including the admin port you assumed was private.</p>
-          <h4>Conventional ports</h4>
-          <table>
-            <tr><th>Port</th><th>Meaning (Istio)</th></tr>
-            <tr><td>15001</td><td>outbound capture</td></tr>
-            <tr><td>15006</td><td>inbound capture</td></tr>
-            <tr><td>15020 / 15090</td><td>health and metrics</td></tr>
-            <tr><td>your 8080</td><td>the app, reached over loopback</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Never bind a debug or admin endpoint on <code>0.0.0.0</code> in a pod with a sidecar.</li></ul>
+        <p>This is what makes a sidecar cheap enough to be useful. Traffic between the app and the proxy never leaves the kernel: no DNS, no TLS, no routing, just loopback. It also means the two containers share one port space, so a collision is a startup failure rather than a subtle bug.</p>
+        <p>And it is a security boundary you have given up: anything in the sidecar can talk to anything the app binds on localhost, including the admin port you assumed was private.</p>
+        <h4>Conventional ports</h4>
+        <table><tr><th>Port</th><th>Meaning (Istio)</th></tr>
+        <tr><td>15001</td><td>outbound capture</td></tr>
+        <tr><td>15006</td><td>inbound capture</td></tr>
+        <tr><td>15020 / 15090</td><td>health and metrics</td></tr>
+        <tr><td>your 8080</td><td>the app, reached over loopback</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Never bind a debug or admin endpoint on <code>0.0.0.0</code> in a pod with a sidecar.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Shared volume</b><span>An emptyDir or similar mounted into both containers — how log and config sidecars exchange data.</span><template class="term-detail" data-see="Pod, Log shipping, Config reloader">
-          <p>The app writes <code>/var/log/app.log</code>, the shipper reads it and forwards to the logging backend; or a config sidecar writes a rendered template into <code>/etc/app</code> and signals the app to reload. It is the filesystem equivalent of the loopback interface: a private channel with no network in it.</p>
-          <p>Watch the medium. An <code>emptyDir</code> on disk shares the node's filesystem and will fill it; <code>emptyDir: {medium: Memory}</code> is fast but counts against the pod's memory limit.</p>
-          <h4>Choices</h4>
-          <table>
-            <tr><th>Volume</th><th>Use</th></tr>
-            <tr><td><code>emptyDir</code></td><td>logs, scratch &mdash; dies with the pod</td></tr>
-            <tr><td><code>emptyDir</code> (Memory)</td><td>secrets, fast handoff; costs RAM</td></tr>
-            <tr><td><code>projected</code></td><td>tokens and certs from the platform</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Rotating files without a size cap is the classic way a log sidecar fills a node.</li></ul>
+        <p>The app writes <code>/var/log/app.log</code>, the shipper reads it and forwards to the logging backend; or a config sidecar writes a rendered template into <code>/etc/app</code> and signals the app to reload. It is the filesystem equivalent of the loopback interface: a private channel with no network in it.</p>
+        <p>Watch the medium. An <code>emptyDir</code> on disk shares the node's filesystem and will fill it; <code>emptyDir: {medium: Memory}</code> is fast but counts against the pod's memory limit.</p>
+        <h4>Choices</h4>
+        <table><tr><th>Volume</th><th>Use</th></tr>
+        <tr><td><code>emptyDir</code></td><td>logs, scratch — dies with the pod</td></tr>
+        <tr><td><code>emptyDir</code> (Memory)</td><td>secrets, fast handoff; costs RAM</td></tr>
+        <tr><td><code>projected</code></td><td>tokens and certs from the platform</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Rotating files without a size cap is the classic way a log sidecar fills a node.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Traffic interception</b><span>Redirecting the pod's inbound and outbound traffic into the proxy, usually with iptables or eBPF, so the app needs no changes at all.</span><template class="term-detail" data-see="Shared network namespace, Service mesh, Sidecarless">
-          <p>An init container rewrites the pod's iptables rules so everything arriving on the pod IP goes to port 15006 and everything leaving goes to 15001. The application opens an ordinary socket to <code>payments:8080</code> and has no idea the connection was captured, encrypted and load balanced.</p>
-          <p>That transparency is the pattern's best trick and its worst debugging experience: <code>curl</code> from inside the pod behaves differently from <code>curl</code> on the node, and "connection refused" may mean the proxy is not ready rather than the destination being down.</p>
-          <h4>Mechanisms</h4>
-          <table>
-            <tr><th>Mechanism</th><th>Note</th></tr>
-            <tr><td>iptables REDIRECT</td><td>classic; needs NET_ADMIN once</td></tr>
-            <tr><td>eBPF</td><td>lower overhead, newer kernels</td></tr>
-            <tr><td>Explicit proxy config</td><td>no magic; app must cooperate</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Interception is why startup ordering matters so much &mdash; see <b>startup ordering</b>.</li></ul>
+        <p>An init container rewrites the pod's iptables rules so everything arriving on the pod IP goes to port 15006 and everything leaving goes to 15001. The application opens an ordinary socket to <code>payments:8080</code> and has no idea the connection was captured, encrypted and load balanced.</p>
+        <p>That transparency is the pattern's best trick and its worst debugging experience: <code>curl</code> from inside the pod behaves differently from <code>curl</code> on the node, and "connection refused" may mean the proxy is not ready rather than the destination being down.</p>
+        <h4>Mechanisms</h4>
+        <table><tr><th>Mechanism</th><th>Note</th></tr>
+        <tr><td>iptables REDIRECT</td><td>classic; needs NET_ADMIN once</td></tr>
+        <tr><td>eBPF</td><td>lower overhead, newer kernels</td></tr>
+        <tr><td>Explicit proxy config</td><td>no magic; app must cooperate</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Interception is why startup ordering matters so much — see <b>startup ordering</b>.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Ambassador</b><span>A sidecar that owns outbound connections on the app's behalf: discovery, load balancing, retries, circuit breaking.</span><template class="term-detail" data-see="Sidecar, Adapter, Service mesh">
-          <p>The app connects to <code>localhost:6379</code> and the ambassador decides which Redis shard that really is, whether to retry, and when to trip a breaker. Cloud SQL Proxy and PgBouncer-as-a-sidecar are the same idea for databases: the application holds a plain local connection string and the hard parts happen next door.</p>
-          <p>It is the most immediately useful variant for legacy applications, because it needs no interception magic &mdash; just a changed connection string.</p>
-          <h4>Common ambassadors</h4>
-          <table>
-            <tr><th>Sidecar</th><th>Hides</th></tr>
-            <tr><td>Envoy</td><td>discovery, retries, mTLS</td></tr>
-            <tr><td>Cloud SQL Proxy</td><td>IAM auth, TLS, instance routing</td></tr>
-            <tr><td>PgBouncer</td><td>connection pooling</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>An ambassador is where connection pooling and rate limiting naturally land.</li></ul>
+        <p>The app connects to <code>localhost:6379</code> and the ambassador decides which Redis shard that really is, whether to retry, and when to trip a breaker. Cloud SQL Proxy and PgBouncer-as-a-sidecar are the same idea for databases: the application holds a plain local connection string and the hard parts happen next door.</p>
+        <p>It is the most immediately useful variant for legacy applications, because it needs no interception magic — just a changed connection string.</p>
+        <h4>Common ambassadors</h4>
+        <table><tr><th>Sidecar</th><th>Hides</th></tr>
+        <tr><td>Envoy</td><td>discovery, retries, mTLS</td></tr>
+        <tr><td>Cloud SQL Proxy</td><td>IAM auth, TLS, instance routing</td></tr>
+        <tr><td>PgBouncer</td><td>connection pooling</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>An ambassador is where connection pooling and rate limiting naturally land.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Adapter</b><span>A sidecar that normalises what the application exposes, so the platform sees a uniform interface.</span><template class="term-detail" data-see="Sidecar, Ambassador, Log shipping">
-          <p>The app emits metrics in its own format on <code>/stats</code>; the adapter translates them into Prometheus exposition format on <code>/metrics</code>. Or it turns an idiosyncratic health endpoint into a standard one, or unstructured log lines into JSON with the right fields.</p>
-          <p>It is the pattern of choice for third-party software you cannot modify, which is exactly the software that never speaks your platform's conventions.</p>
-          <h4>Examples</h4>
-          <table>
-            <tr><th>Adapter</th><th>Turns</th></tr>
-            <tr><td>Exporter sidecar</td><td>app stats &rarr; Prometheus</td></tr>
-            <tr><td>Log parser</td><td>text lines &rarr; structured JSON</td></tr>
-            <tr><td>Health wrapper</td><td>a TCP check &rarr; an HTTP probe</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Ambassador points outwards, adapter points inwards &mdash; both are sidecars.</li></ul>
+        <p>The app emits metrics in its own format on <code>/stats</code>; the adapter translates them into Prometheus exposition format on <code>/metrics</code>. Or it turns an idiosyncratic health endpoint into a standard one, or unstructured log lines into JSON with the right fields.</p>
+        <p>It is the pattern of choice for third-party software you cannot modify, which is exactly the software that never speaks your platform's conventions.</p>
+        <h4>Examples</h4>
+        <table><tr><th>Adapter</th><th>Turns</th></tr>
+        <tr><td>Exporter sidecar</td><td>app stats → Prometheus</td></tr>
+        <tr><td>Log parser</td><td>text lines → structured JSON</td></tr>
+        <tr><td>Health wrapper</td><td>a TCP check → an HTTP probe</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Ambassador points outwards, adapter points inwards — both are sidecars.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Service mesh</b><span>The sidecar pattern applied to every workload, with a control plane distributing policy to all the proxies.</span><template class="term-detail" data-see="Sidecar, Data plane, Sidecarless, Traffic interception">
-          <p>Istio, Linkerd and friends inject a proxy into every pod and configure them centrally. The payoff is uniform mTLS, uniform retries and timeouts, uniform golden metrics, traffic splitting for canaries, and the ability to change any of it for the whole fleet with a config push instead of a release train.</p>
-          <p>The cost is a second distributed system that sits in the data path of every request. Adopt it for the capability you actually need &mdash; usually mTLS everywhere, or traffic shifting &mdash; not because it is the default diagram.</p>
-          <h4>What it gives you</h4>
-          <table>
-            <tr><th>Capability</th><th>Alternative without a mesh</th></tr>
-            <tr><td>mTLS everywhere</td><td>per-language TLS libraries</td></tr>
-            <tr><td>Uniform retries, timeouts</td><td>a client library per language</td></tr>
-            <tr><td>Golden metrics for free</td><td>instrument every service</td></tr>
-            <tr><td>Canary traffic splitting</td><td>gateway or client-side routing</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Kubernetes provides the pod; the mesh provides the proxies and the policy.</li></ul>
+        <p>Istio, Linkerd and friends inject a proxy into every pod and configure them centrally. The payoff is uniform mTLS, uniform retries and timeouts, uniform golden metrics, traffic splitting for canaries, and the ability to change any of it for the whole fleet with a config push instead of a release train.</p>
+        <p>The cost is a second distributed system that sits in the data path of every request. Adopt it for the capability you actually need — usually mTLS everywhere, or traffic shifting — not because it is the default diagram.</p>
+        <h4>What it gives you</h4>
+        <table><tr><th>Capability</th><th>Alternative without a mesh</th></tr>
+        <tr><td>mTLS everywhere</td><td>per-language TLS libraries</td></tr>
+        <tr><td>Uniform retries, timeouts</td><td>a client library per language</td></tr>
+        <tr><td>Golden metrics for free</td><td>instrument every service</td></tr>
+        <tr><td>Canary traffic splitting</td><td>gateway or client-side routing</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Kubernetes provides the pod; the mesh provides the proxies and the policy.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Data plane</b><span>The sidecars that actually carry traffic, as opposed to the control plane that configures them.</span><template class="term-detail" data-see="Service mesh, Sidecar, Startup ordering">
-          <p>The separation matters operationally: if the control plane goes down, the data plane keeps running on its last configuration, so requests keep flowing. What stops is <em>change</em> &mdash; new pods cannot get config, which is why a control plane outage shows up first as failing deployments rather than failing traffic.</p>
-          <p>It also sets the upgrade shape: control plane first, then data plane, pod by pod, which means a mesh upgrade is a fleet-wide rolling restart.</p>
-          <h4>Failure modes</h4>
-          <table>
-            <tr><th>What fails</th><th>Effect</th></tr>
-            <tr><td>Control plane</td><td>existing traffic fine; new pods stuck</td></tr>
-            <tr><td>One sidecar</td><td>that pod is down &mdash; blast radius of one</td></tr>
-            <tr><td>Bad config push</td><td>fleet-wide; this is the scary one</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Roll config changes out gradually; a mesh config push is a global deploy.</li></ul>
+        <p>The separation matters operationally: if the control plane goes down, the data plane keeps running on its last configuration, so requests keep flowing. What stops is <em>change</em> — new pods cannot get config, which is why a control plane outage shows up first as failing deployments rather than failing traffic.</p>
+        <p>It also sets the upgrade shape: control plane first, then data plane, pod by pod, which means a mesh upgrade is a fleet-wide rolling restart.</p>
+        <h4>Failure modes</h4>
+        <table><tr><th>What fails</th><th>Effect</th></tr>
+        <tr><td>Control plane</td><td>existing traffic fine; new pods stuck</td></tr>
+        <tr><td>One sidecar</td><td>that pod is down — blast radius of one</td></tr>
+        <tr><td>Bad config push</td><td>fleet-wide; this is the scary one</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Roll config changes out gradually; a mesh config push is a global deploy.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Native sidecar</b><span>Kubernetes' first-class support: an init container with <code>restartPolicy: Always</code>, which starts before the app and stops after it.</span><template class="term-detail" data-see="Startup ordering, Graceful shutdown, Jobs">
-          <p>Stable since Kubernetes 1.29, this fixes the three lifecycle problems that plagued sidecars for years: the sidecar is started and becomes ready <em>before</em> the application containers start, it is terminated <em>after</em> they exit, and it does not prevent a Job's pod from completing.</p>
-          <p>Declaring a sidecar this way removes most of the folklore &mdash; the sleep loops, the preStop hacks, the <code>/quitquitquit</code> calls at the end of a batch job.</p>
-          <h4>Before and after</h4>
-          <table>
-            <tr><th>Problem</th><th>Old workaround</th><th>Native sidecar</th></tr>
-            <tr><td>App starts first</td><td>retry loop in the app</td><td>ordered startup</td></tr>
-            <tr><td>Proxy dies first</td><td>preStop sleep</td><td>ordered shutdown</td></tr>
-            <tr><td>Job never completes</td><td>curl /quitquitquit</td><td>terminated automatically</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The second animation walks all three failures and this fix.</li></ul>
+        <p>Stable since Kubernetes 1.29, this fixes the three lifecycle problems that plagued sidecars for years: the sidecar is started and becomes ready <em>before</em> the application containers start, it is terminated <em>after</em> they exit, and it does not prevent a Job's pod from completing.</p>
+        <p>Declaring a sidecar this way removes most of the folklore — the sleep loops, the preStop hacks, the <code>/quitquitquit</code> calls at the end of a batch job.</p>
+        <h4>Before and after</h4>
+        <table><tr><th>Problem</th><th>Old workaround</th><th>Native sidecar</th></tr>
+        <tr><td>App starts first</td><td>retry loop in the app</td><td>ordered startup</td></tr>
+        <tr><td>Proxy dies first</td><td>preStop sleep</td><td>ordered shutdown</td></tr>
+        <tr><td>Job never completes</td><td>curl /quitquitquit</td><td>terminated automatically</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The second animation walks all three failures and this fix.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Startup ordering</b><span>The race where the application is ready before its proxy, and its first outbound calls fail.</span><template class="term-detail" data-see="Native sidecar, Traffic interception, Data plane">
-          <p>With traffic interception in place, every outbound connection is redirected to a proxy that may still be fetching its configuration. A service that connects to its database on boot therefore gets "connection refused" and crash-loops &mdash; at every deploy, on the pods that happen to lose the race.</p>
-          <p>Declare the proxy as a native sidecar with a startup probe and the problem disappears. On older clusters the honest workaround is a readiness-aware retry loop in the app's entrypoint.</p>
-          <h4>Symptoms</h4>
-          <table>
-            <tr><th>Symptom</th><th>Cause</th></tr>
-            <tr><td>Connection refused on boot only</td><td>proxy not listening yet</td></tr>
-            <tr><td>Fails on some pods, not others</td><td>it is a race</td></tr>
-            <tr><td>Fine locally, broken in the cluster</td><td>no sidecar locally</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Steps 1&ndash;4 of the lifecycle animation.</li></ul>
+        <p>With traffic interception in place, every outbound connection is redirected to a proxy that may still be fetching its configuration. A service that connects to its database on boot therefore gets "connection refused" and crash-loops — at every deploy, on the pods that happen to lose the race.</p>
+        <p>Declare the proxy as a native sidecar with a startup probe and the problem disappears. On older clusters the honest workaround is a readiness-aware retry loop in the app's entrypoint.</p>
+        <h4>Symptoms</h4>
+        <table><tr><th>Symptom</th><th>Cause</th></tr>
+        <tr><td>Connection refused on boot only</td><td>proxy not listening yet</td></tr>
+        <tr><td>Fails on some pods, not others</td><td>it is a race</td></tr>
+        <tr><td>Fine locally, broken in the cluster</td><td>no sidecar locally</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Steps 1–4 of the lifecycle animation.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Graceful shutdown</b><span>The mirror race: the proxy exits while the application is still draining in-flight requests.</span><template class="term-detail" data-see="Native sidecar, Startup ordering, Pod">
-          <p>On deletion every container receives SIGTERM at the same time. A proxy that exits in 100 ms takes the network away from an application that needs 20 seconds to finish what it was doing &mdash; so every rollout produces a small burst of 5xx right at the end.</p>
-          <p>Native sidecars terminate after the main containers. Before that, the standard fix was a <code>preStop</code> hook on the sidecar that simply sleeps for longer than the app's drain period.</p>
-          <h4>Checklist</h4>
-          <table>
-            <tr><th>Setting</th><th>Rule</th></tr>
-            <tr><td><code>terminationGracePeriodSeconds</code></td><td>longer than the app's drain</td></tr>
-            <tr><td>App SIGTERM handler</td><td>stop accepting, finish in flight</td></tr>
-            <tr><td>Sidecar ordering</td><td>native sidecar, or preStop sleep</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The same errors show up as a dip in your SLI at every deploy &mdash; worth an error-budget look.</li></ul>
+        <p>On deletion every container receives SIGTERM at the same time. A proxy that exits in 100 ms takes the network away from an application that needs 20 seconds to finish what it was doing — so every rollout produces a small burst of 5xx right at the end.</p>
+        <p>Native sidecars terminate after the main containers. Before that, the standard fix was a <code>preStop</code> hook on the sidecar that simply sleeps for longer than the app's drain period.</p>
+        <h4>Checklist</h4>
+        <table><tr><th>Setting</th><th>Rule</th></tr>
+        <tr><td><code>terminationGracePeriodSeconds</code></td><td>longer than the app's drain</td></tr>
+        <tr><td>App SIGTERM handler</td><td>stop accepting, finish in flight</td></tr>
+        <tr><td>Sidecar ordering</td><td>native sidecar, or preStop sleep</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The same errors show up as a dip in your SLI at every deploy — worth an error-budget look.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Resource overhead</b><span>The CPU, memory and money a sidecar costs, multiplied by every replica of every service.</span><template class="term-detail" data-see="Latency tax, Sidecarless, Service mesh">
-          <p>A proxy sidecar typically requests 50&ndash;100 mCPU and 64&ndash;128 MiB. That is unremarkable per pod and significant per fleet: 2,000 pods at 100 mCPU and 128 MiB is 200 cores and 250 GiB spent on proxies. For small services the sidecar can out-consume the application it is helping.</p>
-          <p>It also changes scheduling: every pod is bigger, so bin packing is worse and you need more nodes for the same workload.</p>
-          <div class="anim" id="ov-anim" data-steps="ov"><h4>The fleet multiplication</h4>
-            <div class="stage">
-              <svg viewBox="0 0 560 200" role="img" aria-label="Per-pod sidecar cost multiplied across a fleet of pods">
-                <text x="280" y="26" font-size="11.5" text-anchor="middle" fill="#5f6f66">harmless per pod, substantial per cluster</text>
-                <rect id="ov-pod" x="40" y="48" width="200" height="60" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
-                <text x="140" y="72" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">one sidecar</text>
-                <text id="ov-podt" x="140" y="92" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">100 mCPU · 128 MiB</text>
-                <text id="ov-x" x="280" y="84" font-size="16" text-anchor="middle" fill="#23362e" font-weight="700">×</text>
-                <rect id="ov-fleet" x="320" y="48" width="200" height="60" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
-                <text id="ov-fleett" x="420" y="72" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">pods</text>
-                <text id="ov-fleett2" x="420" y="92" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">?</text>
-                <text id="ov-sum" x="280" y="146" font-size="14" text-anchor="middle" fill="#23362e" font-weight="700" font-family="Fira Code, monospace">= ?</text>
-                <text id="ov-note" x="280" y="172" font-size="11.5" text-anchor="middle" fill="#5f6f66">this is why sidecarless meshes exist</text>
-              </svg>
-            </div><div class="controls"></div><div class="narration"></div></div>
-          <h4>How it relates</h4>
-          <ul><li>Back-of-the-envelope arithmetic is the right tool before adopting a mesh fleet-wide.</li></ul>
+        <p>A proxy sidecar typically requests 50–100 mCPU and 64–128 MiB. That is unremarkable per pod and significant per fleet: 2,000 pods at 100 mCPU and 128 MiB is 200 cores and 250 GiB spent on proxies. For small services the sidecar can out-consume the application it is helping.</p>
+        <p>It also changes scheduling: every pod is bigger, so bin packing is worse and you need more nodes for the same workload.</p>
+        <div class="anim" id="ov-anim" data-steps="ov">
+          <h4>The fleet multiplication</h4>
+          <div class="stage">
+            <svg viewBox="0 0 560 200" role="img" aria-label="Per-pod sidecar cost multiplied across a fleet of pods">
+              <text x="280" y="26" font-size="11.5" text-anchor="middle" fill="#5f6f66">harmless per pod, substantial per cluster</text>
+              <rect id="ov-pod" x="40" y="48" width="200" height="60" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+              <text x="140" y="72" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">one sidecar</text>
+              <text id="ov-podt" x="140" y="92" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">100 mCPU · 128 MiB</text>
+              <text id="ov-x" x="280" y="84" font-size="16" text-anchor="middle" fill="#23362e" font-weight="700">×</text>
+              <rect id="ov-fleet" x="320" y="48" width="200" height="60" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text id="ov-fleett" x="420" y="72" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">pods</text>
+              <text id="ov-fleett2" x="420" y="92" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">?</text>
+              <text id="ov-sum" x="280" y="146" font-size="14" text-anchor="middle" fill="#23362e" font-weight="700" font-family="Fira Code, monospace">= ?</text>
+              <text id="ov-note" x="280" y="172" font-size="11.5" text-anchor="middle" fill="#5f6f66">this is why sidecarless meshes exist</text>
+            </svg>
+          </div>
+          <div class="controls"></div>
+          <div class="narration"></div>
+        </div>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Back-of-the-envelope arithmetic is the right tool before adopting a mesh fleet-wide.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Latency tax</b><span>The extra hops a sidecar adds: two proxies on every service-to-service call.</span><template class="term-detail" data-see="Resource overhead, Sidecarless, Service mesh">
-          <p>A call from A to B passes through A's sidecar and B's sidecar, so the fixed cost is roughly 0.5&ndash;2 ms per request in a healthy mesh, plus the TLS handshake on new connections. For most request paths that is noise. For a service in a tight internal loop, or one making twenty downstream calls per request, it is not.</p>
-          <p>The tail is what bites: a saturated or restarting proxy adds far more than its median, and it does so on <em>every</em> call, so one bad sidecar shows up across the whole dependency graph.</p>
-          <h4>Rough costs</h4>
-          <table>
-            <tr><th>Hop</th><th>Typical added latency</th></tr>
-            <tr><td>Loopback to local proxy</td><td>0.1&ndash;0.5 ms</td></tr>
-            <tr><td>Full A&rarr;B with two proxies</td><td>0.5&ndash;2 ms</td></tr>
-            <tr><td>New mTLS handshake</td><td>a few ms, amortised</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Measure it as a percentile, not a mean &mdash; the median hides the cost entirely.</li></ul>
+        <p>A call from A to B passes through A's sidecar and B's sidecar, so the fixed cost is roughly 0.5–2 ms per request in a healthy mesh, plus the TLS handshake on new connections. For most request paths that is noise. For a service in a tight internal loop, or one making twenty downstream calls per request, it is not.</p>
+        <p>The tail is what bites: a saturated or restarting proxy adds far more than its median, and it does so on <em>every</em> call, so one bad sidecar shows up across the whole dependency graph.</p>
+        <h4>Rough costs</h4>
+        <table><tr><th>Hop</th><th>Typical added latency</th></tr>
+        <tr><td>Loopback to local proxy</td><td>0.1–0.5 ms</td></tr>
+        <tr><td>Full A→B with two proxies</td><td>0.5–2 ms</td></tr>
+        <tr><td>New mTLS handshake</td><td>a few ms, amortised</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Measure it as a percentile, not a mean — the median hides the cost entirely.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Injection</b><span>Adding the sidecar automatically at admission time, so application teams never write it into their manifests.</span><template class="term-detail" data-see="Service mesh, Native sidecar, Startup ordering">
-          <p>A mutating admission webhook rewrites the pod spec as it is created, inserting the proxy container, the init container that sets up iptables and the volumes it needs. Enabled per namespace with a label, it is what makes a mesh adoptable without touching hundreds of repositories.</p>
-          <p>It also means the pod that runs is not the pod you wrote, which is a surprise worth documenting: always debug from <code>kubectl get pod -o yaml</code>, never from the manifest in git.</p>
-          <h4>Consequences</h4>
-          <table>
-            <tr><th>Effect</th><th>Note</th></tr>
-            <tr><td>Manifests stay clean</td><td>the point</td></tr>
-            <tr><td>Running spec differs from git</td><td>confusing during incidents</td></tr>
-            <tr><td>Version comes from the webhook</td><td>upgrades need pod restarts</td></tr>
-            <tr><td>Opt-out per pod</td><td>an annotation; useful for jobs</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Injection plus a control plane is what turns "a sidecar" into "a mesh".</li></ul>
+        <p>A mutating admission webhook rewrites the pod spec as it is created, inserting the proxy container, the init container that sets up iptables and the volumes it needs. Enabled per namespace with a label, it is what makes a mesh adoptable without touching hundreds of repositories.</p>
+        <p>It also means the pod that runs is not the pod you wrote, which is a surprise worth documenting: always debug from <code>kubectl get pod -o yaml</code>, never from the manifest in git.</p>
+        <h4>Consequences</h4>
+        <table><tr><th>Effect</th><th>Note</th></tr>
+        <tr><td>Manifests stay clean</td><td>the point</td></tr>
+        <tr><td>Running spec differs from git</td><td>confusing during incidents</td></tr>
+        <tr><td>Version comes from the webhook</td><td>upgrades need pod restarts</td></tr>
+        <tr><td>Opt-out per pod</td><td>an annotation; useful for jobs</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Injection plus a control plane is what turns "a sidecar" into "a mesh".</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Sidecarless</b><span>Doing the same work without a per-pod proxy: eBPF in the kernel, a per-node agent, or an ambient mesh.</span><template class="term-detail" data-see="Resource overhead, Latency tax, Service mesh">
-          <p>The counter-trend. Cilium pushes policy and encryption into the kernel with eBPF; Istio's ambient mode replaces per-pod proxies with a per-node component for mTLS and routing, adding a Layer-7 proxy only for the workloads that need one. Both cut the per-pod tax dramatically.</p>
-          <p>The trade is blast radius and isolation: a per-node agent serves many pods, so its failure or saturation affects all of them, and the neat "one proxy per workload" security story becomes a shared one.</p>
-          <h4>Compared</h4>
-          <table>
-            <tr><th></th><th>Sidecar</th><th>Per-node / eBPF</th></tr>
-            <tr><td>Overhead</td><td>per pod</td><td>per node</td></tr>
-            <tr><td>Blast radius</td><td>one pod</td><td>a whole node</td></tr>
-            <tr><td>Isolation</td><td>strong</td><td>shared</td></tr>
-            <tr><td>Kernel requirements</td><td>none</td><td>recent kernels</td></tr>
-            <tr><td>L7 features</td><td>full</td><td>often opt-in per workload</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>A per-node DaemonSet agent is the older, simpler version of the same trade &mdash; common for log shipping.</li></ul>
+        <p>The counter-trend. Cilium pushes policy and encryption into the kernel with eBPF; Istio's ambient mode replaces per-pod proxies with a per-node component for mTLS and routing, adding a Layer-7 proxy only for the workloads that need one. Both cut the per-pod tax dramatically.</p>
+        <p>The trade is blast radius and isolation: a per-node agent serves many pods, so its failure or saturation affects all of them, and the neat "one proxy per workload" security story becomes a shared one.</p>
+        <h4>Compared</h4>
+        <table><tr><th></th><th>Sidecar</th><th>Per-node / eBPF</th></tr>
+        <tr><td>Overhead</td><td>per pod</td><td>per node</td></tr>
+        <tr><td>Blast radius</td><td>one pod</td><td>a whole node</td></tr>
+        <tr><td>Isolation</td><td>strong</td><td>shared</td></tr>
+        <tr><td>Kernel requirements</td><td>none</td><td>recent kernels</td></tr>
+        <tr><td>L7 features</td><td>full</td><td>often opt-in per workload</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>A per-node DaemonSet agent is the older, simpler version of the same trade — common for log shipping.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Jobs and sidecars</b><span>The failure where a batch job finishes but its pod never completes, because the sidecar is still running.</span><template class="term-detail" data-see="Native sidecar, Graceful shutdown, Pod">
-          <p>A Kubernetes Job's pod is only <code>Completed</code> when every container has exited. A proxy or log shipper is designed to run forever, so the job hangs: the work is done, the pod is alive, and the Job controller waits for a container that will never stop.</p>
-          <p>The old fixes were all ugly &mdash; have the job <code>curl localhost:15020/quitquitquit</code> at the end, or exclude jobs from injection entirely. Native sidecars solve it properly: once the main container exits, the sidecar is terminated for you.</p>
-          <h4>Options</h4>
-          <table>
-            <tr><th>Approach</th><th>Verdict</th></tr>
-            <tr><td>Native sidecar</td><td>correct; needs 1.29+</td></tr>
-            <tr><td>Exclude jobs from injection</td><td>fine if they need no mesh</td></tr>
-            <tr><td>Call the proxy's quit endpoint</td><td>works; couples the job to the mesh</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Step 7 of the lifecycle animation; the same issue applies to CronJobs and to init-style migrations.</li></ul>
+        <p>A Kubernetes Job's pod is only <code>Completed</code> when every container has exited. A proxy or log shipper is designed to run forever, so the job hangs: the work is done, the pod is alive, and the Job controller waits for a container that will never stop.</p>
+        <p>The old fixes were all ugly — have the job <code>curl localhost:15020/quitquitquit</code> at the end, or exclude jobs from injection entirely. Native sidecars solve it properly: once the main container exits, the sidecar is terminated for you.</p>
+        <h4>Options</h4>
+        <table><tr><th>Approach</th><th>Verdict</th></tr>
+        <tr><td>Native sidecar</td><td>correct; needs 1.29+</td></tr>
+        <tr><td>Exclude jobs from injection</td><td>fine if they need no mesh</td></tr>
+        <tr><td>Call the proxy's quit endpoint</td><td>works; couples the job to the mesh</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Step 7 of the lifecycle animation; the same issue applies to CronJobs and to init-style migrations.</li>
+        </ul>
         </template></div>
       </div>
     </section>
@@ -455,7 +443,7 @@ spec:
       initContainers:
         - name: proxy
           image: envoyproxy/envoy:v1.36.0
-          restartPolicy: Always        # <-- makes it a NATIVE sidecar
+          restartPolicy: Always        # &lt;-- makes it a NATIVE sidecar
           startupProbe:
             httpGet: { path: /ready, port: 15021 }
             periodSeconds: 1
@@ -472,7 +460,6 @@ lifecycle:
 # and in the pod spec:
 terminationGracePeriodSeconds: 45</code></pre><div class="what">Keeps the proxy alive while the application drains in-flight requests, instead of cutting its network mid-rollout.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Log shipping sidecar</h3>
         <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">volumes:
@@ -487,7 +474,6 @@ initContainers:
     restartPolicy: Always
     volumeMounts: [{ name: logs, mountPath: /var/log/app, readOnly: true }]</code></pre><div class="what">The shared volume is the channel. The size limit is not optional — an uncapped emptyDir is a node-level outage waiting to happen.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Ambassador: a database proxy</h3>
         <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">initContainers:
@@ -498,7 +484,6 @@ initContainers:
 # the application simply connects to:
 #   Host=127.0.0.1;Port=5432;Database=orders</code></pre><div class="what">The app keeps a plain local connection string; IAM auth, TLS and instance routing happen next door. No interception needed.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Service mesh injection</h3>
         <div class="cmd"><pre class="language-bash line-numbers"><code class="language-bash">kubectl label namespace orders istio-injection=enabled
@@ -513,9 +498,8 @@ spec:
   host: payments
   trafficPolicy:
     connectionPool: { http: { maxRequestsPerConnection: 100 } }
-    outlierDetection: { consecutive5xxErrors: 5, interval: 10s }</code></pre><div class="what">Circuit breaking for every caller of `payments`, changed in one place. This is the capability you adopt a mesh for.</div></div>
+    outlierDetection: { consecutive5xxErrors: 5, interval: 10s }</code></pre><div class="what">Circuit breaking for every caller of <code>payments</code>, changed in one place. This is the capability you adopt a mesh for.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Debugging</h3>
         <div class="cmd"><pre class="language-bash"><code class="language-bash">kubectl get pod orders-7f9c -o yaml | grep -A5 'name: istio-proxy'
@@ -540,7 +524,7 @@ kubectl top pods -A --containers | grep -E 'istio-proxy|envoy' \
           <li>Uniform mTLS, metrics and traces with no instrumentation in application code.</li>
         </ul></div>
         <div class="col bad"><h3>Cons</h3><ul>
-          <li>Resource cost multiplies by every replica &mdash; often hundreds of cores across a cluster.</li>
+          <li>Resource cost multiplies by every replica — often hundreds of cores across a cluster.</li>
           <li>Adds latency to every call, and the tail is worse than the median.</li>
           <li>Lifecycle races on startup, shutdown and job completion, unless you use native sidecars.</li>
           <li>Debugging is harder: injected containers, intercepted traffic, and errors that come from a proxy you did not write.</li>
@@ -557,7 +541,7 @@ kubectl top pods -A --containers | grep -E 'istio-proxy|envoy' \
         <div class="card"><h3>Retries and circuit breaking for code you cannot change</h3><p>A vendor application hammers a flaky upstream with no backoff. An ambassador sidecar adds timeouts, bounded retries and outlier detection without a single line of change to a binary nobody has the source for.</p></div>
         <div class="card"><h3>Log shipping without a logging library</h3><p>Twelve services write logs twelve different ways. A Fluent Bit sidecar reads each one's files from a shared volume, parses and forwards them. Changing the logging backend later touches one DaemonSet image, not twelve codebases.</p></div>
         <div class="card"><h3>Database access with IAM credentials</h3><p>A Cloud SQL Proxy sidecar handles IAM authentication, TLS and instance discovery; the application keeps <code>localhost:5432</code> in its config. No long-lived database password exists anywhere in the deployment.</p></div>
-        <div class="card"><h3>Canary releases without client changes</h3><p>Shifting 5% of traffic to a new version is a mesh configuration change applied to every caller's proxy. No client library, no feature flag, no coordinated deploy &mdash; and it rolls back just as fast.</p></div>
+        <div class="card"><h3>Canary releases without client changes</h3><p>Shifting 5% of traffic to a new version is a mesh configuration change applied to every caller's proxy. No client library, no feature flag, no coordinated deploy — and it rolls back just as fast.</p></div>
       </div>
     </section>
 
@@ -567,15 +551,15 @@ kubectl top pods -A --containers | grep -E 'istio-proxy|envoy' \
       <div class="cols">
         <div class="col good"><h3>Use it when…</h3><ul>
           <li>Several languages need the same capability and a library would mean writing it several times.</li>
-          <li>You cannot change the application &mdash; vendor software, legacy, or a team with no capacity.</li>
+          <li>You cannot change the application — vendor software, legacy, or a team with no capacity.</li>
           <li>The concern should be upgraded independently of the service it serves.</li>
           <li>You need uniform mTLS, traffic shifting or golden metrics across many services.</li>
           <li>The helper genuinely needs the app's network identity or its local filesystem.</li>
         </ul></div>
         <div class="col bad"><h3>Avoid it when…</h3><ul>
-          <li>There is one service in one language. Use <b>a library</b> &mdash; it is faster, cheaper and easier to debug.</li>
+          <li>There is one service in one language. Use <b>a library</b> — it is faster, cheaper and easier to debug.</li>
           <li>The concern is node-wide, like collecting logs already on disk. Use <b>a DaemonSet agent</b>, one per node instead of one per pod.</li>
-          <li>Per-pod overhead would dominate &mdash; thousands of small pods. Use <b>eBPF or an ambient mesh</b>.</li>
+          <li>Per-pod overhead would dominate — thousands of small pods. Use <b>eBPF or an ambient mesh</b>.</li>
           <li>The work belongs at the edge, not between services. Use <b>an API gateway</b>.</li>
           <li>The helper only needs to run once before the app. Use <b>an init container</b>.</li>
           <li>You are adopting a mesh because the diagram looks right. Use <b>nothing</b> until you can name the capability you need.</li>
@@ -588,8 +572,8 @@ kubectl top pods -A --containers | grep -E 'istio-proxy|envoy' \
       <div class="gotcha"><b>The startup race</b><span>The app is ready in 300 ms, the proxy needs 2 s, and every outbound call in between is refused because traffic is already being intercepted. Crash loops on some pods at every deploy.</span><div class="fix">Fix: declare the proxy as a native sidecar (<code>initContainers</code> + <code>restartPolicy: Always</code>) with a startup probe. On older clusters, retry in the app's entrypoint until the proxy answers.</div></div>
       <div class="gotcha"><b>The shutdown race</b><span>Both containers get SIGTERM together; the proxy exits immediately and the app's in-flight requests lose their network, producing a burst of 5xx at the end of every rollout.</span><div class="fix">Fix: native sidecars terminate after the main container. Otherwise add a <code>preStop</code> sleep to the sidecar longer than the app's drain, and raise <code>terminationGracePeriodSeconds</code>.</div></div>
       <div class="gotcha"><b>Jobs that never complete</b><span>The batch work finishes, the proxy keeps running, and the Job waits forever for a container that is designed never to exit.</span><div class="fix">Fix: native sidecars are terminated when the main container exits. Otherwise exclude jobs from injection, or have the job hit the proxy's quit endpoint as its last step.</div></div>
-      <div class="gotcha"><b>No resource requests on the sidecar</b><span>An unbounded proxy competes with the application for CPU under load, so your service gets slower exactly when it is busiest &mdash; and the pod's QoS class silently degrades.</span><div class="fix">Fix: set explicit requests and limits on every sidecar, and include them in capacity planning. Measure the real usage rather than copying someone's defaults.</div></div>
-      <div class="gotcha"><b>Forgetting the fleet multiplication</b><span>100 mCPU per pod looks free in review and becomes 200 cores across 2,000 pods &mdash; plus worse bin packing, so more nodes for the same workload.</span><div class="fix">Fix: do the arithmetic before adopting fleet-wide. If the number is uncomfortable, look at per-node agents or an ambient mesh.</div></div>
+      <div class="gotcha"><b>No resource requests on the sidecar</b><span>An unbounded proxy competes with the application for CPU under load, so your service gets slower exactly when it is busiest — and the pod's QoS class silently degrades.</span><div class="fix">Fix: set explicit requests and limits on every sidecar, and include them in capacity planning. Measure the real usage rather than copying someone's defaults.</div></div>
+      <div class="gotcha"><b>Forgetting the fleet multiplication</b><span>100 mCPU per pod looks free in review and becomes 200 cores across 2,000 pods — plus worse bin packing, so more nodes for the same workload.</span><div class="fix">Fix: do the arithmetic before adopting fleet-wide. If the number is uncomfortable, look at per-node agents or an ambient mesh.</div></div>
       <div class="gotcha"><b>Health checks that bypass the proxy</b><span>The kubelet probes the app directly while real traffic goes through the sidecar, so a broken proxy leaves the pod marked Ready and black-holing requests.</span><div class="fix">Fix: probe through the proxy's health endpoint, or enable the mesh's probe rewriting so readiness reflects the whole pod.</div></div>
       <div class="gotcha"><b>Debugging the manifest instead of the pod</b><span>Injection means the running pod has containers, volumes and init steps that appear nowhere in git, which wastes the first twenty minutes of every incident.</span><div class="fix">Fix: start from <code>kubectl get pod -o yaml</code> and the sidecar's own logs. Document that injection happens and which namespaces it applies to.</div></div>
       <div class="gotcha"><b>Treating a config push as safe</b><span>Mesh configuration reaches every proxy at once, so a bad retry policy or a wrong destination rule is a fleet-wide outage with no deployment to roll back.</span><div class="fix">Fix: version mesh config in git, review it like code, roll it out per namespace, and keep a tested rollback path.</div></div>
@@ -601,10 +585,10 @@ kubectl top pods -A --containers | grep -E 'istio-proxy|envoy' \
         <table>
           <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs a sidecar</th></tr></thead>
           <tbody>
-            <tr class="self"><td><b>Sidecar</b></td><td>polyglot estates, unmodifiable apps</td><td>Medium</td><td>free; per-pod resources</td><td>&mdash;</td></tr>
+            <tr class="self"><td><b>Sidecar</b></td><td>polyglot estates, unmodifiable apps</td><td>Medium</td><td>free; per-pod resources</td><td>—</td></tr>
             <tr><td><b>Library / SDK</b></td><td>one or two languages</td><td>Low</td><td>free</td><td>No extra container or latency; must be written and upgraded per language</td></tr>
             <tr><td><b>DaemonSet agent</b></td><td>node-wide concerns like log collection</td><td>Low</td><td>one per node</td><td>Far cheaper; shared failure domain and no per-workload identity</td></tr>
-            <tr><td><b>eBPF / ambient mesh</b></td><td>large fleets wanting mTLS cheaply</td><td>Medium&ndash;High</td><td>free; newer kernels</td><td>Per-node instead of per-pod; bigger blast radius, much lower overhead</td></tr>
+            <tr><td><b>eBPF / ambient mesh</b></td><td>large fleets wanting mTLS cheaply</td><td>Medium–High</td><td>free; newer kernels</td><td>Per-node instead of per-pod; bigger blast radius, much lower overhead</td></tr>
             <tr><td><b>API gateway</b></td><td>north-south traffic at the edge</td><td>Medium</td><td>free or managed</td><td>One shared hop at the boundary; does nothing between internal services</td></tr>
             <tr><td><b>Init container</b></td><td>one-off setup before start</td><td>Low</td><td>free</td><td>Runs once and exits; cannot help while the app is running</td></tr>
             <tr><td><b>Do it in the platform</b></td><td>managed runtimes</td><td>Low</td><td>vendor</td><td>The provider runs the proxy; you lose control and gain simplicity</td></tr>
@@ -613,7 +597,7 @@ kubectl top pods -A --containers | grep -E 'istio-proxy|envoy' \
       </div>
       <ul style="margin-top:12px">
         <li><b>Pick a library</b> when one language dominates and you control the release cadence.</li>
-        <li><b>Pick a DaemonSet</b> for anything node-scoped &mdash; log collection is the classic case, and one agent beats a thousand sidecars.</li>
+        <li><b>Pick a DaemonSet</b> for anything node-scoped — log collection is the classic case, and one agent beats a thousand sidecars.</li>
         <li><b>Pick eBPF or an ambient mesh</b> when the per-pod tax has become the dominant cost and you accept a node-sized blast radius.</li>
         <li><b>Pick a gateway</b> for traffic entering the system; a sidecar is about traffic inside it.</li>
         <li><b>Pick an init container</b> when the helper's job is finished before the application starts.</li>
@@ -623,11 +607,11 @@ kubectl top pods -A --containers | grep -E 'istio-proxy|envoy' \
     <section id="resources">
       <h2>Resources</h2>
       <ul>
-        <li><a href="https://learn.microsoft.com/en-us/azure/architecture/patterns/sidecar" target="_blank" rel="noopener">Azure Architecture Center &mdash; Sidecar pattern</a>: the pattern write-up, with the ambassador and adapter variants.</li>
-        <li><a href="https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/" target="_blank" rel="noopener">Kubernetes &mdash; Sidecar containers</a>: native sidecars, startup and shutdown ordering, and Job behaviour.</li>
-        <li><a href="https://kubernetes.io/blog/2023/08/25/native-sidecar-containers/" target="_blank" rel="noopener">Kubernetes blog &mdash; Native sidecar containers</a>: why the old lifecycle workarounds existed and what replaced them.</li>
-        <li><a href="https://istio.io/latest/docs/ops/deployment/architecture/" target="_blank" rel="noopener">Istio &mdash; Architecture</a>: data plane, control plane and injection, explained by the most common implementation.</li>
-        <li><a href="https://istio.io/latest/docs/ambient/overview/" target="_blank" rel="noopener">Istio &mdash; Ambient mode</a>: the sidecarless design and the trade-offs it makes.</li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/architecture/patterns/sidecar" target="_blank" rel="noopener">Azure Architecture Center — Sidecar pattern</a>: the pattern write-up, with the ambassador and adapter variants.</li>
+        <li><a href="https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/" target="_blank" rel="noopener">Kubernetes — Sidecar containers</a>: native sidecars, startup and shutdown ordering, and Job behaviour.</li>
+        <li><a href="https://kubernetes.io/blog/2023/08/25/native-sidecar-containers/" target="_blank" rel="noopener">Kubernetes blog — Native sidecar containers</a>: why the old lifecycle workarounds existed and what replaced them.</li>
+        <li><a href="https://istio.io/latest/docs/ops/deployment/architecture/" target="_blank" rel="noopener">Istio — Architecture</a>: data plane, control plane and injection, explained by the most common implementation.</li>
+        <li><a href="https://istio.io/latest/docs/ambient/overview/" target="_blank" rel="noopener">Istio — Ambient mode</a>: the sidecarless design and the trade-offs it makes.</li>
         <li><a href="https://research.google/pubs/design-patterns-for-container-based-distributed-systems/" target="_blank" rel="noopener">Design patterns for container-based distributed systems</a>: Burns and Oppenheimer's paper that named sidecar, ambassador and adapter.</li>
       </ul>
     </section>
@@ -671,39 +655,40 @@ kubectl top pods -A --containers | grep -E 'istio-proxy|envoy' \
   </main>
 </div>
 
-<script src="../assets/player.js?v=3658cbc7"></script>
+<script src="../assets/player.js?v=e9bf1ea3"></script>
 <script>
 createAnimation('anim-req', [
-  { say: 'A request arrives at the pod on port 443. It does not reach the application: iptables rules installed at pod creation redirect everything inbound to the sidecar first.', hl: ['rq-cli'] },
-  { say: 'The proxy terminates mTLS and checks the caller\'s workload identity certificate against the authorization policy. The application will never see a certificate or an identity.', move: { 'rq-msg': [190, 0] }, unhl: ['rq-cli'], hl: ['rq-car'], text: { 'rq-c1': 'mTLS terminated', 'rq-c2': 'identity: web-frontend ✓', 'rq-c3': 'policy: allow' } },
-  { say: 'It records the golden metrics and starts a trace span, then forwards the request over loopback to <code>localhost:8080</code>. Same network namespace, so there is no network hop and nothing to encrypt.', move: { 'rq-msg': [360, 0] }, text: { 'rq-msgt': 'GET /orders · plain HTTP', 'rq-c4': 'metrics + trace span recorded' } },
-  { say: 'The application handles an ordinary HTTP request. Its code has no TLS, no auth, no retry policy and no tracing library. It could have been written in 2009 and never touched since.', unhl: ['rq-car'], hl: ['rq-app'], text: { 'rq-a3': 'handling /orders' } },
-  { say: 'Now outbound. The app calls <code>payments:8080</code> as if it were a plain hostname. That connection is captured too and handed straight back to the sidecar.', move: { 'rq-msg': [190, 0] }, unhl: ['rq-app'], hl: ['rq-car'], text: { 'rq-msgt': 'POST payments/charge', 'rq-a3': 'calling payments…', 'rq-c1': 'outbound captured :15001', 'rq-c2': 'discovery + load balancing', 'rq-c3': 'timeout 2s · retry 2 · breaker', 'rq-c4': 'originating mTLS' } },
-  { say: 'The first payments endpoint is slow. The proxy times out at two seconds and retries against a different healthy endpoint &mdash; a policy the application never agreed to and does not know about.', unhl: ['rq-car'], hl: ['rq-up'], text: { 'rq-upt': 'endpoint 1 slow → retry', 'rq-c3': 'timeout fired · retrying' }, fill: { 'rq-upt': '#c53b3b' } },
-  { say: 'The retry succeeds. From the application\'s point of view the call simply took a little longer; from the platform\'s, an outlier was detected and will be ejected from the pool.', text: { 'rq-upt': 'endpoint 2 · 200 OK', 'rq-c3': 'retry succeeded · outlier ejected', 'rq-a3': 'got 200 from payments' }, fill: { 'rq-upt': '#2f6b3f' } },
-  { say: 'All of that policy &mdash; the timeout, the retry budget, the breaker, who may call whom &mdash; arrived from the control plane as configuration. Changing it for three hundred services is a config push, not three hundred releases.', unhl: ['rq-up'], text: { 'rq-n': 'policy is configuration, not a library version in 300 repositories' } },
-  { say: 'And that is the deal. You gained uniform security and traffic control with zero application changes &mdash; and you now pay for an extra container next to every single pod, on every call, forever.', hl: ['rq-car'], text: { 'rq-n': 'the price: one more container per pod, and two extra hops per call' }, fill: { 'rq-note': '#fbf3c4', 'rq-n': '#23362e' } },
+  { say: "A request arrives at the pod on port 443. It does not reach the application: iptables rules installed at pod creation redirect everything inbound to the sidecar first.", hl: ["rq-cli"] },
+  { say: "The proxy terminates mTLS and checks the caller's workload identity certificate against the authorization policy. The application will never see a certificate or an identity.", hl: ["rq-car"], unhl: ["rq-cli"], move: {"rq-msg":[190,0]}, text: {"rq-c1":"mTLS terminated","rq-c2":"identity: web-frontend ✓","rq-c3":"policy: allow"} },
+  { say: "It records the golden metrics and starts a trace span, then forwards the request over loopback to <code>localhost:8080</code>. Same network namespace, so there is no network hop and nothing to encrypt.", move: {"rq-msg":[360,0]}, text: {"rq-msgt":"GET /orders · plain HTTP","rq-c4":"metrics + trace span recorded"} },
+  { say: "The application handles an ordinary HTTP request. Its code has no TLS, no auth, no retry policy and no tracing library. It could have been written in 2009 and never touched since.", hl: ["rq-app"], unhl: ["rq-car"], text: {"rq-a3":"handling /orders"} },
+  { say: "Now outbound. The app calls <code>payments:8080</code> as if it were a plain hostname. That connection is captured too and handed straight back to the sidecar.", hl: ["rq-car"], unhl: ["rq-app"], move: {"rq-msg":[190,0]}, text: {"rq-msgt":"POST payments/charge","rq-a3":"calling payments…","rq-c1":"outbound captured :15001","rq-c2":"discovery + load balancing","rq-c3":"timeout 2s · retry 2 · breaker","rq-c4":"originating mTLS"} },
+  { say: "The first payments endpoint is slow. The proxy times out at two seconds and retries against a different healthy endpoint — a policy the application never agreed to and does not know about.", hl: ["rq-up"], unhl: ["rq-car"], text: {"rq-upt":"endpoint 1 slow → retry","rq-c3":"timeout fired · retrying"}, fill: {"rq-upt":"#c53b3b"} },
+  { say: "The retry succeeds. From the application's point of view the call simply took a little longer; from the platform's, an outlier was detected and will be ejected from the pool.", text: {"rq-upt":"endpoint 2 · 200 OK","rq-c3":"retry succeeded · outlier ejected","rq-a3":"got 200 from payments"}, fill: {"rq-upt":"#2f6b3f"} },
+  { say: "All of that policy — the timeout, the retry budget, the breaker, who may call whom — arrived from the control plane as configuration. Changing it for three hundred services is a config push, not three hundred releases.", unhl: ["rq-up"], text: {"rq-n":"policy is configuration, not a library version in 300 repositories"} },
+  { say: "And that is the deal. You gained uniform security and traffic control with zero application changes — and you now pay for an extra container next to every single pod, on every call, forever.", hl: ["rq-car"], text: {"rq-n":"the price: one more container per pod, and two extra hops per call"}, fill: {"rq-note":"#fbf3c4","rq-n":"#23362e"} },
 ]);
 
 createAnimation('anim-life', [
-  { say: 'A pod with an application and a proxy sidecar. By default both containers are started at the same instant, and nothing orders them.', hl: ['lf-app', 'lf-car'] },
-  { say: 'The application wins the race: ready in 300 ms. The proxy is still fetching its configuration from the control plane and will not be listening for another second and a half.', unhl: ['lf-app', 'lf-car'], text: { 'lf-appt': 'READY', 'lf-appt2': 'opening DB connection', 'lf-cart': 'still pulling config', 'lf-t': 't = 300 ms' }, fill: { 'lf-appt': '#2f6b3f' } },
-  { say: 'But traffic interception is already in place, so that database connection is redirected to a proxy that is not there. Connection refused, the app exits, the pod crash-loops &mdash; on some pods, at every deploy.', hl: ['lf-app'], text: { 'lf-appt': 'CrashLoopBackOff', 'lf-appt2': 'connection refused', 'lf-o': 'startup race: the app is ready before the network is', 'lf-o2': 'intermittent, so it gets blamed on the database' }, fill: { 'lf-appt': '#c53b3b', 'lf-o': '#c53b3b', 'lf-out': '#f9e3df' } },
-  { say: 'Declare the proxy as a native sidecar &mdash; an <code>initContainer</code> with <code>restartPolicy: Always</code> &mdash; and Kubernetes starts it first and waits for its startup probe before the app container begins.', unhl: ['lf-app'], hl: ['lf-car'], text: { 'lf-phase': 'native sidecar — ordered startup', 'lf-cart': 'started first', 'lf-cart2': 'startup probe passed ✓', 'lf-appt': 'starting (after proxy)', 'lf-appt2': 'network already there', 'lf-o': 'the sidecar is ready before the app exists', 'lf-o2': 'no retry loops, no sleeps, no folklore', 'lf-t': 't = 2.1 s' }, fill: { 'lf-appt': '#5f6f66', 'lf-o': '#2f6b3f', 'lf-out': '#e3eedc' } },
-  { say: 'Now the other end. The pod is deleted during a rollout, and by default every container receives SIGTERM at the same moment.', unhl: ['lf-car'], text: { 'lf-phase': 'shutdown — both containers get SIGTERM together', 'lf-cart': 'SIGTERM', 'lf-cart2': 'exits in 100 ms', 'lf-appt': 'SIGTERM', 'lf-appt2': 'draining, needs ~20 s', 'lf-o': 'two containers, one signal, very different exit times', 'lf-o2': 'guess which one finishes first', 'lf-t': 't = 0 (termination)' }, fill: { 'lf-o': '#23362e', 'lf-out': '#e8ece2' } },
-  { say: 'The proxy exits immediately and takes the network with it. Every request the application was still draining fails &mdash; a reliable burst of 5xx at the end of every single rollout.', hl: ['lf-app'], text: { 'lf-cart': 'exited', 'lf-cart2': 'network gone', 'lf-appt': 'still draining', 'lf-appt2': 'in-flight requests failing', 'lf-o': 'shutdown race: the app outlives its own network', 'lf-o2': 'shows up as a dip in your SLI at every deploy' }, fill: { 'lf-appt2': '#c53b3b', 'lf-o': '#c53b3b', 'lf-out': '#f9e3df' } },
-  { say: 'Native sidecars fix this too: sidecar containers are terminated only after the main containers have exited. Before 1.29 the standard hack was a <code>preStop</code> hook that simply slept longer than the drain.', unhl: ['lf-app'], text: { 'lf-phase': 'native sidecar — ordered shutdown', 'lf-appt': 'drained and exited ✓', 'lf-appt2': 'no requests lost', 'lf-cart': 'terminated after the app', 'lf-cart2': 'network held open until then', 'lf-o': 'the sidecar outlives the app, which is the right way round', 'lf-o2': 'remember terminationGracePeriodSeconds must cover the drain' }, fill: { 'lf-appt2': '#2f6b3f', 'lf-o': '#2f6b3f', 'lf-out': '#e3eedc' } },
-  { say: 'One more, and it surprises everyone the first time: a Job\'s pod is Completed only when <em>every</em> container has exited. A proxy never exits, so the batch work finishes and the Job hangs forever.', text: { 'lf-phase': 'Jobs — who decides the pod is finished?', 'lf-appt': 'work done, exited ✓', 'lf-appt2': 'exit code 0', 'lf-cart': 'still running happily', 'lf-cart2': 'designed never to exit', 'lf-o': 'Job status: Running — forever', 'lf-o2': 'old fixes: skip injection for jobs, or curl /quitquitquit', 'lf-t': 'batch work finished 10 minutes ago' }, fill: { 'lf-o': '#c53b3b', 'lf-out': '#f9e3df' }, hl: ['lf-car'] },
-  { say: 'Native sidecars terminate once the main container exits, so the Job completes normally. Three questions to ask of every sidecar you add: who starts first, who stops last, and who decides the pod is done.', unhl: ['lf-car'], text: { 'lf-cart': 'terminated automatically', 'lf-cart2': 'main container exited', 'lf-o': 'start order · stop order · completion — ask all three', 'lf-o2': 'everything else about sidecars is easier than this part', 'lf-t': 'Job status: Completed ✓' }, fill: { 'lf-o': '#2f6b3f', 'lf-out': '#e3eedc' } },
+  { say: "A pod with an application and a proxy sidecar. By default both containers are started at the same instant, and nothing orders them.", hl: ["lf-app","lf-car"] },
+  { say: "The application wins the race: ready in 300 ms. The proxy is still fetching its configuration from the control plane and will not be listening for another second and a half.", unhl: ["lf-app","lf-car"], text: {"lf-appt":"READY","lf-appt2":"opening DB connection","lf-cart":"still pulling config","lf-t":"t = 300 ms"}, fill: {"lf-appt":"#2f6b3f"} },
+  { say: "But traffic interception is already in place, so that database connection is redirected to a proxy that is not there. Connection refused, the app exits, the pod crash-loops — on some pods, at every deploy.", hl: ["lf-app"], text: {"lf-appt":"CrashLoopBackOff","lf-appt2":"connection refused","lf-o":"startup race: the app is ready before the network is","lf-o2":"intermittent, so it gets blamed on the database"}, fill: {"lf-appt":"#c53b3b","lf-o":"#c53b3b","lf-out":"#f9e3df"} },
+  { say: "Declare the proxy as a native sidecar — an <code>initContainer</code> with <code>restartPolicy: Always</code> — and Kubernetes starts it first and waits for its startup probe before the app container begins.", hl: ["lf-car"], unhl: ["lf-app"], text: {"lf-phase":"native sidecar — ordered startup","lf-cart":"started first","lf-cart2":"startup probe passed ✓","lf-appt":"starting (after proxy)","lf-appt2":"network already there","lf-o":"the sidecar is ready before the app exists","lf-o2":"no retry loops, no sleeps, no folklore","lf-t":"t = 2.1 s"}, fill: {"lf-appt":"#5f6f66","lf-o":"#2f6b3f","lf-out":"#e3eedc"} },
+  { say: "Now the other end. The pod is deleted during a rollout, and by default every container receives SIGTERM at the same moment.", unhl: ["lf-car"], text: {"lf-phase":"shutdown — both containers get SIGTERM together","lf-cart":"SIGTERM","lf-cart2":"exits in 100 ms","lf-appt":"SIGTERM","lf-appt2":"draining, needs ~20 s","lf-o":"two containers, one signal, very different exit times","lf-o2":"guess which one finishes first","lf-t":"t = 0 (termination)"}, fill: {"lf-o":"#23362e","lf-out":"#e8ece2"} },
+  { say: "The proxy exits immediately and takes the network with it. Every request the application was still draining fails — a reliable burst of 5xx at the end of every single rollout.", hl: ["lf-app"], text: {"lf-cart":"exited","lf-cart2":"network gone","lf-appt":"still draining","lf-appt2":"in-flight requests failing","lf-o":"shutdown race: the app outlives its own network","lf-o2":"shows up as a dip in your SLI at every deploy"}, fill: {"lf-appt2":"#c53b3b","lf-o":"#c53b3b","lf-out":"#f9e3df"} },
+  { say: "Native sidecars fix this too: sidecar containers are terminated only after the main containers have exited. Before 1.29 the standard hack was a <code>preStop</code> hook that simply slept longer than the drain.", unhl: ["lf-app"], text: {"lf-phase":"native sidecar — ordered shutdown","lf-appt":"drained and exited ✓","lf-appt2":"no requests lost","lf-cart":"terminated after the app","lf-cart2":"network held open until then","lf-o":"the sidecar outlives the app, which is the right way round","lf-o2":"remember terminationGracePeriodSeconds must cover the drain"}, fill: {"lf-appt2":"#2f6b3f","lf-o":"#2f6b3f","lf-out":"#e3eedc"} },
+  { say: "One more, and it surprises everyone the first time: a Job's pod is Completed only when <em>every</em> container has exited. A proxy never exits, so the batch work finishes and the Job hangs forever.", hl: ["lf-car"], text: {"lf-phase":"Jobs — who decides the pod is finished?","lf-appt":"work done, exited ✓","lf-appt2":"exit code 0","lf-cart":"still running happily","lf-cart2":"designed never to exit","lf-o":"Job status: Running — forever","lf-o2":"old fixes: skip injection for jobs, or curl /quitquitquit","lf-t":"batch work finished 10 minutes ago"}, fill: {"lf-o":"#c53b3b","lf-out":"#f9e3df"} },
+  { say: "Native sidecars terminate once the main container exits, so the Job completes normally. Three questions to ask of every sidecar you add: who starts first, who stops last, and who decides the pod is done.", unhl: ["lf-car"], text: {"lf-cart":"terminated automatically","lf-cart2":"main container exited","lf-o":"start order · stop order · completion — ask all three","lf-o2":"everything else about sidecars is easier than this part","lf-t":"Job status: Completed ✓"}, fill: {"lf-o":"#2f6b3f","lf-out":"#e3eedc"} },
 ]);
 
+/* Animations inside key-concept panels */
 window.TERM_ANIMS = {
   ov: [
-    { say: 'One proxy sidecar requests 100 mCPU and 128 MiB. Next to an application asking for 1 core and 1 GiB, that is a rounding error nobody questions in review.', hl: ['ov-pod'] },
-    { say: 'A small service, though, might only request 100 mCPU itself — so the proxy has just doubled the cost of running it.', unhl: ['ov-pod'], text: { 'ov-note': 'for small pods the sidecar can cost as much as the app' } },
-    { say: 'Now multiply by the fleet: 2,000 pods across the cluster, every one of them injected.', hl: ['ov-fleet'], text: { 'ov-fleett2': '2,000' } },
-    { say: '200 cores and 250 GiB spent on proxies — before counting the worse bin packing, which means more nodes for the same workload.', unhl: ['ov-fleet'], text: { 'ov-sum': '= 200 cores · 250 GiB', 'ov-note': 'plus worse bin packing — bigger pods pack less efficiently' }, fill: { 'ov-sum': '#c53b3b' } },
-    { say: 'That arithmetic is the entire motivation behind eBPF and ambient meshes: move the work to one component per node instead of one per pod, and accept a larger blast radius in exchange.', text: { 'ov-note': 'per-node instead of per-pod: ~20 agents, not 2,000 proxies' }, fill: { 'ov-sum': '#23362e' } },
+    { say: "One proxy sidecar requests 100 mCPU and 128 MiB. Next to an application asking for 1 core and 1 GiB, that is a rounding error nobody questions in review.", hl: ["ov-pod"] },
+    { say: "A small service, though, might only request 100 mCPU itself — so the proxy has just doubled the cost of running it.", unhl: ["ov-pod"], text: {"ov-note":"for small pods the sidecar can cost as much as the app"} },
+    { say: "Now multiply by the fleet: 2,000 pods across the cluster, every one of them injected.", hl: ["ov-fleet"], text: {"ov-fleett2":"2,000"} },
+    { say: "200 cores and 250 GiB spent on proxies — before counting the worse bin packing, which means more nodes for the same workload.", unhl: ["ov-fleet"], text: {"ov-sum":"= 200 cores · 250 GiB","ov-note":"plus worse bin packing — bigger pods pack less efficiently"}, fill: {"ov-sum":"#c53b3b"} },
+    { say: "That arithmetic is the entire motivation behind eBPF and ambient meshes: move the work to one component per node instead of one per pod, and accept a larger blast radius in exchange.", text: {"ov-note":"per-node instead of per-pod: ~20 agents, not 2,000 proxies"}, fill: {"ov-sum":"#23362e"} },
   ],
 };
 </script>

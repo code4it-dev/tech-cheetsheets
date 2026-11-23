@@ -102,9 +102,12 @@ function tagCodeBlocks(html) {
    stale notebook.css or site.js — which looks like the feature simply not working.
    Stamping the content hash into the URL makes every asset change a new URL. */
 const LOCAL_ASSETS = ['notebook.css', 'site.js', 'player.js'];
+// Hash the content, not the bytes: a CRLF working tree on Windows and an LF checkout on
+// CI hold the same asset and must stamp the same URL, or every build looks out of date.
 const assetHash = Object.fromEntries(LOCAL_ASSETS.map(name => [
   name,
-  createHash('sha1').update(readFileSync(join(ROOT, 'assets', name))).digest('hex').slice(0, 8),
+  createHash('sha1').update(readFileSync(join(ROOT, 'assets', name), 'utf8').replace(/\r\n/g, '\n'))
+    .digest('hex').slice(0, 8),
 ]));
 
 function stampAssets(html) {

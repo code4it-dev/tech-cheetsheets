@@ -40,8 +40,8 @@
       <p class="tagline">OAuth tells an API what you may do. OIDC tells an app who you are — and they are not the same token.</p>
       <span class="meta">As of Nov 2026 · OpenID Connect Core 1.0 (2014, errata set 2) · built on OAuth 2.0, certified by the OpenID Foundation</span>
       <p>OAuth 2.0 deliberately says nothing about identity. An access token means "the bearer may read this calendar"; it does not reliably say who the user is, when they authenticated or how. For years everyone built their own answer on top, usually by calling a vendor-specific "who am I" endpoint, and most of those answers were insecure in the same way.</p>
-      <p><b>OpenID Connect</b> standardises that layer. It adds one scope (<code>openid</code>), one new token (the <b>ID token</b>, a JWT describing the authentication event), a set of standard claims, a <b>UserInfo</b> endpoint, a <b>discovery</b> document and a <b>nonce</b> to bind the token to the login attempt. Everything else &mdash; the redirect, the code, the token endpoint &mdash; is still plain OAuth.</p>
-      <p>The distinction worth keeping in your head: the <b>ID token is for the client</b> that asked for the login, and the <b>access token is for the API</b>. They have different audiences, different lifetimes and different jobs, and swapping them is the single most common and most serious OIDC mistake. The other hard part is not login at all &mdash; it is logout, because a successful SSO leaves you with one session at the identity provider and one at every application.</p>
+      <p><b>OpenID Connect</b> standardises that layer. It adds one scope (<code>openid</code>), one new token (the <b>ID token</b>, a JWT describing the authentication event), a set of standard claims, a <b>UserInfo</b> endpoint, a <b>discovery</b> document and a <b>nonce</b> to bind the token to the login attempt. Everything else — the redirect, the code, the token endpoint — is still plain OAuth.</p>
+      <p>The distinction worth keeping in your head: the <b>ID token is for the client</b> that asked for the login, and the <b>access token is for the API</b>. They have different audiences, different lifetimes and different jobs, and swapping them is the single most common and most serious OIDC mistake. The other hard part is not login at all — it is logout, because a successful SSO leaves you with one session at the identity provider and one at every application.</p>
     </header>
 
     <section id="architecture">
@@ -84,11 +84,10 @@
 
     <section id="how-it-works">
       <h2>How it works</h2>
-      <p style="margin:0 0 18px">The first animation is the two tokens and the mistake everyone makes with them. The second is single sign-on &mdash; and the logout problem it creates.</p>
-      <span class="note" style="margin:-8px 0 18px">the ID token is a receipt for a login, not a key to anything</span>
-
+      <p>The first animation is the two tokens and the mistake everyone makes with them. The second is single sign-on — and the logout problem it creates.</p>
+      <span class="note" style="margin:-6px 0 14px">the ID token is a receipt for a login, not a key to anything</span>
       <div class="anim" id="anim-tokens">
-        <h3>1 &middot; One login, two tokens, two audiences</h3>
+        <h3>1 · One login, two tokens, two audiences</h3>
         <div class="stage">
           <svg viewBox="0 0 800 320" role="img" aria-label="A login returning an ID token for the client and an access token for the API, and an ID token being rejected by a correctly configured API">
             <defs>
@@ -135,9 +134,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-sso">
-        <h3>2 &middot; Single sign-on, and the logout nobody plans for</h3>
+        <h3>2 · Single sign-on, and the logout nobody plans for</h3>
         <div class="stage">
           <svg viewBox="0 0 800 320" role="img" aria-label="One identity provider session giving three applications their own sessions, and the difficulty of logging out of all of them">
             <defs>
@@ -180,226 +178,226 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>ID token</b><span>A signed JWT describing an authentication event: who logged in, when, how, and for which client.</span><template class="term-detail" data-see="Access token, nonce, Claims, Validation">
-          <p>It is issued <em>to your client</em> &mdash; its <code>aud</code> is your <code>client_id</code> &mdash; and it is meant to be read once, validated, and turned into whatever session your application normally uses. It is not a bearer credential, not a cookie and not something to forward anywhere.</p>
-          <p>Its distinguishing claims are about the login rather than about permissions: <code>auth_time</code> says when the user actually authenticated, <code>acr</code>/<code>amr</code> say how strongly and by what method.</p>
-          <h4>Claims that matter</h4>
-          <table>
-            <tr><th>Claim</th><th>Means</th></tr>
-            <tr><td><code>iss</code></td><td>who issued it &mdash; must match your provider exactly</td></tr>
-            <tr><td><code>sub</code></td><td>stable user id, unique per issuer</td></tr>
-            <tr><td><code>aud</code></td><td>your client_id &mdash; reject anything else</td></tr>
-            <tr><td><code>exp</code>, <code>iat</code></td><td>validity window</td></tr>
-            <tr><td><code>nonce</code></td><td>binds the token to <em>this</em> login attempt</td></tr>
-            <tr><td><code>auth_time</code>, <code>acr</code>, <code>amr</code></td><td>when and how they authenticated</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The JWT page covers how to validate one without falling into the classic traps.</li></ul>
+        <p>It is issued <em>to your client</em> — its <code>aud</code> is your <code>client_id</code> — and it is meant to be read once, validated, and turned into whatever session your application normally uses. It is not a bearer credential, not a cookie and not something to forward anywhere.</p>
+        <p>Its distinguishing claims are about the login rather than about permissions: <code>auth_time</code> says when the user actually authenticated, <code>acr</code>/<code>amr</code> say how strongly and by what method.</p>
+        <h4>Claims that matter</h4>
+        <table><tr><th>Claim</th><th>Means</th></tr>
+        <tr><td><code>iss</code></td><td>who issued it — must match your provider exactly</td></tr>
+        <tr><td><code>sub</code></td><td>stable user id, unique per issuer</td></tr>
+        <tr><td><code>aud</code></td><td>your client_id — reject anything else</td></tr>
+        <tr><td><code>exp</code>, <code>iat</code></td><td>validity window</td></tr>
+        <tr><td><code>nonce</code></td><td>binds the token to <em>this</em> login attempt</td></tr>
+        <tr><td><code>auth_time</code>, <code>acr</code>, <code>amr</code></td><td>when and how they authenticated</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The JWT page covers how to validate one without falling into the classic traps.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Access token</b><span>The OAuth credential for calling an API. Present in an OIDC response, but a different token with a different audience.</span><template class="term-detail" data-see="ID token, Audience, UserInfo">
-          <p>Your client should treat it as opaque even when it happens to be a readable JWT. It was minted for the API, its format is the API's business, and decoding it to find a user id is how applications break the moment the provider changes the token format &mdash; which they are entitled to do.</p>
-          <p>If your client needs user information, read the ID token or call UserInfo. Never take it from an access token.</p>
-          <h4>Side by side</h4>
-          <table>
-            <tr><th></th><th>ID token</th><th>Access token</th></tr>
-            <tr><td>Audience</td><td>your client</td><td>the API</td></tr>
-            <tr><td>Answers</td><td>who logged in</td><td>what may be done</td></tr>
-            <tr><td>Format</td><td>always a JWT</td><td>JWT or opaque</td></tr>
-            <tr><td>You may parse it</td><td>yes</td><td>no</td></tr>
-            <tr><td>Send to an API</td><td>never</td><td>yes</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The first animation ends on exactly this confusion and what a correct API does about it.</li></ul>
+        <p>Your client should treat it as opaque even when it happens to be a readable JWT. It was minted for the API, its format is the API's business, and decoding it to find a user id is how applications break the moment the provider changes the token format — which they are entitled to do.</p>
+        <p>If your client needs user information, read the ID token or call UserInfo. Never take it from an access token.</p>
+        <h4>Side by side</h4>
+        <table><tr><th></th><th>ID token</th><th>Access token</th></tr>
+        <tr><td>Audience</td><td>your client</td><td>the API</td></tr>
+        <tr><td>Answers</td><td>who logged in</td><td>what may be done</td></tr>
+        <tr><td>Format</td><td>always a JWT</td><td>JWT or opaque</td></tr>
+        <tr><td>You may parse it</td><td>yes</td><td>no</td></tr>
+        <tr><td>Send to an API</td><td>never</td><td>yes</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The first animation ends on exactly this confusion and what a correct API does about it.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>openid scope</b><span>The one word that turns an OAuth authorization request into an OIDC authentication request.</span><template class="term-detail" data-see="ID token, Claims, UserInfo">
-          <p>Without <code>openid</code> in the scope list you get plain OAuth and no ID token, no matter what the rest of the request says. With it, the provider authenticates the user and issues one.</p>
-          <p>The optional companions request standard claim sets: <code>profile</code> (name, picture), <code>email</code>, <code>address</code>, <code>phone</code>. <code>offline_access</code> is OAuth's, and asks for a refresh token.</p>
-          <h4>Common scope lists</h4>
-          <table>
-            <tr><th>Scopes</th><th>Gets you</th></tr>
-            <tr><td><code>openid</code></td><td>an ID token with <code>sub</code> only</td></tr>
-            <tr><td><code>openid profile email</code></td><td>name and email claims too</td></tr>
-            <tr><td><code>openid … api://calendar/read</code></td><td>login plus an API access token</td></tr>
-            <tr><td><code>… offline_access</code></td><td>and a refresh token</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Everything else about the request &mdash; PKCE, state, redirect URI &mdash; is unchanged OAuth.</li></ul>
+        <p>Without <code>openid</code> in the scope list you get plain OAuth and no ID token, no matter what the rest of the request says. With it, the provider authenticates the user and issues one.</p>
+        <p>The optional companions request standard claim sets: <code>profile</code> (name, picture), <code>email</code>, <code>address</code>, <code>phone</code>. <code>offline_access</code> is OAuth's, and asks for a refresh token.</p>
+        <h4>Common scope lists</h4>
+        <table><tr><th>Scopes</th><th>Gets you</th></tr>
+        <tr><td><code>openid</code></td><td>an ID token with <code>sub</code> only</td></tr>
+        <tr><td><code>openid profile email</code></td><td>name and email claims too</td></tr>
+        <tr><td><code>openid … api://calendar/read</code></td><td>login plus an API access token</td></tr>
+        <tr><td><code>… offline_access</code></td><td>and a refresh token</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Everything else about the request — PKCE, state, redirect URI — is unchanged OAuth.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>nonce</b><span>A random value the client sends and finds echoed inside the ID token, binding that token to this login attempt.</span><template class="term-detail" data-see="ID token, state parameter, Validation">
-          <p>It defeats token replay. Without it, an ID token captured elsewhere &mdash; from a log, from another session, from a different flow &mdash; could be presented to your callback and accepted, because everything else about it is valid.</p>
-          <p>It is easy to confuse with <code>state</code>, and you need both: <code>state</code> is checked against the <em>request</em> and protects the callback from CSRF; <code>nonce</code> is checked inside the <em>token</em> and protects against replay.</p>
-          <div class="anim" id="nonce-anim" data-steps="nonce"><h4>Why state is not enough</h4>
-            <div class="stage">
-              <svg viewBox="0 0 560 200" role="img" aria-label="A client checking that the nonce inside an ID token matches the one stored for this login attempt">
-                <text x="280" y="24" font-size="11.5" text-anchor="middle" fill="#5f6f66">one value, generated by the client, echoed inside the token</text>
-                <rect id="nc-cli" x="30" y="46" width="200" height="62" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
-                <text x="130" y="68" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">client session</text>
-                <text id="nc-clit" x="130" y="88" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">nonce stored: —</text>
-                <rect id="nc-tok" x="300" y="46" width="230" height="62" rx="6" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
-                <text x="415" y="68" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">id_token</text>
-                <text id="nc-tokt" x="415" y="88" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">nonce claim: —</text>
-                <text id="nc-res" x="280" y="140" font-size="12.5" text-anchor="middle" fill="#5f6f66" font-weight="700">—</text>
-                <text id="nc-msg" x="280" y="168" font-size="11" text-anchor="middle" fill="#5f6f66">a fresh random value per login attempt</text>
-              </svg>
-            </div><div class="controls"></div><div class="narration"></div></div>
-          <h4>How it relates</h4>
-          <ul><li>Any decent OIDC library generates and checks both; hand-rolling is where one of them goes missing.</li></ul>
+        <p>It defeats token replay. Without it, an ID token captured elsewhere — from a log, from another session, from a different flow — could be presented to your callback and accepted, because everything else about it is valid.</p>
+        <p>It is easy to confuse with <code>state</code>, and you need both: <code>state</code> is checked against the <em>request</em> and protects the callback from CSRF; <code>nonce</code> is checked inside the <em>token</em> and protects against replay.</p>
+        <div class="anim" id="nonce-anim" data-steps="nonce">
+          <h4>Why state is not enough</h4>
+          <div class="stage">
+            <svg viewBox="0 0 560 200" role="img" aria-label="A client checking that the nonce inside an ID token matches the one stored for this login attempt">
+              <text x="280" y="24" font-size="11.5" text-anchor="middle" fill="#5f6f66">one value, generated by the client, echoed inside the token</text>
+              <rect id="nc-cli" x="30" y="46" width="200" height="62" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+              <text x="130" y="68" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">client session</text>
+              <text id="nc-clit" x="130" y="88" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">nonce stored: —</text>
+              <rect id="nc-tok" x="300" y="46" width="230" height="62" rx="6" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+              <text x="415" y="68" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">id_token</text>
+              <text id="nc-tokt" x="415" y="88" font-size="10.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">nonce claim: —</text>
+              <text id="nc-res" x="280" y="140" font-size="12.5" text-anchor="middle" fill="#5f6f66" font-weight="700">—</text>
+              <text id="nc-msg" x="280" y="168" font-size="11" text-anchor="middle" fill="#5f6f66">a fresh random value per login attempt</text>
+            </svg>
+          </div>
+          <div class="controls"></div>
+          <div class="narration"></div>
+        </div>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Any decent OIDC library generates and checks both; hand-rolling is where one of them goes missing.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Claims</b><span>The statements inside the ID token or from UserInfo — name, email, roles, tenant.</span><template class="term-detail" data-see="ID token, UserInfo, Scope">
-          <p>OIDC standardises a core set so that <code>email</code> and <code>given_name</code> mean the same thing across providers. Anything beyond that is custom and provider-specific, usually namespaced to avoid collisions.</p>
-          <p>Two cautions. <code>email</code> is not an identifier &mdash; it can change and be reassigned, so key users on <code>sub</code>. And <code>email_verified</code> matters: an unverified email claim is an account-takeover vector if you use it to match existing accounts.</p>
-          <h4>Standard claims worth knowing</h4>
-          <table>
-            <tr><th>Claim</th><th>Note</th></tr>
-            <tr><td><code>sub</code></td><td>the only stable identifier</td></tr>
-            <tr><td><code>email</code> + <code>email_verified</code></td><td>never trust the first without the second</td></tr>
-            <tr><td><code>name</code>, <code>given_name</code>, <code>picture</code></td><td>display only</td></tr>
-            <tr><td><code>updated_at</code></td><td>when the profile last changed</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>In multi-tenant systems the tenant comes from a claim, and must be checked rather than taken from the request.</li></ul>
+        <p>OIDC standardises a core set so that <code>email</code> and <code>given_name</code> mean the same thing across providers. Anything beyond that is custom and provider-specific, usually namespaced to avoid collisions.</p>
+        <p>Two cautions. <code>email</code> is not an identifier — it can change and be reassigned, so key users on <code>sub</code>. And <code>email_verified</code> matters: an unverified email claim is an account-takeover vector if you use it to match existing accounts.</p>
+        <h4>Standard claims worth knowing</h4>
+        <table><tr><th>Claim</th><th>Note</th></tr>
+        <tr><td><code>sub</code></td><td>the only stable identifier</td></tr>
+        <tr><td><code>email</code> + <code>email_verified</code></td><td>never trust the first without the second</td></tr>
+        <tr><td><code>name</code>, <code>given_name</code>, <code>picture</code></td><td>display only</td></tr>
+        <tr><td><code>updated_at</code></td><td>when the profile last changed</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>In multi-tenant systems the tenant comes from a claim, and must be checked rather than taken from the request.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>UserInfo endpoint</b><span>An OAuth-protected endpoint returning claims about the user, called with the access token.</span><template class="term-detail" data-see="Claims, ID token, Access token">
-          <p>It exists so the ID token can stay small. Providers often put only <code>sub</code> and a few essentials in the token and leave the rest &mdash; picture, address, large group lists &mdash; to be fetched on demand.</p>
-          <p>Call it once at login and cache the result in your session. Calling it per request turns the identity provider into a dependency of every page load.</p>
-          <h4>ID token or UserInfo?</h4>
-          <table>
-            <tr><th>Need</th><th>Source</th></tr>
-            <tr><td>Who logged in, right now</td><td>ID token</td></tr>
-            <tr><td>Profile details, avatar</td><td>UserInfo, cached</td></tr>
-            <tr><td>Large or volatile claims</td><td>UserInfo</td></tr>
-            <tr><td>Anything on every request</td><td>your own session</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>UserInfo takes the <em>access</em> token, which is one of the few places your client uses it directly.</li></ul>
+        <p>It exists so the ID token can stay small. Providers often put only <code>sub</code> and a few essentials in the token and leave the rest — picture, address, large group lists — to be fetched on demand.</p>
+        <p>Call it once at login and cache the result in your session. Calling it per request turns the identity provider into a dependency of every page load.</p>
+        <h4>ID token or UserInfo?</h4>
+        <table><tr><th>Need</th><th>Source</th></tr>
+        <tr><td>Who logged in, right now</td><td>ID token</td></tr>
+        <tr><td>Profile details, avatar</td><td>UserInfo, cached</td></tr>
+        <tr><td>Large or volatile claims</td><td>UserInfo</td></tr>
+        <tr><td>Anything on every request</td><td>your own session</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>UserInfo takes the <em>access</em> token, which is one of the few places your client uses it directly.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Discovery</b><span>A well-known JSON document describing every endpoint, algorithm and capability of the provider.</span><template class="term-detail" data-see="JWKS, Authorization server, Validation">
-          <p><code>/.well-known/openid-configuration</code> lists the authorization, token, UserInfo, JWKS and end-session endpoints, the supported scopes and response types, and the signing algorithms. Libraries fetch it at startup and refresh it periodically.</p>
-          <p>Hard-coding these instead is how an application breaks when the provider rotates keys or moves an endpoint &mdash; both of which they are entitled to do without telling you.</p>
-          <h4>How it relates</h4>
-          <ul><li>Discovery plus a cached JWKS is what makes signing-key rotation invisible to you.</li></ul>
+        <p><code>/.well-known/openid-configuration</code> lists the authorization, token, UserInfo, JWKS and end-session endpoints, the supported scopes and response types, and the signing algorithms. Libraries fetch it at startup and refresh it periodically.</p>
+        <p>Hard-coding these instead is how an application breaks when the provider rotates keys or moves an endpoint — both of which they are entitled to do without telling you.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Discovery plus a cached JWKS is what makes signing-key rotation invisible to you.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>JWKS</b><span>The provider's public signing keys, published as JSON so your app can verify tokens without any shared secret.</span><template class="term-detail" data-see="Discovery, ID token, Validation">
-          <p>Each key has a <code>kid</code>; the token header names the <code>kid</code> it was signed with, so your library picks the right one. Providers publish the new key before they start using it, which is what allows rotation with no downtime.</p>
-          <p>Cache the set, refresh on an unknown <code>kid</code>, and rate-limit that refresh &mdash; otherwise a stream of tokens with bogus <code>kid</code>s becomes a denial-of-service against your provider.</p>
-          <h4>Rules</h4>
-          <table>
-            <tr><th>Rule</th><th>Why</th></tr>
-            <tr><td>Cache the JWKS</td><td>do not fetch per request</td></tr>
-            <tr><td>Refresh on unknown <code>kid</code></td><td>handles rotation automatically</td></tr>
-            <tr><td>Rate-limit that refresh</td><td>stops a cheap DoS</td></tr>
-            <tr><td>Pin expected algorithms</td><td>never trust the token's own <code>alg</code></td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Trusting the header's <code>alg</code> is the classic JWT vulnerability; the JWT page covers it.</li></ul>
+        <p>Each key has a <code>kid</code>; the token header names the <code>kid</code> it was signed with, so your library picks the right one. Providers publish the new key before they start using it, which is what allows rotation with no downtime.</p>
+        <p>Cache the set, refresh on an unknown <code>kid</code>, and rate-limit that refresh — otherwise a stream of tokens with bogus <code>kid</code>s becomes a denial-of-service against your provider.</p>
+        <h4>Rules</h4>
+        <table><tr><th>Rule</th><th>Why</th></tr>
+        <tr><td>Cache the JWKS</td><td>do not fetch per request</td></tr>
+        <tr><td>Refresh on unknown <code>kid</code></td><td>handles rotation automatically</td></tr>
+        <tr><td>Rate-limit that refresh</td><td>stops a cheap DoS</td></tr>
+        <tr><td>Pin expected algorithms</td><td>never trust the token's own <code>alg</code></td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Trusting the header's <code>alg</code> is the classic JWT vulnerability; the JWT page covers it.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Validation</b><span>The ordered set of checks an ID token must pass before you believe a single claim in it.</span><template class="term-detail" data-see="ID token, nonce, JWKS">
-          <p>Signature first, using a key from the JWKS and an algorithm you chose &mdash; not one the token proposed. Then issuer, then audience against your own client id, then expiry and issued-at with a small clock skew allowance, then the nonce against your session.</p>
-          <p>If several audiences are present, or an <code>azp</code> claim appears, check that <code>azp</code> is your client. Skipping that lets a token minted for a different client of the same provider be replayed at your login.</p>
-          <h4>In order</h4>
-          <table>
-            <tr><th>#</th><th>Check</th></tr>
-            <tr><td>1</td><td>signature, with a pinned algorithm</td></tr>
-            <tr><td>2</td><td><code>iss</code> exactly matches</td></tr>
-            <tr><td>3</td><td><code>aud</code> contains your client_id</td></tr>
-            <tr><td>4</td><td><code>azp</code> is you, if present</td></tr>
-            <tr><td>5</td><td><code>exp</code> / <code>iat</code>, small skew</td></tr>
-            <tr><td>6</td><td><code>nonce</code> matches the session</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Use a certified library. Every one of these has been got wrong in production by someone competent.</li></ul>
+        <p>Signature first, using a key from the JWKS and an algorithm you chose — not one the token proposed. Then issuer, then audience against your own client id, then expiry and issued-at with a small clock skew allowance, then the nonce against your session.</p>
+        <p>If several audiences are present, or an <code>azp</code> claim appears, check that <code>azp</code> is your client. Skipping that lets a token minted for a different client of the same provider be replayed at your login.</p>
+        <h4>In order</h4>
+        <table><tr><th>#</th><th>Check</th></tr>
+        <tr><td>1</td><td>signature, with a pinned algorithm</td></tr>
+        <tr><td>2</td><td><code>iss</code> exactly matches</td></tr>
+        <tr><td>3</td><td><code>aud</code> contains your client_id</td></tr>
+        <tr><td>4</td><td><code>azp</code> is you, if present</td></tr>
+        <tr><td>5</td><td><code>exp</code> / <code>iat</code>, small skew</td></tr>
+        <tr><td>6</td><td><code>nonce</code> matches the session</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Use a certified library. Every one of these has been got wrong in production by someone competent.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Single sign-on</b><span>One authentication at the provider giving the user access to many applications without logging in again.</span><template class="term-detail" data-see="IdP session, prompt, Logout">
-          <p>It works because the identity provider sets its own cookie on its own domain. When a second application redirects there, the provider recognises the session and immediately redirects back with a code &mdash; no prompt, often no visible page.</p>
-          <p>The consequence people miss is arithmetic: after signing into three apps there are four sessions, each with its own lifetime and its own idea of when it ends.</p>
-          <h4>What exists after three logins</h4>
-          <table>
-            <tr><th>Session</th><th>Lives in</th></tr>
-            <tr><td>IdP session</td><td>cookie on the provider's domain</td></tr>
-            <tr><td>App A, B, C sessions</td><td>cookie per application domain</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The second animation builds exactly this picture and then tries to tear it down.</li></ul>
+        <p>It works because the identity provider sets its own cookie on its own domain. When a second application redirects there, the provider recognises the session and immediately redirects back with a code — no prompt, often no visible page.</p>
+        <p>The consequence people miss is arithmetic: after signing into three apps there are four sessions, each with its own lifetime and its own idea of when it ends.</p>
+        <h4>What exists after three logins</h4>
+        <table><tr><th>Session</th><th>Lives in</th></tr>
+        <tr><td>IdP session</td><td>cookie on the provider's domain</td></tr>
+        <tr><td>App A, B, C sessions</td><td>cookie per application domain</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The second animation builds exactly this picture and then tries to tear it down.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>prompt &amp; max_age</b><span>Parameters that control whether the user is asked to authenticate again, and how recently they must have done so.</span><template class="term-detail" data-see="Single sign-on, ID token, Validation">
-          <p><code>prompt=none</code> asks the provider to answer without any UI: if a session exists you get a code, otherwise an error. It is how a SPA silently checks whether someone is still signed in. <code>prompt=login</code> forces re-authentication regardless of session.</p>
-          <p><code>max_age</code> says the authentication must be newer than N seconds &mdash; the right tool before a sensitive action, with <code>auth_time</code> in the resulting token proving it.</p>
-          <h4>Values</h4>
-          <table>
-            <tr><th>Value</th><th>Effect</th></tr>
-            <tr><td><code>prompt=none</code></td><td>silent; errors instead of prompting</td></tr>
-            <tr><td><code>prompt=login</code></td><td>always re-authenticate</td></tr>
-            <tr><td><code>prompt=consent</code></td><td>re-ask for scope consent</td></tr>
-            <tr><td><code>max_age=300</code></td><td>authentication must be &lt; 5 min old</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Step-up authentication before a payment is <code>max_age</code> plus a check on <code>acr</code>.</li></ul>
+        <p><code>prompt=none</code> asks the provider to answer without any UI: if a session exists you get a code, otherwise an error. It is how a SPA silently checks whether someone is still signed in. <code>prompt=login</code> forces re-authentication regardless of session.</p>
+        <p><code>max_age</code> says the authentication must be newer than N seconds — the right tool before a sensitive action, with <code>auth_time</code> in the resulting token proving it.</p>
+        <h4>Values</h4>
+        <table><tr><th>Value</th><th>Effect</th></tr>
+        <tr><td><code>prompt=none</code></td><td>silent; errors instead of prompting</td></tr>
+        <tr><td><code>prompt=login</code></td><td>always re-authenticate</td></tr>
+        <tr><td><code>prompt=consent</code></td><td>re-ask for scope consent</td></tr>
+        <tr><td><code>max_age=300</code></td><td>authentication must be &lt; 5 min old</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Step-up authentication before a payment is <code>max_age</code> plus a check on <code>acr</code>.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>acr &amp; amr</b><span>How strongly and by what method the user authenticated — the basis for step-up authentication.</span><template class="term-detail" data-see="prompt, ID token, Claims">
-          <p><code>amr</code> lists the methods used (<code>pwd</code>, <code>otp</code>, <code>mfa</code>, <code>hwk</code>); <code>acr</code> names a context class the provider defines. Together they let an application say "viewing is fine with a password, but transferring money needs MFA in the last five minutes".</p>
-          <p>Values beyond the few standard ones are provider-specific, so treat them as configuration rather than constants in your code.</p>
-          <h4>How it relates</h4>
-          <ul><li>Requesting a stronger <code>acr_values</code> is how you trigger MFA for one operation rather than for every login.</li></ul>
+        <p><code>amr</code> lists the methods used (<code>pwd</code>, <code>otp</code>, <code>mfa</code>, <code>hwk</code>); <code>acr</code> names a context class the provider defines. Together they let an application say "viewing is fine with a password, but transferring money needs MFA in the last five minutes".</p>
+        <p>Values beyond the few standard ones are provider-specific, so treat them as configuration rather than constants in your code.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Requesting a stronger <code>acr_values</code> is how you trigger MFA for one operation rather than for every login.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>IdP session</b><span>The provider's own session cookie — the thing that actually makes SSO work, and the thing your logout does not touch.</span><template class="term-detail" data-see="Single sign-on, Logout, Back-channel logout">
-          <p>It lives on the provider's domain and is invisible to your application. You cannot read it, clear it, or know its lifetime. All you can do is ask the provider to end it, by sending the user to the end-session endpoint.</p>
-          <p>This is why "log out" in an application that only clears its own cookie puts the user straight back in on the next click: the provider still recognises them and re-issues a code without a prompt.</p>
-          <h4>How it relates</h4>
-          <ul><li>Steps 6&ndash;9 of the second animation are this problem and the three available answers.</li></ul>
+        <p>It lives on the provider's domain and is invisible to your application. You cannot read it, clear it, or know its lifetime. All you can do is ask the provider to end it, by sending the user to the end-session endpoint.</p>
+        <p>This is why "log out" in an application that only clears its own cookie puts the user straight back in on the next click: the provider still recognises them and re-issues a code without a prompt.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Steps 6–9 of the second animation are this problem and the three available answers.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>RP-initiated logout</b><span>The application sends the user to the provider's end-session endpoint to terminate the IdP session too.</span><template class="term-detail" data-see="IdP session, Back-channel logout, Single sign-on">
-          <p>A redirect to <code>end_session_endpoint</code> with <code>id_token_hint</code> and a registered <code>post_logout_redirect_uri</code>. The provider clears its own session and sends the user back to you.</p>
-          <p>It ends the IdP session, which stops silent re-login &mdash; but it does not by itself end the sessions held by other applications. For that you need one of the logout propagation mechanisms.</p>
-          <h4>How it relates</h4>
-          <ul><li>Register the post-logout redirect URI; providers reject unregistered ones, which produces a confusing dead end.</li></ul>
+        <p>A redirect to <code>end_session_endpoint</code> with <code>id_token_hint</code> and a registered <code>post_logout_redirect_uri</code>. The provider clears its own session and sends the user back to you.</p>
+        <p>It ends the IdP session, which stops silent re-login — but it does not by itself end the sessions held by other applications. For that you need one of the logout propagation mechanisms.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Register the post-logout redirect URI; providers reject unregistered ones, which produces a confusing dead end.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Back-channel logout</b><span>The provider POSTs a signed logout token directly to each application's server, with no browser involved.</span><template class="term-detail" data-see="RP-initiated logout, IdP session, Single sign-on">
-          <p>The reliable mechanism, and the one to use now. Each application registers a logout endpoint; on logout the provider calls them server-to-server with a logout token identifying the session, and each application destroys its own session.</p>
-          <p>It replaced front-channel logout, which worked by loading hidden iframes from every application &mdash; a technique that browsers broke when they started blocking third-party cookies.</p>
-          <h4>The three mechanisms</h4>
-          <table>
-            <tr><th>Mechanism</th><th>Status</th></tr>
-            <tr><td>Back-channel</td><td>reliable; server to server</td></tr>
-            <tr><td>Front-channel (iframes)</td><td>broken by third-party cookie blocking</td></tr>
-            <tr><td>Session polling</td><td>legacy; same problem</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>It needs your session store to be addressable by <code>sid</code> or <code>sub</code>, which is a design decision to take early.</li></ul>
+        <p>The reliable mechanism, and the one to use now. Each application registers a logout endpoint; on logout the provider calls them server-to-server with a logout token identifying the session, and each application destroys its own session.</p>
+        <p>It replaced front-channel logout, which worked by loading hidden iframes from every application — a technique that browsers broke when they started blocking third-party cookies.</p>
+        <h4>The three mechanisms</h4>
+        <table><tr><th>Mechanism</th><th>Status</th></tr>
+        <tr><td>Back-channel</td><td>reliable; server to server</td></tr>
+        <tr><td>Front-channel (iframes)</td><td>broken by third-party cookie blocking</td></tr>
+        <tr><td>Session polling</td><td>legacy; same problem</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>It needs your session store to be addressable by <code>sid</code> or <code>sub</code>, which is a design decision to take early.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Subject identifier</b><span><code>sub</code> — the stable, issuer-scoped user id, and the only claim safe to key your data on.</span><template class="term-detail" data-see="Claims, ID token, Validation">
-          <p>It is unique within an issuer but means nothing outside it, so the real key is the pair (<code>iss</code>, <code>sub</code>). With several identity providers, storing <code>sub</code> alone eventually produces a collision or a wrong match.</p>
-          <p>Providers may also use <b>pairwise</b> subjects, giving each client a different <code>sub</code> for the same person &mdash; good for privacy, and a surprise if you expected to correlate users across applications.</p>
-          <h4>Do not key on</h4>
-          <table>
-            <tr><th>Claim</th><th>Why not</th></tr>
-            <tr><td><code>email</code></td><td>changes, and can be reassigned</td></tr>
-            <tr><td><code>name</code></td><td>not unique, changes</td></tr>
-            <tr><td><code>sub</code> alone</td><td>only unique per issuer</td></tr>
-            <tr><td>(<code>iss</code>, <code>sub</code>)</td><td>&mdash; this is the right key</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Account linking by unverified email is a well-known takeover path; require <code>email_verified</code>.</li></ul>
+        <p>It is unique within an issuer but means nothing outside it, so the real key is the pair (<code>iss</code>, <code>sub</code>). With several identity providers, storing <code>sub</code> alone eventually produces a collision or a wrong match.</p>
+        <p>Providers may also use <b>pairwise</b> subjects, giving each client a different <code>sub</code> for the same person — good for privacy, and a surprise if you expected to correlate users across applications.</p>
+        <h4>Do not key on</h4>
+        <table><tr><th>Claim</th><th>Why not</th></tr>
+        <tr><td><code>email</code></td><td>changes, and can be reassigned</td></tr>
+        <tr><td><code>name</code></td><td>not unique, changes</td></tr>
+        <tr><td><code>sub</code> alone</td><td>only unique per issuer</td></tr>
+        <tr><td>(<code>iss</code>, <code>sub</code>)</td><td>— this is the right key</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Account linking by unverified email is a well-known takeover path; require <code>email_verified</code>.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Hybrid flow</b><span>Returning an ID token in the redirect alongside the code. Legacy, and rarely the right answer now.</span><template class="term-detail" data-see="ID token, Authorization code flow, Validation">
-          <p><code>response_type=code id_token</code> exists so a client can see who logged in before completing the code exchange. It costs you a token in the front channel &mdash; in the URL fragment, the browser history and possibly the referrer.</p>
-          <p>With PKCE and a fast token endpoint there is almost no reason to use it. Treat it as something you may meet in an existing integration rather than something to choose.</p>
-          <h4>How it relates</h4>
-          <ul><li>If a provider's sample still shows <code>response_type=id_token token</code>, it predates the current security guidance.</li></ul>
+        <p><code>response_type=code id_token</code> exists so a client can see who logged in before completing the code exchange. It costs you a token in the front channel — in the URL fragment, the browser history and possibly the referrer.</p>
+        <p>With PKCE and a fast token endpoint there is almost no reason to use it. Treat it as something you may meet in an existing integration rather than something to choose.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>If a provider's sample still shows <code>response_type=id_token token</code>, it predates the current security guidance.</li>
+        </ul>
         </template></div>
       </div>
     </section>
@@ -438,7 +436,6 @@
   "email_verified": true                // without this, do not match on email
 }</code></pre><div class="what">The decoded ID token. Note what is absent: no scopes, no permissions — it describes a login, not an authorization.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Being a relying party</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">builder.Services
@@ -490,7 +487,6 @@ async def callback(request: Request):
                                "email": claims.get("email")}
     return RedirectResponse("/")</code></pre><div class="what">Authlib reads the discovery document and validates the ID token, nonce included. Store <code>(iss, sub)</code> — not the email.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Logging out properly</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// 1 — end your own session AND the provider's
@@ -520,7 +516,6 @@ async def logout(request: Request):
         f"&amp;post_logout_redirect_uri={quote(POST_LOGOUT_URI)}"  # must be registered
     )</code></pre><div class="what"><code>id_token_hint</code> tells the provider which session to end, and avoids an "are you sure?" interstitial.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Inspecting a provider</h3>
         <div class="cmd"><pre class="language-bash line-numbers"><code class="language-bash">curl -s https://login.example.com/.well-known/openid-configuration | jq '{
@@ -549,7 +544,7 @@ async def logout(request: Request):
           <li>Logout is genuinely hard: N+1 sessions, and front-channel mechanisms broken by browsers.</li>
           <li>Claims beyond the standard set are provider-specific, so portability is partial.</li>
           <li>SSO means one compromised identity session reaches every connected application.</li>
-          <li>Local development against a hosted provider is awkward &mdash; redirect URIs, HTTPS, cookies.</li>
+          <li>Local development against a hosted provider is awkward — redirect URIs, HTTPS, cookies.</li>
         </ul></div>
       </div>
     </section>
@@ -559,7 +554,7 @@ async def logout(request: Request):
       <div class="cards">
         <div class="card"><h3>"Sign in with Google"</h3><p>You want identity, not calendar access. Request <code>openid profile email</code>, validate the ID token, key the user on <code>(iss, sub)</code>, and create your own session. No password to store, no reset flow to build.</p></div>
         <div class="card"><h3>Internal SSO across a dozen apps</h3><p>One identity provider, twelve applications, one login per day. Each app redirects, the provider recognises its own session, and the user is back in under a second with no prompt.</p></div>
-        <div class="card"><h3>Enterprise customers with their own IdP</h3><p>A B2B product federates to each customer's provider. Users keep their corporate credentials and MFA policy, and the tenant arrives as a claim &mdash; which the application validates rather than trusting the subdomain.</p></div>
+        <div class="card"><h3>Enterprise customers with their own IdP</h3><p>A B2B product federates to each customer's provider. Users keep their corporate credentials and MFA policy, and the tenant arrives as a claim — which the application validates rather than trusting the subdomain.</p></div>
         <div class="card"><h3>Step-up before a payment</h3><p>Browsing works with an ordinary session. Confirming a transfer re-runs authorization with <code>max_age=300</code> and a stronger <code>acr_values</code>, so the provider prompts for MFA and <code>auth_time</code> proves it happened.</p></div>
         <div class="card"><h3>Logout that actually logs out</h3><p>A shared workstation needs "sign out" to mean it. RP-initiated logout ends the IdP session, and back-channel logout notifies the other eleven applications server-to-server so none of them silently resumes.</p></div>
       </div>
@@ -567,7 +562,7 @@ async def logout(request: Request):
 
     <section id="when">
       <h2>When to use / when not to</h2>
-      <span class="note" style="margin:-6px 0 14px">ID token to your app, access token to the API &mdash; get that right and most of the rest follows</span>
+      <span class="note" style="margin:-6px 0 14px">ID token to your app, access token to the API — get that right and most of the rest follows</span>
       <div class="cols">
         <div class="col good"><h3>Use it when…</h3><ul>
           <li>You need to know who the user is, not just what an app may do.</li>
@@ -579,7 +574,7 @@ async def logout(request: Request):
         <div class="col bad"><h3>Avoid it when…</h3><ul>
           <li>You only need API authorization with no user identity. Use <b>plain OAuth 2.0</b>.</li>
           <li>It is one application with its own users and no SSO. Use <b>a session cookie</b> and a password or passkey.</li>
-          <li>Two services need to authenticate to each other. Use <b>client credentials or mTLS</b> &mdash; there is no user to identify.</li>
+          <li>Two services need to authenticate to each other. Use <b>client credentials or mTLS</b> — there is no user to identify.</li>
           <li>The customer requires SAML. Use <b>SAML</b>, or a provider that bridges it.</li>
           <li>You are considering writing the provider. Use <b>an existing one</b>; this is not a component to build.</li>
         </ul></div>
@@ -588,14 +583,14 @@ async def logout(request: Request):
 
     <section id="gotchas">
       <h2>Common mistakes &amp; gotchas</h2>
-      <div class="gotcha"><b>Sending the ID token to an API</b><span>It is addressed to your client, not to the API. A correct API rejects it on audience &mdash; and an API that checks only the signature accepts it, which means any client of that issuer can call you as any of its users.</span><div class="fix">Fix: ID token to your app, access token to the API. If you need a token for an API, request its scope and use what comes back in <code>access_token</code>.</div></div>
+      <div class="gotcha"><b>Sending the ID token to an API</b><span>It is addressed to your client, not to the API. A correct API rejects it on audience — and an API that checks only the signature accepts it, which means any client of that issuer can call you as any of its users.</span><div class="fix">Fix: ID token to your app, access token to the API. If you need a token for an API, request its scope and use what comes back in <code>access_token</code>.</div></div>
       <div class="gotcha"><b>Parsing the access token for identity</b><span>It is opaque to you by contract, even when it happens to decode. Providers change the format, and your login breaks for reasons unrelated to your code.</span><div class="fix">Fix: read identity from the ID token or UserInfo. Treat the access token as a string you forward and nothing else.</div></div>
       <div class="gotcha"><b>No nonce, or never checking it</b><span>Without it an ID token captured from another session or another flow can be replayed at your callback, and every other check will pass.</span><div class="fix">Fix: generate a random nonce per login attempt, store it with the session, and compare it to the token's claim. <code>state</code> does not cover this.</div></div>
       <div class="gotcha"><b>Keying users on email</b><span>Email addresses change and get reassigned, and an unverified one lets an attacker register the victim's address at a sloppy provider and take over the account.</span><div class="fix">Fix: key on <code>(iss, sub)</code>. If you must match on email for account linking, require <code>email_verified</code> and prefer an explicit linking step.</div></div>
-      <div class="gotcha"><b>Local logout only</b><span>Clearing your own cookie leaves the IdP session intact, so the next protected page silently signs the user straight back in &mdash; which looks like logout being broken.</span><div class="fix">Fix: end both. Sign out locally and redirect to <code>end_session_endpoint</code> with <code>id_token_hint</code> and a registered post-logout URI.</div></div>
-      <div class="gotcha"><b>Relying on front-channel logout</b><span>It loads a hidden iframe per application, which depends on third-party cookies &mdash; now blocked by default in every major browser. It fails silently, so it looks like it works.</span><div class="fix">Fix: implement back-channel logout, where the provider POSTs a logout token to each application's server. Test it; silence is not success.</div></div>
+      <div class="gotcha"><b>Local logout only</b><span>Clearing your own cookie leaves the IdP session intact, so the next protected page silently signs the user straight back in — which looks like logout being broken.</span><div class="fix">Fix: end both. Sign out locally and redirect to <code>end_session_endpoint</code> with <code>id_token_hint</code> and a registered post-logout URI.</div></div>
+      <div class="gotcha"><b>Relying on front-channel logout</b><span>It loads a hidden iframe per application, which depends on third-party cookies — now blocked by default in every major browser. It fails silently, so it looks like it works.</span><div class="fix">Fix: implement back-channel logout, where the provider POSTs a logout token to each application's server. Test it; silence is not success.</div></div>
       <div class="gotcha"><b>Ignoring azp with multiple audiences</b><span>When a token carries several audiences, the <code>azp</code> claim names the client it was issued to. Checking only that your id appears in <code>aud</code> lets a token minted for a different client be replayed at your login.</span><div class="fix">Fix: if <code>azp</code> is present, require it to equal your client id. Good libraries do this; confirm yours does.</div></div>
-      <div class="gotcha"><b>Treating the ID token as a session</b><span>Storing it in a cookie and re-reading it on every request turns a short-lived login receipt into a long-lived bearer credential, with no revocation.</span><div class="fix">Fix: validate once, create your own session with your own lifetime and revocation, and throw the ID token away &mdash; except the copy kept for <code>id_token_hint</code> at logout.</div></div>
+      <div class="gotcha"><b>Treating the ID token as a session</b><span>Storing it in a cookie and re-reading it on every request turns a short-lived login receipt into a long-lived bearer credential, with no revocation.</span><div class="fix">Fix: validate once, create your own session with your own lifetime and revocation, and throw the ID token away — except the copy kept for <code>id_token_hint</code> at logout.</div></div>
     </section>
 
     <section id="alternatives">
@@ -604,21 +599,21 @@ async def logout(request: Request):
         <table>
           <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs OIDC</th></tr></thead>
           <tbody>
-            <tr class="self"><td><b>OpenID Connect</b></td><td>federated identity and SSO</td><td>Medium</td><td>free; a provider to run or buy</td><td>&mdash;</td></tr>
-            <tr><td><b>Plain OAuth 2.0</b></td><td>API authorization only</td><td>Medium</td><td>free</td><td>No ID token and no standard identity &mdash; using it for login is the mistake OIDC fixes</td></tr>
+            <tr class="self"><td><b>OpenID Connect</b></td><td>federated identity and SSO</td><td>Medium</td><td>free; a provider to run or buy</td><td>—</td></tr>
+            <tr><td><b>Plain OAuth 2.0</b></td><td>API authorization only</td><td>Medium</td><td>free</td><td>No ID token and no standard identity — using it for login is the mistake OIDC fixes</td></tr>
             <tr><td><b>SAML 2.0</b></td><td>enterprise SSO to web apps</td><td>High</td><td>free</td><td>XML assertions and browser POSTs; entrenched in enterprise, poor fit for mobile and APIs</td></tr>
             <tr><td><b>Session cookies + passwords</b></td><td>a single application</td><td>Low</td><td>free</td><td>No federation, no SSO; you own password storage, reset and breach response</td></tr>
-            <tr><td><b>Passkeys / WebAuthn</b></td><td>phishing-resistant login</td><td>Medium</td><td>free</td><td>An authentication <em>method</em>, not a federation protocol &mdash; providers use it behind OIDC</td></tr>
+            <tr><td><b>Passkeys / WebAuthn</b></td><td>phishing-resistant login</td><td>Medium</td><td>free</td><td>An authentication <em>method</em>, not a federation protocol — providers use it behind OIDC</td></tr>
             <tr><td><b>Magic links</b></td><td>low-friction consumer login</td><td>Low</td><td>email delivery</td><td>No password, but email becomes the security boundary and delivery becomes a dependency</td></tr>
             <tr><td><b>mTLS</b></td><td>service-to-service identity</td><td>Medium</td><td>certificate infrastructure</td><td>Identifies machines, not people; no consent, no claims, no SSO</td></tr>
           </tbody>
         </table>
       </div>
       <ul style="margin-top:12px">
-        <li><b>Pick plain OAuth</b> when there is no user to identify &mdash; machine-to-machine traffic needs no ID token.</li>
+        <li><b>Pick plain OAuth</b> when there is no user to identify — machine-to-machine traffic needs no ID token.</li>
         <li><b>Pick SAML</b> only when a customer requires it; bridge it at the provider rather than in your application.</li>
         <li><b>Pick passkeys</b> as the authentication method <em>inside</em> OIDC, not as a replacement for it.</li>
-        <li><b>Pick session cookies</b> for a single app with its own users &mdash; federation you do not need is pure cost.</li>
+        <li><b>Pick session cookies</b> for a single app with its own users — federation you do not need is pure cost.</li>
       </ul>
     </section>
 
@@ -628,9 +623,9 @@ async def logout(request: Request):
         <li><a href="https://openid.net/specs/openid-connect-core-1_0.html" target="_blank" rel="noopener">OpenID Connect Core 1.0</a>: the specification, including the ID token validation steps in order.</li>
         <li><a href="https://openid.net/specs/openid-connect-discovery-1_0.html" target="_blank" rel="noopener">OIDC Discovery</a>: what the well-known document contains and how clients should use it.</li>
         <li><a href="https://openid.net/specs/openid-connect-backchannel-1_0.html" target="_blank" rel="noopener">OIDC Back-Channel Logout</a>: the logout mechanism that still works with third-party cookies blocked.</li>
-        <li><a href="https://openid.net/certification/" target="_blank" rel="noopener">OpenID certification</a>: which implementations are certified &mdash; worth checking before adopting a library.</li>
-        <li><a href="https://datatracker.ietf.org/doc/html/rfc9700" target="_blank" rel="noopener">RFC 9700 &mdash; OAuth Security BCP</a>: applies underneath OIDC too, including PKCE and redirect URI rules.</li>
-        <li><a href="https://oauth.net/openid-connect/" target="_blank" rel="noopener">oauth.net &mdash; OpenID Connect</a>: a short map of the specs and extensions, with the deprecated ones flagged.</li>
+        <li><a href="https://openid.net/certification/" target="_blank" rel="noopener">OpenID certification</a>: which implementations are certified — worth checking before adopting a library.</li>
+        <li><a href="https://datatracker.ietf.org/doc/html/rfc9700" target="_blank" rel="noopener">RFC 9700 — OAuth Security BCP</a>: applies underneath OIDC too, including PKCE and redirect URI rules.</li>
+        <li><a href="https://oauth.net/openid-connect/" target="_blank" rel="noopener">oauth.net — OpenID Connect</a>: a short map of the specs and extensions, with the deprecated ones flagged.</li>
       </ul>
     </section>
     <!-- RELATED:START (generated by scripts/build-index.mjs, do not edit) -->
@@ -673,41 +668,42 @@ async def logout(request: Request):
   </main>
 </div>
 
-<script src="../assets/player.js?v=3658cbc7"></script>
+<script src="../assets/player.js?v=e9bf1ea3"></script>
 <script>
 createAnimation('anim-tokens', [
-  { say: 'The flow is the OAuth authorization code flow you already know. The only difference is one extra scope: <code>openid</code>. That single word turns an authorization request into an authentication request.', hl: ['ot-idp'] },
-  { say: 'The user authenticates at the provider, and the token response now contains <em>two</em> tokens rather than one.', unhl: ['ot-idp'], text: { 'ot-idpt': 'user authenticated · issuing 2 tokens' } },
-  { say: 'The first is the ID token: a signed JWT about the login itself. Its audience is your client id &mdash; it was issued to you, for you to read.', show: ['ot-id', 'ot-a1'], hl: ['ot-id'], text: { 'ot-idt': 'aud = s6BhdRkqt3 · sub, auth_time, amr, nonce' } },
-  { say: 'The second is the access token, whose audience is the API. It is a credential for calling the calendar &mdash; and opaque to your client by contract, even when it happens to decode.', show: ['ot-at', 'ot-a2'], unhl: ['ot-id'], hl: ['ot-at'], text: { 'ot-att': 'aud = api://calendar · scope calendar.read' } },
-  { say: 'Your client validates the ID token &mdash; signature, issuer, audience, expiry, nonce &mdash; and then creates its own session. After that the ID token has done its job.', unhl: ['ot-at'], hl: ['ot-app'], text: { 'ot-appt': 'validated the ID token', 'ot-appt2': 'created its own session cookie', 'ot-v': 'the ID token is a receipt for a login, not a key to anything' } },
-  { say: 'The access token goes to the API, which checks that the audience is its own identifier and that the scope permits the operation.', unhl: ['ot-app'], hl: ['ot-api'], text: { 'ot-apit2': 'aud ✓ scope ✓ → 200 OK' }, fill: { 'ot-apit2': '#2f6b3f' } },
-  { say: 'Now the mistake. A developer has an ID token in hand, it looks like a JWT, and the API wants a token &mdash; so they send the ID token instead.', show: ['ot-bad'], unhl: ['ot-api'], text: { 'ot-apit2': 'receiving an id_token…', 'ot-v': 'it is a JWT, it is signed, it is valid — and it is the wrong token' }, fill: { 'ot-apit2': '#5f6f66' } },
-  { say: 'A correctly configured API rejects it: the audience is the client id, not the API. The request fails, which is the <em>good</em> outcome.', hl: ['ot-api'], text: { 'ot-apit2': 'aud = s6BhdRkqt3 ≠ api://calendar → 401' }, fill: { 'ot-apit2': '#c53b3b' } },
-  { say: 'The bad outcome is an API that validates only the signature. It accepts the ID token &mdash; and now <em>any</em> client of that provider can call your API as any of its users, because every one of them can obtain a validly signed ID token.', text: { 'ot-apit': 'checks signature only ✗', 'ot-apit2': 'accepted — impersonation is trivial', 'ot-v': 'skipping the audience check turns a login receipt into a master key' }, fill: { 'ot-apit': '#c53b3b' } },
-  { say: 'So the rule, and it is worth memorising: ID token to your client, access token to the API, and always validate the audience on both.', unhl: ['ot-api'], text: { 'ot-phase': 'two tokens, two audiences, never swapped', 'ot-apit': 'expects aud = api://calendar', 'ot-apit2': '', 'ot-v': 'ID token → your app · access token → the API' }, fill: { 'ot-apit': '#5f6f66' } },
+  { say: "The flow is the OAuth authorization code flow you already know. The only difference is one extra scope: <code>openid</code>. That single word turns an authorization request into an authentication request.", hl: ["ot-idp"] },
+  { say: "The user authenticates at the provider, and the token response now contains <em>two</em> tokens rather than one.", unhl: ["ot-idp"], text: {"ot-idpt":"user authenticated · issuing 2 tokens"} },
+  { say: "The first is the ID token: a signed JWT about the login itself. Its audience is your client id — it was issued to you, for you to read.", show: ["ot-id","ot-a1"], hl: ["ot-id"], text: {"ot-idt":"aud = s6BhdRkqt3 · sub, auth_time, amr, nonce"} },
+  { say: "The second is the access token, whose audience is the API. It is a credential for calling the calendar — and opaque to your client by contract, even when it happens to decode.", show: ["ot-at","ot-a2"], hl: ["ot-at"], unhl: ["ot-id"], text: {"ot-att":"aud = api://calendar · scope calendar.read"} },
+  { say: "Your client validates the ID token — signature, issuer, audience, expiry, nonce — and then creates its own session. After that the ID token has done its job.", hl: ["ot-app"], unhl: ["ot-at"], text: {"ot-appt":"validated the ID token","ot-appt2":"created its own session cookie","ot-v":"the ID token is a receipt for a login, not a key to anything"} },
+  { say: "The access token goes to the API, which checks that the audience is its own identifier and that the scope permits the operation.", hl: ["ot-api"], unhl: ["ot-app"], text: {"ot-apit2":"aud ✓ scope ✓ → 200 OK"}, fill: {"ot-apit2":"#2f6b3f"} },
+  { say: "Now the mistake. A developer has an ID token in hand, it looks like a JWT, and the API wants a token — so they send the ID token instead.", show: ["ot-bad"], unhl: ["ot-api"], text: {"ot-apit2":"receiving an id_token…","ot-v":"it is a JWT, it is signed, it is valid — and it is the wrong token"}, fill: {"ot-apit2":"#5f6f66"} },
+  { say: "A correctly configured API rejects it: the audience is the client id, not the API. The request fails, which is the <em>good</em> outcome.", hl: ["ot-api"], text: {"ot-apit2":"aud = s6BhdRkqt3 ≠ api://calendar → 401"}, fill: {"ot-apit2":"#c53b3b"} },
+  { say: "The bad outcome is an API that validates only the signature. It accepts the ID token — and now <em>any</em> client of that provider can call your API as any of its users, because every one of them can obtain a validly signed ID token.", text: {"ot-apit":"checks signature only ✗","ot-apit2":"accepted — impersonation is trivial","ot-v":"skipping the audience check turns a login receipt into a master key"}, fill: {"ot-apit":"#c53b3b"} },
+  { say: "So the rule, and it is worth memorising: ID token to your client, access token to the API, and always validate the audience on both.", unhl: ["ot-api"], text: {"ot-phase":"two tokens, two audiences, never swapped","ot-apit":"expects aud = api://calendar","ot-apit2":"","ot-v":"ID token → your app · access token → the API"}, fill: {"ot-apit":"#5f6f66"} },
 ]);
 
 createAnimation('anim-sso', [
-  { say: 'Three applications and one identity provider. Nobody is signed in anywhere yet.', hl: ['os-idp'] },
-  { say: 'The user opens the email app and is redirected to the provider, where they authenticate once.', unhl: ['os-idp'], hl: ['os-a'], text: { 'os-at': 'redirecting to the IdP…', 'os-idpt': 'authenticating the user' } },
-  { say: 'Two things now exist. The provider sets <em>its own</em> session cookie on its own domain &mdash; and the email app, after validating the ID token, sets its own session cookie on its domain.', show: ['os-la'], unhl: ['os-a'], text: { 'os-idpt': 'IdP session ✓ (cookie on login.example.com)', 'os-at': 'app session ✓', 'os-p1': 'sessions in existence: 2', 'os-p2': 'one at the provider, one at app A — with different lifetimes' } },
-  { say: 'Now the user opens the expenses app. It redirects to the provider exactly as the first app did.', hl: ['os-b'], text: { 'os-bt': 'redirecting to the IdP…' } },
-  { say: 'But the provider recognises its own cookie. No prompt, no password, no visible page &mdash; just an immediate redirect back with a code. That is single sign-on, and it is entirely a property of that one cookie.', show: ['os-lb'], unhl: ['os-b'], text: { 'os-bt': 'app session ✓ (no prompt)', 'os-idpt2': 'existing session reused', 'os-p1': 'sessions in existence: 3' } },
-  { say: 'The wiki makes three. Note the arithmetic: three applications, four sessions &mdash; each with its own lifetime and its own idea of when it ends.', show: ['os-lc'], text: { 'os-ct': 'app session ✓ (no prompt)', 'os-p1': 'sessions in existence: 4', 'os-p2': 'N applications means N+1 sessions — this is the part that bites at logout' } },
-  { say: 'The user clicks "log out" in the email app, and the app clears its own cookie. Most implementations stop here.', hl: ['os-a'], text: { 'os-at': 'local session cleared', 'os-p1': 'sessions in existence: 3', 'os-p2': 'the IdP session and apps B and C are untouched' }, fill: { 'os-at': '#5f6f66' } },
-  { say: 'Which means the next protected click redirects to the provider, the provider still recognises its cookie, and the user is silently signed straight back in. It looks like logout is broken, and functionally it is.', show: ['os-la'], unhl: ['os-a'], text: { 'os-at': 'silently signed back in ✗', 'os-p1': 'sessions in existence: 4', 'os-p2': 'clearing your own cookie is not logging out' }, fill: { 'os-at': '#c53b3b', 'os-p2': '#c53b3b' } },
-  { say: 'The first fix is RP-initiated logout: redirect the user to the provider’s end-session endpoint with <code>id_token_hint</code>. That ends the IdP session, so no silent re-login.', hide: ['os-la'], hl: ['os-idp'], text: { 'os-idpt': 'IdP session ended', 'os-idpt2': '', 'os-at': 'logged out ✓', 'os-p1': 'sessions in existence: 2', 'os-p2': 'but apps B and C still have perfectly good sessions of their own' }, fill: { 'os-at': '#2f6b3f', 'os-p2': '#5f6f66' } },
-  { say: 'The second fix is back-channel logout: the provider POSTs a signed logout token to each application’s server, and each destroys its own session. It replaced the old iframe approach, which browsers broke when they blocked third-party cookies.', hide: ['os-lb', 'os-lc'], unhl: ['os-idp'], text: { 'os-phase': 'back-channel logout — server to server, no browser involved', 'os-bt': 'logged out ✓ (notified)', 'os-ct': 'logged out ✓ (notified)', 'os-p1': 'sessions in existence: 0', 'os-p2': 'logging in is one redirect; logging out is a distributed systems problem' }, fill: { 'os-bt': '#2f6b3f', 'os-ct': '#2f6b3f' } },
+  { say: "Three applications and one identity provider. Nobody is signed in anywhere yet.", hl: ["os-idp"] },
+  { say: "The user opens the email app and is redirected to the provider, where they authenticate once.", hl: ["os-a"], unhl: ["os-idp"], text: {"os-at":"redirecting to the IdP…","os-idpt":"authenticating the user"} },
+  { say: "Two things now exist. The provider sets <em>its own</em> session cookie on its own domain — and the email app, after validating the ID token, sets its own session cookie on its domain.", show: ["os-la"], unhl: ["os-a"], text: {"os-idpt":"IdP session ✓ (cookie on login.example.com)","os-at":"app session ✓","os-p1":"sessions in existence: 2","os-p2":"one at the provider, one at app A — with different lifetimes"} },
+  { say: "Now the user opens the expenses app. It redirects to the provider exactly as the first app did.", hl: ["os-b"], text: {"os-bt":"redirecting to the IdP…"} },
+  { say: "But the provider recognises its own cookie. No prompt, no password, no visible page — just an immediate redirect back with a code. That is single sign-on, and it is entirely a property of that one cookie.", show: ["os-lb"], unhl: ["os-b"], text: {"os-bt":"app session ✓ (no prompt)","os-idpt2":"existing session reused","os-p1":"sessions in existence: 3"} },
+  { say: "The wiki makes three. Note the arithmetic: three applications, four sessions — each with its own lifetime and its own idea of when it ends.", show: ["os-lc"], text: {"os-ct":"app session ✓ (no prompt)","os-p1":"sessions in existence: 4","os-p2":"N applications means N+1 sessions — this is the part that bites at logout"} },
+  { say: "The user clicks \"log out\" in the email app, and the app clears its own cookie. Most implementations stop here.", hl: ["os-a"], text: {"os-at":"local session cleared","os-p1":"sessions in existence: 3","os-p2":"the IdP session and apps B and C are untouched"}, fill: {"os-at":"#5f6f66"} },
+  { say: "Which means the next protected click redirects to the provider, the provider still recognises its cookie, and the user is silently signed straight back in. It looks like logout is broken, and functionally it is.", show: ["os-la"], unhl: ["os-a"], text: {"os-at":"silently signed back in ✗","os-p1":"sessions in existence: 4","os-p2":"clearing your own cookie is not logging out"}, fill: {"os-at":"#c53b3b","os-p2":"#c53b3b"} },
+  { say: "The first fix is RP-initiated logout: redirect the user to the provider’s end-session endpoint with <code>id_token_hint</code>. That ends the IdP session, so no silent re-login.", hide: ["os-la"], hl: ["os-idp"], text: {"os-idpt":"IdP session ended","os-idpt2":"","os-at":"logged out ✓","os-p1":"sessions in existence: 2","os-p2":"but apps B and C still have perfectly good sessions of their own"}, fill: {"os-at":"#2f6b3f","os-p2":"#5f6f66"} },
+  { say: "The second fix is back-channel logout: the provider POSTs a signed logout token to each application’s server, and each destroys its own session. It replaced the old iframe approach, which browsers broke when they blocked third-party cookies.", hide: ["os-lb","os-lc"], unhl: ["os-idp"], text: {"os-phase":"back-channel logout — server to server, no browser involved","os-bt":"logged out ✓ (notified)","os-ct":"logged out ✓ (notified)","os-p1":"sessions in existence: 0","os-p2":"logging in is one redirect; logging out is a distributed systems problem"}, fill: {"os-bt":"#2f6b3f","os-ct":"#2f6b3f"} },
 ]);
 
+/* Animations inside key-concept panels */
 window.TERM_ANIMS = {
   nonce: [
-    { say: 'Before redirecting, the client generates a random nonce and stores it with the pending login in its own session.', hl: ['nc-cli'], text: { 'nc-clit': 'nonce stored: n-0S6_WzA2Mj' } },
-    { say: 'It travels in the authorize request, and the provider copies it into the ID token it mints for this login.', unhl: ['nc-cli'], hl: ['nc-tok'], text: { 'nc-tokt': 'nonce claim: n-0S6_WzA2Mj' } },
-    { say: 'On the callback the client compares the two. They match, so this token was minted for <em>this</em> login attempt and not some other one.', unhl: ['nc-tok'], text: { 'nc-res': 'match → accept', 'nc-msg': 'the token is bound to the request that asked for it' }, fill: { 'nc-res': '#2f6b3f' } },
-    { say: 'Now an attacker replays an ID token captured elsewhere &mdash; a log, another session, a different flow. Its signature is valid, the issuer is right, the audience is right, it has not expired.', hl: ['nc-tok'], text: { 'nc-tokt': 'nonce claim: XyZ-from-another-login', 'nc-res': '—', 'nc-msg': 'every other check on this token passes' }, fill: { 'nc-res': '#5f6f66' } },
-    { say: 'But the nonce does not match what this session is waiting for, so it is rejected. That is the one check standing between a captured token and a session as somebody else &mdash; and <code>state</code> would not have caught it, because state protects the callback, not the token.', unhl: ['nc-tok'], text: { 'nc-res': 'mismatch → reject', 'nc-msg': 'state protects the request · nonce protects the token · you need both' }, fill: { 'nc-res': '#c53b3b' } },
+    { say: "Before redirecting, the client generates a random nonce and stores it with the pending login in its own session.", hl: ["nc-cli"], text: {"nc-clit":"nonce stored: n-0S6_WzA2Mj"} },
+    { say: "It travels in the authorize request, and the provider copies it into the ID token it mints for this login.", hl: ["nc-tok"], unhl: ["nc-cli"], text: {"nc-tokt":"nonce claim: n-0S6_WzA2Mj"} },
+    { say: "On the callback the client compares the two. They match, so this token was minted for <em>this</em> login attempt and not some other one.", unhl: ["nc-tok"], text: {"nc-res":"match → accept","nc-msg":"the token is bound to the request that asked for it"}, fill: {"nc-res":"#2f6b3f"} },
+    { say: "Now an attacker replays an ID token captured elsewhere — a log, another session, a different flow. Its signature is valid, the issuer is right, the audience is right, it has not expired.", hl: ["nc-tok"], text: {"nc-tokt":"nonce claim: XyZ-from-another-login","nc-res":"—","nc-msg":"every other check on this token passes"}, fill: {"nc-res":"#5f6f66"} },
+    { say: "But the nonce does not match what this session is waiting for, so it is rejected. That is the one check standing between a captured token and a session as somebody else — and <code>state</code> would not have caught it, because state protects the callback, not the token.", unhl: ["nc-tok"], text: {"nc-res":"mismatch → reject","nc-msg":"state protects the request · nonce protects the token · you need both"}, fill: {"nc-res":"#c53b3b"} },
   ],
 };
 </script>

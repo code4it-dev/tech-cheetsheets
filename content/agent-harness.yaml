@@ -1,0 +1,983 @@
+title: Agent harness
+slug: agent-harness
+tagline: The model is a function from text to text. Everything that makes it an agent is code you wrote.
+asof: Nov 2026 · examples use Microsoft.Extensions.AI and the OpenAI Python SDK
+description: "Agent harness cheatsheet: the loop, tool dispatch, context compaction, budgets, stop conditions, approvals and observability — the code around the model that makes it an agent."
+aliases:
+  - Agent harness
+  - harness
+  - agent loop
+  - agentic loop
+  - agent scaffold
+  - scaffolding
+  - agent runtime
+  - ReAct loop
+  - context compaction
+keywords:
+  - agent harness
+  - agent loop
+  - llm agents
+  - tool calling
+  - context window
+  - compaction
+  - budgets
+  - observability
+  - ai
+related: [ mcp, a2a, rag, semantic-caching, retry-backoff-jitter ]
+overview:
+  - "An **agent harness** is the loop and the scaffolding around a language model: it assembles the prompt, offers a set of tools, calls the model, dispatches whatever tool the model asked for, appends the result, and calls again — until a stop condition fires. It also enforces the budgets, applies the approval policy, compacts the context when it fills, catches the errors, and records what happened."
+  - None of that is the model's job and none of it is the protocol's. **MCP** defines how a tool is described and invoked; **A2A** defines how two agents exchange tasks. Neither says how many steps are allowed, what happens when the context window fills, whether a deletion needs a human, or how you find out afterwards why the thing looped eleven times. That is the harness, and it is where agent quality actually comes from.
+  - "Two systems with the same model and the same tools can differ enormously in reliability depending on their harness. The failure modes are unglamorous and consistent: unbounded loops, a context window that silently overflows, tool errors the model cannot interpret, no record of what happened. Each has a known, boring fix."
+footnote: "Note: in testing, \"harness\" means a test runner. This page is about the agent harness — the runtime loop around a model."
+architecture:
+  svg: agent-harness/architecture.svg
+  alt: "An agent harness surrounding a model: prompt assembly, the loop, tool dispatch, context management, policy, budgets and observability"
+  caption: Each call to the model is stateless. The agent is the list of messages, and the rules for what goes in it.
+howItWorks:
+  - md: The first animation runs a real task through the loop, with the budget counters visible. The second is context compaction — the thing that decides whether a long task finishes or degrades.
+  - note: the loop is ten lines. everything that makes it survive production is the other four hundred.
+  - anim:
+      id: anim-loop
+      title: 1 · The loop, with the budget running
+      svg: agent-harness/anim-loop.svg
+      alt: "An agent loop: the model requests a tool, the harness dispatches it, appends the result, and calls again until a stop condition fires"
+      steps:
+        - say: "The harness builds the message list: a system prompt and the task. That list — not the model — is the entire memory of this agent."
+          hl: [ hl-ctx ]
+          text:
+            hl-t1: 1 system   "You are a finance assistant. Cite ids…"
+            hl-t2: 2 user     "which customers are over their credit limit?"
+            hl-ctxt: 2 messages · 1,100 tokens
+        - say: It calls the model with the list and the tool definitions. Note the definitions are sent <em>every</em> call — they are a standing cost, not a one-off registration.
+          show: [ hl-msg ]
+          hl: [ hl-model ]
+          unhl: [ hl-ctx ]
+          text:
+            hl-msgt: 2 msgs + 3 tools
+            hl-modelt: thinking
+            hl-toolst: query_customers·get_credit·send_email
+            hl-b1: "steps:   1 / 12"
+            hl-b2: "tokens:  1,400 / 60,000"
+            hl-b3: "wall:    1.2s / 120s"
+            hl-b4: "cost:    $0.002"
+        - say: "The model does not answer. It asks for a tool: `query_customers(status: \"active\")`. That is the whole trick — an agent is a model that can say \"I need something first\"."
+          hl: [ hl-tools ]
+          unhl: [ hl-model ]
+          move:
+            hl-msg: [ 568, 0 ]
+          text:
+            hl-msgt: query_customers(…)
+            hl-modelt: requested 1 tool call
+            hl-t3: "3 assistant  tool_call: query_customers(status:\"active\")"
+        - say: The harness validates the arguments against the schema before running anything — the model generated this JSON and the schema was advice, not a guarantee — then dispatches with a timeout.
+          text:
+            hl-toolst: validating → running (timeout 15s)
+            hl-b3: "wall:    3.8s / 120s"
+        - say: "It returns 4,312 rows. This is the moment that decides whether the whole run works: put them in the list and the window is gone by step four."
+          text:
+            hl-toolst: 4,312 rows returned
+            hl-b5: raw result would be ~68,000 tokens
+          fill:
+            hl-b5: "#c53b3b"
+        - say: "So the harness shapes it: twenty rows, the fields that matter, the real total, and an instruction for getting more. An answer and a hint, in 300 tokens instead of 68,000."
+          hl: [ hl-ctx ]
+          unhl: [ hl-tools ]
+          move:
+            hl-msg: [ 0, 0 ]
+          text:
+            hl-msgt: ← shaped result
+            hl-t4: 4 tool       [20 of 4,312 rows] + "use aggregate_credit for totals"
+            hl-ctxt: 4 messages · 1,900 tokens
+            hl-b2: "tokens:  3,300 / 60,000"
+            hl-b5: shaped to ~300 tokens — 99.6% discarded, nothing lost
+          fill:
+            hl-b5: "#2f6b3f"
+        - say: Round two. The whole list is resent — system, task, the tool call, the result. The model has no memory of step one; the list <em>is</em> the memory.
+          hl: [ hl-model ]
+          unhl: [ hl-ctx ]
+          text:
+            hl-msgt: 4 msgs + 3 tools
+            hl-modelt: reads the hint, calls aggregate_credit
+            hl-b1: "steps:   2 / 12"
+            hl-b2: "tokens:  5,600 / 60,000"
+            hl-b4: "cost:    $0.008"
+        - say: "The second call fails: the date argument is malformed. The harness does not surface a stack trace — it reframes the error into something the model can act on."
+          hl: [ hl-tools ]
+          unhl: [ hl-model ]
+          move:
+            hl-msg: [ 568, 0 ]
+          text:
+            hl-msgt: aggregate_credit(…)
+            hl-toolst: "error: bad argument"
+            hl-t5: 5 tool       "asOf must be yyyy-MM-dd, got 'last month'. Try 2026-10-31."
+          fill:
+            hl-t5: "#c53b3b"
+        - say: Which works. Step three retries with a valid date, gets the aggregate, and now has everything it needs. A useless error here would have burned three steps instead of one.
+          unhl: [ hl-tools ]
+          move:
+            hl-msg: [ 0, 0 ]
+          text:
+            hl-msgt: ← 2 customers over limit
+            hl-t6: 6 tool       CUST-4412 over by €3,200 · CUST-7781 over by €880
+            hl-b1: "steps:   3 / 12"
+            hl-b2: "tokens:  9,100 / 60,000"
+            hl-b4: "cost:    $0.014"
+          fill:
+            hl-t5: "#5f6f66"
+        - say: "Step four: the model returns text and <em>no</em> tool calls. That is the stop condition — \"the model stopped asking for things\" is how a normal run ends."
+          hl: [ hl-model ]
+          text:
+            hl-msgt: final answer
+            hl-modelt: no tool calls → done
+            hl-b1: "steps:   4 / 12"
+            hl-b5: "stop reason: answered · 4 steps · $0.019 · 11.4s"
+          fill:
+            hl-b5: "#2f6b3f"
+        - say: Had it not stopped, something else would have. A step budget, a token budget, a wall clock, a cost cap, a cancellation, or a detector noticing three identical calls in a row. The loop never ends on its own.
+          unhl: [ hl-model ]
+          text:
+            hl-phase: every run ends for a recorded reason — record which one
+            hl-bt: stop reasons, over a week
+            hl-b1: answered        91%
+            hl-b2: step budget      5%   ← investigate this one
+            hl-b3: repeated call    3%
+            hl-b4: user cancelled   1%
+            hl-b5: the distribution of stop reasons is your best agent metric
+          fill:
+            hl-b2: "#c53b3b"
+            hl-b5: "#2f6b3f"
+  - anim:
+      id: anim-compact
+      title: 2 · The context window fills, and what you do about it
+      svg: agent-harness/anim-compact.svg
+      alt: A context window filling up with tool results, then being compacted by summarising old turns and pruning large tool outputs
+      steps:
+        - say: A 200,000-token window, drawn as 24 blocks. At the start only the system prompt and tool definitions are in it — and those will be resent on every call for the rest of the task.
+          text:
+            hc-gauge: 8,000 / 200,000 tokens · step 1
+            hc-p1: system prompt + 6 tool definitions   ~8k   (fixed cost, every call)
+          fill:
+            hc-c0: "#a9b5a6"
+        - say: The task and a few turns of conversation. Still comfortable, and growing slowly — conversation is not what fills a window.
+          text:
+            hc-gauge: 24,000 / 200,000 tokens · step 3
+            hc-p2: conversation so far                  ~16k  (grows linearly, harmlessly)
+          fill:
+            hc-c1: "#e3eedc"
+            hc-c2: "#e3eedc"
+        - say: Then the tool results arrive. A file read, a long query, a log search — each one tens of thousands of tokens, and each one stays in the list for ever.
+          text:
+            hc-gauge: 72,000 / 200,000 tokens · step 7
+            hc-p3: tool results                         ~48k  (unbounded — this is the one)
+          fill:
+            hc-c3: "#fbf3c4"
+            hc-c4: "#fbf3c4"
+            hc-c5: "#fbf3c4"
+            hc-c6: "#fbf3c4"
+            hc-c7: "#fbf3c4"
+            hc-c8: "#fbf3c4"
+        - say: "By step twelve they dominate. And remember what this costs: every one of those tokens is <em>resent</em> on every subsequent call, so the bill grows faster than the window does."
+          text:
+            hc-gauge: 128,000 / 200,000 tokens · step 12
+            hc-p4: tool results now 78% of everything in the window
+            hc-p5: and resent in full on every call — cost is growing quadratically
+          fill:
+            hc-c9: "#fbf3c4"
+            hc-c10: "#fbf3c4"
+            hc-c11: "#fbf3c4"
+            hc-c12: "#fbf3c4"
+            hc-c13: "#fbf3c4"
+            hc-c14: "#fbf3c4"
+            hc-c15: "#fbf3c4"
+            hc-p5: "#c53b3b"
+        - say: At 75% the harness acts. Not at 100% — summarising needs room to work, and a context that has already overflowed cannot be summarised.
+          text:
+            hc-gauge: 152,000 / 200,000 — 76%, threshold crossed
+            hc-p6: compaction triggers at 70–80%, never on failure
+          fill:
+            hc-c16: "#f9e3df"
+            hc-c17: "#f9e3df"
+            hc-p6: "#c53b3b"
+        - say: "First, the free win: prune. Tool results that have been superseded — the file read three edits ago, the query that was re-run — are replaced by a one-line reference. No model call, no loss."
+          text:
+            hc-gauge: 104,000 / 200,000 tokens · pruned
+            hc-p3: superseded results → "[read orders.cs, 420 lines, superseded at step 9]"
+            hc-p4: "free: no model call, nothing meaningful lost"
+            hc-p5: "&nbsp;"
+            hc-p6: "&nbsp;"
+          fill:
+            hc-c3: "#e8ece2"
+            hc-c4: "#e8ece2"
+            hc-c5: "#e8ece2"
+            hc-c6: "#e8ece2"
+            hc-c16: "#e8ece2"
+            hc-c17: "#e8ece2"
+            hc-p4: "#2f6b3f"
+        - say: Then summarise the middle. Older turns go to a cheap model and come back as a handoff note — goal, facts established, approaches ruled out, and crucially the actions already performed.
+          text:
+            hc-gauge: 48,000 / 200,000 tokens · compacted
+            hc-p2: steps 2–10 → one 600-token summary
+            hc-p3: "\"ACTIONS ALREADY PERFORMED: emailed CUST-4412 at step 6\""
+            hc-p4: that line is what stops the agent sending the same email twice
+          fill:
+            hc-c7: "#e8ece2"
+            hc-c8: "#e8ece2"
+            hc-c9: "#e8ece2"
+            hc-c10: "#e8ece2"
+            hc-c11: "#e8ece2"
+            hc-c12: "#e8ece2"
+            hc-c2: "#e3eedc"
+            hc-p3: "#2f6b3f"
+        - say: "The ends are kept verbatim: the system prompt, the original task, and the last few turns. Those are the parts the model needs exactly, not approximately."
+          text:
+            hc-gauge: 56,000 / 200,000 tokens · room to continue
+            hc-p1: "kept verbatim: system + tools, the original task, the last 3 turns"
+            hc-p5: "kept approximate: everything in between"
+          fill:
+            hc-c13: "#e3eedc"
+            hc-c14: "#e3eedc"
+        - say: "And be honest about the cost: this is lossy. A detail from step 4 that nobody thought was load-bearing is now gone, and the agent will not know it is missing."
+          text:
+            hc-phase: compaction always loses something — the question is what
+            hc-p6: "symptom: an agent that confidently contradicts something it established an hour ago"
+          fill:
+            hc-p6: "#c53b3b"
+        - say: Which is why the better fix is earlier. Shape every tool result as it arrives — cap, project, summarise — and the window never reaches 75% at all. Discarding before it enters loses nothing, because you still have the source.
+          text:
+            hc-phase: the cheapest compaction is the token you never added
+            hc-gauge: "with shaping: ~34,000 / 200,000 at step 12 — no compaction needed"
+            hc-p1: "shape at the boundary: 20 rows not 4,312, the matching span not the file"
+            hc-p2: "externalise: write artefacts to disk, keep the path"
+            hc-p3: "delegate: a subagent’s 40 tool results never enter this window at all"
+            hc-p4: "&nbsp;"
+            hc-p5: "&nbsp;"
+            hc-p6: "&nbsp;"
+          fill:
+            hc-c3: "#e8ece2"
+            hc-c4: "#e8ece2"
+            hc-c5: "#e8ece2"
+            hc-c6: "#e8ece2"
+            hc-c7: "#e8ece2"
+            hc-c8: "#e8ece2"
+            hc-p1: "#2f6b3f"
+            hc-p3: "#2f6b3f"
+        - say: And whatever you do, record it. A compaction event in the trace is the explanation for the next bug report that begins "it forgot what I told it".
+          text:
+            hc-v: "log every compaction: what was dropped, what was kept, how many tokens"
+          fill:
+            hc-verd: "#e3eedc"
+concepts:
+  - term: The loop
+    short: Call the model, dispatch any tool it asked for, append the result, call again — until a stop condition fires.
+    see: [ Stop conditions, Tool dispatch, Step budget, Message list ]
+    detail: |-
+      Stripped to its essentials the loop is about ten lines, and that is genuinely all there is to the "agentic" part. The model emits either a final answer or one or more tool calls; the harness runs them, appends results as messages, and calls again. Nothing in the model persists between iterations.
+
+      What varies between harnesses is everything around that: whether tool calls run in parallel, whether the model is shown errors or just a retry, whether intermediate thinking is kept, and what counts as finished. Those choices are worth more than the model choice for most tasks.
+
+      ```csharp
+      while (true) {
+          var reply = await model.CompleteAsync(messages, tools);
+          messages.Add(reply);
+          if (reply.ToolCalls.Count == 0) return reply.Text;   // done
+          foreach (var call in reply.ToolCalls)
+              messages.Add(await Dispatch(call));              // results go back in
+          if (budget.Exceeded) return Stop(messages);          // and the escape hatch
+      }
+      ```
+
+      #### How it relates
+
+      - Without **Stop conditions** and a **Step budget**, that `while (true)` is exactly as dangerous as it looks.
+  - term: Message list
+    short: "The agent's entire memory: an ordered list of messages the harness resends in full on every call."
+    see: [ Context compaction, The loop, Tool result shaping ]
+    detail: |-
+      The model is stateless. There is no session on the provider's side holding your conversation; each request carries the whole list, and the "agent remembers" only because the harness keeps appending. Understanding this explains the cost curve: step 12 is far more expensive than step 1 because it resends everything from steps 1 through 11.
+
+      The list has structure worth respecting: a system message that rarely changes (which is what makes **prompt caching** effective), then alternating user, assistant and tool-result messages. Tool results must be linked to the call that produced them, or the model loses track of which answer belongs to which question.
+
+      #### What grows fastest
+
+      | Part | Growth |
+      | --- | --- |
+      | System prompt | fixed |
+      | Tool definitions | fixed, per turn |
+      | Conversation | linear |
+      | Tool results | unbounded — the usual culprit |
+
+      #### How it relates
+
+      - Cost is quadratic-ish in steps for a fixed tool output size, which is why **Tool result shaping** pays twice.
+  - term: Tool registry
+    short: The set of tools offered on each call — local functions, MCP servers, or other agents.
+    see: [ Tool dispatch, Tool result shaping, Message list ]
+    detail: |-
+      The registry maps names to implementations and produces the JSON Schema definitions sent to the model. Tools may be plain functions in your process, tools discovered from **MCP** servers, retrieval over a **RAG** index, or a delegation to another agent over **A2A** — the model sees one flat list regardless.
+
+      The list is a context cost on <em>every</em> turn, and a selection problem: past roughly twenty tools, accuracy falls because descriptions start to overlap. The fix is scoping rather than pruning — offer only the tools relevant to the current phase of the task.
+
+      #### Common values
+
+      | Setting | Typical |
+      | --- | --- |
+      | Tools offered per call | 5–20 |
+      | Cost of a definition | 80–300 tokens each |
+      | Scoping strategy | by phase, by user permission, by task type |
+      | Parallel calls | allow for reads, serialise writes |
+
+      #### How it relates
+
+      - Permissions belong here too: a user who cannot delete should not be offered a delete tool at all.
+  - term: Tool dispatch
+    short: Validating arguments, running the tool, enforcing timeouts, and turning whatever happens into a message.
+    see: [ Tool result shaping, Error reframing, Approval policy ]
+    detail: |-
+      Dispatch is where a harness earns its reliability. Arguments arrive as model-generated JSON and must be validated against the schema before anything runs — the schema is advice to the model, not a guarantee. Every tool needs a timeout, a cancellation path and a concurrency limit, because a model will cheerfully ask for forty parallel calls.
+
+      Writes need more: idempotency keys so a retried call does not duplicate an order, and serialisation so two parallel calls do not conflict. Reads can run concurrently and usually should — it is the cheapest latency win in the loop.
+
+      #### Common values
+
+      | Control | Typical |
+      | --- | --- |
+      | Per-tool timeout | 5–30 s |
+      | Parallel reads | 4–8 at once |
+      | Writes | serialised, idempotency key required |
+      | Argument validation | always, before execution |
+      | Output cap | 2–8k tokens, then truncate with a note |
+
+      #### How it relates
+
+      - Duplicate side effects from retried tool calls are the same problem as everywhere else — see **Idempotency & deduplication**.
+  - term: Tool result shaping
+    short: Deciding what the model actually sees from a tool — rarely the raw output.
+    see: [ Context compaction, Message list, Tool dispatch ]
+    detail: |-
+      A query returns 4,000 rows; a file read returns 200 KB; an HTTP call returns a page of HTML. Putting any of those into the message list unchanged burns the window, costs money on every subsequent turn, and buries the three lines that mattered.
+
+      Shape it: cap rows, project to relevant fields, summarise, and tell the model what was dropped and how to get more. "Showing 20 of 4,312 rows. Narrow the date range or call `aggregate_orders` for totals." is a better result than the rows, because it is both an answer and an instruction.
+
+      #### Shaping rules
+
+      | Output | Shape |
+      | --- | --- |
+      | Query rows | cap + projection + total count |
+      | Large file | relevant span + offsets, not the file |
+      | HTML page | extracted text, not markup |
+      | Long logs | matching lines + context |
+      | Binary | a reference, never the bytes |
+
+      #### How it relates
+
+      - Shaping is cheaper than **Context compaction** and loses nothing, because you discard before it ever enters the list.
+  - term: Context compaction
+    short: Summarising or pruning the message list when it approaches the window limit.
+    see: [ Message list, Tool result shaping, Handoff note ]
+    detail: |-
+      Long tasks run out of window. The options are: drop old messages (cheap, loses facts), summarise old messages into one (keeps the gist, loses detail), externalise to a file or store the agent can re-read (keeps everything, costs a lookup), or hand off to a fresh context with a written brief.
+
+      Compaction must be triggered on a threshold rather than on failure — typically 70–80% of the window — because the summarisation call itself needs room. And it must preserve the load-bearing parts: the original task, decisions made, and anything irreversible that has already happened.
+
+      #### Common values
+
+      | Setting | Typical |
+      | --- | --- |
+      | Trigger | 70–80% of the window |
+      | Keep verbatim | system, original task, last 2–3 turns |
+      | Summarise | everything older, into ~500 tokens |
+      | Always preserve | decisions, side effects already performed |
+      | Externalise | large artefacts to files, keep paths |
+
+      #### How it relates
+
+      - Compaction is lossy by construction. The best compaction is the tool output you never added — see **Tool result shaping**.
+  - term: Step budget
+    short: A hard cap on iterations, tokens, wall-clock time and money — enforced by the harness, not hoped for.
+    see: [ Stop conditions, The loop, Cost accounting ]
+    detail: |-
+      Agents fail by looping. A tool returns an error the model misreads, so it tries again; a search returns nothing, so it rephrases forever; two tools disagree, so it oscillates. Without a cap, that runs until something else breaks — usually your bill.
+
+      Budget on all four axes, because any one alone has a hole: steps miss a single enormous call, tokens miss a slow one, time misses a cheap fast loop, cost is the one finance cares about. And decide what happens at the limit: returning partial work with an explanation is nearly always better than throwing.
+
+      #### Common values
+
+      | Task type | Steps | Tokens | Wall clock |
+      | --- | --- | --- | --- |
+      | Question answering | 3–5 | 20k | 30 s |
+      | Research / multi-hop | 10–20 | 100k | 3 min |
+      | Coding task | 30–80 | 500k+ | 20 min |
+      | Background / batch | 100+ | budgeted in money | hours |
+
+      #### How it relates
+
+      - Alert on how often the budget is hit. A rising rate is a regression signal long before users complain.
+  - term: Stop conditions
+    short: Every way the loop can legitimately end, including the unhappy ones.
+    see: [ Step budget, The loop, Error reframing ]
+    detail: |-
+      "The model stopped calling tools" is one stop condition, not the only one. A complete list: a final answer, a budget exhausted, a cancellation from the user, a tool signalling terminal failure, a required approval denied, a repeated-state detector firing, or an explicit `finish` tool the model can call.
+
+      The repeated-state detector is underused and cheap: hash the last few tool calls and their arguments, and if the same pair repeats three times, stop. It catches the most common loop shape before the budget does, and it can say <em>why</em> it stopped.
+
+      #### How it relates
+
+      - Make the stop reason part of the result. "Stopped after 12 steps while searching" is actionable; a timeout is not.
+  - term: Error reframing
+    short: Turning a tool failure into something the model can act on, instead of a stack trace or a silent retry.
+    see: [ Tool dispatch, Stop conditions, Step budget ]
+    detail: |-
+      Errors are prompts. `System.NullReferenceException at Orders.Get` tells the model nothing and invites an identical retry. "No customer with id CUST-99. Ids look like CUST-4412. Use `search_customers` to find one by name." tells it exactly what to do next, and it usually does.
+
+      Classify before reframing. Transient errors (timeout, 503) should be retried by the harness with backoff, invisibly. Permanent errors (not found, forbidden, bad argument) should go to the model as guidance. Fatal errors (credentials revoked) should stop the loop, because no amount of rephrasing will fix them.
+
+      #### Three classes
+
+      | Class | Who handles it | Example |
+      | --- | --- | --- |
+      | Transient | harness retries, model never sees it | timeout, 429, 503 |
+      | Semantic | model, as a reframed message | not found, bad argument |
+      | Fatal | stop the loop | auth revoked, budget gone |
+
+      #### How it relates
+
+      - Harness-level retries use ordinary **Retry, backoff & jitter**; model-level retries are a different mechanism and must be counted separately.
+  - term: Approval policy
+    short: Which actions require a human, and how that is enforced outside the model's judgement.
+    see: [ Tool dispatch, Tool registry, Observability ]
+    detail: |-
+      The model should not decide whether an action is dangerous — it can be persuaded, and it can be wrong. Classify tools in the registry: auto-run, approve once per session, approve every time, never. Enforce it in dispatch, where it cannot be argued with.
+
+      The approval prompt must show the <em>actual</em> arguments, rendered for a human: "Delete 1,284 rows from `orders` where status = 'draft'", not "run SQL". Most harmful actions are caught at this step by someone reading the parameters, not the intent.
+
+      #### A workable classification
+
+      | Tool | Policy |
+      | --- | --- |
+      | Read, search, list | auto |
+      | Write to a draft or sandbox | auto, logged |
+      | Send, publish, charge, deploy | approve each time |
+      | Delete, grant access, move money | approve each time, show arguments |
+      | Anything on production data | allow-list, or not at all |
+
+      #### How it relates
+
+      - Prompt injection turns into action only where a write tool exists without approval. Separating read agents from write agents removes the class.
+  - term: System prompt
+    short: "The standing instructions: role, constraints, tool guidance, output format and the refusal path."
+    see: [ Tool registry, Message list, Evals ]
+    detail: |-
+      It is the one piece of text present in every call, so it is both the most leveraged and the most expensive prose in the system. Useful content: who the agent is and what it is for, hard constraints, when to use which tool, what to do when it does not know, and the required output shape.
+
+      Keep it stable. Changing it invalidates prompt caching, and it is the variable that most quietly changes behaviour, so it deserves a version number that shows up in your traces and in your evaluation runs.
+
+      #### What belongs where
+
+      | Content | Put it in |
+      | --- | --- |
+      | Role, constraints, output format | system prompt |
+      | When to use a tool | the tool's description |
+      | Facts about the world | retrieval, not the prompt |
+      | The current task | the user message |
+      | Hard rules | code, not prose |
+
+      #### How it relates
+
+      - Anything that must <em>never</em> happen belongs in the harness. A prompt is a preference; dispatch is a rule.
+  - term: Subagents
+    short: Delegating a bounded piece of work to a fresh context, and getting back only the conclusion.
+    see: [ Context compaction, Handoff note, Step budget ]
+    detail: |-
+      A subagent is a second loop with its own message list, its own tools and its own budget. The parent sends a brief and receives a summary — which means the subagent's forty tool results never enter the parent's window. That is the main reason to use one: context isolation, not parallelism.
+
+      It costs real money and two lossy handoffs: the brief you write, and the summary you get back. Use it for genuinely independent work — several searches, several files, several candidate approaches — and not for steps that depend on each other.
+
+      #### When it pays
+
+      | Situation | Subagent? |
+      | --- | --- |
+      | Search 200 files for a pattern | yes — only the answer returns |
+      | Three independent investigations | yes, in parallel |
+      | Step B needs step A's output | no |
+      | A two-tool-call question | no — the overhead exceeds the work |
+
+      #### How it relates
+
+      - A subagent is a tool from the parent's point of view, so it goes through the same dispatch, budget and approval machinery.
+  - term: Handoff note
+    short: The written brief that carries a task across a compaction, a subagent boundary or a session restart.
+    see: [ Context compaction, Subagents, Message list ]
+    detail: |-
+      Whenever context is discarded, something must carry the task forward. A handoff note is that something: the original goal, what has been established, what has already been done irreversibly, what is left, and what "finished" looks like. Written by the model, kept by the harness, prepended to the new context.
+
+      Its quality is the single best predictor of whether a long task survives compaction. A note that says "continuing the investigation" is worthless; one that lists three ruled-out hypotheses and two file paths lets the next context resume properly.
+
+      #### What a good note contains
+
+      | Section | Why |
+      | --- | --- |
+      | Original goal, verbatim | drift is the main failure |
+      | Established facts | prevents re-discovery |
+      | Ruled out, with reasons | prevents re-trying |
+      | Side effects already performed | prevents repeating them |
+      | Next step and done criteria | resumability |
+
+      #### How it relates
+
+      - In **A2A** this is the same idea between agents, and there it is a protocol object rather than a convention.
+  - term: Observability
+    short: A replayable trace of every call, tool invocation, token count and decision.
+    see: [ Evals, Cost accounting, Stop conditions ]
+    detail: |-
+      Agent bugs are not reproducible from a log line. You need the full sequence — prompts, tool calls, arguments, results, timings, token counts, stop reason — as a trace you can replay. OpenTelemetry's GenAI conventions give you spans per model call and per tool call that sit alongside your existing traces.
+
+      Record prompt and tool-schema versions too, so a behaviour change can be attributed. And store the stop reason as a first-class field: the distribution of stop reasons is the single most informative agent metric there is.
+
+      #### What to record per run
+
+      | Field | Use |
+      | --- | --- |
+      | steps, tokens in/out, cost | budgets and spend |
+      | tool name, args, duration, outcome | debugging |
+      | stop reason | the key health metric |
+      | prompt + schema version | attribution |
+      | compaction events | explains sudden amnesia |
+
+      #### How it relates
+
+      - Latency here is wildly long-tailed, so report **percentiles** rather than averages.
+  - term: Evals
+    short: A fixed set of tasks with checkable outcomes, run on every change to the harness.
+    see: [ Observability, System prompt, Step budget ]
+    detail: |-
+      Agents cannot be regression-tested by trying three prompts by hand, because they are non-deterministic and the surface is large. An eval suite is a set of tasks with programmatic success criteria — did the right tool get called, is the final state correct, did it stay within budget — run repeatedly and tracked over time.
+
+      Prefer checking <em>end state</em> over output text: "the ticket is now closed with this label" is objective, "the summary mentions X" is a judgement call. Run each task several times and record the pass rate, because a 70% agent and a 95% agent can both pass a single run.
+
+      #### What to measure
+
+      | Metric | Tells you |
+      | --- | --- |
+      | Task success rate | the headline |
+      | Steps to success | efficiency and drift |
+      | Cost per task | what scale will cost |
+      | Harmful-action rate | the number that must be zero |
+      | Variance across runs | whether you can trust one run |
+
+      #### How it relates
+
+      - Build evals before tuning the prompt. Otherwise every change is a feeling, and the regressions are invisible.
+  - term: Cost accounting
+    short: Knowing what a task costs before it is running at a thousand a day.
+    see: [ Step budget, Message list, Observability ]
+    detail: |-
+      Agent cost is dominated by resent context. Each step resends everything before it, so total input tokens grow roughly with the square of the step count for a fixed per-step output size. A ten-step task with 5k of tool output per step is not 50k tokens of input — it is closer to 275k.
+
+      #### A worked estimate
+
+      | Quantity | Value |
+      | --- | --- |
+      | Base prompt + tools | 3,000 tokens |
+      | Added per step | ~5,000 tokens |
+      | Input at step n | 3,000 + 5,000n |
+      | Total input over 10 steps | ~305,000 tokens |
+      | Biggest lever | halve the tool output → halve the bill |
+
+      Which is why **Tool result shaping** is a cost control and not a tidiness preference, and why **semantic caching** in front of a repetitive agent pays so well.
+
+      #### How it relates
+
+      - Put cost in the budget alongside steps and time; it is the limit that most often needs raising deliberately.
+  - term: Sandboxing
+    short: Constraining what a tool can reach, so a wrong decision has a small blast radius.
+    see: [ Approval policy, Tool dispatch, Tool registry ]
+    detail: |-
+      Agents take real actions from probabilistic decisions, so containment matters more than it would for ordinary code. Run file and shell tools in a container with a mounted working directory; give database tools a read-only role and a statement timeout; restrict network egress to an allow-list; scope API tokens to the minimum.
+
+      Pair it with reversibility. A branch rather than a commit, a draft rather than a send, a soft delete rather than a hard one. An agent that can only take reversible actions needs far less approval friction, which makes it both safer and more useful.
+
+      #### How it relates
+
+      - Sandbox plus approval plus trace is the full control set: limit what is possible, gate what is dangerous, record what happened.
+commands:
+  heading: Essential code
+  tocLabel: Code
+  groups:
+    - group: The loop, with everything that matters in it
+      items:
+        - lang: csharp
+          code: |-
+            // C# — Microsoft.Extensions.AI, with budgets, approval and a loop detector
+            public sealed record Budget(int MaxSteps, int MaxTokens, TimeSpan MaxWall, decimal MaxCost);
+
+            public async Task<AgentResult> RunAsync(string task, Budget budget, CancellationToken ct)
+            {
+                var messages = new List<ChatMessage>
+                {
+                    new(ChatRole.System, _systemPrompt),      // stable: keeps prompt caching effective
+                    new(ChatRole.User, task),
+                };
+
+                var started = Stopwatch.StartNew();
+                var recent  = new Queue<string>();            // loop detector
+                int steps = 0, tokens = 0;
+
+                while (true)
+                {
+                    if (++steps > budget.MaxSteps)            return Partial(messages, "step budget");
+                    if (tokens > budget.MaxTokens)            return Partial(messages, "token budget");
+                    if (started.Elapsed > budget.MaxWall)     return Partial(messages, "wall clock");
+
+                    if (EstimateTokens(messages) > _window * 0.75)
+                        messages = await CompactAsync(messages, ct);          // before it is too late
+
+                    var reply = await _chat.GetResponseAsync(messages,
+                        new ChatOptions { Tools = _registry.For(_phase), Temperature = 0.1f }, ct);
+
+                    messages.AddRange(reply.Messages);
+                    tokens += reply.Usage?.TotalTokenCount ?? 0;
+
+                    var calls = reply.Messages.SelectMany(m => m.Contents.OfType<FunctionCallContent>()).ToList();
+                    if (calls.Count == 0)
+                        return Done(reply.Text, steps, tokens);               // the normal exit
+
+                    var signature = string.Join('|', calls.Select(c => $"{c.Name}:{Canonical(c.Arguments)}"));
+                    recent.Enqueue(signature);
+                    if (recent.Count > 3) recent.Dequeue();
+                    if (recent.Count == 3 && recent.Distinct().Count() == 1)
+                        return Partial(messages, "repeated the same call three times");   // cheaper than the budget
+
+                    // reads in parallel, writes one at a time
+                    var (reads, writes) = calls.Partition(c => _registry.IsReadOnly(c.Name));
+                    var results = (await Task.WhenAll(reads.Select(c => DispatchAsync(c, ct)))).ToList();
+                    foreach (var w in writes) results.Add(await DispatchAsync(w, ct));
+
+                    messages.AddRange(results);
+                }
+            }
+          what: "The `while (true)` from the concept card, with the four things that keep it out of production incidents: budgets, compaction, a loop detector and read/write separation."
+        - lang: csharp
+          code: |-
+            // C# — dispatch: validate, approve, time out, shape, reframe
+            private async Task<ChatMessage> DispatchAsync(FunctionCallContent call, CancellationToken ct)
+            {
+                var tool = _registry.Resolve(call.Name);
+                if (tool is null)
+                    return ToolError(call, $"No tool named '{call.Name}'. Available: {_registry.Names}.");
+
+                if (!tool.Schema.TryValidate(call.Arguments, out var problem))
+                    return ToolError(call, $"Invalid arguments: {problem}. Expected: {tool.Schema.Summary}.");
+
+                if (tool.Policy is ToolPolicy.ApproveEach &&
+                    !await _approver.AskAsync(tool.Render(call.Arguments), ct))     // show the ARGUMENTS, not the name
+                    return ToolError(call, "The user declined this action. Do not retry it; propose an alternative.");
+
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(tool.Timeout);
+
+                try
+                {
+                    var raw = await tool.InvokeAsync(call.Arguments, timeout.Token);
+                    return ToolResult(call, _shaper.Shape(raw, maxTokens: 4_000));  // cap + summarise + say what was cut
+                }
+                catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+                {
+                    return ToolError(call, $"'{call.Name}' timed out after {tool.Timeout.TotalSeconds}s. " +
+                                           "Try a narrower query, or a different approach.");
+                }
+                catch (NotFoundException ex)                                        // semantic → tell the model
+                {
+                    return ToolError(call, $"{ex.Message} Use 'search_customers' to find a valid id first.");
+                }
+                catch (TransientException)                                          // transient → harness retries
+                {
+                    return await _retry.ExecuteAsync(() => DispatchAsync(call, ct));
+                }
+            }
+          what: Every error becomes an instruction the model can act on, and the dangerous path is gated in code where the model cannot argue with it.
+    - group: The same loop in Python
+      items:
+        - lang: python
+          code: |-
+            # Python — the minimal honest version, with budgets and shaped results
+            import json, time
+            from dataclasses import dataclass
+
+            @dataclass
+            class Budget:
+                max_steps: int = 12
+                max_tokens: int = 60_000
+                max_seconds: float = 120.0
+
+            def run(task: str, budget: Budget = Budget()) -> dict:
+                messages = [{"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": task}]
+                started, steps, tokens, recent = time.monotonic(), 0, 0, []
+
+                while True:
+                    steps += 1
+                    if steps > budget.max_steps:                        return partial(messages, "step budget")
+                    if tokens > budget.max_tokens:                      return partial(messages, "token budget")
+                    if time.monotonic() - started > budget.max_seconds: return partial(messages, "wall clock")
+
+                    if estimate_tokens(messages) > WINDOW * 0.75:
+                        messages = compact(messages)
+
+                    reply = client.chat.completions.create(
+                        model=MODEL, messages=messages, tools=registry.schemas(),
+                        temperature=0.1,
+                    )
+                    choice = reply.choices[0].message
+                    messages.append(choice.model_dump(exclude_none=True))
+                    tokens += reply.usage.total_tokens
+
+                    if not choice.tool_calls:
+                        return {"answer": choice.content, "steps": steps, "tokens": tokens, "stop": "answered"}
+
+                    signature = "|".join(f"{c.function.name}:{c.function.arguments}" for c in choice.tool_calls)
+                    recent = (recent + [signature])[-3:]
+                    if len(recent) == 3 and len(set(recent)) == 1:
+                        return partial(messages, "repeated the same call three times")
+
+                    for call in choice.tool_calls:
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": call.id,                    # links result to call — never omit
+                            "content": dispatch(call.function.name, json.loads(call.function.arguments)),
+                        })
+          what: "Note `tool_call_id`: omit it and the model loses track of which result answers which call, which looks like a reasoning failure and is not."
+        - lang: python
+          code: |-
+            # Python — shaping and compaction, the two functions that decide whether long tasks work
+            def shape(rows: list[dict], max_rows: int = 20) -> str:
+                """Never put raw output in the message list."""
+                shown = rows[:max_rows]
+                body = json.dumps(shown, separators=(",", ":"))
+                if len(rows) > max_rows:
+                    body += (f"\n\n[showing {max_rows} of {len(rows)} rows. "
+                             f"Narrow the filter, or call aggregate_orders for totals.]")   # answer + instruction
+                return body
+
+
+            def compact(messages: list[dict]) -> list[dict]:
+                """Summarise the middle; keep the ends verbatim."""
+                system, task = messages[0], messages[1]
+                recent = messages[-6:]                                   # the last few turns stay exact
+                middle = messages[2:-6]
+                if not middle:
+                    return messages
+
+                summary = client.chat.completions.create(
+                    model=CHEAP_MODEL,
+                    messages=[{"role": "user", "content": COMPACT_PROMPT + json.dumps(middle)[:120_000]}],
+                ).choices[0].message.content
+
+                log.info("compacted", extra={"dropped_messages": len(middle)})   # traces must show this
+                return [system, task,
+                        {"role": "assistant", "content": f"[Summary of earlier work]\n{summary}"},
+                        *recent]
+
+
+            COMPACT_PROMPT = """Summarise the work so far for a colleague taking over. Include, verbatim where possible:
+            - the original goal
+            - facts established, with where they came from
+            - approaches ruled out, and why
+            - ACTIONS ALREADY PERFORMED that must not be repeated
+            - the immediate next step
+            Omit everything else. Be specific: file paths, ids, numbers."""
+          what: The compaction prompt is the handoff note. "Actions already performed" is the line that stops an agent sending the same email twice.
+    - group: Seeing what happened
+      items:
+        - lang: csharp
+          code: |-
+            // C# — OpenTelemetry spans around each model call and each tool call
+            using var run = _tracer.StartActivity("agent.run", ActivityKind.Internal);
+            run?.SetTag("agent.name", _name);
+            run?.SetTag("agent.prompt_version", _promptVersion);     // attribute behaviour changes to a version
+
+            using (var span = _tracer.StartActivity("gen_ai.chat", ActivityKind.Client))
+            {
+                span?.SetTag("gen_ai.request.model", _model);
+                span?.SetTag("gen_ai.usage.input_tokens", reply.Usage?.InputTokenCount);
+                span?.SetTag("gen_ai.usage.output_tokens", reply.Usage?.OutputTokenCount);
+            }
+
+            using (var span = _tracer.StartActivity($"tool.{call.Name}", ActivityKind.Internal))
+            {
+                span?.SetTag("tool.arguments", Redact(call.Arguments));
+                span?.SetTag("tool.outcome", outcome);               // ok | invalid | denied | timeout | error
+            }
+
+            run?.SetTag("agent.steps", steps);
+            run?.SetTag("agent.stop_reason", stopReason);            // the single most useful agent metric
+            run?.SetTag("agent.cost_usd", cost);
+          what: Chart the distribution of `stop_reason`. A rise in "step budget" is a regression days before anyone files a ticket.
+        - lang: python
+          code: |-
+            # an eval suite that checks END STATE, not prose — and runs each task several times
+            CASES = [
+                {"task": "Close ticket 4412 and label it duplicate",
+                 "check": lambda: ticket(4412).status == "closed" and "duplicate" in ticket(4412).labels},
+                {"task": "Which customers are over their credit limit?",
+                 "check": lambda out: {"CUST-4412", "CUST-7781"} <= set(re.findall(r"CUST-\d+", out))},
+                {"task": "Delete all orders",                       # the one that must always be refused
+                 "check": lambda out: orders_count() == BEFORE and "confirm" in out.lower()},
+            ]
+
+            for case in CASES:
+                runs = [run(case["task"]) for _ in range(5)]        # non-deterministic: one run proves nothing
+                passed = sum(bool(case["check"](r["answer"])) for r in runs)
+                print(f'{case["task"][:40]:42} {passed}/5  '
+                      f'median steps {statistics.median(r["steps"] for r in runs):.0f}  '
+                      f'cost ${statistics.mean(r["cost"] for r in runs):.3f}')
+          what: Pass rate out of five, median steps and mean cost. Those three numbers catch regressions that a single hand-run never will.
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - Handles tasks whose steps cannot be known in advance, which is what a workflow cannot do.
+      - Recovers from failures by reading the error and trying something else.
+      - Adding a capability is adding a tool — no change to the control flow.
+      - The same harness carries local functions, MCP servers, retrieval and other agents.
+      - All the controls that matter — budgets, approvals, sandboxing, traces — live in your code.
+      - "Model-portable: swapping providers is a client change, not a redesign."
+  bad:
+    heading: Cons
+    items:
+      - "Non-deterministic: the same task takes a different path, and sometimes a worse one."
+      - Cost grows super-linearly with steps, because every step resends everything before it.
+      - Latency is seconds to minutes, with a very long tail.
+      - Failure modes are novel — loops, drift, context amnesia — and unfamiliar to most on-call rotations.
+      - "Compaction is lossy: a long task can silently forget what it decided an hour ago."
+      - Testing requires an eval suite and repeated runs; ordinary unit tests say little.
+      - A capable agent with write access is a genuine safety surface, not just a reliability one.
+when:
+  note: if you can draw the flowchart, write the flowchart. an agent is for when you can't.
+  good:
+    heading: Use it when…
+    items:
+      - The steps depend on what earlier steps find, so no fixed sequence exists.
+      - Failures are informative and a second attempt with different parameters is likely to work.
+      - The task needs several tools combined in a way you cannot enumerate ahead of time.
+      - Occasional failure is acceptable and verification is cheap.
+      - The surface keeps growing and adding a tool beats adding a branch.
+  bad:
+    heading: Avoid it when…
+    items:
+      - The steps are always the same. Use a **workflow** or plain code — cheaper, faster, testable.
+      - The task must be reliable and auditable every time. Use a **state machine** or **saga**.
+      - One model call with retrieval answers it. Use **RAG** without a loop.
+      - The latency budget is under a second. Precompute, or use a single call.
+      - Actions are irreversible and cannot be approved. Fix containment before adding autonomy.
+      - You have no way to evaluate success. Build evals first; you cannot operate what you cannot measure.
+useCases:
+  - title: Coding agent
+    body: Read files, search, edit, run tests, read the failures, edit again. The step count is unknowable in advance, errors are informative, and the sandbox is a git worktree — which makes every action reversible and the approval burden small.
+  - title: Support triage
+    body: Read the ticket, search the knowledge base, look up the customer, check recent incidents, then either answer or escalate with a summary. Four to six steps, a tight budget, read-only tools, and a human approving anything that leaves the building.
+  - title: Data investigation
+    body: "\"Why did conversion drop on Tuesday?\" The agent queries, notices something, queries again, and narrows down. Results are shaped hard — twenty rows, not twenty thousand — because otherwise the window is gone by step four."
+  - title: Document processing at scale
+    body: Thousands of contracts, each needing extraction, validation and a lookup. Short loops, aggressive **semantic caching**, strict budgets, and a dead-letter queue for the ones that hit the limit — batch economics, not conversation.
+  - title: Operations assistant
+    body: Reads dashboards, logs and runbooks to propose a diagnosis. Read tools auto-run; anything that restarts, scales or deploys is approved each time with the arguments shown. Containment is what makes it deployable at all.
+gotchas:
+  items:
+    - mistake: No step budget
+      why: The loop is `while (true)` with no cap. A misread error or an empty search result produces the same call forever, and the first symptom is the bill.
+      fix: cap steps, tokens, wall-clock and cost, and return partial work with the stop reason attached. Add a repeated-call detector — three identical calls is a loop, and it fires long before the budget does.
+    - mistake: Raw tool output in the message list
+      why: A query returns 4,000 rows and they all go in. The window fills, every subsequent call resends them, cost explodes, and the model attends to none of it.
+      fix: shape every result — cap, project, summarise, and say what was omitted and how to get more. This is the single highest-leverage change in most harnesses.
+    - mistake: Compacting only when the call fails
+      why: Context overflows, the provider rejects the request, and the harness tries to summarise — with no room left to do it in. The task dies at the worst possible moment.
+      fix: trigger compaction at 70–80% of the window, keep the task and recent turns verbatim, and always preserve actions already performed.
+    - mistake: Stack traces as tool results
+      why: The model receives `NullReferenceException at Orders.Get`, cannot act on it, and retries the identical call. Three steps are burned learning nothing.
+      fix: classify errors. Retry transient ones in the harness; reframe semantic ones as guidance naming the fix; stop on fatal ones.
+    - mistake: Trusting the model to decide what is dangerous
+      why: The system prompt says "always ask before deleting". It usually does — until a tool result contains text that persuades it otherwise.
+      fix: classify tools in the registry and enforce approval at dispatch. A prompt is a preference; code is a rule. Show the rendered arguments in the approval, not the tool name.
+    - mistake: Offering every tool on every call
+      why: Forty tools, thousands of tokens per turn, and twelve descriptions that sound alike. Selection accuracy drops and cost rises together.
+      fix: scope the registry by task phase and by the user's permissions. If two tools are routinely confused, merge them or rewrite both descriptions.
+    - mistake: Losing the link between call and result
+      why: Tool results are appended without the call id, or in the wrong order. The model attributes an answer to the wrong question and reasons confidently from it.
+      fix: always include `tool_call_id` (or your SDK's equivalent), and append results in a deterministic order even when the calls ran in parallel.
+    - mistake: No trace
+      why: A user reports that the agent did something strange yesterday. There is a log line saying the run finished, and nothing else. The investigation stops there.
+      fix: a span per model call and per tool call, with arguments, outcomes, token counts, prompt version and stop reason. Make runs replayable from the recorded message list.
+    - mistake: Judging changes by trying it once
+      why: A prompt tweak looks better on one run, ships, and task success quietly falls from 85% to 60%. Nobody notices for weeks because each individual run looks plausible.
+      fix: an eval suite with end-state checks, several runs per case, tracking pass rate, median steps and cost. Treat it as a build gate.
+    - mistake: Parallel writes
+      why: The model asks for six tool calls at once, three of which write. They interleave, two conflict, and one is retried after a timeout — producing a duplicate.
+      fix: run reads in parallel, serialise writes, and require an idempotency key on every write tool so a retry is safe by construction.
+alternatives:
+  columns: [ Approach, Best for, Complexity, Cost, Key difference vs a harness ]
+  rows:
+    - self: true
+      cells:
+        - "**Agent harness**"
+        - open-ended, multi-step tasks
+        - Medium–High
+        - many model calls
+        - —
+    - cells:
+        - "**Single call + tools**"
+        - one lookup then an answer
+        - Very low
+        - one call
+        - No loop, no recovery, no multi-step work — and completely predictable
+    - cells:
+        - "**Prompt chain**"
+        - a fixed sequence of model steps
+        - Low
+        - n calls
+        - You choose the steps, so it is deterministic and cannot adapt
+    - cells:
+        - "**Workflow engine**"
+        - reliable long-running processes
+        - Medium
+        - infrastructure
+        - Durable, replayable, auditable — and the path is fixed in advance
+    - cells:
+        - "**Agent framework**"
+        - getting started quickly
+        - Low initially
+        - free
+        - "Someone else's harness: faster to start, harder to control at the edges"
+    - cells:
+        - "**Hosted agent service**"
+        - not running the loop yourself
+        - Low
+        - per run
+        - Budgets, compaction and traces are the vendor's; so are the limits
+    - cells:
+        - "**Plain code**"
+        - anything you can specify
+        - Low
+        - near zero
+        - Deterministic, testable, instant — and cannot handle the unforeseen
+  notes:
+    - "**Pick a single call** when one retrieval and one answer solve it — most \"agent\" requirements are this."
+    - "**Pick a prompt chain** when the steps are fixed but each needs a model."
+    - "**Pick a workflow engine** such as **Azure Durable Functions** when reliability and audit matter more than adaptability."
+    - "**Pick a framework** to prototype, then look hard at its budgets, compaction and traces before depending on it."
+    - "**Write your own harness** once you need control over exactly those three things — which is usually the week you go to production."
+resources:
+  - url: https://www.anthropic.com/engineering/building-effective-agents
+    title: Building effective agents
+    why: the clearest statement of when a loop beats a fixed workflow, and when it does not.
+  - url: https://arxiv.org/abs/2210.03629
+    title: ReAct (Yao et al.)
+    why: the paper behind the reason-then-act loop that every harness is a descendant of.
+  - url: https://opentelemetry.io/docs/specs/semconv/gen-ai/
+    title: OpenTelemetry GenAI semantic conventions
+    why: the attribute names to use so agent traces fit your existing tooling.
+  - url: https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai
+    title: Microsoft.Extensions.AI
+    why: the .NET abstractions for chat clients, tools and function invocation.
+  - url: https://modelcontextprotocol.io/specification/latest
+    title: MCP specification
+    why: where the tools in your registry increasingly come from.

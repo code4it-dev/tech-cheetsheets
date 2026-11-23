@@ -1,0 +1,651 @@
+title: Back-of-the-envelope estimates
+slug: back-of-the-envelope
+tagline: Be roughly right in five minutes instead of precisely wrong in two weeks.
+asof: Nov 2026 · latency and cost anchors refreshed for NVMe, modern networks and current cloud list prices
+description: "Back-of-the-envelope estimation cheatsheet: the numbers to memorise, an animated sizing of a real service, the latency ladder scaled to human time, peak factors, Little's Law and cost anchors."
+aliases:
+  - Back-of-the-envelope estimates
+  - back-of-the-envelope
+  - capacity estimation
+  - napkin math
+  - Fermi estimation
+keywords:
+  - estimation
+  - capacity planning
+  - system design
+  - qps
+  - latency numbers
+  - napkin math
+  - sizing
+  - littles law
+  - cost
+related: [ percentiles, caching-strategies ]
+overview:
+  - Most architectural decisions do not need a benchmark. They need to know whether the answer is 10, 10,000 or 10 million — because those three answers lead to three completely different systems. A back-of-the-envelope estimate is a deliberately crude calculation, done in a few minutes with rounded numbers, whose purpose is to eliminate options rather than to predict a value.
+  - "The method is always the same: write down what you are estimating, break it into quantities you can guess within a factor of two, round everything to one significant figure, multiply, and then sanity-check the result against something you already know. Errors in opposite directions cancel, so an estimate built from five rough guesses is usually accurate to within a factor of two or three — far better than the precision of its inputs suggests."
+  - "It is the core skill in a system design interview, but it earns its keep in real work: deciding whether a table needs sharding, whether a feature's storage cost sinks its business case, whether a batch job can finish overnight, or whether the thing you were about to build is off by three orders of magnitude from what the hardware can do."
+architecture:
+  svg: back-of-the-envelope/architecture.svg
+  alt: The estimation pipeline from users through QPS, storage and bandwidth to machines and cost, with the rounding rules alongside
+  caption: Users to actions to QPS to storage to machines to cost. Each arrow is one multiplication, and every number is rounded before you use it.
+howItWorks:
+  - anim:
+      id: anim-size
+      title: Sizing a photo-sharing service in nine lines
+      svg: back-of-the-envelope/anim-size.svg
+      alt: Animated worksheet estimating QPS, storage, bandwidth and cost for a photo-sharing service
+      steps:
+        - say: Start with people, not machines. **100 million daily active users**; assume each uploads 0.2 photos and views 50 a day. Those two numbers are guesses — that is fine, we will come back to which one matters.
+          show: [ be-r1 ]
+        - say: "The one constant worth memorising: a day has 86,400 seconds, which we round to **100,000**. That rounding makes every division a decimal shift, and it errs on the safe side by overstating the denominator slightly."
+          show: [ be-r2 ]
+        - say: "Divide: 20M uploads give **200 writes/s**, and 5 billion views give **50,000 reads/s**. Two numbers, and we have not thought about technology yet."
+          show: [ be-r3 ]
+        - say: "Traffic is never flat. Multiply by 3 for a normal daily peak: **600 writes/s and 150,000 reads/s**. Provision for this, budget for the average."
+          show: [ be-r4 ]
+        - say: "The read:write ratio is **250:1**. That single number has already decided the architecture: aggressive caching, a CDN, read replicas, and essentially no concern about write throughput."
+          show: [ be-r5 ]
+        - say: Now storage. Two megabytes per upload including thumbnails gives **40 TB a day**. Note how quickly this got large — 200 writes per second does not sound like much.
+          show: [ be-r6 ]
+        - say: Five years of that, times three replicas, is about **200 PB**. This is the number that actually constrains the design, and it did not come from the QPS at all.
+          show: [ be-r7 ]
+        - say: By contrast, the metadata — 200 bytes per photo — is **4 GB a day, 1.5 TB a year**. It fits on one machine. So "the database" is not the hard part; the blob store is. That reframing is worth the whole exercise.
+          show: [ be-r8 ]
+        - say: "Bandwidth at peak: 150,000 reads/s at 200 KB each is **30 GB/s, or 240 Gbps**. No origin fleet serves that sensibly, so a CDN is not an optimisation here — it is a requirement."
+          show: [ be-r9 ]
+        - say: Finally, money. 200 PB of hot object storage at $0.02 per GB-month is roughly **$4 million a month**, before egress. If the product cannot carry that, the design must change now — tiering, compression, lower resolution, shorter retention — not after launch. Nine lines, five minutes, and the entire shape of the system is decided.
+          show: [ be-verdict ]
+  - anim:
+      id: anim-latency
+      title: The latency ladder, scaled so a human can feel it
+      svg: back-of-the-envelope/anim-latency.svg
+      alt: Animated latency comparison where one nanosecond is stretched to one second
+      steps:
+        - say: Set the scale. An **L1 cache reference** takes about 1 nanosecond; stretched by a billion, call it **one second**. Everything below is measured against that.
+          show: [ bl-r1 ]
+        - say: "**Main memory** is around 100 ns — **two minutes** on our scale. A cache miss is not a rounding error; it is a hundred times the work. This is why data layout and cache locality still matter."
+          show: [ bl-r2 ]
+        - say: "**Compressing a kilobyte** takes roughly 2 µs: **33 minutes**. CPU work is cheap compared with what comes next, which is why compressing before sending is almost always worth it."
+          show: [ bl-r3 ]
+        - say: A **random read from an NVMe SSD** is about 20 µs — **six hours**. Fast by storage standards, and still twenty thousand times slower than L1. Modern SSDs changed the magnitude of this rung, not its position.
+          show: [ bl-r4 ]
+        - say: "A **round trip inside one datacenter** is about half a millisecond: **six days**. Crossing the network to a neighbouring rack already costs more than reading from local flash — which is the entire argument for caching in-process."
+          show: [ bl-r5 ]
+        - say: "A **spinning-disk seek** is about 5 ms: **two months**. Decades of database design — B-trees, sequential logs, sorted files — exist to avoid this one number."
+          show: [ bl-r6 ]
+        - say: "And a **round trip from Europe to California** is around 150 ms: **five years**. This one is physics. No hardware, no budget and no clever protocol removes it; only putting a copy of the data nearer the user does."
+          show: [ bl-r7 ]
+        - say: Three rules come out of this ladder and settle most design arguments. **Memory is ~100x faster than flash**, **a network hop costs more than a local read**, and **the speed of light is a floor**. When a design implies breaking one of those, the design is wrong — and you knew it in thirty seconds.
+          show: [ bl-note ]
+concepts:
+  - term: order of magnitude
+    short: The power of ten an answer sits at. Getting that right is the whole job; the leading digit is a bonus.
+    see: [ rounding rules, sanity check, sensitivity ]
+    detail: |-
+      The question an estimate answers is never "what exactly is it" but "which regime are we in", because each regime has a different right answer.
+
+      | Scale | What it implies |
+      | --- | --- |
+      | < 100 QPS | one machine, one database, no cache. Stop designing. |
+      | 100–1,000 QPS | a few instances behind a load balancer, one database with an index review |
+      | 1,000–10,000 QPS | caching matters, read replicas, connection pooling becomes the bottleneck |
+      | 10,000–100,000 QPS | sharding, CDN, async everything, a dedicated capacity story |
+      | > 100,000 QPS | a different architecture and a different team size |
+      | < 1 TB total | fits on one machine; "big data" tooling is a liability here |
+      | > 100 TB | storage cost is now a product decision, not an infrastructure one |
+
+      Being off by 2x rarely changes the regime. Being off by 100x always does — and that is the error an estimate is designed to catch, usually in the first two minutes.
+  - term: rounding rules
+    short: Round every input to one significant figure, preferably to a power of ten, <em>before</em> multiplying. Precision you did not have is precision you cannot keep.
+    see: [ order of magnitude, sanity check ]
+    detail: |-
+      Rounding is not sloppiness; it is what makes the arithmetic doable in your head, and errors in opposite directions cancel as you multiply.
+
+      | Awkward | Use | Error |
+      | --- | --- | --- |
+      | 86,400 s/day | 100,000 | +16%, and it rounds <em>toward</em> safety on QPS |
+      | 365 days | 400, or 300 for a lower bound | ±10% |
+      | 1,024 | 1,000 | 2.4% |
+      | 31,536,000 s/year | 3 x 10^7 (or π x 10^7) | < 5% |
+      | 7,300 QPS | 10,000 | +37%, and far easier to carry |
+
+      Two habits worth building. Work in powers of ten and keep the exponent separate: `2 x 10^7 x 5 x 10^3 = 10 x 10^10 = 10^11`. And when an input is genuinely uncertain, do the calculation twice with your optimistic and pessimistic guesses — if both land in the same regime, you are done.
+
+      Finally, round in the direction that would hurt. If overestimating load is safer than underestimating it, round up.
+  - term: QPS
+    short: "Queries per second: daily volume divided by 86,400. The number almost every other number is derived from."
+    see: [ peak factor, rounding rules, machines needed ]
+    detail: |-
+      The conversion is one division, and the trick is to use 100,000 seconds per day so you can do it by shifting a decimal point.
+
+      ```
+      1,000,000 requests/day   ->     10 QPS
+      100,000,000 /day         ->  1,000 QPS
+      1,000,000,000 /day       -> 10,000 QPS
+      ```
+
+      | Rough anchors | QPS |
+      | --- | --- |
+      | A busy internal line-of-business app | 10–100 |
+      | A popular SaaS product | 1,000–10,000 |
+      | A large consumer app | 100,000+ |
+      | One modest API instance can serve | 500–2,000 (simple JSON, cached) |
+      | One Postgres instance, simple indexed reads | 5,000–20,000 |
+      | One Redis instance | 100,000+ |
+
+      Always split reads from writes. The ratio between them decides more of the architecture than the absolute number does — 250:1 means caching and replicas, while 1:1 means the write path is your problem.
+  - term: peak factor
+    short: Traffic is never flat. Multiply the average by 2–4 for a normal daily peak, and far more for an event.
+    see: [ QPS, headroom, machines needed ]
+    anim:
+      key: pk
+      title: Why the average line is not the number you provision
+      svg: back-of-the-envelope/pk.svg
+      alt: Animated daily traffic curve compared with its flat average
+      steps:
+        - say: You divided a day’s traffic by 86,400 and got 50,000 reads per second. Here it is as a flat line, which is exactly how an average looks.
+          show: [ pk-avg, pk-avg-t ]
+        - say: "Real traffic looks like this: a trough around 04:00 and a long evening climb. Same total volume, completely different shape."
+          show: [ pk-curve ]
+        - say: The evening peak is about **125,000 req/s** — two and a half times the average.
+          show: [ pk-peak ]
+        - say: Provision for 50,000 and you are over capacity every single evening, with a graph that looks like a daily incident. Provision for 125,000 and most of the fleet is idle at 04:00 — which is what autoscaling is for.
+          show: [ pk-gap ]
+        - say: "Typical factors: 2–3x for a global consumer app, 4–6x for B2B concentrated in office hours, and 20–100x for a flash sale or a ticket drop. Use **3** when you have no data."
+          text:
+            pk-avg-t: average = 50,000 /s  (billing number)
+        - say: "And the design rule that falls out: above roughly 10x, stop provisioning for the peak. Queue it, shed it or rate-limit it instead — that is far cheaper than owning capacity you use for ten minutes a week."
+          show: [ pk-note ]
+    detail: |-
+      Average QPS is a billing number. Peak QPS is a capacity number, and they are not interchangeable.
+
+      ::anim pk::
+
+      | Workload | Peak / average |
+      | --- | --- |
+      | Consumer app, global audience | 2–3x |
+      | Consumer app, single country | 3–5x |
+      | B2B, office hours in one timezone | 4–6x |
+      | Batch or cron-driven | 10–100x — it is all peak |
+      | Flash sale, ticket drop, TV moment | 20–100x |
+
+      Above roughly 10x, stop provisioning for the peak: it is cheaper to queue, shed or rate-limit. That is a design decision the estimate just made for you.
+  - term: latency numbers
+    short: The ladder from L1 cache to an intercontinental round trip. Knowing the rungs stops you designing something physics forbids.
+    see: [ bandwidth, order of magnitude ]
+    detail: |-
+      Approximate, current-hardware values. The exact figures matter far less than the **ratios**, which have been stable for years.
+
+      | Operation | Time | vs L1 |
+      | --- | --- | --- |
+      | L1 cache reference | ~1 ns | 1x |
+      | Branch mispredict | ~3 ns | 3x |
+      | L2 cache reference | ~4 ns | 4x |
+      | Mutex lock / unlock, uncontended | ~20 ns | 20x |
+      | Main memory reference | ~100 ns | 100x |
+      | Compress 1 KB (fast codec) | ~2 µs | 2,000x |
+      | Read 1 MB sequentially from RAM | ~50 µs | 50,000x |
+      | NVMe SSD random read (4 KB) | ~20 µs | 20,000x |
+      | Round trip within a datacenter | ~0.5 ms | 500,000x |
+      | Read 1 MB sequentially from NVMe | ~0.3 ms | 300,000x |
+      | Spinning-disk seek | ~5 ms | 5,000,000x |
+      | Round trip, same continent | ~20 ms | — |
+      | Round trip, Europe to California | ~150 ms | — |
+
+      Three rules fall out of this table and cover most design arguments: **memory is ~100x faster than an SSD**, **a network hop costs more than a local disk read**, and **the speed of light sets a floor nobody can buy their way past** — only a copy nearer the user can.
+
+      The light-speed floor is worth computing once: light does about 200 km/ms in fibre, so London to New York (5,600 km) is 28 ms one way and 56 ms round trip <em>at best</em>. Real paths are not straight; 70–90 ms is typical.
+  - term: data sizes
+    short: Bytes per field, per row, per object. Estimate by adding up what is actually stored, then double it for overhead.
+    see: [ storage growth, rounding rules ]
+    detail: |-
+      Most storage estimates fail on this line, usually by forgetting indexes.
+
+      | Thing | Size |
+      | --- | --- |
+      | `int` / `bigint` | 4 / 8 B |
+      | UUID (binary / text) | 16 / 36 B |
+      | Timestamp | 8 B |
+      | Short text field (name, email) | 20–60 B |
+      | Typical relational row | 100–1,000 B |
+      | JSON document | 1–10 KB |
+      | Log line | 200 B–2 KB |
+      | Web page (HTML only) | 50–200 KB |
+      | Phone photo | 2–5 MB |
+      | Minute of 1080p video | ~50 MB |
+      | Embedding vector (1,536 x float32) | 6 KB |
+
+      #### Multipliers you will forget
+
+      - **Indexes:** add 20–100% of the table size. A table with five indexes can be larger than its data.
+      - **Replication:** x2 or x3, before backups.
+      - **Backups and snapshots:** often another x1–2 over the retention period.
+      - **Compression:** divide by 3–10 for text and logs, by 1 for already-compressed media.
+
+      Rule of thumb: whatever you computed, multiply by three. You will be closer than if you did not.
+  - term: storage growth
+    short: Daily volume times retention times replication. The number that most often kills a design, and the one most often left out of it.
+    see: [ data sizes, cost anchors, hot vs cold ]
+    detail: |-
+      Storage is the only resource that accumulates. CPU and bandwidth reset every second; bytes written in January are still being paid for in December.
+
+      ```
+      total = items/day x bytes/item x retention_days x replicas x (1 + index_overhead)
+      ```
+
+      | Example | Per day | Per year |
+      | --- | --- | --- |
+      | Audit log: 10M events x 500 B | 5 GB | 1.8 TB |
+      | App logs: 100M lines x 1 KB | 100 GB | 36 TB |
+      | Photos: 20M x 2 MB | 40 TB | 15 PB |
+      | Metrics: 10k series x 1 point/10 s x 16 B | 1.4 GB | 500 GB |
+
+      Two questions turn an unaffordable number into an affordable one: **how long must we really keep it**, and **does it have to stay hot**. Dropping log retention from 365 to 30 days is a 12x saving, and archival storage is 5–10x cheaper than hot.
+
+      Always project three to five years, not one. A design that is fine at year one and impossible at year three is a design you will rewrite under pressure.
+  - term: bandwidth
+    short: QPS multiplied by payload size. Convert to bits per second before comparing with any network specification.
+    see: [ QPS, latency numbers, cost anchors ]
+    detail: |-
+      The conversion that trips everyone: network links are specified in **bits**, storage and payloads in **bytes**. One factor of eight, applied in the wrong direction, is an 64x error.
+
+      | Link | Bytes per second |
+      | --- | --- |
+      | 1 Gbps | 125 MB/s |
+      | 10 Gbps | 1.25 GB/s |
+      | 25 Gbps | 3.1 GB/s |
+      | 100 Gbps | 12.5 GB/s |
+
+      ```
+      50,000 reads/s x 200 KB = 10 GB/s = 80 Gbps   # needs a CDN, not a server
+        1,000 reads/s x  20 KB = 20 MB/s = 160 Mbps  # one ordinary instance
+      ```
+
+      Useful anchors: a single modern server does 10–25 Gbps comfortably; anything that needs more than roughly 10 Gbps of user-facing egress belongs behind a CDN, and the egress bill will become one of your top three cloud line items long before the bandwidth becomes a technical problem.
+
+      Also check the <em>time</em> dimension: moving 100 TB over a 10 Gbps link takes about a day of saturated transfer. For a migration, that is the number that decides whether you ship disks instead.
+  - term: Little's Law
+    short: "`concurrency = arrival rate x latency`. Three quantities; know two and the third is determined. It sizes pools and queues."
+    see: [ QPS, machines needed, headroom ]
+    detail: |-
+      The most useful formula in capacity planning, and the one that explains why a service with plenty of CPU still falls over.
+
+      ```
+      L = λ x W
+      concurrent_requests = requests_per_second x seconds_per_request
+      ```
+
+      | Rate | Latency | Concurrency needed |
+      | --- | --- | --- |
+      | 1,000 /s | 10 ms | 10 |
+      | 1,000 /s | 100 ms | 100 |
+      | 1,000 /s | 1 s | 1,000 threads or connections |
+      | 100 /s | 2 s | 200 |
+
+      Read that third row carefully: nothing about the request rate changed, but a tenfold latency increase demands a thousand concurrent slots. This is exactly what happens when a dependency slows down, and why a pool sized for the happy path exhausts itself during an incident.
+
+      Run it backwards too. A connection pool of 100 against a database with 20 ms queries can sustain `100 / 0.02 = 5,000` queries per second — and not one more, whatever the CPU graph says.
+  - term: read:write ratio
+    short: How many reads per write. The single number that decides most of the architecture before any other consideration.
+    see: [ QPS, hot vs cold, storage growth ]
+    detail: |-
+      Ratios cluster, and each cluster has a standard answer.
+
+      | Ratio | Example | Implication |
+      | --- | --- | --- |
+      | 1000:1 | news site, product catalogue | cache almost everything; the write path is irrelevant |
+      | 100:1 | social feed, e-commerce | heavy caching, read replicas, precompute on write |
+      | 10:1 | typical business app | ordinary caching, one primary is usually fine |
+      | 1:1 | chat, collaborative editing | the write path is the design; caching helps little |
+      | 1:100 | telemetry, IoT ingestion | append-only storage, batching, a log, time-series database |
+
+      Estimate it from behaviour, not from the database. "Each user posts twice and scrolls past 200 posts" gives you 100:1 directly, and that is enough to know whether the conversation should be about caching or about ingest.
+
+      It also tells you where to spend effort: at 1000:1, halving read cost is worth a thousand times more than halving write cost.
+  - term: hot vs cold
+    short: Not all data is accessed equally. Usually around 20% of it serves 80% of requests, and recent data dominates.
+    see: [ read:write ratio, storage growth, cost anchors ]
+    detail: |-
+      This is what makes caching work at all, and what makes storage affordable: you only need the hot slice to be fast.
+
+      | Pattern | Typical shape |
+      | --- | --- |
+      | Social feed | 90% of reads touch data from the last 24 hours |
+      | E-commerce catalogue | top 5% of products get 60–80% of views |
+      | Logs and metrics | 99% of queries are over the last 7 days |
+      | Document archive | almost all reads in the first week, then near zero |
+
+      Sizing a cache follows directly: cache the hot slice, not the dataset. For 200 PB of photos where 1% is hot, roughly 2 TB of cache plus a CDN buys an excellent hit ratio — and the caching strategies page covers how to choose the TTLs and eviction policy that keep it that way.
+
+      The same split drives tiering: hot on SSD, warm on object storage, cold on archival. A 5–10x price difference between tiers applied to 95% of your bytes is usually the largest single cost saving available.
+  - term: machines needed
+    short: Peak load divided by what one machine does, plus headroom. The last step before the number becomes money.
+    see: [ peak factor, headroom, Little's Law, cost anchors ]
+    detail: |-
+      Per-machine capacity is the input people most often guess badly, so anchor it rather than imagining it.
+
+      | Workload | One modern instance handles |
+      | --- | --- |
+      | Static files / reverse proxy | 50,000–100,000 req/s |
+      | Simple JSON API, cached | 2,000–10,000 req/s |
+      | API with a database round trip | 500–2,000 req/s |
+      | Heavy computation / rendering | 10–100 req/s |
+      | Postgres, simple indexed reads | 5,000–20,000 QPS |
+      | Redis, single instance | 100,000+ ops/s |
+      | Kafka broker | 100 MB/s+ sustained |
+
+      ```
+      machines = peak_qps / per_machine_qps / target_utilisation
+               = 150,000 / 1,000 / 0.5
+               = 300
+      ```
+
+      If the answer is under 5, do not design a distributed system: build one service, run three for availability, and revisit when the number changes. If the answer is over 1,000, the interesting question is no longer "how many" but "what else is wrong" — at that scale, cost per request usually dominates the architecture.
+  - term: headroom
+    short: The gap between what you provision and what you use. Running a system at 90% utilisation is a decision to have no response to anything.
+    see: [ machines needed, peak factor ]
+    detail: |-
+      Headroom pays for the things an estimate cannot model: a deploy, an instance failure, an unexpectedly popular feature, a retry storm.
+
+      | Target utilisation | Suitable for |
+      | --- | --- |
+      | 30–40% | stateful systems, slow-scaling tiers, anything where failover doubles a neighbour's load |
+      | 50–60% | typical stateless services — the usual default |
+      | 70–80% | fast-autoscaling, well-understood workloads |
+      | > 85% | batch jobs that can wait, and nothing else |
+
+      The subtle one is **N+1 across a pool**: with three instances at 60%, losing one puts the other two at 90%, and they fall over too. With five at 60%, losing one puts the rest at 75%. The smaller the pool, the more headroom each member needs.
+
+      Queues need headroom in time, not capacity: a queue that drains exactly as fast as it fills has infinite latency the moment anything hiccups. Aim for a consumer that can drain at 2–3x the arrival rate.
+  - term: cost anchors
+    short: Rough unit prices, good to a factor of two. Enough to tell whether an idea is cheap, expensive or impossible.
+    see: [ storage growth, bandwidth, hot vs cold ]
+    detail: |-
+      Approximate cloud list prices. Vary by provider, region and commitment — but for a decision, "about $0.02 per GB-month" is all you need.
+
+      | Resource | Rough price |
+      | --- | --- |
+      | Object storage, hot | $0.02 / GB / month |
+      | Object storage, archive | $0.002 / GB / month |
+      | Block storage (SSD) | $0.08–0.12 / GB / month |
+      | Managed database storage | $0.10–0.25 / GB / month |
+      | Egress to the internet | $0.05–0.09 / GB |
+      | CDN egress | $0.01–0.04 / GB |
+      | General-purpose VM (4 vCPU, 16 GB) | $100–150 / month on demand |
+      | Same, 1–3 year commitment | 30–60% less |
+
+      Two anchors worth memorising because they decide so many arguments: **1 PB of hot object storage is roughly $20,000 per month**, and **1 PB of internet egress is roughly $50,000**. Once you know those, "we'll just store all of it and serve it from origin" stops being a design and becomes a budget request.
+
+      Compare against the business, not against other infrastructure. $4M a month is cheap for a product with $100M of revenue and fatal for one with $2M.
+  - term: sanity check
+    short: "The last step, and the one people skip: compare the answer with something you already know to be true."
+    see: [ order of magnitude, rounding rules, sensitivity ]
+    detail: |-
+      An estimate without a sanity check is a number with no error bars and no defence.
+
+      | Check | Question |
+      | --- | --- |
+      | Dimensional | do the units actually produce the thing I asked for? |
+      | Human | does this imply every person on Earth does it four times a day? |
+      | Hardware | does this imply a disk faster than any disk? |
+      | Known system | is this larger than a company I know to be much larger than us? |
+      | Money | is this more than the revenue of the product? |
+
+      Dimensional analysis alone catches most arithmetic slips. If you are computing servers and the units come out as "requests per second per byte", you inverted something — and you would never have noticed from the digits.
+
+      The strongest check is a known reference point. If your estimate of a national bank's daily transactions exceeds the number of card transactions in the world, something is wrong by about a thousand, and knowing <em>that</em> is more useful than any refinement of the inputs.
+  - term: sensitivity
+    short: Which assumption dominates the answer. Find it, and spend your remaining time on that one input only.
+    see: [ sanity check, rounding rules, order of magnitude ]
+    detail: |-
+      In a chain of multiplications, the input with the widest uncertainty controls the output. Everything else is noise you do not need to refine.
+
+      In the photo-service estimate, the inputs are 100M users (known within 20%), 0.2 uploads per user (a guess, possibly 5x off), 2 MB per photo (known within 2x), 5-year retention (a policy choice) and 3 replicas (a design choice). The **uploads per user** dominates: get it wrong by 5x and the 200 PB becomes 40 PB or 1 EB, and the conclusion flips.
+
+      | Technique | How |
+      | --- | --- |
+      | High / low pass | run the estimate with optimistic and pessimistic inputs; if both land in the same regime, stop |
+      | Vary one input | double each input in turn and see which moves the answer most |
+      | Name the dominant term | state it out loud: "this whole thing hinges on uploads per user" |
+
+      This is also the honest way to present an estimate. "Somewhere between 40 and 400 PB, driven almost entirely by how often people actually upload — and we can measure that in a week" is a far more useful sentence than a single confident number.
+commands:
+  heading: Essential formulas & numbers
+  tocLabel: Formulas
+  groups:
+    - group: The numbers to memorise
+      items:
+        - code: |-
+            86,400 s/day      ~ 1 x 10^5      # the single most useful constant
+            2,600,000 s/month ~ 2.5 x 10^6
+            31,500,000 s/year ~ 3 x 10^7      # "pi x 10^7" is within 1%
+          what: Converting a daily or yearly volume into a per-second rate is the first step of nearly every estimate.
+        - code: |-
+            2^10 ~ 1 thousand    2^20 ~ 1 million    2^30 ~ 1 billion    2^40 ~ 1 trillion
+            1 KB = 10^3 B   1 MB = 10^6 B   1 GB = 10^9 B   1 TB = 10^12 B   1 PB = 10^15 B
+          what: Treat binary and decimal prefixes as equal. The 2.4% error per step is far below the precision of your inputs.
+        - code: |-
+            1 Gbps = 125 MB/s        # divide bits by 8
+            10 Gbps = 1.25 GB/s      # one busy server's worth
+            100 Gbps = 12.5 GB/s     # CDN territory
+          what: The bits-versus-bytes conversion, which is the most common factor-of-eight error in sizing work.
+    - group: The formulas
+      items:
+        - code: |-
+            qps       = daily_volume / 86,400
+            peak_qps  = qps x peak_factor           # 2-4 normally, 20-100 for an event
+          what: Two lines that produce the number everything else is derived from.
+        - code: storage = items_per_day x bytes_per_item x retention_days x replicas x 1.5
+          what: The 1.5 is index and metadata overhead. Leaving it out is the usual reason an estimate is low.
+        - code: bandwidth_bps = qps x payload_bytes x 8
+          what: Compute it for peak, not average, and separately for ingress and egress — they are rarely symmetric.
+        - code: |-
+            concurrency = qps x latency_seconds          # Little's Law
+            machines    = peak_qps / per_machine_qps / target_utilisation
+          what: Little's Law sizes pools and threads; the second line sizes the fleet. Use 0.5 for utilisation unless you know better.
+        - code: "cache_size = hot_fraction x daily_items x bytes_per_item    # hot_fraction ~ 0.1-0.2"
+          what: Cache the hot slice, not the dataset. This is usually two orders of magnitude smaller than total storage.
+    - group: Worked example, in Python
+      items:
+        - lang: csharp
+          code: |-
+            const long   Dau            = 100_000_000;
+            const double UploadsPerUser = 0.2;
+            const long   PhotoBytes     = 2_000_000;
+            const long   SecPerDay      = 100_000;        // 86,400, rounded for sanity
+
+            var writesPerDay = (long)(Dau * UploadsPerUser);   //  20M
+            var writeQps     = writesPerDay / SecPerDay;       // 200 /s
+            var perDay       = writesPerDay * PhotoBytes;      //  40 TB
+            var fiveYear     = perDay * 365 * 5 * 3;           //  x3 replicas -> ~220 PB
+            var monthlyUsd   = fiveYear / 1e9 * 0.02;          //  $/GB/month
+
+            Console.WriteLine($"{fiveYear / 1e15:F0} PB, ${monthlyUsd / 1e6:F1}M per month");
+
+            foreach (var uploads in new[] { 0.05, 0.2, 1.0 })  // sensitivity on the weakest input
+                Console.WriteLine($"{uploads,5} -> {Dau * uploads * PhotoBytes * 365 * 5 * 3 / 1e15,7:F0} PB");
+          what: The same estimate in C#. Named `const`s keep the units visible, which is what stops an order-of-magnitude slip.
+        - lang: python
+          code: |-
+            DAU          = 100_000_000
+            uploads_user = 0.2
+            views_user   = 50
+            photo_bytes  = 2_000_000
+            SEC_PER_DAY  = 100_000          # 86,400, rounded for sanity
+
+            writes_day = DAU * uploads_user          # 20,000,000
+            reads_day  = DAU * views_user            # 5,000,000,000
+
+            write_qps = writes_day / SEC_PER_DAY     # 200
+            read_qps  = reads_day  / SEC_PER_DAY     # 50,000
+            print(f"peak: {write_qps*3:.0f} w/s, {read_qps*3:.0f} r/s, ratio {read_qps/write_qps:.0f}:1")
+          what: Average and peak QPS plus the read:write ratio — enough to decide the shape of the system.
+        - lang: python
+          code: |-
+            per_day   = writes_day * photo_bytes           # 40 TB
+            five_year = per_day * 365 * 5 * 3              # x3 replicas -> ~220 PB
+            monthly   = five_year / 1e9 * 0.02             # $/GB/month -> ~$4.4M
+            print(f"{five_year/1e15:.0f} PB, ${monthly/1e6:.1f}M per month")
+          what: The number that decides whether the product is viable, reached in four lines.
+        - lang: python
+          code: |-
+            for uploads in (0.05, 0.2, 1.0):               # sensitivity on the weakest input
+                pb = DAU * uploads * photo_bytes * 365 * 5 * 3 / 1e15
+                print(f"{uploads:>5} uploads/user/day -> {pb:7.0f} PB")
+          what: Varying the dominant assumption. If every case lands in the same regime, the estimate is done.
+    - group: Quick reference anchors
+      items:
+        - code: |-
+            1 PB hot object storage   ~ $20,000 / month
+            1 PB internet egress      ~ $50,000
+            1 TB on one SSD           ~ fits; "big data" tooling is a liability below this
+          what: Three facts that settle a surprising number of architecture debates on their own.
+        - code: "fibre: ~200 km per ms  ->  London-New York (5,600 km) = 28 ms one way, 56 ms RTT minimum"
+          what: The speed-of-light floor. No budget removes it; only a replica nearer the user does.
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - Costs five minutes and can eliminate weeks of building the wrong thing.
+      - Makes assumptions explicit and arguable, instead of buried in someone's intuition.
+      - Catches order-of-magnitude errors, which are the ones that actually sink designs.
+      - Needs no data, no tooling and no access — it works in a meeting, on a whiteboard.
+      - "Produces the vocabulary for the next conversation: QPS, PB, peak factor, cost per month."
+      - Identifies which single measurement is worth taking, which is often the real output.
+  bad:
+    heading: Cons
+    items:
+      - Wrong inputs produce confident wrong answers, and the confidence survives longer than the inputs.
+      - Says nothing about tail behaviour, contention, or how a system fails — only about averages.
+      - "Easy to anchor on: once a number is on the whiteboard, people stop questioning it."
+      - "Ignores everything it did not model: operational load, migrations, compliance, people."
+      - Tempting to over-refine, which adds precision but no accuracy.
+      - Rounds away real effects — a 20% overhead disappears, but you still pay it.
+when:
+  note: If the estimate and the real thing disagree by 20%, the estimate did its job. By 100x, it saved the project.
+  good:
+    heading: Estimate when…
+    items:
+      - You are choosing between architectures and want to eliminate the impossible ones.
+      - Someone says "that won't scale" or "that's too expensive" without a number attached.
+      - You need to decide whether to measure at all, and what to measure first.
+      - A design depends on a quantity nobody has written down.
+      - You are in a system design interview, where the estimate <em>is</em> the answer.
+      - A cost or capacity number must go in a document that other people will act on.
+  bad:
+    heading: Don't rely on it when…
+    items:
+      - You can simply measure. Real traffic beats any estimate — use a **load test** or production metrics.
+      - The question is about tails, contention or failure modes. Use **percentiles** and real traces.
+      - The decision is irreversible and expensive. Estimate to shortlist, then **prototype**.
+      - The answer sits within 2x of a threshold. That is inside the error bars — **benchmark** it.
+      - You are negotiating a contract or an SLA. Commitments need **measurements**, not napkins.
+      - "The dominant cost is human: migration, on-call, training. Arithmetic does not model those."
+useCases:
+  - title: Deciding whether to shard
+    body: "A team is planning a sharding project. The estimate: 50M rows a year at 500 B is 25 GB a year, 125 GB over five years, with indexes maybe 250 GB. That comfortably fits one Postgres instance with room to spare. The sharding project is cancelled in ten minutes, and the effort goes into the index that was actually slow."
+  - title: Killing a feature before it is built
+    body: Product wants to keep full request and response bodies for every API call, for a year. 200M calls a day at 4 KB is 800 GB a day, 290 TB a year, roughly $6,000 a month before replication. The conversation changes from "can we" to "we can keep 30 days of sampled bodies for $500" — which turns out to meet the actual requirement.
+  - title: Sizing a connection pool
+    body: A service handles 2,000 req/s with a 40 ms database round trip. Little's Law gives 80 concurrent queries, so a pool of 100 is right and the configured 500 is actively harmful — it lets the service overwhelm the database instead of queueing politely in front of it.
+  - title: Checking that a batch job fits in its window
+    body: A nightly reconciliation processes 80M records. At 5,000 records/s per worker it needs 16,000 worker-seconds — four and a half hours on one worker, 30 minutes on ten. The six-hour window holds, but with only one worker there is no margin, and the estimate justifies the parallelism before the first missed morning.
+  - title: Answering "can we serve this from one region?"
+    body: "Users in Sydney, servers in Dublin: 16,000 km, so at least 160 ms round trip and realistically 250 ms. A page needing four sequential round trips is a one-second page before any work happens. The estimate makes the case for a read replica or an edge cache without needing to deploy anything to prove it."
+gotchas:
+  items:
+    - mistake: Sizing for the average instead of the peak
+      why: 50,000 reads/s average sounds like a capacity plan. The evening peak is 150,000, so the system is at triple its provisioned load every night and nobody knows why the 20:00 graphs look like that.
+      fix: multiply by 2–4 for a normal daily peak, and much more for events. Size for peak, budget for average, and state both.
+    - mistake: Bits and bytes
+      why: "\"10 Gbps is 10 GB/s\" is an eight-fold error, and because bandwidth is often multiplied by time or price, the mistake compounds into a plan that is off by an order of magnitude."
+      fix: convert once, early, and carry the units on every line. 1 Gbps = 125 MB/s. Write it at the top of the page.
+    - mistake: Forgetting replication, indexes and backups
+      why: "\"40 TB a day for five years is 73 PB.\" With three replicas, index overhead and backups it is closer to 250 PB — and the cost conclusion flips from uncomfortable to impossible."
+      fix: multiply raw storage by about 3 as a default, and say which multipliers you applied. Replication and backups are not optional extras.
+    - mistake: Refining inputs you already know well
+      why: Ten minutes spent deciding whether a row is 180 or 220 bytes, in an estimate whose uploads-per-user guess could be off by 5x. The precision is real and completely wasted.
+      fix: find the input with the widest uncertainty and work on that one. Run the estimate with a high and a low value for it; if the regime does not change, you are finished.
+    - mistake: Treating the estimate as a measurement
+      why: The number lands in a design document, loses its assumptions on the way, and six months later is being quoted in a contract as though somebody measured it.
+      fix: write the assumptions next to the number, always, and give it a range rather than a point. "40–400 PB, driven by uploads per user" ages far better than "220 PB".
+    - mistake: Assuming linear scaling
+      why: "\"One box does 1,000 QPS, so a hundred boxes do 100,000.\" Coordination, shared databases, locks and chatty services mean real scaling flattens, and sometimes reverses."
+      fix: add 20–50% headroom for coordination beyond a handful of machines, and find the shared resource — usually the database or a lock — before trusting the multiplication.
+    - mistake: Estimating storage but not egress
+      why: The storage bill is calculated and approved. Nobody computes serving cost, and the egress line arrives at several times the storage line because the data is not just stored, it is read constantly.
+      fix: always estimate storage <em>and</em> transfer. Egress at $0.05–0.09 per GB is often the largest number on the page, and a CDN is the usual answer.
+    - mistake: Skipping the sanity check
+      why: An arithmetic slip gives a number implying every human on Earth uses the product hourly. The digits look plausible, so it goes into the deck unchallenged.
+      fix: finish every estimate by comparing with something known — world population, a competitor's published scale, the product's revenue, the fastest disk that exists.
+alternatives:
+  columns: [ Approach, Best for, Effort, Confidence, Key difference vs an estimate ]
+  rows:
+    - self: true
+      cells:
+        - "**Back-of-the-envelope**"
+        - eliminating options, framing a decision
+        - Minutes
+        - Factor of 2–3
+        - —
+    - cells:
+        - "**Production metrics**"
+        - anything that already exists
+        - Minutes, if instrumented
+        - Exact
+        - Measures reality rather than assumptions; only works for what is already running
+    - cells:
+        - "**Load test**"
+        - finding the real breaking point
+        - Days
+        - High, if realistic
+        - Reveals contention and tails an estimate cannot model; easy to make unrealistic
+    - cells:
+        - "**Prototype / spike**"
+        - unknown technology or an unusual workload
+        - Days to weeks
+        - High for what it covers
+        - Answers "does this work", not "how much will it cost at 100x"
+    - cells:
+        - "**Queueing theory**"
+        - utilisation, queue depth, latency under load
+        - Hours
+        - High, given good inputs
+        - Models how latency explodes near saturation — the thing linear arithmetic misses entirely
+    - cells:
+        - "**Simulation**"
+        - complex, interacting systems
+        - Weeks
+        - As good as the model
+        - Captures interactions, at the cost of becoming a project of its own
+    - cells:
+        - "**Vendor calculator**"
+        - cloud cost once the design is fixed
+        - Hour
+        - Precise, not accurate
+        - Exact prices for assumptions that are still guesses
+  notes:
+    - "**Measure instead** whenever the system exists. An estimate of something you could query is wasted effort."
+    - "**Load test** once the estimate says you are within 2x of a limit — that is inside the error bars."
+    - "**Reach for queueing theory** when the question is \"what happens at 80% utilisation\", because the answer is not linear and the envelope cannot see it."
+    - "**Prototype** when the uncertainty is about whether something works at all, not about how much of it you need."
+    - "The healthy sequence is: estimate to shortlist, measure or prototype to confirm, load test before committing."
+resources:
+  - url: https://static.googleusercontent.com/media/sre.google/en//static/pdf/rule-of-thumb.pdf
+    title: Jeff Dean — Numbers Everyone Should Know
+    why: the original latency ladder that every version of this table descends from.
+  - url: https://colin-scott.github.io/personal_website/research/interactive_latency.html
+    title: Interactive latency numbers by year
+    why: the same numbers with a slider, showing which ones improved and which did not.
+  - url: https://sre.google/sre-book/software-engineering-in-sre/
+    title: Google SRE Book
+    why: capacity planning and demand forecasting in the chapters on practical production work.
+  - url: https://www.infoq.com/presentations/latency-pitfalls/
+    title: Gil Tene — latency and utilisation
+    why: why systems fall off a cliff near saturation, and why linear estimates miss it.
+  - url: https://github.com/donnemartin/system-design-primer
+    title: System Design Primer
+    why: a large, free collection of worked estimates and the architectures they lead to.
+  - url: https://aws.amazon.com/blogs/architecture/the-burning-monk-serverless-cost-estimation/
+    title: Estimating cloud cost from a design
+    why: how the unit prices turn into a monthly bill, with the overheads people forget.

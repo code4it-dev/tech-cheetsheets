@@ -100,11 +100,10 @@
 
     <section id="how-it-works">
       <h2>How it works</h2>
-      <p style="margin:0 0 18px">The first animation is a complete delegation: discover, send, stream, collect. The second is the task lifecycle, including the two ways a task can stop and wait for you.</p>
-      <span class="note" style="margin:-8px 0 18px">you don't call an agent. you give it a task and then follow the task.</span>
-
+      <p>The first animation is a complete delegation: discover, send, stream, collect. The second is the task lifecycle, including the two ways a task can stop and wait for you.</p>
+      <span class="note" style="margin:-6px 0 14px">you don't call an agent. you give it a task and then follow the task.</span>
       <div class="anim" id="anim-delegate">
-        <h3>1 &middot; Discover, delegate, stream</h3>
+        <h3>1 · Discover, delegate, stream</h3>
         <div class="stage">
           <svg viewBox="0 0 800 332" role="img" aria-label="A client agent fetching an agent card, sending a message, and receiving streamed status and artifact updates for a task">
             <defs>
@@ -158,9 +157,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-lifecycle">
-        <h3>2 &middot; The task lifecycle, and the two pauses</h3>
+        <h3>2 · The task lifecycle, and the two pauses</h3>
         <div class="stage">
           <svg viewBox="0 0 800 342" role="img" aria-label="The A2A task state machine moving from submitted through working, pausing at input-required and auth-required, and ending in a terminal state">
             <defs>
@@ -219,239 +217,230 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>Agent Card</b><span>The public JSON document at /.well-known/agent-card.json that describes what an agent can do and how to reach it.</span><template class="term-detail" data-see="Skill, supportedInterfaces, Security schemes, Card signing">
-          <p>Discovery in A2A is a single HTTP GET. The card is the contract: name, description, provider, version, <code>capabilities</code>, <code>securitySchemes</code>, <code>securityRequirements</code>, <code>defaultInputModes</code> and <code>defaultOutputModes</code>, the <code>skills</code> list, <code>supportedInterfaces</code>, and optional <code>signatures</code>. Servers MUST publish one.</p>
-          <p>It is the part a client reads before writing a line of integration code, so it is worth treating as a product surface rather than a config file. A card with three vague skills and no examples is as hard to use as an undocumented API.</p>
-          <h4>Required fields</h4>
-          <table>
-            <tr><th>Field</th><th>Holds</th></tr>
-            <tr><td><code>name</code>, <code>description</code></td><td>what this agent is for</td></tr>
-            <tr><td><code>version</code></td><td>the agent's own version, not the protocol's</td></tr>
-            <tr><td><code>capabilities</code></td><td><code>streaming</code>, <code>pushNotifications</code>, <code>extendedAgentCard</code></td></tr>
-            <tr><td><code>supportedInterfaces</code></td><td>ordered list of endpoints and bindings</td></tr>
-            <tr><td><code>defaultInputModes</code> / <code>OutputModes</code></td><td>media types accepted and produced</td></tr>
-            <tr><td><code>skills</code></td><td>what it can actually be asked to do</td></tr>
-          </table>
-          <p>When <code>capabilities.extendedAgentCard</code> is true, an authenticated client can call <code>GetExtendedAgentCard</code> for a fuller version &mdash; skills that are not advertised publicly.</p>
-          <h4>How it relates</h4>
-          <ul><li>Cards SHOULD be cacheable: send <code>Cache-Control</code> and an <code>ETag</code>, and have clients use conditional requests.</li></ul>
+        <p>Discovery in A2A is a single HTTP GET. The card is the contract: name, description, provider, version, <code>capabilities</code>, <code>securitySchemes</code>, <code>securityRequirements</code>, <code>defaultInputModes</code> and <code>defaultOutputModes</code>, the <code>skills</code> list, <code>supportedInterfaces</code>, and optional <code>signatures</code>. Servers MUST publish one.</p>
+        <p>It is the part a client reads before writing a line of integration code, so it is worth treating as a product surface rather than a config file. A card with three vague skills and no examples is as hard to use as an undocumented API.</p>
+        <h4>Required fields</h4>
+        <table><tr><th>Field</th><th>Holds</th></tr>
+        <tr><td><code>name</code>, <code>description</code></td><td>what this agent is for</td></tr>
+        <tr><td><code>version</code></td><td>the agent's own version, not the protocol's</td></tr>
+        <tr><td><code>capabilities</code></td><td><code>streaming</code>, <code>pushNotifications</code>, <code>extendedAgentCard</code></td></tr>
+        <tr><td><code>supportedInterfaces</code></td><td>ordered list of endpoints and bindings</td></tr>
+        <tr><td><code>defaultInputModes</code> / <code>OutputModes</code></td><td>media types accepted and produced</td></tr>
+        <tr><td><code>skills</code></td><td>what it can actually be asked to do</td></tr></table>
+        <p>When <code>capabilities.extendedAgentCard</code> is true, an authenticated client can call <code>GetExtendedAgentCard</code> for a fuller version — skills that are not advertised publicly.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Cards SHOULD be cacheable: send <code>Cache-Control</code> and an <code>ETag</code>, and have clients use conditional requests.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Skill</b><span>A named capability advertised on the card — the unit a client matches against when choosing an agent.</span><template class="term-detail" data-see="Agent Card, Message and Part, Task">
-          <p>An <code>AgentSkill</code> carries <code>id</code>, <code>name</code>, <code>description</code> and <code>tags</code>, plus optional <code>examples</code>, <code>inputModes</code>, <code>outputModes</code> and <code>securityRequirements</code>. It is documentation with enough structure to be searched, not a typed function signature.</p>
-          <p>That is a deliberate difference from <b>MCP</b> tools. An MCP tool has a JSON Schema and is invoked with structured arguments; an A2A skill is described in prose and reached by sending a natural-language message. The remote agent interprets &mdash; which is exactly why it is an agent and not a function.</p>
-          <h4>Writing one that gets picked</h4>
-          <table>
-            <tr><th>Field</th><th>Guidance</th></tr>
-            <tr><td><code>id</code></td><td>stable, machine-friendly, never reused</td></tr>
-            <tr><td><code>description</code></td><td>what it does, its limits, what it will refuse</td></tr>
-            <tr><td><code>tags</code></td><td>how a registry or another agent finds you</td></tr>
-            <tr><td><code>examples</code></td><td>real prompts that work &mdash; the most useful field</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Per-skill <code>securityRequirements</code> let one agent expose a public skill and a privileged one behind stronger auth.</li></ul>
+        <p>An <code>AgentSkill</code> carries <code>id</code>, <code>name</code>, <code>description</code> and <code>tags</code>, plus optional <code>examples</code>, <code>inputModes</code>, <code>outputModes</code> and <code>securityRequirements</code>. It is documentation with enough structure to be searched, not a typed function signature.</p>
+        <p>That is a deliberate difference from <b>MCP</b> tools. An MCP tool has a JSON Schema and is invoked with structured arguments; an A2A skill is described in prose and reached by sending a natural-language message. The remote agent interprets — which is exactly why it is an agent and not a function.</p>
+        <h4>Writing one that gets picked</h4>
+        <table><tr><th>Field</th><th>Guidance</th></tr>
+        <tr><td><code>id</code></td><td>stable, machine-friendly, never reused</td></tr>
+        <tr><td><code>description</code></td><td>what it does, its limits, what it will refuse</td></tr>
+        <tr><td><code>tags</code></td><td>how a registry or another agent finds you</td></tr>
+        <tr><td><code>examples</code></td><td>real prompts that work — the most useful field</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Per-skill <code>securityRequirements</code> let one agent expose a public skill and a privileged one behind stronger auth.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>supportedInterfaces</b><span>The ordered list of endpoints and protocol bindings the agent speaks — first entry is preferred.</span><template class="term-detail" data-see="Agent Card, Version negotiation, Streaming">
-          <p>Each entry has a <code>url</code>, a <code>protocolBinding</code> and a <code>protocolVersion</code>, plus an optional <code>tenant</code>. There are three core bindings: <code>JSONRPC</code> (JSON-RPC 2.0 over HTTP, SSE for streaming), <code>GRPC</code> (gRPC over HTTP/2 with TLS, service <code>A2AService</code>) and <code>HTTP+JSON</code> (REST-style, media type <code>application/a2a+json</code>).</p>
-          <p>Selection is specified, not left to taste: the first entry is the preferred interface, and a client picks the first binding it supports, preferring earlier entries. If the chosen interface declares a <code>tenant</code>, the client must send that value; if it does not, the client must omit it.</p>
-          <h4>The three bindings</h4>
-          <table>
-            <tr><th>Binding</th><th>Shape</th><th>Fits</th></tr>
-            <tr><td><code>JSONRPC</code></td><td>POST, PascalCase methods, SSE</td><td>the default; easiest to debug</td></tr>
-            <tr><td><code>GRPC</code></td><td><code>A2AService</code>, HTTP/2, TLS</td><td>high volume, typed clients</td></tr>
-            <tr><td><code>HTTP+JSON</code></td><td><code>POST /message:send</code>, <code>GET /tasks/{id}</code></td><td>REST-native estates and gateways</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>All three carry the same semantics, so the choice is operational &mdash; see <b>gRPC</b> for when the typed binding earns its complexity.</li></ul>
+        <p>Each entry has a <code>url</code>, a <code>protocolBinding</code> and a <code>protocolVersion</code>, plus an optional <code>tenant</code>. There are three core bindings: <code>JSONRPC</code> (JSON-RPC 2.0 over HTTP, SSE for streaming), <code>GRPC</code> (gRPC over HTTP/2 with TLS, service <code>A2AService</code>) and <code>HTTP+JSON</code> (REST-style, media type <code>application/a2a+json</code>).</p>
+        <p>Selection is specified, not left to taste: the first entry is the preferred interface, and a client picks the first binding it supports, preferring earlier entries. If the chosen interface declares a <code>tenant</code>, the client must send that value; if it does not, the client must omit it.</p>
+        <h4>The three bindings</h4>
+        <table><tr><th>Binding</th><th>Shape</th><th>Fits</th></tr>
+        <tr><td><code>JSONRPC</code></td><td>POST, PascalCase methods, SSE</td><td>the default; easiest to debug</td></tr>
+        <tr><td><code>GRPC</code></td><td><code>A2AService</code>, HTTP/2, TLS</td><td>high volume, typed clients</td></tr>
+        <tr><td><code>HTTP+JSON</code></td><td><code>POST /message:send</code>, <code>GET /tasks/{id}</code></td><td>REST-native estates and gateways</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>All three carry the same semantics, so the choice is operational — see <b>gRPC</b> for when the typed binding earns its complexity.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Task</b><span>The unit of work: server-created, identified, stateful, and followed rather than awaited.</span><template class="term-detail" data-see="TaskState, contextId, Artifact, Streaming">
-          <p>A <code>Task</code> holds <code>id</code>, <code>contextId</code>, <code>status</code>, <code>artifacts</code>, <code>history</code> and <code>metadata</code>. It is created by the server &mdash; a client cannot choose the id &mdash; and it exists precisely because agent work is not request/response. It may take an hour, produce several outputs, and stop to ask a question in the middle.</p>
-          <p>A response to <code>SendMessage</code> is therefore either a <code>Message</code> (the agent answered immediately, nothing to track) or a <code>Task</code> (something long enough to need an id). Clients must handle both.</p>
-          <h4>Task or message?</h4>
-          <table>
-            <tr><th>Situation</th><th>Response</th></tr>
-            <tr><td>"what currencies do you support?"</td><td><code>Message</code></td></tr>
-            <tr><td>"assess this 40-page application"</td><td><code>Task</code></td></tr>
-            <tr><td>Anything needing approval mid-flight</td><td><code>Task</code></td></tr>
-            <tr><td>Anything producing files</td><td><code>Task</code></td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Because tasks outlive connections, <b>push notifications</b> exist for clients that cannot hold an SSE stream open.</li></ul>
+        <p>A <code>Task</code> holds <code>id</code>, <code>contextId</code>, <code>status</code>, <code>artifacts</code>, <code>history</code> and <code>metadata</code>. It is created by the server — a client cannot choose the id — and it exists precisely because agent work is not request/response. It may take an hour, produce several outputs, and stop to ask a question in the middle.</p>
+        <p>A response to <code>SendMessage</code> is therefore either a <code>Message</code> (the agent answered immediately, nothing to track) or a <code>Task</code> (something long enough to need an id). Clients must handle both.</p>
+        <h4>Task or message?</h4>
+        <table><tr><th>Situation</th><th>Response</th></tr>
+        <tr><td>"what currencies do you support?"</td><td><code>Message</code></td></tr>
+        <tr><td>"assess this 40-page application"</td><td><code>Task</code></td></tr>
+        <tr><td>Anything needing approval mid-flight</td><td><code>Task</code></td></tr>
+        <tr><td>Anything producing files</td><td><code>Task</code></td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Because tasks outlive connections, <b>push notifications</b> exist for clients that cannot hold an SSE stream open.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>TaskState</b><span>The nine enum values a task moves through, four of them terminal and two of them pauses.</span><template class="term-detail" data-see="Task, In-task auth, Streaming">
-          <p>In 1.0.0 the states are enum constants: <code>TASK_STATE_UNSPECIFIED</code>, <code>SUBMITTED</code>, <code>WORKING</code>, <code>COMPLETED</code>, <code>FAILED</code>, <code>CANCELED</code>, <code>INPUT_REQUIRED</code>, <code>REJECTED</code> and <code>AUTH_REQUIRED</code>, each prefixed <code>TASK_STATE_</code>. The 0.x spellings (<code>"working"</code>, <code>"input-required"</code>) are gone.</p>
-          <p>Four are terminal: <code>COMPLETED</code>, <code>FAILED</code>, <code>CANCELED</code>, <code>REJECTED</code>. Two are interruptions that expect you to act: <code>INPUT_REQUIRED</code> and <code>AUTH_REQUIRED</code>. Subscribing to a task that is already terminal returns <code>UnsupportedOperationError</code> rather than a stream that never emits.</p>
-          <h4>What each means for you</h4>
-          <table>
-            <tr><th>State</th><th>Your move</th></tr>
-            <tr><td><code>SUBMITTED</code></td><td>accepted, not started &mdash; wait</td></tr>
-            <tr><td><code>WORKING</code></td><td>in progress, expect updates</td></tr>
-            <tr><td><code>INPUT_REQUIRED</code></td><td>send another message on the same task</td></tr>
-            <tr><td><code>AUTH_REQUIRED</code></td><td>obtain credentials, then continue</td></tr>
-            <tr><td><code>REJECTED</code></td><td>it declined &mdash; do not retry unchanged</td></tr>
-            <tr><td><code>FAILED</code></td><td>it tried and could not &mdash; retry may help</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Treat <code>REJECTED</code> and <code>FAILED</code> differently in your retry policy; see <b>Retry, backoff &amp; jitter</b>.</li></ul>
+        <p>In 1.0.0 the states are enum constants: <code>TASK_STATE_UNSPECIFIED</code>, <code>SUBMITTED</code>, <code>WORKING</code>, <code>COMPLETED</code>, <code>FAILED</code>, <code>CANCELED</code>, <code>INPUT_REQUIRED</code>, <code>REJECTED</code> and <code>AUTH_REQUIRED</code>, each prefixed <code>TASK_STATE_</code>. The 0.x spellings (<code>"working"</code>, <code>"input-required"</code>) are gone.</p>
+        <p>Four are terminal: <code>COMPLETED</code>, <code>FAILED</code>, <code>CANCELED</code>, <code>REJECTED</code>. Two are interruptions that expect you to act: <code>INPUT_REQUIRED</code> and <code>AUTH_REQUIRED</code>. Subscribing to a task that is already terminal returns <code>UnsupportedOperationError</code> rather than a stream that never emits.</p>
+        <h4>What each means for you</h4>
+        <table><tr><th>State</th><th>Your move</th></tr>
+        <tr><td><code>SUBMITTED</code></td><td>accepted, not started — wait</td></tr>
+        <tr><td><code>WORKING</code></td><td>in progress, expect updates</td></tr>
+        <tr><td><code>INPUT_REQUIRED</code></td><td>send another message on the same task</td></tr>
+        <tr><td><code>AUTH_REQUIRED</code></td><td>obtain credentials, then continue</td></tr>
+        <tr><td><code>REJECTED</code></td><td>it declined — do not retry unchanged</td></tr>
+        <tr><td><code>FAILED</code></td><td>it tried and could not — retry may help</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Treat <code>REJECTED</code> and <code>FAILED</code> differently in your retry policy; see <b>Retry, backoff &amp; jitter</b>.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>contextId</b><span>The server-generated id that groups related tasks and messages into one ongoing interaction.</span><template class="term-detail" data-see="Task, Message and Part, TaskState">
-          <p>A <code>taskId</code> identifies one unit of work; a <code>contextId</code> ties several together &mdash; a follow-up question, a revision, a second task in the same conversation. Both are server-generated, and an agent must reject a message whose <code>contextId</code> and <code>taskId</code> do not belong together.</p>
-          <p>The practical rule: carry the <code>contextId</code> forward when the new request is part of the same conversation, and start fresh when it is not. It is how the remote agent keeps continuity without exposing any of its internal memory to you.</p>
-          <h4>How it relates</h4>
-          <ul><li>Never invent either id. The server owns the namespace, which is what keeps opaque agents opaque.</li></ul>
+        <p>A <code>taskId</code> identifies one unit of work; a <code>contextId</code> ties several together — a follow-up question, a revision, a second task in the same conversation. Both are server-generated, and an agent must reject a message whose <code>contextId</code> and <code>taskId</code> do not belong together.</p>
+        <p>The practical rule: carry the <code>contextId</code> forward when the new request is part of the same conversation, and start fresh when it is not. It is how the remote agent keeps continuity without exposing any of its internal memory to you.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Never invent either id. The server owns the namespace, which is what keeps opaque agents opaque.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Message and Part</b><span>What the two sides exchange: a role, and a list of parts that may be text, bytes, a URL or structured data.</span><template class="term-detail" data-see="Artifact, Task, Skill">
-          <p>A <code>Message</code> carries <code>messageId</code>, <code>contextId</code>, <code>taskId</code>, <code>role</code> (<code>ROLE_USER</code> or <code>ROLE_AGENT</code>), <code>parts</code>, and optional <code>metadata</code>, <code>extensions</code> and <code>referenceTaskIds</code>. In 1.0.0 a <code>Part</code> is one object with a oneof: exactly one of <code>text</code>, <code>raw</code> (bytes, base64 in JSON), <code>url</code>, or <code>data</code> (any JSON value), plus optional <code>mediaType</code> and <code>filename</code>.</p>
-          <p>That shape is why A2A is multimodal without ceremony: a single message can carry a sentence, a PDF by reference and a structured form, and the receiving agent decides what it can use based on the modes it advertised.</p>
-          <h4>Which part to use</h4>
-          <table>
-            <tr><th>Content</th><th>Field</th></tr>
-            <tr><td>Instructions, questions</td><td><code>text</code></td></tr>
-            <tr><td>Small inline file</td><td><code>raw</code> + <code>mediaType</code></td></tr>
-            <tr><td>Large file</td><td><code>url</code> &mdash; do not inline megabytes</td></tr>
-            <tr><td>Form answers, parameters</td><td><code>data</code></td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li><code>referenceTaskIds</code> lets a message point at earlier tasks &mdash; the usual way to say "use the output of that one".</li></ul>
+        <p>A <code>Message</code> carries <code>messageId</code>, <code>contextId</code>, <code>taskId</code>, <code>role</code> (<code>ROLE_USER</code> or <code>ROLE_AGENT</code>), <code>parts</code>, and optional <code>metadata</code>, <code>extensions</code> and <code>referenceTaskIds</code>. In 1.0.0 a <code>Part</code> is one object with a oneof: exactly one of <code>text</code>, <code>raw</code> (bytes, base64 in JSON), <code>url</code>, or <code>data</code> (any JSON value), plus optional <code>mediaType</code> and <code>filename</code>.</p>
+        <p>That shape is why A2A is multimodal without ceremony: a single message can carry a sentence, a PDF by reference and a structured form, and the receiving agent decides what it can use based on the modes it advertised.</p>
+        <h4>Which part to use</h4>
+        <table><tr><th>Content</th><th>Field</th></tr>
+        <tr><td>Instructions, questions</td><td><code>text</code></td></tr>
+        <tr><td>Small inline file</td><td><code>raw</code> + <code>mediaType</code></td></tr>
+        <tr><td>Large file</td><td><code>url</code> — do not inline megabytes</td></tr>
+        <tr><td>Form answers, parameters</td><td><code>data</code></td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li><code>referenceTaskIds</code> lets a message point at earlier tasks — the usual way to say "use the output of that one".</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Artifact</b><span>A durable output of a task, as opposed to the conversational messages that produced it.</span><template class="term-detail" data-see="Task, Streaming, Message and Part">
-          <p>An <code>Artifact</code> has <code>artifactId</code>, optional <code>name</code> and <code>description</code>, at least one <code>parts</code> entry, and optional <code>metadata</code> and <code>extensions</code>. It is the deliverable: a report, a dataset, an image, a decision document &mdash; the thing a client keeps after the conversation is over.</p>
-          <p>Artifacts can stream. A <code>TaskArtifactUpdateEvent</code> carries <code>append</code> and <code>lastChunk</code> flags, so an agent can emit a long document progressively and the client can render it as it arrives rather than waiting for completion.</p>
-          <h4>Message or artifact?</h4>
-          <table>
-            <tr><th>Content</th><th>Put it in</th></tr>
-            <tr><td>"I need the applicant's nationality"</td><td>a message</td></tr>
-            <tr><td>The finished assessment PDF</td><td>an artifact</td></tr>
-            <tr><td>Progress commentary</td><td>a status update message</td></tr>
-            <tr><td>A structured result the caller will store</td><td>an artifact</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Clients that only read the final <code>Task</code> still get the artifacts; streaming them is an experience improvement, not a different result.</li></ul>
+        <p>An <code>Artifact</code> has <code>artifactId</code>, optional <code>name</code> and <code>description</code>, at least one <code>parts</code> entry, and optional <code>metadata</code> and <code>extensions</code>. It is the deliverable: a report, a dataset, an image, a decision document — the thing a client keeps after the conversation is over.</p>
+        <p>Artifacts can stream. A <code>TaskArtifactUpdateEvent</code> carries <code>append</code> and <code>lastChunk</code> flags, so an agent can emit a long document progressively and the client can render it as it arrives rather than waiting for completion.</p>
+        <h4>Message or artifact?</h4>
+        <table><tr><th>Content</th><th>Put it in</th></tr>
+        <tr><td>"I need the applicant's nationality"</td><td>a message</td></tr>
+        <tr><td>The finished assessment PDF</td><td>an artifact</td></tr>
+        <tr><td>Progress commentary</td><td>a status update message</td></tr>
+        <tr><td>A structured result the caller will store</td><td>an artifact</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Clients that only read the final <code>Task</code> still get the artifacts; streaming them is an experience improvement, not a different result.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>SendMessage</b><span>The method that starts or continues work — PascalCase in 1.0.0, not the 0.x slash form.</span><template class="term-detail" data-see="Streaming, Task, Version negotiation">
-          <p>Version 1.0.0 renamed every method to PascalCase matching gRPC conventions: <code>SendMessage</code>, <code>SendStreamingMessage</code>, <code>GetTask</code>, <code>ListTasks</code>, <code>CancelTask</code>, <code>SubscribeToTask</code>, the four <code>…TaskPushNotificationConfig</code> methods, and <code>GetExtendedAgentCard</code>. The familiar <code>message/send</code> and <code>tasks/get</code> belong to 0.x.</p>
-          <p>The REST binding maps them onto custom-verb URLs: <code>POST /message:send</code>, <code>POST /message:stream</code>, <code>GET /tasks/{id}</code>, <code>POST /tasks/{id}:cancel</code>, <code>POST /tasks/{id}:subscribe</code>, and the push-config paths under <code>/tasks/{id}/pushNotificationConfigs</code>.</p>
-          <h4>Renames to watch for</h4>
-          <table>
-            <tr><th>0.x</th><th>1.0.0</th></tr>
-            <tr><td><code>message/send</code></td><td><code>SendMessage</code></td></tr>
-            <tr><td><code>message/stream</code></td><td><code>SendStreamingMessage</code></td></tr>
-            <tr><td><code>tasks/get</code></td><td><code>GetTask</code></td></tr>
-            <tr><td><code>tasks/resubscribe</code></td><td><code>SubscribeToTask</code></td></tr>
-            <tr><td><code>GetAuthenticatedExtendedCard</code></td><td><code>GetExtendedAgentCard</code></td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Most sample code online is still 0.x. A method-not-found against a 1.0 agent is usually this, not a routing problem.</li></ul>
+        <p>Version 1.0.0 renamed every method to PascalCase matching gRPC conventions: <code>SendMessage</code>, <code>SendStreamingMessage</code>, <code>GetTask</code>, <code>ListTasks</code>, <code>CancelTask</code>, <code>SubscribeToTask</code>, the four <code>…TaskPushNotificationConfig</code> methods, and <code>GetExtendedAgentCard</code>. The familiar <code>message/send</code> and <code>tasks/get</code> belong to 0.x.</p>
+        <p>The REST binding maps them onto custom-verb URLs: <code>POST /message:send</code>, <code>POST /message:stream</code>, <code>GET /tasks/{id}</code>, <code>POST /tasks/{id}:cancel</code>, <code>POST /tasks/{id}:subscribe</code>, and the push-config paths under <code>/tasks/{id}/pushNotificationConfigs</code>.</p>
+        <h4>Renames to watch for</h4>
+        <table><tr><th>0.x</th><th>1.0.0</th></tr>
+        <tr><td><code>message/send</code></td><td><code>SendMessage</code></td></tr>
+        <tr><td><code>message/stream</code></td><td><code>SendStreamingMessage</code></td></tr>
+        <tr><td><code>tasks/get</code></td><td><code>GetTask</code></td></tr>
+        <tr><td><code>tasks/resubscribe</code></td><td><code>SubscribeToTask</code></td></tr>
+        <tr><td><code>GetAuthenticatedExtendedCard</code></td><td><code>GetExtendedAgentCard</code></td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Most sample code online is still 0.x. A method-not-found against a 1.0 agent is usually this, not a routing problem.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Streaming</b><span>Server-sent events carrying status and artifact updates while a task runs.</span><template class="term-detail" data-see="Push notifications, Task, Artifact">
-          <p><code>SendStreamingMessage</code> opens an SSE stream (<code>text/event-stream</code>) whose <code>data:</code> frames are ordinary JSON-RPC envelopes wrapping a <code>StreamResponse</code> &mdash; exactly one of <code>task</code>, <code>message</code>, <code>statusUpdate</code> or <code>artifactUpdate</code>. Events arrive in generation order.</p>
-          <p><code>TaskStatusUpdateEvent</code> carries the new status; <code>TaskArtifactUpdateEvent</code> carries an artifact chunk with <code>append</code> and <code>lastChunk</code>. A dropped connection is recoverable: call <code>SubscribeToTask</code> to attach again, or <code>GetTask</code> to read the current state.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Concern</th><th>Guidance</th></tr>
-            <tr><td>Streaming supported?</td><td><code>capabilities.streaming</code> on the card</td></tr>
-            <tr><td>Reconnect</td><td><code>SubscribeToTask</code>; terminal tasks refuse</td></tr>
-            <tr><td>Proxies</td><td>disable response buffering on the route</td></tr>
-            <tr><td>Very long tasks</td><td>prefer push notifications over a held stream</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>A <b>reverse proxy</b> with default buffering will hold every event until the task ends, which looks exactly like a broken agent.</li></ul>
+        <p><code>SendStreamingMessage</code> opens an SSE stream (<code>text/event-stream</code>) whose <code>data:</code> frames are ordinary JSON-RPC envelopes wrapping a <code>StreamResponse</code> — exactly one of <code>task</code>, <code>message</code>, <code>statusUpdate</code> or <code>artifactUpdate</code>. Events arrive in generation order.</p>
+        <p><code>TaskStatusUpdateEvent</code> carries the new status; <code>TaskArtifactUpdateEvent</code> carries an artifact chunk with <code>append</code> and <code>lastChunk</code>. A dropped connection is recoverable: call <code>SubscribeToTask</code> to attach again, or <code>GetTask</code> to read the current state.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Concern</th><th>Guidance</th></tr>
+        <tr><td>Streaming supported?</td><td><code>capabilities.streaming</code> on the card</td></tr>
+        <tr><td>Reconnect</td><td><code>SubscribeToTask</code>; terminal tasks refuse</td></tr>
+        <tr><td>Proxies</td><td>disable response buffering on the route</td></tr>
+        <tr><td>Very long tasks</td><td>prefer push notifications over a held stream</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>A <b>reverse proxy</b> with default buffering will hold every event until the task ends, which looks exactly like a broken agent.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Push notifications</b><span>Webhook delivery of task updates, for clients that cannot hold a connection open for an hour.</span><template class="term-detail" data-see="Streaming, Task, Security schemes">
-          <p>A client registers a <code>TaskPushNotificationConfig</code> &mdash; a <code>url</code>, a <code>token</code> and an <code>authentication</code> block with a <code>scheme</code> and <code>credentials</code> &mdash; and the server POSTs a <code>StreamResponse</code> to that webhook with <code>Content-Type: application/a2a+json</code>. The client returns 2xx; delivery is at-least-once.</p>
-          <p>At-least-once is the design constraint everyone discovers late. The webhook must be idempotent, must validate that the notification really came from the agent, and must not trust the payload as the source of truth &mdash; call <code>GetTask</code> to confirm before acting on anything important.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Setting</th><th>Typical</th></tr>
-            <tr><td>Webhook timeout</td><td>10&ndash;30 s</td></tr>
-            <tr><td>Delivery guarantee</td><td>at-least-once &mdash; deduplicate</td></tr>
-            <tr><td>Auth to your webhook</td><td>bearer token, or mTLS</td></tr>
-            <tr><td>Advertised by</td><td><code>capabilities.pushNotifications</code></td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Duplicate deliveries are the same problem as everywhere else &mdash; see <b>Idempotency &amp; deduplication</b>.</li></ul>
+        <p>A client registers a <code>TaskPushNotificationConfig</code> — a <code>url</code>, a <code>token</code> and an <code>authentication</code> block with a <code>scheme</code> and <code>credentials</code> — and the server POSTs a <code>StreamResponse</code> to that webhook with <code>Content-Type: application/a2a+json</code>. The client returns 2xx; delivery is at-least-once.</p>
+        <p>At-least-once is the design constraint everyone discovers late. The webhook must be idempotent, must validate that the notification really came from the agent, and must not trust the payload as the source of truth — call <code>GetTask</code> to confirm before acting on anything important.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Setting</th><th>Typical</th></tr>
+        <tr><td>Webhook timeout</td><td>10–30 s</td></tr>
+        <tr><td>Delivery guarantee</td><td>at-least-once — deduplicate</td></tr>
+        <tr><td>Auth to your webhook</td><td>bearer token, or mTLS</td></tr>
+        <tr><td>Advertised by</td><td><code>capabilities.pushNotifications</code></td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Duplicate deliveries are the same problem as everywhere else — see <b>Idempotency &amp; deduplication</b>.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Security schemes</b><span>How a client authenticates: declared on the card, obtained out of band, sent on every request.</span><template class="term-detail" data-see="Agent Card, In-task auth, Card signing">
-          <p>A <code>SecurityScheme</code> is exactly one of <code>apiKeySecurityScheme</code>, <code>httpAuthSecurityScheme</code>, <code>oauth2SecurityScheme</code>, <code>openIdConnectSecurityScheme</code> or <code>mtlsSecurityScheme</code> &mdash; the OpenAPI vocabulary, deliberately. OAuth flows include <code>authorizationCode</code>, <code>clientCredentials</code> and <code>deviceCode</code>; <code>implicit</code> and <code>password</code> are deprecated.</p>
-          <p>The flow the spec describes is plain: read <code>securitySchemes</code> from the card, obtain credentials out of band, send them in headers (or gRPC metadata) on every request. The server MUST authenticate every request, and production deployments MUST use HTTPS or TLS, with TLS 1.3 recommended. Authorization itself is left implementation-specific.</p>
-          <h4>How it relates</h4>
-          <ul><li>A2A does not define agent identity in its semantics &mdash; it is handled at the protocol layer, so it is your existing <b>OAuth 2.0</b> or mTLS infrastructure doing the work.</li></ul>
+        <p>A <code>SecurityScheme</code> is exactly one of <code>apiKeySecurityScheme</code>, <code>httpAuthSecurityScheme</code>, <code>oauth2SecurityScheme</code>, <code>openIdConnectSecurityScheme</code> or <code>mtlsSecurityScheme</code> — the OpenAPI vocabulary, deliberately. OAuth flows include <code>authorizationCode</code>, <code>clientCredentials</code> and <code>deviceCode</code>; <code>implicit</code> and <code>password</code> are deprecated.</p>
+        <p>The flow the spec describes is plain: read <code>securitySchemes</code> from the card, obtain credentials out of band, send them in headers (or gRPC metadata) on every request. The server MUST authenticate every request, and production deployments MUST use HTTPS or TLS, with TLS 1.3 recommended. Authorization itself is left implementation-specific.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>A2A does not define agent identity in its semantics — it is handled at the protocol layer, so it is your existing <b>OAuth 2.0</b> or mTLS infrastructure doing the work.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>In-task auth</b><span>AUTH_REQUIRED: the remote agent needs credentials for a third system, mid-task.</span><template class="term-detail" data-see="TaskState, Security schemes, Task">
-          <p>A travel agent asks a visa agent to check an application; the visa agent needs the user's consent to query a government portal. Rather than failing, the task enters <code>TASK_STATE_AUTH_REQUIRED</code>, letting the agent delegate the authorization step to the client, which can drive a consent flow with the human and then continue the same task.</p>
-          <p>The spec is explicit that an agent MUST NOT treat that state alone as authorization &mdash; reaching it is a request, not a grant. The credentials must actually be obtained and validated.</p>
-          <h4>How it relates</h4>
-          <ul><li>This is the multi-agent equivalent of MCP's elicitation: a pause that puts a human in the loop at the exact moment consent is needed.</li></ul>
+        <p>A travel agent asks a visa agent to check an application; the visa agent needs the user's consent to query a government portal. Rather than failing, the task enters <code>TASK_STATE_AUTH_REQUIRED</code>, letting the agent delegate the authorization step to the client, which can drive a consent flow with the human and then continue the same task.</p>
+        <p>The spec is explicit that an agent MUST NOT treat that state alone as authorization — reaching it is a request, not a grant. The credentials must actually be obtained and validated.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>This is the multi-agent equivalent of MCP's elicitation: a pause that puts a human in the loop at the exact moment consent is needed.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Card signing</b><span>JWS signatures over the agent card, so a client can verify it was published by who it claims.</span><template class="term-detail" data-see="Agent Card, Security schemes, Opaque agents">
-          <p>The card's <code>signatures</code> array holds <code>AgentCardSignature</code> objects with a required <code>protected</code> header and <code>signature</code>, and an optional <code>header</code>, following JWS (RFC 7515). Canonicalisation uses JCS (RFC 8785), and the <code>signatures</code> field itself is excluded from the signed payload. The protected header MUST include <code>alg</code> and <code>kid</code>, and SHOULD set <code>typ</code> to <code>"JOSE"</code>.</p>
-          <p>It matters because the card is the thing you trust before anything else: it tells you where to send work and what the agent claims to do. An unsigned card fetched over a compromised path is a redirection attack with no other defence.</p>
-          <h4>How it relates</h4>
-          <ul><li>This is the same supply-chain question as connecting an <b>MCP</b> server: verify the publisher before granting access.</li></ul>
+        <p>The card's <code>signatures</code> array holds <code>AgentCardSignature</code> objects with a required <code>protected</code> header and <code>signature</code>, and an optional <code>header</code>, following JWS (RFC 7515). Canonicalisation uses JCS (RFC 8785), and the <code>signatures</code> field itself is excluded from the signed payload. The protected header MUST include <code>alg</code> and <code>kid</code>, and SHOULD set <code>typ</code> to <code>"JOSE"</code>.</p>
+        <p>It matters because the card is the thing you trust before anything else: it tells you where to send work and what the agent claims to do. An unsigned card fetched over a compromised path is a redirection attack with no other defence.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>This is the same supply-chain question as connecting an <b>MCP</b> server: verify the publisher before granting access.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Version negotiation</b><span>The A2A-Version header, and why 1.0.0 breaks 0.x clients.</span><template class="term-detail" data-see="SendMessage, supportedInterfaces, TaskState">
-          <p>Service parameters travel as HTTP headers (JSON-RPC and REST bindings) or gRPC metadata, including <code>A2A-Version</code> and <code>A2A-Extensions</code>. An unsupported version is rejected with <code>400</code> and <code>application/problem+json</code>, which is a far better failure than a mysterious method-not-found.</p>
-          <p>1.0.0 changed enough to matter: PascalCase methods, <code>supportedInterfaces</code> replacing the single <code>url</code> and <code>preferredTransport</code>, <code>TASK_STATE_*</code> enum spellings, and renamed request and response types. Legacy names are slated for removal, so dual-version code has a deadline.</p>
-          <h4>Error codes</h4>
-          <table>
-            <tr><th>Range</th><th>Meaning</th></tr>
-            <tr><td><code>-32700</code>&hellip;<code>-32603</code></td><td>standard JSON-RPC errors</td></tr>
-            <tr><td><code>-32001</code>&hellip;<code>-32099</code></td><td>A2A-specific errors</td></tr>
-            <tr><td><code>-32001</code></td><td>e.g. <code>TASK_NOT_FOUND</code> (gRPC <code>NOT_FOUND</code>, REST <code>404</code>)</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Read the counterparty's card and its <code>protocolVersion</code> first; half of all integration bugs are a version mismatch.</li></ul>
+        <p>Service parameters travel as HTTP headers (JSON-RPC and REST bindings) or gRPC metadata, including <code>A2A-Version</code> and <code>A2A-Extensions</code>. An unsupported version is rejected with <code>400</code> and <code>application/problem+json</code>, which is a far better failure than a mysterious method-not-found.</p>
+        <p>1.0.0 changed enough to matter: PascalCase methods, <code>supportedInterfaces</code> replacing the single <code>url</code> and <code>preferredTransport</code>, <code>TASK_STATE_*</code> enum spellings, and renamed request and response types. Legacy names are slated for removal, so dual-version code has a deadline.</p>
+        <h4>Error codes</h4>
+        <table><tr><th>Range</th><th>Meaning</th></tr>
+        <tr><td><code>-32700</code>…<code>-32603</code></td><td>standard JSON-RPC errors</td></tr>
+        <tr><td><code>-32001</code>…<code>-32099</code></td><td>A2A-specific errors</td></tr>
+        <tr><td><code>-32001</code></td><td>e.g. <code>TASK_NOT_FOUND</code> (gRPC <code>NOT_FOUND</code>, REST <code>404</code>)</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Read the counterparty's card and its <code>protocolVersion</code> first; half of all integration bugs are a version mismatch.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Opaque agents</b><span>The design rule that makes A2A different: you exchange tasks, never internals.</span><template class="term-detail" data-see="Task, Skill, Card signing">
-          <p>A remote agent does not expose its tools, its prompts, its model, its memory or its plan. You cannot inspect its reasoning and it cannot borrow your context. All that crosses the boundary are messages, task state and artifacts.</p>
-          <p>That constraint is the point. It allows agents from different vendors, written in different languages, holding different credentials, to collaborate without a shared runtime &mdash; and it keeps each side's intellectual property and data on its own side of the wire.</p>
-          <h4>The consequences</h4>
-          <table>
-            <tr><th>You get</th><th>You give up</th></tr>
-            <tr><td>Cross-vendor interop</td><td>Visibility into reasoning</td></tr>
-            <tr><td>Independent deployment</td><td>Shared context and memory</td></tr>
-            <tr><td>Clear trust boundary</td><td>Fine-grained control</td></tr>
-            <tr><td>Each side keeps its secrets</td><td>Easy end-to-end debugging</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>If you need to see inside, you do not want A2A &mdash; you want the other agent's tools exposed over <b>MCP</b>, or the same harness running both.</li></ul>
+        <p>A remote agent does not expose its tools, its prompts, its model, its memory or its plan. You cannot inspect its reasoning and it cannot borrow your context. All that crosses the boundary are messages, task state and artifacts.</p>
+        <p>That constraint is the point. It allows agents from different vendors, written in different languages, holding different credentials, to collaborate without a shared runtime — and it keeps each side's intellectual property and data on its own side of the wire.</p>
+        <h4>The consequences</h4>
+        <table><tr><th>You get</th><th>You give up</th></tr>
+        <tr><td>Cross-vendor interop</td><td>Visibility into reasoning</td></tr>
+        <tr><td>Independent deployment</td><td>Shared context and memory</td></tr>
+        <tr><td>Clear trust boundary</td><td>Fine-grained control</td></tr>
+        <tr><td>Each side keeps its secrets</td><td>Easy end-to-end debugging</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>If you need to see inside, you do not want A2A — you want the other agent's tools exposed over <b>MCP</b>, or the same harness running both.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>A2A vs MCP</b><span>Complementary, not competing: one connects agents to tools, the other connects agents to agents.</span><template class="term-detail" data-see="Opaque agents, Task, Skill">
-          <p>The official position is that the two are complementary protocols for different aspects of agentic systems. MCP connects a model or agent to tools, APIs and data sources &mdash; typed, synchronous, under your control. A2A standardises how separate agents discover each other, exchange tasks and collaborate as peers &mdash; prose-described, long-running, opaque.</p>
-          <p>The canonical arrangement: an A2A client asks a remote agent for something substantial; that agent uses MCP internally to reach its own tools. Neither side sees the other's tools, and neither protocol is doing the other's job.</p>
-          <h4>Side by side</h4>
-          <table>
-            <tr><th></th><th>MCP</th><th>A2A</th></tr>
-            <tr><td>Other side</td><td>a tool or data source</td><td>an autonomous agent</td></tr>
-            <tr><td>Interface</td><td>JSON Schema arguments</td><td>messages and skills in prose</td></tr>
-            <tr><td>Duration</td><td>a call</td><td>a task, possibly hours</td></tr>
-            <tr><td>Visibility</td><td>you define the tool</td><td>opaque peer</td></tr>
-            <tr><td>Direction</td><td>down</td><td>across</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>If you control both sides and want determinism, MCP plus your own <b>agent harness</b> is simpler. A2A earns its keep across an organisational boundary.</li></ul>
+        <p>The official position is that the two are complementary protocols for different aspects of agentic systems. MCP connects a model or agent to tools, APIs and data sources — typed, synchronous, under your control. A2A standardises how separate agents discover each other, exchange tasks and collaborate as peers — prose-described, long-running, opaque.</p>
+        <p>The canonical arrangement: an A2A client asks a remote agent for something substantial; that agent uses MCP internally to reach its own tools. Neither side sees the other's tools, and neither protocol is doing the other's job.</p>
+        <h4>Side by side</h4>
+        <table><tr><th></th><th>MCP</th><th>A2A</th></tr>
+        <tr><td>Other side</td><td>a tool or data source</td><td>an autonomous agent</td></tr>
+        <tr><td>Interface</td><td>JSON Schema arguments</td><td>messages and skills in prose</td></tr>
+        <tr><td>Duration</td><td>a call</td><td>a task, possibly hours</td></tr>
+        <tr><td>Visibility</td><td>you define the tool</td><td>opaque peer</td></tr>
+        <tr><td>Direction</td><td>down</td><td>across</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>If you control both sides and want determinism, MCP plus your own <b>agent harness</b> is simpler. A2A earns its keep across an organisational boundary.</li>
+        </ul>
         </template></div>
       </div>
     </section>
 
     <section id="commands">
       <h2>Essential code</h2>
-      <p style="margin:0 0 16px"><span class="note">official SDKs exist for python, js, java, c# and go &mdash; but the wire format is small enough to read directly.</span></p>
-
+      <p style="margin:0 0 16px"><span class="note">official SDKs exist for python, js, java, c# and go — but the wire format is small enough to read directly.</span></p>
       <div class="cmd-group">
         <h3>The Agent Card</h3>
         <div class="cmd"><pre class="language-json line-numbers"><code class="language-json">// GET https://visa.example.com/.well-known/agent-card.json
@@ -496,7 +485,6 @@
                     "signature": "MEUCIQ…" } ]
 }</code></pre><div class="what">Everything a client needs before writing code: where to send, how to authenticate, what it can ask for, and proof of who published it.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Delegating a task</h3>
         <div class="cmd"><pre class="language-json line-numbers"><code class="language-json">// POST https://visa.example.com/a2a   (Authorization: Bearer …, A2A-Version: 1.0)
@@ -533,7 +521,6 @@ curl -N https://visa.example.com/a2a \
 # data: {"jsonrpc":"2.0","id":2,"result":{"artifactUpdate":{"taskId":"t_8f21","artifact":{…},"append":true}}}
 # data: {"jsonrpc":"2.0","id":2,"result":{"statusUpdate":{"taskId":"t_8f21","status":{"state":"TASK_STATE_COMPLETED"}}}}</code></pre><div class="what">Each frame wraps a <code>StreamResponse</code>: exactly one of <code>task</code>, <code>message</code>, <code>statusUpdate</code> or <code>artifactUpdate</code>, in generation order.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>A client that follows the task to the end</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// C# — discover, send, stream, and handle the pauses
@@ -631,18 +618,18 @@ async def push(body: dict, authorization: str = Header(default="")):
           <li>Agents from different vendors, languages and clouds can collaborate without a shared runtime.</li>
           <li>Discovery is one HTTP GET, and the card is readable by a human as well as a machine.</li>
           <li>Tasks are built for long-running work: states, interruptions, progress and durable artifacts.</li>
-          <li>Multimodal by default &mdash; text, files, URLs and structured data in one message.</li>
+          <li>Multimodal by default — text, files, URLs and structured data in one message.</li>
           <li>Three bindings over the same semantics, so you can pick JSON-RPC, gRPC or REST to suit your estate.</li>
           <li>Opacity is a feature across organisational boundaries: neither side exposes prompts, tools or data.</li>
           <li>Vendor-neutral governance under the Linux Foundation, with broad platform support.</li>
         </ul></div>
         <div class="col bad"><h3>Cons</h3><ul>
           <li>Heavier than a function call: discovery, task state, streaming and webhooks for one delegation.</li>
-          <li>Opacity cuts both ways &mdash; debugging a wrong answer across the boundary is genuinely hard.</li>
+          <li>Opacity cuts both ways — debugging a wrong answer across the boundary is genuinely hard.</li>
           <li>Skills are prose, so capability matching is fuzzy and failures are semantic rather than typed.</li>
           <li>1.0.0 renamed methods, card fields and state values; most published examples are 0.x.</li>
           <li>Non-determinism compounds: two agents, two loops, two sets of retries.</li>
-          <li>Cost and latency are opaque too &mdash; you are paying for someone else's token spend.</li>
+          <li>Cost and latency are opaque too — you are paying for someone else's token spend.</li>
           <li>The ecosystem of genuinely useful public agents is still thin compared with MCP servers.</li>
         </ul></div>
       </div>
@@ -652,9 +639,9 @@ async def push(body: dict, authorization: str = Header(default="")):
       <h2>Concrete use cases</h2>
       <div class="cards">
         <div class="card"><h3>Cross-company delegation</h3><p>A travel platform's agent delegates visa assessment to a specialist provider's agent. Neither exposes its tools or data; the card describes the skill, the task carries the request, and the artifact is a document the platform can store and show.</p></div>
-        <div class="card"><h3>Specialist agents inside one company</h3><p>A support agent hands a pricing question to the pricing team's agent and a legal question to legal's. Each team deploys, versions and secures its own agent independently &mdash; the integration is a card URL, not a shared codebase.</p></div>
+        <div class="card"><h3>Specialist agents inside one company</h3><p>A support agent hands a pricing question to the pricing team's agent and a legal question to legal's. Each team deploys, versions and secures its own agent independently — the integration is a card URL, not a shared codebase.</p></div>
         <div class="card"><h3>Long-running research</h3><p>A task that runs for forty minutes, emits progress, streams a report artifact in chunks, and pauses once to ask which market to prioritise. Request/response could not express any of that; the task lifecycle expresses all of it.</p></div>
-        <div class="card"><h3>Human-in-the-loop compliance</h3><p>A task reaches <code>AUTH_REQUIRED</code> because the remote agent needs consent to query a government system. The client drives the consent flow with the actual human, then continues the same task &mdash; the pause is in the protocol, not bolted on.</p></div>
+        <div class="card"><h3>Human-in-the-loop compliance</h3><p>A task reaches <code>AUTH_REQUIRED</code> because the remote agent needs consent to query a government system. The client drives the consent flow with the actual human, then continues the same task — the pause is in the protocol, not bolted on.</p></div>
         <div class="card"><h3>An agent marketplace</h3><p>Signed agent cards indexed in a registry, searchable by skill tags. An orchestrator picks an agent at runtime by capability rather than by hard-coded URL, and verifies the signature before sending it anything.</p></div>
       </div>
     </section>
@@ -672,10 +659,10 @@ async def push(body: dict, authorization: str = Header(default="")):
         </ul></div>
         <div class="col bad"><h3>Avoid it when…</h3><ul>
           <li>You are exposing a system, database or API to a model. Use <b>MCP</b>.</li>
-          <li>Both "agents" live in one codebase. Use a <b>function call</b> &mdash; a protocol buys nothing.</li>
+          <li>Both "agents" live in one codebase. Use a <b>function call</b> — a protocol buys nothing.</li>
           <li>The interaction is a typed request/response with a schema. Use <b>gRPC</b> or REST.</li>
           <li>You need determinism, step limits and full observability. Use an <b>agent harness</b> you control.</li>
-          <li>Latency budgets are tight &mdash; discovery, task creation and polling all cost round trips.</li>
+          <li>Latency budgets are tight — discovery, task creation and polling all cost round trips.</li>
           <li>Only one consumer will ever exist. Integrate directly and revisit when there is a second.</li>
         </ul></div>
       </div>
@@ -685,11 +672,11 @@ async def push(body: dict, authorization: str = Header(default="")):
       <h2>Common mistakes &amp; gotchas</h2>
       <div class="gotcha"><b>Writing 0.x method names against a 1.0 agent</b><span><code>message/send</code> and <code>tasks/get</code> return method-not-found, and the error gives no hint that the names were renamed to <code>SendMessage</code> and <code>GetTask</code>.</span><div class="fix">Fix: read <code>protocolVersion</code> on the chosen interface, send <code>A2A-Version</code>, and use the PascalCase names. An unsupported version should come back as a 400 with <code>application/problem+json</code>, which is a far clearer signal.</div></div>
       <div class="gotcha"><b>Treating the response as a value</b><span>Client code awaits <code>SendMessage</code> and reads a result. Sometimes it gets a <code>Message</code> and works; sometimes it gets a <code>Task</code> in <code>SUBMITTED</code> and silently returns nothing useful.</span><div class="fix">Fix: branch on which you received, and for a task run the follow loop to a terminal state. Both shapes are normal and both must be handled.</div></div>
-      <div class="gotcha"><b>Conflating FAILED, REJECTED and CANCELED</b><span>All three are terminal, so the client retries all of them. <code>REJECTED</code> means the agent declined the request &mdash; retrying unchanged is a loop that will never succeed, and may be billed each time.</span><div class="fix">Fix: retry <code>FAILED</code> with backoff, never retry <code>REJECTED</code> without changing the request, and treat <code>CANCELED</code> as someone's deliberate decision.</div></div>
+      <div class="gotcha"><b>Conflating FAILED, REJECTED and CANCELED</b><span>All three are terminal, so the client retries all of them. <code>REJECTED</code> means the agent declined the request — retrying unchanged is a loop that will never succeed, and may be billed each time.</span><div class="fix">Fix: retry <code>FAILED</code> with backoff, never retry <code>REJECTED</code> without changing the request, and treat <code>CANCELED</code> as someone's deliberate decision.</div></div>
       <div class="gotcha"><b>Inventing task or context ids</b><span>A client generates a <code>taskId</code> to correlate work. The server rejects it, or worse, a mismatched <code>contextId</code> and <code>taskId</code> pair is refused for reasons that are hard to read.</span><div class="fix">Fix: both ids are server-generated. Store what you are given and send it back unchanged; carry <code>contextId</code> forward only for genuine follow-ups.</div></div>
       <div class="gotcha"><b>Streaming behind a buffering proxy</b><span>The SSE stream produces nothing for twenty minutes and then everything at once, because a reverse proxy buffered the response. The agent looks broken and is not.</span><div class="fix">Fix: disable response buffering on the streaming route, keep read timeouts long, and fall back to push notifications for genuinely long tasks.</div></div>
-      <div class="gotcha"><b>Trusting push notifications</b><span>The webhook accepts any POST and acts on the payload. Delivery is at-least-once, so duplicates double-process &mdash; and an unauthenticated endpoint will happily act on a forged one.</span><div class="fix">Fix: authenticate the inbound call with the token you registered, deduplicate on task id plus event identity, and call <code>GetTask</code> to confirm before doing anything irreversible.</div></div>
-      <div class="gotcha"><b>Ignoring the card's interface order</b><span>The client picks gRPC because it is listed, or hard-codes the first URL it saw. Both ignore the rule that the first entry is preferred among those you support &mdash; and that a declared <code>tenant</code> must be sent.</span><div class="fix">Fix: filter <code>supportedInterfaces</code> to the bindings you implement, take the earliest, and propagate <code>tenant</code> exactly as declared or omit it entirely.</div></div>
+      <div class="gotcha"><b>Trusting push notifications</b><span>The webhook accepts any POST and acts on the payload. Delivery is at-least-once, so duplicates double-process — and an unauthenticated endpoint will happily act on a forged one.</span><div class="fix">Fix: authenticate the inbound call with the token you registered, deduplicate on task id plus event identity, and call <code>GetTask</code> to confirm before doing anything irreversible.</div></div>
+      <div class="gotcha"><b>Ignoring the card's interface order</b><span>The client picks gRPC because it is listed, or hard-codes the first URL it saw. Both ignore the rule that the first entry is preferred among those you support — and that a declared <code>tenant</code> must be sent.</span><div class="fix">Fix: filter <code>supportedInterfaces</code> to the bindings you implement, take the earliest, and propagate <code>tenant</code> exactly as declared or omit it entirely.</div></div>
       <div class="gotcha"><b>Unsigned cards fetched over an unverified path</b><span>The card says where to send work and what the agent claims. Fetched without verification, a substituted card redirects every delegation to someone else's endpoint.</span><div class="fix">Fix: HTTPS with certificate verification, verify the JWS <code>signatures</code> where present, and pin the issuer for agents you depend on.</div></div>
       <div class="gotcha"><b>No budget on delegated work</b><span>A remote agent runs for an hour on its own schedule, spending your money under a contract you did not read closely. Nothing in the protocol caps it for you.</span><div class="fix">Fix: set your own deadline, call <code>CancelTask</code> when it passes, and keep per-counterparty budgets and timeouts the way you would for any external dependency.</div></div>
     </section>
@@ -700,12 +687,12 @@ async def push(body: dict, authorization: str = Header(default="")):
         <table>
           <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost / license</th><th>Key difference vs A2A</th></tr></thead>
           <tbody>
-            <tr class="self"><td><b>A2A</b></td><td>agents collaborating across boundaries</td><td>Medium</td><td>open, Apache 2.0</td><td>&mdash;</td></tr>
+            <tr class="self"><td><b>A2A</b></td><td>agents collaborating across boundaries</td><td>Medium</td><td>open, Apache 2.0</td><td>—</td></tr>
             <tr><td><b>MCP</b></td><td>connecting a model to tools and data</td><td>Medium</td><td>open spec</td><td>Typed tool calls you define, not opaque peers; the two compose</td></tr>
-            <tr><td><b>Direct REST / gRPC</b></td><td>a typed, deterministic service</td><td>Low</td><td>free</td><td>No discovery, no task lifecycle, no interruptions &mdash; and far simpler</td></tr>
-            <tr><td><b>One multi-agent framework</b></td><td>agents you own, in one runtime</td><td>Low&ndash;Medium</td><td>free</td><td>Shared memory and full visibility, but only within that framework</td></tr>
+            <tr><td><b>Direct REST / gRPC</b></td><td>a typed, deterministic service</td><td>Low</td><td>free</td><td>No discovery, no task lifecycle, no interruptions — and far simpler</td></tr>
+            <tr><td><b>One multi-agent framework</b></td><td>agents you own, in one runtime</td><td>Low–Medium</td><td>free</td><td>Shared memory and full visibility, but only within that framework</td></tr>
             <tr><td><b>Message queue</b></td><td>asynchronous work at scale</td><td>Medium</td><td>infrastructure</td><td>Durable delivery and decoupling, but you define every message and state yourself</td></tr>
-            <tr><td><b>Workflow engine</b></td><td>long-running deterministic processes</td><td>Medium&ndash;High</td><td>infrastructure or service</td><td>Durable, replayable orchestration of steps you control, not autonomous peers</td></tr>
+            <tr><td><b>Workflow engine</b></td><td>long-running deterministic processes</td><td>Medium–High</td><td>infrastructure or service</td><td>Durable, replayable orchestration of steps you control, not autonomous peers</td></tr>
           </tbody>
         </table>
       </div>
@@ -768,34 +755,34 @@ async def push(body: dict, authorization: str = Header(default="")):
   </main>
 </div>
 
-<script src="../assets/player.js?v=3658cbc7"></script>
+<script src="../assets/player.js?v=e9bf1ea3"></script>
 <script>
 createAnimation('anim-delegate', [
-  { say: 'Your travel agent has a request it cannot handle: a visa eligibility assessment. It knows a specialist agent exists, and knows exactly one thing about it &mdash; its domain.', hl: ['ad-client'], text: { 'ad-s1': 'known: visa.example.com', 'ad-s2': 'known: nothing else' } },
-  { say: 'Discovery is one HTTP GET. The card at <code>/.well-known/agent-card.json</code> is the whole contract: skills, interfaces, security schemes and a signature.', show: ['ad-msg'], text: { 'ad-msgt': 'GET /.well-known/agent-card.json', 'ad-w1': '→ GET https://visa.example.com/.well-known/agent-card.json', 'ad-w2': '← { "name": "Visa Advisor", "version": "1.2.0",', 'ad-w3': '    "supportedInterfaces": [ {JSONRPC 1.0}, {GRPC 1.0}, {HTTP+JSON 1.0} ],', 'ad-w4': '    "capabilities": { "streaming": true, "pushNotifications": true },', 'ad-w5': '    "skills": [ { "id": "assess-eligibility", … } ],', 'ad-w6': '    "signatures": [ … ] }' } },
-  { say: 'The client picks an interface by the rule in the spec: first entry preferred, among the bindings it actually supports. It speaks JSON-RPC, so it takes the first entry.', move: { 'ad-msg': [289, 0] }, unhl: ['ad-client'], hl: ['ad-server'], text: { 'ad-msgt': 'chose JSONRPC', 'ad-s1': 'endpoint: https://visa.example.com/a2a', 'ad-s2': 'binding: JSONRPC · protocolVersion 1.0', 'ad-s3': 'auth: OAuth client credentials, scope "assess"', 'ad-s4': 'card signature: verified ✓' }, fill: { 'ad-s4': '#2f6b3f' } },
-  { say: 'Now the delegation itself. Note what it is not: there is no function name and no typed argument list. A message in prose, plus a PDF by URL &mdash; the remote agent decides how to interpret it.', text: { 'ad-msgt': 'SendMessage', 'ad-wt': 'on the wire — the delegation', 'ad-w1': '→ {"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{', 'ad-w2': '     "message":{"role":"ROLE_USER","parts":[', 'ad-w3': '       {"text":"Assess eligibility: Italian citizen, 5-day business trip…"},', 'ad-w4': '       {"url":"https://files…/app-4412.pdf","mediaType":"application/pdf"}]}}}', 'ad-w5': '&nbsp;', 'ad-w6': '&nbsp;' } },
-  { say: 'The answer is not a result &mdash; it is a <b>Task</b>, with an id the server chose. That one design decision is what separates A2A from a remote procedure call.', move: { 'ad-msg': [0, 0] }, text: { 'ad-msgt': '← Task t_8f21', 'ad-w5': '← {"task":{"id":"t_8f21","contextId":"c_44a9",', 'ad-w6': '           "status":{"state":"TASK_STATE_SUBMITTED"}}}', 'ad-s1': 'taskId:    t_8f21   (server-generated)', 'ad-s2': 'contextId: c_44a9   (groups follow-ups)', 'ad-s3': 'state:     TASK_STATE_SUBMITTED', 'ad-s4': 'artifacts: none yet' } },
-  { say: 'Behind the wall the remote agent runs its own loop with its own model, reaching its own tools over MCP, with credentials you will never see and have no claim on.', unhl: ['ad-server'], hl: ['ad-tools'], text: { 'ad-phase': 'what happens over there is deliberately invisible', 'ad-toolst': 'gov portals, rules engine — not yours' }, fill: { 'ad-toolst': '#c53b3b' } },
-  { say: 'Updates arrive as SSE frames. Each one wraps a <code>StreamResponse</code>: exactly one of task, message, statusUpdate or artifactUpdate, in generation order.', unhl: ['ad-tools'], hl: ['ad-server'], text: { 'ad-wt': 'on the wire — the stream', 'ad-w1': 'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_WORKING"}}}}', 'ad-w2': 'data: {"result":{"statusUpdate":{"status":{"message":"reading application"}}}}', 'ad-w3': 'data: {"result":{"artifactUpdate":{"artifact":{…},"append":true}}}', 'ad-w4': 'data: {"result":{"artifactUpdate":{"artifact":{…},"append":true,"lastChunk":true}}}', 'ad-w5': '&nbsp;', 'ad-w6': '&nbsp;', 'ad-s3': 'state:     TASK_STATE_WORKING', 'ad-s4': 'artifacts: assessment.pdf (streaming, 2 chunks)' } },
-  { say: 'The artifact streams in chunks with <code>append</code> and <code>lastChunk</code>, so your UI can render a long report as it is written instead of after it is finished.', text: { 'ad-s5': 'the user is already reading page 1 while page 4 is being written' }, fill: { 'ad-s5': '#2f6b3f' } },
-  { say: 'A terminal status closes it. The task is <code>COMPLETED</code>, the artifacts are final, and the stream ends.', unhl: ['ad-server'], text: { 'ad-w5': 'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}', 'ad-s3': 'state:     TASK_STATE_COMPLETED', 'ad-s4': 'artifacts: assessment.pdf (final)', 'ad-s5': 'eligible: yes · class B-1 · 4 documents required' }, fill: { 'ad-s3': '#2f6b3f' } },
-  { say: 'Look at what you ended up with: a verdict and a document. Not a plan, not a tool trace, not a prompt &mdash; the remote agent stayed opaque throughout, and that is what let two companies integrate at all.', hl: ['ad-client'], text: { 'ad-s6': 'you never saw its model, its prompts, its tools or its data' }, fill: { 'ad-s6': '#c53b3b' } },
-  { say: 'And the same card, unchanged, works for any other A2A client. Discovery by URL, delegation by message, results by artifact &mdash; that is the entire integration surface.', unhl: ['ad-client'], text: { 'ad-phase': 'one card, any A2A client', 'ad-v': 'across to peers with A2A · down to tools with MCP' }, fill: { 'ad-verd': '#e3eedc' } },
+  { say: "Your travel agent has a request it cannot handle: a visa eligibility assessment. It knows a specialist agent exists, and knows exactly one thing about it — its domain.", hl: ["ad-client"], text: {"ad-s1":"known: visa.example.com","ad-s2":"known: nothing else"} },
+  { say: "Discovery is one HTTP GET. The card at <code>/.well-known/agent-card.json</code> is the whole contract: skills, interfaces, security schemes and a signature.", show: ["ad-msg"], text: {"ad-msgt":"GET /.well-known/agent-card.json","ad-w1":"→ GET https://visa.example.com/.well-known/agent-card.json","ad-w2":"← { \"name\": \"Visa Advisor\", \"version\": \"1.2.0\",","ad-w3":"    \"supportedInterfaces\": [ {JSONRPC 1.0}, {GRPC 1.0}, {HTTP+JSON 1.0} ],","ad-w4":"    \"capabilities\": { \"streaming\": true, \"pushNotifications\": true },","ad-w5":"    \"skills\": [ { \"id\": \"assess-eligibility\", … } ],","ad-w6":"    \"signatures\": [ … ] }"} },
+  { say: "The client picks an interface by the rule in the spec: first entry preferred, among the bindings it actually supports. It speaks JSON-RPC, so it takes the first entry.", hl: ["ad-server"], unhl: ["ad-client"], move: {"ad-msg":[289,0]}, text: {"ad-msgt":"chose JSONRPC","ad-s1":"endpoint: https://visa.example.com/a2a","ad-s2":"binding: JSONRPC · protocolVersion 1.0","ad-s3":"auth: OAuth client credentials, scope \"assess\"","ad-s4":"card signature: verified ✓"}, fill: {"ad-s4":"#2f6b3f"} },
+  { say: "Now the delegation itself. Note what it is not: there is no function name and no typed argument list. A message in prose, plus a PDF by URL — the remote agent decides how to interpret it.", text: {"ad-msgt":"SendMessage","ad-wt":"on the wire — the delegation","ad-w1":"→ {\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"SendMessage\",\"params\":{","ad-w2":"     \"message\":{\"role\":\"ROLE_USER\",\"parts\":[","ad-w3":"       {\"text\":\"Assess eligibility: Italian citizen, 5-day business trip…\"},","ad-w4":"       {\"url\":\"https://files…/app-4412.pdf\",\"mediaType\":\"application/pdf\"}]}}}","ad-w5":"&nbsp;","ad-w6":"&nbsp;"} },
+  { say: "The answer is not a result — it is a <b>Task</b>, with an id the server chose. That one design decision is what separates A2A from a remote procedure call.", move: {"ad-msg":[0,0]}, text: {"ad-msgt":"← Task t_8f21","ad-w5":"← {\"task\":{\"id\":\"t_8f21\",\"contextId\":\"c_44a9\",","ad-w6":"           \"status\":{\"state\":\"TASK_STATE_SUBMITTED\"}}}","ad-s1":"taskId:    t_8f21   (server-generated)","ad-s2":"contextId: c_44a9   (groups follow-ups)","ad-s3":"state:     TASK_STATE_SUBMITTED","ad-s4":"artifacts: none yet"} },
+  { say: "Behind the wall the remote agent runs its own loop with its own model, reaching its own tools over MCP, with credentials you will never see and have no claim on.", hl: ["ad-tools"], unhl: ["ad-server"], text: {"ad-phase":"what happens over there is deliberately invisible","ad-toolst":"gov portals, rules engine — not yours"}, fill: {"ad-toolst":"#c53b3b"} },
+  { say: "Updates arrive as SSE frames. Each one wraps a <code>StreamResponse</code>: exactly one of task, message, statusUpdate or artifactUpdate, in generation order.", hl: ["ad-server"], unhl: ["ad-tools"], text: {"ad-wt":"on the wire — the stream","ad-w1":"data: {\"result\":{\"statusUpdate\":{\"status\":{\"state\":\"TASK_STATE_WORKING\"}}}}","ad-w2":"data: {\"result\":{\"statusUpdate\":{\"status\":{\"message\":\"reading application\"}}}}","ad-w3":"data: {\"result\":{\"artifactUpdate\":{\"artifact\":{…},\"append\":true}}}","ad-w4":"data: {\"result\":{\"artifactUpdate\":{\"artifact\":{…},\"append\":true,\"lastChunk\":true}}}","ad-w5":"&nbsp;","ad-w6":"&nbsp;","ad-s3":"state:     TASK_STATE_WORKING","ad-s4":"artifacts: assessment.pdf (streaming, 2 chunks)"} },
+  { say: "The artifact streams in chunks with <code>append</code> and <code>lastChunk</code>, so your UI can render a long report as it is written instead of after it is finished.", text: {"ad-s5":"the user is already reading page 1 while page 4 is being written"}, fill: {"ad-s5":"#2f6b3f"} },
+  { say: "A terminal status closes it. The task is <code>COMPLETED</code>, the artifacts are final, and the stream ends.", unhl: ["ad-server"], text: {"ad-w5":"data: {\"result\":{\"statusUpdate\":{\"status\":{\"state\":\"TASK_STATE_COMPLETED\"}}}}","ad-s3":"state:     TASK_STATE_COMPLETED","ad-s4":"artifacts: assessment.pdf (final)","ad-s5":"eligible: yes · class B-1 · 4 documents required"}, fill: {"ad-s3":"#2f6b3f"} },
+  { say: "Look at what you ended up with: a verdict and a document. Not a plan, not a tool trace, not a prompt — the remote agent stayed opaque throughout, and that is what let two companies integrate at all.", hl: ["ad-client"], text: {"ad-s6":"you never saw its model, its prompts, its tools or its data"}, fill: {"ad-s6":"#c53b3b"} },
+  { say: "And the same card, unchanged, works for any other A2A client. Discovery by URL, delegation by message, results by artifact — that is the entire integration surface.", unhl: ["ad-client"], text: {"ad-phase":"one card, any A2A client","ad-v":"across to peers with A2A · down to tools with MCP"}, fill: {"ad-verd":"#e3eedc"} },
 ]);
 
 createAnimation('anim-lifecycle', [
-  { say: 'The server creates the task and acknowledges it: <code>TASK_STATE_SUBMITTED</code>. Accepted, not started &mdash; there is nothing to do yet but wait.', hl: ['al-sub'], text: { 'al-l1': '← task t_8f21 · TASK_STATE_SUBMITTED · queued' } },
-  { say: 'It begins, and emits <code>WORKING</code>. Status updates can carry a human-readable message, which is what makes a progress UI possible without inventing a side channel.', unhl: ['al-sub'], hl: ['al-work'], text: { 'al-workt': 'reading the application', 'al-l2': '← statusUpdate · TASK_STATE_WORKING · "reading the application"' }, fill: { 'al-work': '#e3eedc' } },
-  { say: 'Then it stops. The application does not state the applicant&rsquo;s nationality, and the agent will not guess: <code>TASK_STATE_INPUT_REQUIRED</code>.', unhl: ['al-work'], hl: ['al-input'], text: { 'al-work': ' ', 'al-l3': '← statusUpdate · TASK_STATE_INPUT_REQUIRED · "which nationality?"' }, fill: { 'al-input': '#fbf3c4', 'al-work': '#e8ece2' } },
-  { say: 'This is a pause, not a failure. The task is alive and waiting, and the client answers by sending another message carrying the <em>same</em> taskId and contextId.', text: { 'al-inputt': 'client replies on the same task', 'al-l4': '→ SendMessage { taskId: t_8f21, contextId: c_44a9, parts:[{text:"Italian"}] }' } },
-  { say: 'It resumes. One task, one id, two exchanges &mdash; which is precisely the thing a request/response API cannot express without you building a state machine by hand.', unhl: ['al-input'], hl: ['al-work'], text: { 'al-input': ' ', 'al-workt': 'assessing eligibility', 'al-l5': '← statusUpdate · TASK_STATE_WORKING (resumed)' }, fill: { 'al-input': '#e8ece2', 'al-work': '#e3eedc' } },
-  { say: 'Now a different kind of stop. To check the destination&rsquo;s entry rules it must query a government portal <em>as the user</em>, and it has no consent: <code>TASK_STATE_AUTH_REQUIRED</code>.', unhl: ['al-work'], hl: ['al-auth'], text: { 'al-work': ' ', 'al-l1': '← statusUpdate · TASK_STATE_AUTH_REQUIRED · "consent for portal X"', 'al-l2': '&nbsp;', 'al-l3': '&nbsp;', 'al-l4': '&nbsp;', 'al-l5': '&nbsp;' }, fill: { 'al-auth': '#fbf3c4', 'al-work': '#e8ece2' } },
-  { say: 'The client drives a consent flow with the actual human and supplies credentials. The spec is explicit that reaching this state is a <em>request</em> for authorization, never a grant &mdash; the agent must still obtain and validate it.', text: { 'al-autht': 'client runs the consent flow', 'al-l2': '→ consent obtained from the human, credentials supplied', 'al-l3': 'the state alone authorises nothing — it only asks' }, fill: { 'al-l3': '#c53b3b' } },
-  { say: 'Work resumes again, and an artifact starts streaming: the assessment document, chunk by chunk, with <code>append: true</code>.', unhl: ['al-auth'], hl: ['al-work'], text: { 'al-auth': ' ', 'al-workt': 'writing the assessment', 'al-l4': '← artifactUpdate · assessment.pdf · append=true', 'al-l5': '← artifactUpdate · assessment.pdf · append=true, lastChunk=true' }, fill: { 'al-auth': '#e8ece2', 'al-work': '#e3eedc' } },
-  { say: '<code>COMPLETED</code> &mdash; terminal. The artifacts are final, the stream closes, and <code>SubscribeToTask</code> on it from now on returns <code>UnsupportedOperationError</code> rather than an empty stream.', unhl: ['al-work'], hl: ['al-done'], text: { 'al-work': ' ', 'al-l1': '← statusUpdate · TASK_STATE_COMPLETED', 'al-l2': 'artifacts final · subscribing now returns UnsupportedOperationError', 'al-l3': '&nbsp;', 'al-l4': '&nbsp;', 'al-l5': '&nbsp;' }, fill: { 'al-done': '#e3eedc', 'al-work': '#e8ece2' } },
-  { say: 'It could have ended in three other terminal states, and they are not interchangeable. <code>FAILED</code> means it tried and could not. <code>CANCELED</code> means someone stopped it. <code>REJECTED</code> means it declined the request outright.', unhl: ['al-done'], hl: ['al-fail'], text: { 'al-l1': 'FAILED   → it tried and could not → retry with backoff may work', 'al-l2': 'CANCELED → someone stopped it deliberately → do not resurrect', 'al-l3': 'REJECTED → it declined the request → retrying unchanged will never succeed', 'al-l4': 'conflating these is how you build a retry loop that bills you forever' }, fill: { 'al-l3': '#c53b3b', 'al-l4': '#c53b3b' } },
-  { say: 'And if your client cannot hold an SSE stream open for forty minutes, register a push notification config instead: the agent POSTs the same <code>StreamResponse</code> objects to your webhook, at least once.', unhl: ['al-fail'], text: { 'al-phase': 'same lifecycle, delivered to a webhook instead of a stream', 'al-l1': '→ CreateTaskPushNotificationConfig { url, token, authentication }', 'al-l2': '← POST https://you.example/a2a/push   Content-Type: application/a2a+json', 'al-l3': 'at-least-once: deduplicate, authenticate, then GetTask to confirm', 'al-l4': '&nbsp;' }, fill: { 'al-l3': '#2f6b3f' } },
+  { say: "The server creates the task and acknowledges it: <code>TASK_STATE_SUBMITTED</code>. Accepted, not started — there is nothing to do yet but wait.", hl: ["al-sub"], text: {"al-l1":"← task t_8f21 · TASK_STATE_SUBMITTED · queued"} },
+  { say: "It begins, and emits <code>WORKING</code>. Status updates can carry a human-readable message, which is what makes a progress UI possible without inventing a side channel.", hl: ["al-work"], unhl: ["al-sub"], text: {"al-workt":"reading the application","al-l2":"← statusUpdate · TASK_STATE_WORKING · \"reading the application\""}, fill: {"al-work":"#e3eedc"} },
+  { say: "Then it stops. The application does not state the applicant’s nationality, and the agent will not guess: <code>TASK_STATE_INPUT_REQUIRED</code>.", hl: ["al-input"], unhl: ["al-work"], text: {"al-work":" ","al-l3":"← statusUpdate · TASK_STATE_INPUT_REQUIRED · \"which nationality?\""}, fill: {"al-input":"#fbf3c4","al-work":"#e8ece2"} },
+  { say: "This is a pause, not a failure. The task is alive and waiting, and the client answers by sending another message carrying the <em>same</em> taskId and contextId.", text: {"al-inputt":"client replies on the same task","al-l4":"→ SendMessage { taskId: t_8f21, contextId: c_44a9, parts:[{text:\"Italian\"}] }"} },
+  { say: "It resumes. One task, one id, two exchanges — which is precisely the thing a request/response API cannot express without you building a state machine by hand.", hl: ["al-work"], unhl: ["al-input"], text: {"al-input":" ","al-workt":"assessing eligibility","al-l5":"← statusUpdate · TASK_STATE_WORKING (resumed)"}, fill: {"al-input":"#e8ece2","al-work":"#e3eedc"} },
+  { say: "Now a different kind of stop. To check the destination’s entry rules it must query a government portal <em>as the user</em>, and it has no consent: <code>TASK_STATE_AUTH_REQUIRED</code>.", hl: ["al-auth"], unhl: ["al-work"], text: {"al-work":" ","al-l1":"← statusUpdate · TASK_STATE_AUTH_REQUIRED · \"consent for portal X\"","al-l2":"&nbsp;","al-l3":"&nbsp;","al-l4":"&nbsp;","al-l5":"&nbsp;"}, fill: {"al-auth":"#fbf3c4","al-work":"#e8ece2"} },
+  { say: "The client drives a consent flow with the actual human and supplies credentials. The spec is explicit that reaching this state is a <em>request</em> for authorization, never a grant — the agent must still obtain and validate it.", text: {"al-autht":"client runs the consent flow","al-l2":"→ consent obtained from the human, credentials supplied","al-l3":"the state alone authorises nothing — it only asks"}, fill: {"al-l3":"#c53b3b"} },
+  { say: "Work resumes again, and an artifact starts streaming: the assessment document, chunk by chunk, with <code>append: true</code>.", hl: ["al-work"], unhl: ["al-auth"], text: {"al-auth":" ","al-workt":"writing the assessment","al-l4":"← artifactUpdate · assessment.pdf · append=true","al-l5":"← artifactUpdate · assessment.pdf · append=true, lastChunk=true"}, fill: {"al-auth":"#e8ece2","al-work":"#e3eedc"} },
+  { say: "<code>COMPLETED</code> — terminal. The artifacts are final, the stream closes, and <code>SubscribeToTask</code> on it from now on returns <code>UnsupportedOperationError</code> rather than an empty stream.", hl: ["al-done"], unhl: ["al-work"], text: {"al-work":" ","al-l1":"← statusUpdate · TASK_STATE_COMPLETED","al-l2":"artifacts final · subscribing now returns UnsupportedOperationError","al-l3":"&nbsp;","al-l4":"&nbsp;","al-l5":"&nbsp;"}, fill: {"al-done":"#e3eedc","al-work":"#e8ece2"} },
+  { say: "It could have ended in three other terminal states, and they are not interchangeable. <code>FAILED</code> means it tried and could not. <code>CANCELED</code> means someone stopped it. <code>REJECTED</code> means it declined the request outright.", hl: ["al-fail"], unhl: ["al-done"], text: {"al-l1":"FAILED   → it tried and could not → retry with backoff may work","al-l2":"CANCELED → someone stopped it deliberately → do not resurrect","al-l3":"REJECTED → it declined the request → retrying unchanged will never succeed","al-l4":"conflating these is how you build a retry loop that bills you forever"}, fill: {"al-l3":"#c53b3b","al-l4":"#c53b3b"} },
+  { say: "And if your client cannot hold an SSE stream open for forty minutes, register a push notification config instead: the agent POSTs the same <code>StreamResponse</code> objects to your webhook, at least once.", unhl: ["al-fail"], text: {"al-phase":"same lifecycle, delivered to a webhook instead of a stream","al-l1":"→ CreateTaskPushNotificationConfig { url, token, authentication }","al-l2":"← POST https://you.example/a2a/push   Content-Type: application/a2a+json","al-l3":"at-least-once: deduplicate, authenticate, then GetTask to confirm","al-l4":"&nbsp;"}, fill: {"al-l3":"#2f6b3f"} },
 ]);
 </script>
 </body>

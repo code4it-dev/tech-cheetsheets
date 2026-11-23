@@ -41,7 +41,7 @@
       <span class="meta">As of Nov 2026 · the maths is permanent; the tooling notes cover Prometheus, OpenTelemetry and Azure Monitor</span>
       <p>Latency is not normally distributed. A web request is usually fast and occasionally terrible, so the distribution has a long right tail: a handful of requests take fifty times the typical one, because they hit a cold cache, a garbage collection pause, a lock, a retry or a slow disk. Summarise that with a mean and you produce a number that sits above most of your requests and below the ones that are actually hurting.</p>
       <p>A <b>percentile</b> cuts the sorted measurements at a position: p99 is the value below which 99% of them fall. Every percentile is a real request that a real user actually waited for. p50 describes the typical experience, p99 describes the experience that generates support tickets, and p99.9 describes the one that loses the customer.</p>
-      <p>They turn up everywhere once you start looking: latency SLOs, capacity planning, API gateway dashboards, database query times, queue wait, GC pauses, file sizes and response payloads. The arithmetic is trivial. The traps &mdash; averaging percentiles, averaging over the wrong window, measuring with a tool that hides queueing, forgetting what fan-out does to a tail &mdash; are where the real content is.</p>
+      <p>They turn up everywhere once you start looking: latency SLOs, capacity planning, API gateway dashboards, database query times, queue wait, GC pauses, file sizes and response payloads. The arithmetic is trivial. The traps — averaging percentiles, averaging over the wrong window, measuring with a tool that hides queueing, forgetting what fan-out does to a tail — are where the real content is.</p>
     </header>
 
     <section id="architecture">
@@ -111,7 +111,6 @@
 
     <section id="how-it-works">
       <h2>How it works</h2>
-
       <div class="anim" id="anim-compute">
         <h3>Computing p50, p90 and p99 from twenty real requests</h3>
         <div class="stage">
@@ -197,7 +196,6 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-tail">
         <h3>Tail amplification: why your p99 is your users' p90</h3>
         <div class="stage">
@@ -249,228 +247,224 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>percentile</b><span>The value below which a given percentage of sorted measurements fall. p99 = 1.4 s means 99% of requests finished in under 1.4 seconds.</span><template class="term-detail" data-see="p50 / median, mean vs median, quantile estimation">
-<p>Sort the measurements, then read the value at the position corresponding to the percentage. Two conventions exist, and tools disagree about which they use.</p>
-<table><tr><th>Method</th><th>Index for p<i>q</i> of <i>n</i> samples</th><th>Used by</th></tr>
-<tr><td>Nearest rank</td><td><code>ceil(q/100 x n)</code>, no interpolation</td><td>most monitoring tools; always a real observed value</td></tr>
-<tr><td>Linear interpolation</td><td>interpolates between neighbours</td><td>NumPy, SQL <code>PERCENTILE_CONT</code>, Excel</td></tr></table>
-<pre class="language-none"><code class="language-none">samples = [38, 39, 40, 41, 42, 43, 44, 44, 45, 46,
+        <p>Sort the measurements, then read the value at the position corresponding to the percentage. Two conventions exist, and tools disagree about which they use.</p>
+        <table><tr><th>Method</th><th>Index for p<em>q</em> of <em>n</em> samples</th><th>Used by</th></tr>
+        <tr><td>Nearest rank</td><td><code>ceil(q/100 x n)</code>, no interpolation</td><td>most monitoring tools; always a real observed value</td></tr>
+        <tr><td>Linear interpolation</td><td>interpolates between neighbours</td><td>NumPy, SQL <code>PERCENTILE_CONT</code>, Excel</td></tr></table>
+        <pre class="language-none"><code class="language-none">samples = [38, 39, 40, 41, 42, 43, 44, 44, 45, 46,
            47, 48, 49, 51, 52, 55, 62, 120, 310, 2100]
-# nearest rank: ceil(0.90 * 20) = 18  ->  samples[17] = 120 ms</code></pre>
-<p>The difference matters only at the extremes and with small samples, but it is enough to make two dashboards disagree about the same data. When comparing numbers across tools, check the method before concluding that something regressed.</p>
-<p>"Quantile" is the same idea expressed as a fraction: the 0.99 quantile is p99. Prometheus speaks quantiles, most dashboards speak percentiles.</p>
+# nearest rank: ceil(0.90 * 20) = 18  -&gt;  samples[17] = 120 ms</code></pre><p>The difference matters only at the extremes and with small samples, but it is enough to make two dashboards disagree about the same data. When comparing numbers across tools, check the method before concluding that something regressed.</p>
+        <p>"Quantile" is the same idea expressed as a fraction: the 0.99 quantile is p99. Prometheus speaks quantiles, most dashboards speak percentiles.</p>
         </template></div>
         <div class="term"><b>p50 / median</b><span>The middle measurement: half the requests were faster, half slower. The honest answer to "how fast is it normally?"</span><template class="term-detail" data-see="percentile, mean vs median, p90 / p95 / p99">
-<p>The median describes the typical experience and is almost completely insensitive to outliers &mdash; which makes it a good health baseline and a poor alarm.</p>
-<table><tr><th>p50 tells you</th><th>p50 hides</th></tr>
-<tr><td>whether the common path got slower</td><td>everything about the worst 50%</td></tr>
-<tr><td>the effect of a code or query change</td><td>GC pauses, cold caches, lock contention</td></tr>
-<tr><td>a clean signal for capacity trends</td><td>that 1% of users are having a terrible time</td></tr></table>
-<p>Use p50 to understand <i>what the system normally does</i> and the high percentiles to understand <i>what it does when it goes wrong</i>. A p50 that is flat while p99 triples is the classic signature of a resource that is occasionally saturated &mdash; a connection pool, a disk, a single hot partition.</p>
-<p>Watch both or you will misread both. A p50 rising while p99 stays put usually means a genuinely slower code path; a p99 rising alone usually means contention.</p>
+        <p>The median describes the typical experience and is almost completely insensitive to outliers — which makes it a good health baseline and a poor alarm.</p>
+        <table><tr><th>p50 tells you</th><th>p50 hides</th></tr>
+        <tr><td>whether the common path got slower</td><td>everything about the worst 50%</td></tr>
+        <tr><td>the effect of a code or query change</td><td>GC pauses, cold caches, lock contention</td></tr>
+        <tr><td>a clean signal for capacity trends</td><td>that 1% of users are having a terrible time</td></tr></table>
+        <p>Use p50 to understand <em>what the system normally does</em> and the high percentiles to understand <em>what it does when it goes wrong</em>. A p50 that is flat while p99 triples is the classic signature of a resource that is occasionally saturated — a connection pool, a disk, a single hot partition.</p>
+        <p>Watch both or you will misread both. A p50 rising while p99 stays put usually means a genuinely slower code path; a p99 rising alone usually means contention.</p>
         </template></div>
         <div class="term"><b>p90 / p95 / p99</b><span>The tail. p99 is the standard target for user-facing latency SLOs; p99.9 is where infrastructure problems live.</span><template class="term-detail" data-see="p50 / median, long tail, SLI and SLO, sample size">
-<p>Each extra nine costs roughly an order of magnitude more engineering effort and exposes a different class of problem.</p>
-<table><tr><th>Percentile</th><th>1 in&hellip;</th><th>Usually reveals</th></tr>
-<tr><td>p50</td><td>2</td><td>the ordinary code path</td></tr>
-<tr><td>p90</td><td>10</td><td>cache misses, slightly larger payloads</td></tr>
-<tr><td>p95</td><td>20</td><td>cold starts, occasional lock waits</td></tr>
-<tr><td>p99</td><td>100</td><td>GC pauses, retries, connection churn, a hot shard</td></tr>
-<tr><td>p99.9</td><td>1,000</td><td>failovers, noisy neighbours, network blips</td></tr>
-<tr><td>p99.99</td><td>10,000</td><td>hardware faults, deployments, leap-second-class oddities</td></tr></table>
-<p>Pick the percentile from the number of requests a user makes, not from fashion. A user who makes 100 requests per session touches your p99 roughly once per session, so for them p99 is not rare at all &mdash; it is the experience of a normal session.</p>
-<p>And do not track a percentile you cannot measure: p99.9 over a window containing 500 requests is noise, however confidently the dashboard draws it.</p>
+        <p>Each extra nine costs roughly an order of magnitude more engineering effort and exposes a different class of problem.</p>
+        <table><tr><th>Percentile</th><th>1 in…</th><th>Usually reveals</th></tr>
+        <tr><td>p50</td><td>2</td><td>the ordinary code path</td></tr>
+        <tr><td>p90</td><td>10</td><td>cache misses, slightly larger payloads</td></tr>
+        <tr><td>p95</td><td>20</td><td>cold starts, occasional lock waits</td></tr>
+        <tr><td>p99</td><td>100</td><td>GC pauses, retries, connection churn, a hot shard</td></tr>
+        <tr><td>p99.9</td><td>1,000</td><td>failovers, noisy neighbours, network blips</td></tr>
+        <tr><td>p99.99</td><td>10,000</td><td>hardware faults, deployments, leap-second-class oddities</td></tr></table>
+        <p>Pick the percentile from the number of requests a user makes, not from fashion. A user who makes 100 requests per session touches your p99 roughly once per session, so for them p99 is not rare at all — it is the experience of a normal session.</p>
+        <p>And do not track a percentile you cannot measure: p99.9 over a window containing 500 requests is noise, however confidently the dashboard draws it.</p>
         </template></div>
         <div class="term"><b>mean vs median</b><span>The mean is pulled by outliers; the median is not. For long-tailed data the mean is a number almost nobody experienced.</span><template class="term-detail" data-see="p50 / median, long tail, trimmed statistics">
-<p>In the twenty-sample set from the first animation: median 46 ms, mean 166 ms. The mean is slower than 17 of the 20 requests.</p>
-<table><tr><th>Scenario</th><th>Mean</th><th>Median</th><th>Which is right?</th></tr>
-<tr><td>"How fast is a typical request?"</td><td>misleading</td><td>correct</td><td>median</td></tr>
-<tr><td>"How much total CPU time did we burn?"</td><td>correct</td><td>useless</td><td>mean (it has a total)</td></tr>
-<tr><td>"Did the worst requests get worse?"</td><td>blind</td><td>blind</td><td>neither &mdash; p99</td></tr>
-<tr><td>"What will this cost per month?"</td><td>correct</td><td>wrong</td><td>mean</td></tr></table>
-<p>The mean is not useless; it is the only one of the two that is additive, which is exactly what you want for cost, throughput and resource consumption. It is simply the wrong summary for <i>experience</i>.</p>
-<p>A quick test for whether a distribution is long-tailed: if the mean is well above the median, it is. For most web latency, <code>mean &approx; p70&ndash;p80</code>.</p>
+        <p>In the twenty-sample set from the first animation: median 46 ms, mean 166 ms. The mean is slower than 17 of the 20 requests.</p>
+        <table><tr><th>Scenario</th><th>Mean</th><th>Median</th><th>Which is right?</th></tr>
+        <tr><td>"How fast is a typical request?"</td><td>misleading</td><td>correct</td><td>median</td></tr>
+        <tr><td>"How much total CPU time did we burn?"</td><td>correct</td><td>useless</td><td>mean (it has a total)</td></tr>
+        <tr><td>"Did the worst requests get worse?"</td><td>blind</td><td>blind</td><td>neither — p99</td></tr>
+        <tr><td>"What will this cost per month?"</td><td>correct</td><td>wrong</td><td>mean</td></tr></table>
+        <p>The mean is not useless; it is the only one of the two that is additive, which is exactly what you want for cost, throughput and resource consumption. It is simply the wrong summary for <em>experience</em>.</p>
+        <p>A quick test for whether a distribution is long-tailed: if the mean is well above the median, it is. For most web latency, <code>mean ≈ p70–p80</code>.</p>
         </template></div>
         <div class="term"><b>long tail</b><span>The small fraction of requests that are dramatically slower than the rest. Not noise, and not removable by averaging it away.</span><template class="term-detail" data-see="p90 / p95 / p99, tail amplification, tail tolerance">
-<p>Tails are produced by mechanisms, not by randomness, which is why they are usually fixable once you can see them.</p>
-<table><tr><th>Cause</th><th>Signature</th><th>Typical fix</th></tr>
-<tr><td>Garbage collection pause</td><td>periodic spikes, all endpoints at once</td><td>allocation reduction, GC tuning, a different collector</td></tr>
-<tr><td>Cold cache / cold start</td><td>spikes after deploy or scale-out</td><td>warm-up, pre-provisioned instances</td></tr>
-<tr><td>Lock or connection-pool contention</td><td>p99 explodes while p50 is flat</td><td>pool sizing, shorter transactions, bulkheads</td></tr>
-<tr><td>Retries</td><td>bimodal: a cluster at roughly 2x the timeout</td><td>budgeted retries, jitter, hedging</td></tr>
-<tr><td>A hot shard or key</td><td>tail concentrated on specific inputs</td><td>better key distribution, caching</td></tr>
-<tr><td>Noisy neighbour</td><td>tail that moves between instances</td><td>isolation, dedicated capacity</td></tr></table>
-<p>A bimodal distribution &mdash; two humps rather than one tail &mdash; always means two code paths. Cache hit versus miss, fast path versus retry, warm versus cold. Percentiles summarise the mixture; traces tell you which path a slow request took.</p>
+        <p>Tails are produced by mechanisms, not by randomness, which is why they are usually fixable once you can see them.</p>
+        <table><tr><th>Cause</th><th>Signature</th><th>Typical fix</th></tr>
+        <tr><td>Garbage collection pause</td><td>periodic spikes, all endpoints at once</td><td>allocation reduction, GC tuning, a different collector</td></tr>
+        <tr><td>Cold cache / cold start</td><td>spikes after deploy or scale-out</td><td>warm-up, pre-provisioned instances</td></tr>
+        <tr><td>Lock or connection-pool contention</td><td>p99 explodes while p50 is flat</td><td>pool sizing, shorter transactions, bulkheads</td></tr>
+        <tr><td>Retries</td><td>bimodal: a cluster at roughly 2x the timeout</td><td>budgeted retries, jitter, hedging</td></tr>
+        <tr><td>A hot shard or key</td><td>tail concentrated on specific inputs</td><td>better key distribution, caching</td></tr>
+        <tr><td>Noisy neighbour</td><td>tail that moves between instances</td><td>isolation, dedicated capacity</td></tr></table>
+        <p>A bimodal distribution — two humps rather than one tail — always means two code paths. Cache hit versus miss, fast path versus retry, warm versus cold. Percentiles summarise the mixture; traces tell you which path a slow request took.</p>
         </template></div>
         <div class="term"><b>histogram and buckets</b><span>How percentiles are actually computed at scale: count observations into predefined ranges, then interpolate. Cheap, aggregatable, approximate.</span><template class="term-detail" data-see="quantile estimation, percentiles don't average, aggregation window">
-<p>Storing every measurement is impossible at volume, so systems store counts per bucket. The percentile is then interpolated inside whichever bucket contains the target rank.</p>
-<pre class="language-none line-numbers"><code class="language-none">le="0.005"  12043        # 12,043 requests took <= 5 ms
+        <p>Storing every measurement is impossible at volume, so systems store counts per bucket. The percentile is then interpolated inside whichever bucket contains the target rank.</p>
+        <pre class="language-none line-numbers"><code class="language-none">le="0.005"  12043        # 12,043 requests took &lt;= 5 ms
 le="0.01"   45110
 le="0.025"  98400
 le="0.05"   99850
 le="0.1"    99960
-le="+Inf"  100000</code></pre>
-<table><tr><th>Property</th><th>Consequence</th></tr>
-<tr><td>Accuracy is bounded by bucket width</td><td>a p99 landing in a 100 ms&ndash;1 s bucket is accurate to within that range</td></tr>
-<tr><td>Buckets are chosen in advance</td><td>pick them around your SLO: if the target is 300 ms, you need a boundary <i>at</i> 300 ms</td></tr>
-<tr><td>Everything above the last bucket is <code>+Inf</code></td><td>if the top bucket is 1 s and your tail is 8 s, the tool reports 1 s</td></tr>
-<tr><td>Counters are additive</td><td>histograms from many instances can be summed, then the percentile computed once &mdash; this is the whole point</td></tr></table>
-<p>In Prometheus terms: <b>histograms</b> are aggregatable and approximate (compute percentiles at query time with <code>histogram_quantile</code>); <b>summaries</b> compute exact percentiles per instance but cannot be combined across instances. Choose histograms unless you have exactly one instance, forever.</p>
+le="+Inf"  100000</code></pre><table><tr><th>Property</th><th>Consequence</th></tr>
+        <tr><td>Accuracy is bounded by bucket width</td><td>a p99 landing in a 100 ms–1 s bucket is accurate to within that range</td></tr>
+        <tr><td>Buckets are chosen in advance</td><td>pick them around your SLO: if the target is 300 ms, you need a boundary <em>at</em> 300 ms</td></tr>
+        <tr><td>Everything above the last bucket is <code>+Inf</code></td><td>if the top bucket is 1 s and your tail is 8 s, the tool reports 1 s</td></tr>
+        <tr><td>Counters are additive</td><td>histograms from many instances can be summed, then the percentile computed once — this is the whole point</td></tr></table>
+        <p>In Prometheus terms: <b>histograms</b> are aggregatable and approximate (compute percentiles at query time with <code>histogram_quantile</code>); <b>summaries</b> compute exact percentiles per instance but cannot be combined across instances. Choose histograms unless you have exactly one instance, forever.</p>
         </template></div>
-        <div class="term"><b>quantile estimation</b><span>Data structures &mdash; t-digest, HDR histogram, DDSketch &mdash; that give accurate percentiles in a few kilobytes, with mergeable state.</span><template class="term-detail" data-see="histogram and buckets, percentiles don't average">
-<p>Fixed buckets force you to guess the range in advance. Sketches adapt, and most of them are mergeable, which solves the aggregation problem properly.</p>
-<table><tr><th>Structure</th><th>Guarantee</th><th>Good for</th></tr>
-<tr><td>HDR histogram</td><td>configurable relative error, fixed memory</td><td>load testing, latency recording in-process</td></tr>
-<tr><td>t-digest</td><td>very accurate at the extremes, less so in the middle</td><td>exactly the shape of a latency problem</td></tr>
-<tr><td>DDSketch</td><td>guaranteed <i>relative</i> error at every quantile</td><td>SLO reporting where the bound must be provable</td></tr>
-<tr><td>Fixed buckets</td><td>error bounded by bucket width</td><td>Prometheus; simple and good enough with sensible boundaries</td></tr></table>
-<p>The property that matters is <b>mergeability</b>: a sketch per instance per minute can be merged into a sketch for the whole fleet per hour, and the percentile read from that. No averaging of percentiles, no loss of the tail.</p>
-<p>Relative error is the right guarantee for latency, because being 5% wrong about 20 ms and 5% wrong about 5 s are both fine, whereas a fixed absolute error is either useless at the bottom or enormous at the top.</p>
+        <div class="term"><b>quantile estimation</b><span>Data structures — t-digest, HDR histogram, DDSketch — that give accurate percentiles in a few kilobytes, with mergeable state.</span><template class="term-detail" data-see="histogram and buckets, percentiles don't average">
+        <p>Fixed buckets force you to guess the range in advance. Sketches adapt, and most of them are mergeable, which solves the aggregation problem properly.</p>
+        <table><tr><th>Structure</th><th>Guarantee</th><th>Good for</th></tr>
+        <tr><td>HDR histogram</td><td>configurable relative error, fixed memory</td><td>load testing, latency recording in-process</td></tr>
+        <tr><td>t-digest</td><td>very accurate at the extremes, less so in the middle</td><td>exactly the shape of a latency problem</td></tr>
+        <tr><td>DDSketch</td><td>guaranteed <em>relative</em> error at every quantile</td><td>SLO reporting where the bound must be provable</td></tr>
+        <tr><td>Fixed buckets</td><td>error bounded by bucket width</td><td>Prometheus; simple and good enough with sensible boundaries</td></tr></table>
+        <p>The property that matters is <b>mergeability</b>: a sketch per instance per minute can be merged into a sketch for the whole fleet per hour, and the percentile read from that. No averaging of percentiles, no loss of the tail.</p>
+        <p>Relative error is the right guarantee for latency, because being 5% wrong about 20 ms and 5% wrong about 5 s are both fine, whereas a fixed absolute error is either useless at the bottom or enormous at the top.</p>
         </template></div>
         <div class="term"><b>percentiles don't average</b><span>You cannot average p99s across instances, regions or time windows. The result is not a percentile of anything.</span><template class="term-detail" data-see="histogram and buckets, aggregation window, quantile estimation">
-<p>The single most common mistake in monitoring, and most dashboards make it by default when a query groups by instance and then averages.</p>
-<h4>A counterexample</h4>
-<table><tr><th></th><th>Requests</th><th>p99</th></tr>
-<tr><td>Instance A (healthy)</td><td>990,000</td><td>50 ms</td></tr>
-<tr><td>Instance B (sick)</td><td>10,000</td><td>5,000 ms</td></tr>
-<tr><td>Average of the two p99s</td><td>&mdash;</td><td>2,525 ms &mdash; nonsense</td></tr>
-<tr><td>True fleet p99</td><td>1,000,000</td><td>~55 ms</td></tr></table>
-<p>The average suggests the whole fleet is catastrophically slow; the truth is that 1% of traffic is. Reverse the request counts and the average is equally wrong in the other direction.</p>
-<p>The fix is always the same: aggregate the <b>raw distributions</b> &mdash; sum the histogram buckets, merge the sketches &mdash; and compute the percentile once over the total.</p>
-<pre class="language-promql line-numbers"><code class="language-promql"># right: sum the buckets, then take the quantile
+        <p>The single most common mistake in monitoring, and most dashboards make it by default when a query groups by instance and then averages.</p>
+        <h4>A counterexample</h4>
+        <table><tr><th></th><th>Requests</th><th>p99</th></tr>
+        <tr><td>Instance A (healthy)</td><td>990,000</td><td>50 ms</td></tr>
+        <tr><td>Instance B (sick)</td><td>10,000</td><td>5,000 ms</td></tr>
+        <tr><td>Average of the two p99s</td><td>—</td><td>2,525 ms — nonsense</td></tr>
+        <tr><td>True fleet p99</td><td>1,000,000</td><td>~55 ms</td></tr></table>
+        <p>The average suggests the whole fleet is catastrophically slow; the truth is that 1% of traffic is. Reverse the request counts and the average is equally wrong in the other direction.</p>
+        <p>The fix is always the same: aggregate the <b>raw distributions</b> — sum the histogram buckets, merge the sketches — and compute the percentile once over the total.</p>
+        <pre class="language-promql line-numbers"><code class="language-promql"># right: sum the buckets, then take the quantile
 histogram_quantile(0.99, sum by (le) (rate(http_duration_seconds_bucket[5m])))
 
 # wrong: a quantile per instance, then averaged
-avg(histogram_quantile(0.99, rate(http_duration_seconds_bucket[5m])))</code></pre>
-<p>The same applies over time: a p99 for a day is not the mean of 24 hourly p99s. You need the day's distribution.</p>
+avg(histogram_quantile(0.99, rate(http_duration_seconds_bucket[5m])))</code></pre><p>The same applies over time: a p99 for a day is not the mean of 24 hourly p99s. You need the day's distribution.</p>
         </template></div>
         <div class="term"><b>aggregation window</b><span>A percentile is always "over what period". Change the window and you change the number, sometimes by a lot.</span><template class="term-detail" data-see="percentiles don't average, sample size, SLI and SLO">
-<p>p99 over one minute answers "how bad was the worst minute"; p99 over a month answers "how bad is the service". They are different questions and will give different numbers.</p>
-<table><tr><th>Window</th><th>Behaviour</th><th>Use for</th></tr>
-<tr><td>1 minute</td><td>noisy, reacts instantly</td><td>alerting on a sudden regression</td></tr>
-<tr><td>5&ndash;15 minutes</td><td>the usual dashboard compromise</td><td>day-to-day operations</td></tr>
-<tr><td>1 hour</td><td>smooth, hides short spikes</td><td>trends, capacity</td></tr>
-<tr><td>28&ndash;30 days</td><td>the SLO window</td><td>error budgets and commitments</td></tr></table>
-<p>A short window on a low-traffic endpoint is a trap: ten requests a minute means a one-minute p99 is simply the slowest of ten, and it will jump around wildly without anything changing.</p>
-<p>State the window everywhere. "p99 is 400 ms" is not a fact; "p99 over the last 7 days is 400 ms" is.</p>
+        <p>p99 over one minute answers "how bad was the worst minute"; p99 over a month answers "how bad is the service". They are different questions and will give different numbers.</p>
+        <table><tr><th>Window</th><th>Behaviour</th><th>Use for</th></tr>
+        <tr><td>1 minute</td><td>noisy, reacts instantly</td><td>alerting on a sudden regression</td></tr>
+        <tr><td>5–15 minutes</td><td>the usual dashboard compromise</td><td>day-to-day operations</td></tr>
+        <tr><td>1 hour</td><td>smooth, hides short spikes</td><td>trends, capacity</td></tr>
+        <tr><td>28–30 days</td><td>the SLO window</td><td>error budgets and commitments</td></tr></table>
+        <p>A short window on a low-traffic endpoint is a trap: ten requests a minute means a one-minute p99 is simply the slowest of ten, and it will jump around wildly without anything changing.</p>
+        <p>State the window everywhere. "p99 is 400 ms" is not a fact; "p99 over the last 7 days is 400 ms" is.</p>
         </template></div>
         <div class="term"><b>sample size</b><span>You need roughly 100 samples to see p99 at all, and far more for it to be stable. Below that the number is theatre.</span><template class="term-detail" data-see="aggregation window, p90 / p95 / p99">
-<p>A percentile is a position in a sorted list, so with <i>n</i> samples the finest resolution you have is 1/<i>n</i>.</p>
-<table><tr><th>Samples in the window</th><th>Finest meaningful percentile</th><th>Comment</th></tr>
-<tr><td>20</td><td>p95</td><td>"p99" is just the maximum</td></tr>
-<tr><td>100</td><td>p99</td><td>one single sample defines it &mdash; very noisy</td></tr>
-<tr><td>1,000</td><td>p99 (stable-ish), p99.9 visible</td><td>a reasonable minimum for alerting</td></tr>
-<tr><td>100,000</td><td>p99.9 solid, p99.99 visible</td><td>comfortable</td></tr></table>
-<p>Rule of thumb: you want at least 10 samples <i>beyond</i> the percentile you are reporting, so p99 needs about 1,000 requests in the window and p99.9 about 10,000.</p>
-<p>When traffic is low, widen the window instead of lowering the standard &mdash; and be honest on the dashboard: an "insufficient data" panel is worth more than a confident wrong number.</p>
+        <p>A percentile is a position in a sorted list, so with <em>n</em> samples the finest resolution you have is 1/<em>n</em>.</p>
+        <table><tr><th>Samples in the window</th><th>Finest meaningful percentile</th><th>Comment</th></tr>
+        <tr><td>20</td><td>p95</td><td>"p99" is just the maximum</td></tr>
+        <tr><td>100</td><td>p99</td><td>one single sample defines it — very noisy</td></tr>
+        <tr><td>1,000</td><td>p99 (stable-ish), p99.9 visible</td><td>a reasonable minimum for alerting</td></tr>
+        <tr><td>100,000</td><td>p99.9 solid, p99.99 visible</td><td>comfortable</td></tr></table>
+        <p>Rule of thumb: you want at least 10 samples <em>beyond</em> the percentile you are reporting, so p99 needs about 1,000 requests in the window and p99.9 about 10,000.</p>
+        <p>When traffic is low, widen the window instead of lowering the standard — and be honest on the dashboard: an "insufficient data" panel is worth more than a confident wrong number.</p>
         </template></div>
         <div class="term"><b>tail amplification</b><span>When one user action depends on many calls, the probability of hitting the tail multiplies. Fan-out turns a rare event into a common one.</span><template class="term-detail" data-see="long tail, tail tolerance, p90 / p95 / p99">
-<p>If each of <i>n</i> independent calls is fast with probability <i>p</i>, all of them are fast with probability <i>p<sup>n</sup></i>.</p>
-<table><tr><th>Calls per request</th><th>P(at least one in the p99 tail)</th></tr>
-<tr><td>1</td><td>1%</td></tr>
-<tr><td>5</td><td>4.9%</td></tr>
-<tr><td>10</td><td>9.6%</td></tr>
-<tr><td>50</td><td>39.5%</td></tr>
-<tr><td>100</td><td>63.4%</td></tr></table>
-<p>So a microservice architecture with heavy fan-out inherits a far worse tail than any of its parts, and every team's dashboard can look fine while the page is slow. This is the core argument of Google's <i>The Tail at Scale</i>.</p>
-<p>Three defences, in order of preference: reduce fan-out (batch calls, denormalise, cache), make the tail shorter at the source, and tolerate it with hedging and timeouts. Measuring end to end, from the user's point of view, is what tells you whether you need any of them.</p>
+        <p>If each of <em>n</em> independent calls is fast with probability <em>p</em>, all of them are fast with probability <em>p<sup>n</sup></em>.</p>
+        <table><tr><th>Calls per request</th><th>P(at least one in the p99 tail)</th></tr>
+        <tr><td>1</td><td>1%</td></tr>
+        <tr><td>5</td><td>4.9%</td></tr>
+        <tr><td>10</td><td>9.6%</td></tr>
+        <tr><td>50</td><td>39.5%</td></tr>
+        <tr><td>100</td><td>63.4%</td></tr></table>
+        <p>So a microservice architecture with heavy fan-out inherits a far worse tail than any of its parts, and every team's dashboard can look fine while the page is slow. This is the core argument of Google's <em>The Tail at Scale</em>.</p>
+        <p>Three defences, in order of preference: reduce fan-out (batch calls, denormalise, cache), make the tail shorter at the source, and tolerate it with hedging and timeouts. Measuring end to end, from the user's point of view, is what tells you whether you need any of them.</p>
         </template></div>
         <div class="term"><b>coordinated omission</b><span>A measurement bug where the tool stops sending requests while the system is stalled, so the queueing delay every real user felt is never recorded.</span><template class="term-detail" data-see="sample size, long tail, percentile">
-<p>Named by Gil Tene. It makes load-test results optimistic by an order of magnitude or more, and it is the default behaviour of most naive benchmark harnesses.</p>
-<div class="anim" id="co-anim" data-steps="co">
-  <h4>The same stall, measured two ways</h4>
-  <div class="stage">
-    <svg viewBox="0 0 560 250" role="img" aria-label="Animated comparison of a closed-loop and an open-loop measurement of a one-second server stall">
-      <text x="12" y="22" font-size="12" font-weight="600" fill="#23362e" font-family="Fira Code, monospace">target load: 10 req/s (one every 100 ms)</text>
-      <line x1="20" y1="70" x2="540" y2="70" stroke="#5f6f66" stroke-width="1.5"/>
-      <text x="20" y="90" font-size="10.5" fill="#5f6f66" font-family="Fira Code, monospace">0.0 s</text>
-      <text x="270" y="90" font-size="10.5" fill="#5f6f66" font-family="Fira Code, monospace">1.0 s</text>
-      <text x="505" y="90" font-size="10.5" fill="#5f6f66" font-family="Fira Code, monospace">2.0 s</text>
-      <g id="co-marks" fill="#2f6b3f">
-        <circle cx="40" cy="70" r="5"/><circle cx="63" cy="70" r="5"/><circle cx="86" cy="70" r="5"/>
-        <circle cx="109" cy="70" r="5"/><circle cx="132" cy="70" r="5"/><circle cx="155" cy="70" r="5"/>
-        <circle cx="178" cy="70" r="5"/><circle cx="201" cy="70" r="5"/><circle cx="224" cy="70" r="5"/><circle cx="247" cy="70" r="5"/>
-      </g>
-      <rect id="co-stall" class="hidden" x="270" y="46" width="235" height="48" rx="4" fill="#f9e3df" stroke="#c53b3b"/>
-      <text id="co-stall-t" class="hidden" x="387" y="76" font-size="12" text-anchor="middle" fill="#c53b3b" font-weight="700">server stalled 1.0 s</text>
-      <g id="co-missing" class="hidden" fill="#c53b3b">
-        <circle cx="293" cy="70" r="5"/><circle cx="316" cy="70" r="5"/><circle cx="339" cy="70" r="5"/>
-        <circle cx="362" cy="70" r="5"/><circle cx="385" cy="70" r="5"/><circle cx="408" cy="70" r="5"/>
-        <circle cx="431" cy="70" r="5"/><circle cx="454" cy="70" r="5"/><circle cx="477" cy="70" r="5"/>
-      </g>
-      <rect x="12" y="112" width="256" height="76" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
-      <text x="140" y="132" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">What the tool reported</text>
-      <text id="co-tool1" x="140" y="154" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">&mdash;</text>
-      <text id="co-tool2" x="140" y="174" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">&mdash;</text>
-      <rect x="292" y="112" width="256" height="76" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
-      <text x="420" y="132" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">What users felt</text>
-      <text id="co-real1" x="420" y="154" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">&mdash;</text>
-      <text id="co-real2" x="420" y="174" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">&mdash;</text>
-      <text id="co-fix" class="hidden" x="12" y="212" font-size="11.5" fill="#2f6b3f" font-family="Fira Code, monospace">fix: open-loop generator (wrk2, Gatling) or HdrHistogram expected-interval correction</text>
-      <text id="co-note" class="hand hidden" x="12" y="240" font-size="15" fill="#c53b3b">the queue your tool never joined is the queue your users were standing in</text>
-    </svg>
-  </div>
-  <div class="controls"></div><div class="narration"></div>
-</div>
-<p>The giveaway in a report is a p99 that is close to the p50 while the maximum is enormous. Real systems under load have a smooth climb from p50 to p99; a flat line with a cliff at the top means the queueing was never measured.</p>
+        <p>Named by Gil Tene. It makes load-test results optimistic by an order of magnitude or more, and it is the default behaviour of most naive benchmark harnesses.</p>
+        <div class="anim" id="co-anim" data-steps="co">
+          <h4>The same stall, measured two ways</h4>
+          <div class="stage">
+            <svg viewBox="0 0 560 250" role="img" aria-label="Animated comparison of a closed-loop and an open-loop measurement of a one-second server stall">
+              <text x="12" y="22" font-size="12" font-weight="600" fill="#23362e" font-family="Fira Code, monospace">target load: 10 req/s (one every 100 ms)</text>
+              <line x1="20" y1="70" x2="540" y2="70" stroke="#5f6f66" stroke-width="1.5"/>
+              <text x="20" y="90" font-size="10.5" fill="#5f6f66" font-family="Fira Code, monospace">0.0 s</text>
+              <text x="270" y="90" font-size="10.5" fill="#5f6f66" font-family="Fira Code, monospace">1.0 s</text>
+              <text x="505" y="90" font-size="10.5" fill="#5f6f66" font-family="Fira Code, monospace">2.0 s</text>
+              <g id="co-marks" fill="#2f6b3f">
+                <circle cx="40" cy="70" r="5"/><circle cx="63" cy="70" r="5"/><circle cx="86" cy="70" r="5"/>
+                <circle cx="109" cy="70" r="5"/><circle cx="132" cy="70" r="5"/><circle cx="155" cy="70" r="5"/>
+                <circle cx="178" cy="70" r="5"/><circle cx="201" cy="70" r="5"/><circle cx="224" cy="70" r="5"/><circle cx="247" cy="70" r="5"/>
+              </g>
+              <rect id="co-stall" class="hidden" x="270" y="46" width="235" height="48" rx="4" fill="#f9e3df" stroke="#c53b3b"/>
+              <text id="co-stall-t" class="hidden" x="387" y="76" font-size="12" text-anchor="middle" fill="#c53b3b" font-weight="700">server stalled 1.0 s</text>
+              <g id="co-missing" class="hidden" fill="#c53b3b">
+                <circle cx="293" cy="70" r="5"/><circle cx="316" cy="70" r="5"/><circle cx="339" cy="70" r="5"/>
+                <circle cx="362" cy="70" r="5"/><circle cx="385" cy="70" r="5"/><circle cx="408" cy="70" r="5"/>
+                <circle cx="431" cy="70" r="5"/><circle cx="454" cy="70" r="5"/><circle cx="477" cy="70" r="5"/>
+              </g>
+              <rect x="12" y="112" width="256" height="76" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
+              <text x="140" y="132" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">What the tool reported</text>
+              <text id="co-tool1" x="140" y="154" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">&mdash;</text>
+              <text id="co-tool2" x="140" y="174" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">&mdash;</text>
+              <rect x="292" y="112" width="256" height="76" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
+              <text x="420" y="132" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">What users felt</text>
+              <text id="co-real1" x="420" y="154" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">&mdash;</text>
+              <text id="co-real2" x="420" y="174" font-size="11.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">&mdash;</text>
+              <text id="co-fix" class="hidden" x="12" y="212" font-size="11.5" fill="#2f6b3f" font-family="Fira Code, monospace">fix: open-loop generator (wrk2, Gatling) or HdrHistogram expected-interval correction</text>
+              <text id="co-note" class="hand hidden" x="12" y="240" font-size="15" fill="#c53b3b">the queue your tool never joined is the queue your users were standing in</text>
+            </svg>
+          </div>
+          <div class="controls"></div>
+          <div class="narration"></div>
+        </div>
+        <p>The giveaway in a report is a p99 that is close to the p50 while the maximum is enormous. Real systems under load have a smooth climb from p50 to p99; a flat line with a cliff at the top means the queueing was never measured.</p>
         </template></div>
         <div class="term"><b>tail tolerance</b><span>Techniques that make a slow request stop mattering: hedging, timeouts with degradation, and reducing how much depends on how much.</span><template class="term-detail" data-see="tail amplification, long tail">
-<p>You cannot eliminate a tail &mdash; shared infrastructure guarantees one &mdash; so the practical goal is to make it not reach the user.</p>
-<table><tr><th>Technique</th><th>How</th><th>Cost</th></tr>
-<tr><td>Hedged request</td><td>after p95 has elapsed, send a duplicate and take whichever answers first</td><td>~5% extra load for a large p99 improvement</td></tr>
-<tr><td>Tied request</td><td>send to two replicas, each cancels the other on start</td><td>needs cooperation between replicas</td></tr>
-<tr><td>Timeout + degrade</td><td>drop the recommendations panel after 100 ms</td><td>a slightly poorer page instead of a slow one</td></tr>
-<tr><td>Reduce fan-out</td><td>batch, denormalise, cache</td><td>design work; the most durable fix</td></tr>
-<tr><td>Micro-partitioning</td><td>many small shards, rebalanced away from slow nodes</td><td>operational complexity</td></tr></table>
-<p>Hedging only works if requests are idempotent and the extra load is affordable. Set the hedge delay at the p95, not the p50, or you double your traffic for nothing.</p>
-<p>The cheapest tail tolerance is usually a timeout plus a default. Deciding in advance what the page looks like without the slow component is design work, not infrastructure work.</p>
+        <p>You cannot eliminate a tail — shared infrastructure guarantees one — so the practical goal is to make it not reach the user.</p>
+        <table><tr><th>Technique</th><th>How</th><th>Cost</th></tr>
+        <tr><td>Hedged request</td><td>after p95 has elapsed, send a duplicate and take whichever answers first</td><td>~5% extra load for a large p99 improvement</td></tr>
+        <tr><td>Tied request</td><td>send to two replicas, each cancels the other on start</td><td>needs cooperation between replicas</td></tr>
+        <tr><td>Timeout + degrade</td><td>drop the recommendations panel after 100 ms</td><td>a slightly poorer page instead of a slow one</td></tr>
+        <tr><td>Reduce fan-out</td><td>batch, denormalise, cache</td><td>design work; the most durable fix</td></tr>
+        <tr><td>Micro-partitioning</td><td>many small shards, rebalanced away from slow nodes</td><td>operational complexity</td></tr></table>
+        <p>Hedging only works if requests are idempotent and the extra load is affordable. Set the hedge delay at the p95, not the p50, or you double your traffic for nothing.</p>
+        <p>The cheapest tail tolerance is usually a timeout plus a default. Deciding in advance what the page looks like without the slow component is design work, not infrastructure work.</p>
         </template></div>
         <div class="term"><b>SLI and SLO</b><span>An indicator is what you measure; an objective is the target. Latency SLOs are almost always expressed as a percentile over a window.</span><template class="term-detail" data-see="error budget, aggregation window, p90 / p95 / p99">
-<p>A well-formed latency SLO names the percentile, the threshold, the window and the scope.</p>
-<pre class="language-none"><code class="language-none">99% of GET /orders/{id} requests complete in under 300 ms,
-measured at the gateway, over a rolling 28-day window.</code></pre>
-<table><tr><th>Part</th><th>Why it must be stated</th></tr>
-<tr><td>Percentile and threshold</td><td>"fast" is not measurable</td></tr>
-<tr><td>Window</td><td>a 1-minute p99 and a 28-day p99 are different numbers</td></tr>
-<tr><td>Measurement point</td><td>client, edge, gateway and service all see different latencies</td></tr>
-<tr><td>Scope</td><td>one endpoint, not an average over all of them</td></tr></table>
-<p>The common alternative formulation is a <b>threshold SLO</b>: "99% of requests under 300 ms" counted as good-event / total-event. It is easier to reason about and to combine than a percentile value, which is why Google's SRE practice leans on it &mdash; and it is also what makes an error budget straightforward to compute.</p>
-<p>Set the target from what users need, then check it against what the system does. An SLO you already meet with no effort measures nothing; one you miss every week is a wish.</p>
+        <p>A well-formed latency SLO names the percentile, the threshold, the window and the scope.</p>
+        <pre class="language-none"><code class="language-none">99% of GET /orders/{id} requests complete in under 300 ms,
+measured at the gateway, over a rolling 28-day window.</code></pre><table><tr><th>Part</th><th>Why it must be stated</th></tr>
+        <tr><td>Percentile and threshold</td><td>"fast" is not measurable</td></tr>
+        <tr><td>Window</td><td>a 1-minute p99 and a 28-day p99 are different numbers</td></tr>
+        <tr><td>Measurement point</td><td>client, edge, gateway and service all see different latencies</td></tr>
+        <tr><td>Scope</td><td>one endpoint, not an average over all of them</td></tr></table>
+        <p>The common alternative formulation is a <b>threshold SLO</b>: "99% of requests under 300 ms" counted as good-event / total-event. It is easier to reason about and to combine than a percentile value, which is why Google's SRE practice leans on it — and it is also what makes an error budget straightforward to compute.</p>
+        <p>Set the target from what users need, then check it against what the system does. An SLO you already meet with no effort measures nothing; one you miss every week is a wish.</p>
         </template></div>
         <div class="term"><b>error budget</b><span>The amount of failure the SLO permits. 99.9% over 30 days is 43 minutes of budget, and spending it is allowed.</span><template class="term-detail" data-see="SLI and SLO, aggregation window">
-<p>The budget turns reliability from an argument into arithmetic: if the budget is intact you may ship; if it is spent you fix reliability first.</p>
-<table><tr><th>Objective</th><th>Budget per 30 days</th><th>Per week</th></tr>
-<tr><td>99%</td><td>7h 12m</td><td>1h 41m</td></tr>
-<tr><td>99.5%</td><td>3h 36m</td><td>50m</td></tr>
-<tr><td>99.9%</td><td>43m 12s</td><td>10m 5s</td></tr>
-<tr><td>99.95%</td><td>21m 36s</td><td>5m 2s</td></tr>
-<tr><td>99.99%</td><td>4m 19s</td><td>1m</td></tr></table>
-<p>A latency SLO consumes budget the same way: every request slower than the threshold is a bad event. That is why the threshold formulation is easier to operate than a percentile value &mdash; you can count bad events, but you cannot count "p99 was 310 ms".</p>
-<p>Alert on <b>burn rate</b>, not on the current value. A page at 2am is justified by "we are consuming the month's budget 14 times faster than sustainable", not by a p99 that crossed a line for 60 seconds.</p>
+        <p>The budget turns reliability from an argument into arithmetic: if the budget is intact you may ship; if it is spent you fix reliability first.</p>
+        <table><tr><th>Objective</th><th>Budget per 30 days</th><th>Per week</th></tr>
+        <tr><td>99%</td><td>7h 12m</td><td>1h 41m</td></tr>
+        <tr><td>99.5%</td><td>3h 36m</td><td>50m</td></tr>
+        <tr><td>99.9%</td><td>43m 12s</td><td>10m 5s</td></tr>
+        <tr><td>99.95%</td><td>21m 36s</td><td>5m 2s</td></tr>
+        <tr><td>99.99%</td><td>4m 19s</td><td>1m</td></tr></table>
+        <p>A latency SLO consumes budget the same way: every request slower than the threshold is a bad event. That is why the threshold formulation is easier to operate than a percentile value — you can count bad events, but you cannot count "p99 was 310 ms".</p>
+        <p>Alert on <b>burn rate</b>, not on the current value. A page at 2am is justified by "we are consuming the month's budget 14 times faster than sustainable", not by a p99 that crossed a line for 60 seconds.</p>
         </template></div>
         <div class="term"><b>percentile vs percentage</b><span>p99 = 1.4 s does not mean "99% as good" or "1% of requests failed". It is a position in a sorted list, not a proportion of anything.</span><template class="term-detail" data-see="percentile, SLI and SLO">
-<p>The confusion is common enough in meetings to be worth naming explicitly.</p>
-<table><tr><th>Statement</th><th>Correct?</th></tr>
-<tr><td>"p99 is 1.4 s" = 99% of requests took 1.4 s or less</td><td>yes</td></tr>
-<tr><td>"p99 is 1.4 s" = 1% of requests failed</td><td><b>no</b> &mdash; they were slow, not failed</td></tr>
-<tr><td>"We improved p99 by 10%" is a clear statement</td><td>ambiguous &mdash; the value, or the position?</td></tr>
-<tr><td>"99th percentile" and "top 1%" describe the same requests</td><td>yes</td></tr></table>
-<p>Also beware the word "percentile" applied to things that are not latency without saying which direction is good. For response sizes or error counts, a high percentile is the big one; for throughput or scores, a high percentile is the good one. Say which you mean.</p>
+        <p>The confusion is common enough in meetings to be worth naming explicitly.</p>
+        <table><tr><th>Statement</th><th>Correct?</th></tr>
+        <tr><td>"p99 is 1.4 s" = 99% of requests took 1.4 s or less</td><td>yes</td></tr>
+        <tr><td>"p99 is 1.4 s" = 1% of requests failed</td><td><b>no</b> — they were slow, not failed</td></tr>
+        <tr><td>"We improved p99 by 10%" is a clear statement</td><td>ambiguous — the value, or the position?</td></tr>
+        <tr><td>"99th percentile" and "top 1%" describe the same requests</td><td>yes</td></tr></table>
+        <p>Also beware the word "percentile" applied to things that are not latency without saying which direction is good. For response sizes or error counts, a high percentile is the big one; for throughput or scores, a high percentile is the good one. Say which you mean.</p>
         </template></div>
         <div class="term"><b>trimmed statistics</b><span>Dropping the extreme values before averaging. Useful for benchmarking noise, dangerous for production monitoring.</span><template class="term-detail" data-see="mean vs median, long tail">
-<p>A trimmed mean discards the top and bottom <i>x</i>% and averages the rest, giving a stable central estimate that is not thrown by a single outlier.</p>
-<table><tr><th>Use it for</th><th>Do not use it for</th></tr>
-<tr><td>benchmark runs where one result was a background job</td><td>production latency &mdash; you are deleting your incidents</td></tr>
-<tr><td>comparing two implementations in a noisy environment</td><td>SLO reporting of any kind</td></tr>
-<tr><td>estimating a central tendency in dirty data</td><td>anything where the extremes <i>are</i> the question</td></tr></table>
-<p>The rule: trimming is legitimate when outliers are <b>measurement artefacts</b>, and illegitimate when they are <b>real user experiences</b>. In production they are almost always real.</p>
-<p>Before deleting an outlier, trace it. "A 9-second request" is not noise &mdash; it is a lead, and usually the most informative one you have that day.</p>
+        <p>A trimmed mean discards the top and bottom <em>x</em>% and averages the rest, giving a stable central estimate that is not thrown by a single outlier.</p>
+        <table><tr><th>Use it for</th><th>Do not use it for</th></tr>
+        <tr><td>benchmark runs where one result was a background job</td><td>production latency — you are deleting your incidents</td></tr>
+        <tr><td>comparing two implementations in a noisy environment</td><td>SLO reporting of any kind</td></tr>
+        <tr><td>estimating a central tendency in dirty data</td><td>anything where the extremes <em>are</em> the question</td></tr></table>
+        <p>The rule: trimming is legitimate when outliers are <b>measurement artefacts</b>, and illegitimate when they are <b>real user experiences</b>. In production they are almost always real.</p>
+        <p>Before deleting an outlier, trace it. "A 9-second request" is not noise — it is a lead, and usually the most informative one you have that day.</p>
         </template></div>
       </div>
     </section>
 
     <section id="commands">
       <h2>Essential commands &amp; syntax</h2>
-
       <div class="cmd-group">
         <h3>Prometheus / PromQL</h3>
         <div class="cmd"><pre class="language-promql"><code class="language-promql">histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))</code></pre><div class="what">The correct fleet-wide p99: sum the buckets across instances <em>first</em>, then take the quantile.</div></div>
@@ -480,7 +474,6 @@ measured at the gateway, over a rolling 28-day window.</code></pre>
         <div class="cmd"><pre class="language-none"><code class="language-none"># in the exporter: buckets around the SLO, not the defaults
 buckets = [.005, .01, .025, .05, .1, .2, .3, .5, 1, 2, 5, 10]</code></pre><div class="what">A boundary exactly at your SLO threshold (0.3) is what makes the query above exact.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Azure Monitor / Application Insights (KQL)</h3>
         <div class="cmd"><pre class="language-none line-numbers"><code class="language-none">requests
@@ -493,7 +486,6 @@ buckets = [.005, .01, .025, .05, .1, .2, .3, .5, 1, 2, 5, 10]</code></pre><div c
 | extend slo = 100.0 * good / total</code></pre><div class="what">The threshold form of the same SLO, which is what an error budget is computed from.</div></div>
         <div class="cmd"><pre class="language-none"><code class="language-none">requests | where duration &gt; 2000 | project timestamp, name, duration, operation_Id</code></pre><div class="what">The point of percentiles is to find these. Take the <code>operation_Id</code> into the end-to-end transaction view.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Python</h3>
         <div class="cmd"><pre class="language-python"><code class="language-python">import numpy as np
@@ -507,7 +499,6 @@ h = HdrHistogram(1, 60_000, 3)                 # 1 ms .. 60 s, 3 significant dig
 for v in latencies_ms: h.record_value(int(v))
 h.get_value_at_percentile(99.9)</code></pre><div class="what">Constant memory, mergeable across threads and processes, accurate deep into the tail.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>.NET</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">static readonly Meter Meter = new("Contoso.Orders");
@@ -518,7 +509,6 @@ Duration.Record(sw.Elapsed.TotalMilliseconds, new KeyValuePair&lt;string, object
         <div class="cmd"><pre class="language-none"><code class="language-none">.AddView("orders.request.duration", new ExplicitBucketHistogramConfiguration
     { Boundaries = [5, 10, 25, 50, 100, 200, 300, 500, 1000, 2000, 5000] })</code></pre><div class="what">Overrides the default buckets so there is a boundary at your SLO threshold.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>SQL</h3>
         <div class="cmd"><pre class="language-sql"><code class="language-sql">SELECT DISTINCT
@@ -529,7 +519,6 @@ FROM request_log WHERE ts &gt; now() - interval '1 day';</code></pre><div class=
        percentile_disc(0.99) WITHIN GROUP (ORDER BY duration_ms) AS p99
 FROM request_log GROUP BY route HAVING count(*) &gt; 1000;</code></pre><div class="what">The <code>HAVING</code> clause is the point: do not report a p99 computed from too few rows.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Load testing without coordinated omission</h3>
         <div class="cmd"><pre class="language-bash"><code class="language-bash">wrk2 -t4 -c100 -d60s -R2000 --latency https://api.contoso.com/orders/1</code></pre><div class="what"><code>-R</code> fixes the request <em>rate</em> rather than waiting for responses, so queueing delay is actually measured.</div></div>
@@ -541,7 +530,7 @@ FROM request_log GROUP BY route HAVING count(*) &gt; 1000;</code></pre><div clas
       <h2>Pros &amp; cons</h2>
       <div class="cols">
         <div class="col good"><h3>Pros</h3><ul>
-          <li>Every percentile is a real request a real user waited for &mdash; not a statistical artefact.</li>
+          <li>Every percentile is a real request a real user waited for — not a statistical artefact.</li>
           <li>Immune to outliers in the way that matters: one slow request cannot distort p50.</li>
           <li>Makes SLOs expressible, measurable and arguable in concrete terms.</li>
           <li>Reading p50 against p99 diagnoses the problem class before you open a trace.</li>
@@ -552,7 +541,7 @@ FROM request_log GROUP BY route HAVING count(*) &gt; 1000;</code></pre><div clas
           <li>They cannot be averaged or combined, which almost every default dashboard gets wrong.</li>
           <li>High percentiles need large samples; on low-traffic endpoints they are noise.</li>
           <li>Bucketed and sketched percentiles are approximations, with error that is easy to forget.</li>
-          <li>They describe the distribution but say nothing about <i>which</i> requests were slow &mdash; you still need traces.</li>
+          <li>They describe the distribution but say nothing about <em>which</em> requests were slow — you still need traces.</li>
           <li>Measurement tools silently distort them through coordinated omission.</li>
           <li>They are not additive, so they cannot be used for capacity or cost arithmetic.</li>
         </ul></div>
@@ -562,11 +551,11 @@ FROM request_log GROUP BY route HAVING count(*) &gt; 1000;</code></pre><div clas
     <section id="use-cases">
       <h2>Concrete use cases</h2>
       <div class="cards">
-        <div class="card"><h3>Catching a regression an average hid</h3><p>A deploy adds a synchronous audit write on 3% of requests. The mean moves from 94 ms to 101 ms &mdash; well inside normal variation &mdash; while p95 jumps from 180 ms to 2,100 ms. Only the percentile dashboard shows it, and the shape (a flat p50 with an exploding tail) points straight at a code path rather than a general slowdown.</p></div>
+        <div class="card"><h3>Catching a regression an average hid</h3><p>A deploy adds a synchronous audit write on 3% of requests. The mean moves from 94 ms to 101 ms — well inside normal variation — while p95 jumps from 180 ms to 2,100 ms. Only the percentile dashboard shows it, and the shape (a flat p50 with an exploding tail) points straight at a code path rather than a general slowdown.</p></div>
         <div class="card"><h3>Writing a latency SLO that survives review</h3><p>"The API should be fast" becomes "99% of <code>GET /orders/{id}</code> complete in under 300 ms, measured at the gateway, over 28 days". A histogram boundary is added at exactly 300 ms, the error budget works out to 43 minutes a month, and alerts fire on burn rate rather than on instantaneous value.</p></div>
         <div class="card"><h3>Sizing a connection pool</h3><p>A service with p50 20 ms and p99 900 ms at 500 req/s needs enough concurrency for the tail, not the median. Little's Law on the mean (roughly 94 ms) suggests 47 connections; sizing for the tail says far more. The percentile spread is what tells you the pool is the thing that will saturate.</p></div>
         <div class="card"><h3>Diagnosing a bimodal distribution</h3><p>A chart shows two clusters: one at 25 ms and one at 2,025 ms, with almost nothing in between. The gap is exactly the 2-second client timeout, so the slow group is retries. Percentiles identified the shape; the fix was retry budgeting and jitter, which is also what the rate limiting page recommends.</p></div>
-        <div class="card"><h3>Proving a tail fix actually worked</h3><p>After adding hedged requests at the p95 delay, p50 is unchanged, p99 falls from 900 ms to 180 ms, and backend load rises by 4%. That is exactly the expected trade, and it is only visible because p50 and p99 were tracked separately &mdash; an average would have shown a modest improvement and hidden both the win and its cost.</p></div>
+        <div class="card"><h3>Proving a tail fix actually worked</h3><p>After adding hedged requests at the p95 delay, p50 is unchanged, p99 falls from 900 ms to 180 ms, and backend load rises by 4%. That is exactly the expected trade, and it is only visible because p50 and p99 were tracked separately — an average would have shown a modest improvement and hidden both the win and its cost.</p></div>
       </div>
     </section>
 
@@ -574,15 +563,15 @@ FROM request_log GROUP BY route HAVING count(*) &gt; 1000;</code></pre><div clas
       <h2>When to use / when not to</h2>
       <span class="note" style="margin:-6px 0 14px">Describing experience? Percentile. Adding things up? Mean. Never the other way round.</span>
       <div class="cols">
-        <div class="col good"><h3>Use percentiles when&hellip;</h3><ul>
+        <div class="col good"><h3>Use percentiles when…</h3><ul>
           <li>You are describing what users experience: latency, load time, queue wait.</li>
           <li>The distribution is skewed, which for anything time-related it almost always is.</li>
           <li>You are setting or reporting an SLO.</li>
           <li>You need to distinguish "normally slow" from "occasionally terrible".</li>
-          <li>You have enough samples &mdash; roughly 1,000 in the window for a credible p99.</li>
+          <li>You have enough samples — roughly 1,000 in the window for a credible p99.</li>
           <li>You want a number that corresponds to an actual request you can go and trace.</li>
         </ul></div>
-        <div class="col bad"><h3>Avoid them when&hellip;</h3><ul>
+        <div class="col bad"><h3>Avoid them when…</h3><ul>
           <li>You need to add things up: total cost, total CPU, total bytes. Use the <b>sum or the mean</b>.</li>
           <li>There are only a handful of samples. Report the <b>raw values</b>, or widen the window.</li>
           <li>The question is "how often did it fail", not "how slow was it". Use a <b>rate or a ratio</b>.</li>
@@ -595,14 +584,14 @@ FROM request_log GROUP BY route HAVING count(*) &gt; 1000;</code></pre><div clas
 
     <section id="gotchas">
       <h2>Common mistakes &amp; gotchas</h2>
-      <div class="gotcha"><b>Averaging percentiles across instances</b><span><code>avg(p99)</code> over ten pods is not the fleet p99 and is not a percentile of anything. One sick instance with 1% of the traffic can make the whole fleet look broken, or a healthy majority can hide a broken minority.</span><div class="fix">Fix: sum the histogram buckets (or merge the sketches) first, then compute the quantile once &mdash; <code>histogram_quantile(0.99, sum by (le) (...))</code>, never <code>avg(histogram_quantile(...))</code>.</div></div>
+      <div class="gotcha"><b>Averaging percentiles across instances</b><span><code>avg(p99)</code> over ten pods is not the fleet p99 and is not a percentile of anything. One sick instance with 1% of the traffic can make the whole fleet look broken, or a healthy majority can hide a broken minority.</span><div class="fix">Fix: sum the histogram buckets (or merge the sketches) first, then compute the quantile once — <code>histogram_quantile(0.99, sum by (le) (...))</code>, never <code>avg(histogram_quantile(...))</code>.</div></div>
       <div class="gotcha"><b>Reporting p99 from a handful of samples</b><span>On an endpoint serving ten requests a minute, the one-minute p99 is just the slowest of ten. It swings wildly, triggers alerts at random, and teaches everyone to ignore the dashboard.</span><div class="fix">Fix: require roughly 1,000 samples in the window for p99. Widen the window on low-traffic endpoints, and show "insufficient data" rather than a confident wrong number.</div></div>
       <div class="gotcha"><b>Coordinated omission in load tests</b><span>A closed-loop generator stops sending while the server is stalled, so the queueing delay never appears in the results. Reported p99s can be ten times better than reality.</span><div class="fix">Fix: use an open-loop, constant-rate generator (<code>wrk2 -R</code>, k6 constant-arrival-rate, Gatling injection profiles), or correct with HdrHistogram's expected-interval recording.</div></div>
       <div class="gotcha"><b>Histogram buckets that end too low</b><span>If the top bucket is <code>le="1.0"</code> and the real tail is at 8 seconds, every slow request falls into <code>+Inf</code> and <code>histogram_quantile</code> cannot see past 1 second. Your p99 is pinned to the top bucket and looks suspiciously stable.</span><div class="fix">Fix: extend the buckets well past the worst latency you have ever seen, and put a boundary exactly at your SLO threshold. Check <code>+Inf</code> minus the top bucket: it should be near zero.</div></div>
-      <div class="gotcha"><b>Measuring at the wrong place</b><span>The service reports p99 = 80 ms while users see 3 seconds. The service's timer starts after TLS, queueing, load-balancer wait and request parsing, and stops before the response is written.</span><div class="fix">Fix: measure as close to the user as possible &mdash; real user monitoring in the browser, or at least at the edge &mdash; and treat per-service numbers as diagnosis, not as the SLI.</div></div>
+      <div class="gotcha"><b>Measuring at the wrong place</b><span>The service reports p99 = 80 ms while users see 3 seconds. The service's timer starts after TLS, queueing, load-balancer wait and request parsing, and stops before the response is written.</span><div class="fix">Fix: measure as close to the user as possible — real user monitoring in the browser, or at least at the edge — and treat per-service numbers as diagnosis, not as the SLI.</div></div>
       <div class="gotcha"><b>Comparing percentiles across different windows</b><span>"p99 was 300 ms last week and is 900 ms today" compares a 7-day window with a 5-minute one. Nothing regressed; the windows differ, and shorter windows always look spikier.</span><div class="fix">Fix: state the window beside every percentile on every dashboard, and compare like with like. Put the sample count next to it too.</div></div>
       <div class="gotcha"><b>Forgetting fan-out when setting targets</b><span>Each service hits its 1% tail budget, the page calls ten of them, and 10% of page loads are slow. Every team's dashboard is green and the product is not.</span><div class="fix">Fix: derive per-service targets from the end-to-end goal and the fan-out factor, and always have one SLO measured on the complete user-visible operation.</div></div>
-      <div class="gotcha"><b>Discarding outliers because they look like noise</b><span>Trimming the top 1% before charting produces a beautiful, stable graph that has had every incident deleted from it.</span><div class="fix">Fix: trim only when outliers are measurement artefacts, and never for production experience. Trace the slow requests instead &mdash; they are the most informative data you have.</div></div>
+      <div class="gotcha"><b>Discarding outliers because they look like noise</b><span>Trimming the top 1% before charting produces a beautiful, stable graph that has had every incident deleted from it.</span><div class="fix">Fix: trim only when outliers are measurement artefacts, and never for production experience. Trace the slow requests instead — they are the most informative data you have.</div></div>
     </section>
 
     <section id="alternatives">
@@ -611,21 +600,21 @@ FROM request_log GROUP BY route HAVING count(*) &gt; 1000;</code></pre><div clas
         <table>
           <thead><tr><th>Summary</th><th>Best for</th><th>Complexity</th><th>Cost</th><th>Key difference vs percentiles</th></tr></thead>
           <tbody>
-            <tr class="self"><td><b>Percentiles</b></td><td>describing experience in a skewed distribution</td><td>Low</td><td>cheap with histograms</td><td>&mdash;</td></tr>
+            <tr class="self"><td><b>Percentiles</b></td><td>describing experience in a skewed distribution</td><td>Low</td><td>cheap with histograms</td><td>—</td></tr>
             <tr><td><b>Mean</b></td><td>totals: cost, CPU seconds, bytes transferred</td><td>Low</td><td>trivial</td><td>Additive, so it can be combined and budgeted; distorted by outliers</td></tr>
-            <tr><td><b>Threshold ratio</b> ("% under 300 ms")</td><td>SLOs and error budgets</td><td>Low</td><td>trivial</td><td>Counts good events, so it <i>is</i> aggregatable across services and time</td></tr>
+            <tr><td><b>Threshold ratio</b> ("% under 300 ms")</td><td>SLOs and error budgets</td><td>Low</td><td>trivial</td><td>Counts good events, so it <em>is</em> aggregatable across services and time</td></tr>
             <tr><td><b>Full histogram / heatmap</b></td><td>spotting bimodality and shape changes</td><td>Medium</td><td>more storage</td><td>Shows the whole distribution instead of three points on it</td></tr>
             <tr><td><b>Max</b></td><td>hard real-time deadlines</td><td>Low</td><td>trivial</td><td>One bad sample defines it forever; useful only with a strict deadline</td></tr>
-            <tr><td><b>Apdex</b></td><td>a single executive-facing satisfaction score</td><td>Low</td><td>trivial</td><td>Folds latency into one 0&ndash;1 number; easy to report, hard to debug from</td></tr>
-            <tr><td><b>Distributed traces</b></td><td>finding out <i>why</i> a request was slow</td><td>Medium</td><td>sampling cost</td><td>Per-request detail rather than a summary; the natural follow-up to a bad p99</td></tr>
+            <tr><td><b>Apdex</b></td><td>a single executive-facing satisfaction score</td><td>Low</td><td>trivial</td><td>Folds latency into one 0–1 number; easy to report, hard to debug from</td></tr>
+            <tr><td><b>Distributed traces</b></td><td>finding out <em>why</em> a request was slow</td><td>Medium</td><td>sampling cost</td><td>Per-request detail rather than a summary; the natural follow-up to a bad p99</td></tr>
           </tbody>
         </table>
       </div>
       <ul style="margin-top:12px">
-        <li><b>Pick the mean</b> when the quantity is additive &mdash; money, bytes, CPU seconds.</li>
+        <li><b>Pick the mean</b> when the quantity is additive — money, bytes, CPU seconds.</li>
         <li><b>Pick a threshold ratio</b> for SLOs: it aggregates cleanly and converts directly into an error budget.</li>
         <li><b>Pick a heatmap</b> when you suspect two populations; percentiles average the bimodality away.</li>
-        <li><b>Pick traces</b> the moment a percentile tells you something is wrong &mdash; percentiles find the problem, traces explain it.</li>
+        <li><b>Pick traces</b> the moment a percentile tells you something is wrong — percentiles find the problem, traces explain it.</li>
         <li>The usual production set is: a threshold-based SLO, p50 and p99 on the dashboard, a heatmap for shape, and traces for the outliers.</li>
       </ul>
     </section>
@@ -634,9 +623,9 @@ FROM request_log GROUP BY route HAVING count(*) &gt; 1000;</code></pre><div clas
       <h2>Resources</h2>
       <ul>
         <li><a href="https://research.google/pubs/the-tail-at-scale/" target="_blank" rel="noopener">The Tail at Scale (Dean &amp; Barroso)</a>: the paper on tail amplification, hedged requests and tail tolerance. Short and worth reading twice.</li>
-        <li><a href="https://sre.google/workbook/implementing-slos/" target="_blank" rel="noopener">Google SRE Workbook &mdash; Implementing SLOs</a>: how to pick percentiles, windows and thresholds, and how to alert on burn rate.</li>
-        <li><a href="https://www.infoq.com/presentations/latency-response-time/" target="_blank" rel="noopener">Gil Tene &mdash; How NOT to measure latency</a>: the definitive talk on coordinated omission and why your load test is lying.</li>
-        <li><a href="https://prometheus.io/docs/practices/histograms/" target="_blank" rel="noopener">Prometheus &mdash; Histograms and summaries</a>: why histograms aggregate and summaries do not, with the error characteristics spelled out.</li>
+        <li><a href="https://sre.google/workbook/implementing-slos/" target="_blank" rel="noopener">Google SRE Workbook — Implementing SLOs</a>: how to pick percentiles, windows and thresholds, and how to alert on burn rate.</li>
+        <li><a href="https://www.infoq.com/presentations/latency-response-time/" target="_blank" rel="noopener">Gil Tene — How NOT to measure latency</a>: the definitive talk on coordinated omission and why your load test is lying.</li>
+        <li><a href="https://prometheus.io/docs/practices/histograms/" target="_blank" rel="noopener">Prometheus — Histograms and summaries</a>: why histograms aggregate and summaries do not, with the error characteristics spelled out.</li>
         <li><a href="https://opentelemetry.io/docs/specs/otel/metrics/data-model/" target="_blank" rel="noopener">OpenTelemetry metrics data model</a>: explicit-bucket and exponential histograms, and how they are exported.</li>
         <li><a href="https://www.datadoghq.com/blog/engineering/computing-accurate-percentiles-with-ddsketch/" target="_blank" rel="noopener">Computing accurate percentiles with DDSketch</a>: a readable explanation of relative-error sketches and why mergeability matters.</li>
       </ul>
@@ -681,73 +670,40 @@ FROM request_log GROUP BY route HAVING count(*) &gt; 1000;</code></pre><div clas
   </main>
 </div>
 
-<script src="../assets/player.js?v=3658cbc7"></script>
+<script src="../assets/player.js?v=e9bf1ea3"></script>
 <script>
-/* ---------- Animation 1: computing percentiles ---------- */
 createAnimation('anim-compute', [
-  { say: 'Twenty requests to the same endpoint, in the order they arrived. Most are around 40&ndash;50 ms, two are noticeably slower, and one took <b>2.1 seconds</b>.',
-    hl: ['pc-raw-out'] },
-  { say: 'A percentile is a <b>position in a sorted list</b>, so the first step is always to sort. Nothing else about the data matters &mdash; not when each request happened, not which user made it.',
-    show: ['pc-sorted'], unhl: ['pc-raw-out'] },
-  { say: '<b>p50</b>, the median, is the value at position <code>ceil(0.50 x 20) = 10</code>: <b>46 ms</b>. Half the requests were faster than this. It is the honest answer to "how fast is it normally?"',
-    show: ['pc-m50'], hl: ['pc-b50'],
-    text: { 'pc-stat1': 'p50 = 46 ms      (the typical request)' } },
-  { say: '<b>p90</b> is at position <code>ceil(0.90 x 20) = 18</code>: <b>120 ms</b>. Already 2.6x the median &mdash; and it is a real request that somebody actually waited for, not an estimate.',
-    show: ['pc-m90'], hl: ['pc-b90'], unhl: ['pc-b50'],
-    text: { 'pc-stat1': 'p50 = 46 ms      p90 = 120 ms' } },
-  { say: '<b>p99</b> would be at position <code>ceil(0.99 x 20) = 20</code> &mdash; the maximum. With only twenty samples, "p99" is just another name for the slowest request. You need roughly 1,000 samples before a p99 means anything.',
-    show: ['pc-m99'], hl: ['pc-b99'], unhl: ['pc-b90'],
-    text: { 'pc-stat1': 'p50 = 46 ms      p90 = 120 ms      p99 = 2100 ms (= max)' } },
-  { say: 'Now the <b>mean</b>: 3,316 / 20 = <b>166 ms</b>. Look where it sits &mdash; above 17 of the 20 requests. It describes the experience of precisely nobody, and it is nearly four times the typical request.',
-    show: ['pc-mmean', 'pc-note'], unhl: ['pc-b99'],
-    text: { 'pc-stat2': 'mean = 166 ms    slower than 17 of 20 requests' } },
-  { say: 'Watch what one outlier does. Remove the single 2,100 ms request and the mean drops to <b>64 ms</b> &mdash; a 61% "improvement" from one request &mdash; while the median moves from 46 to 45. That is why average-based dashboards both hide real regressions and invent imaginary ones.',
-    text: { 'pc-stat2': 'drop one outlier: mean 166 -> 64 ms,  median 46 -> 45 ms' } },
-  { say: 'The takeaway: every percentile is a measurement of a request somebody really made. "p99 = 2.1 s" means one user in a hundred sat there for 2.1 seconds. No average can tell you that, and no average can be traced back to a request you can go and investigate.',
-    unhl: ['pc-raw-out'],
-    text: { 'pc-stat1': 'p50 = 46 ms      p90 = 120 ms      p99 = 2100 ms',
-            'pc-stat2': 'each one is a real request you can look up in a trace' } },
+  { say: "Twenty requests to the same endpoint, in the order they arrived. Most are around 40–50 ms, two are noticeably slower, and one took <b>2.1 seconds</b>.", hl: ["pc-raw-out"] },
+  { say: "A percentile is a <b>position in a sorted list</b>, so the first step is always to sort. Nothing else about the data matters — not when each request happened, not which user made it.", show: ["pc-sorted"], unhl: ["pc-raw-out"] },
+  { say: "<b>p50</b>, the median, is the value at position <code>ceil(0.50 x 20) = 10</code>: <b>46 ms</b>. Half the requests were faster than this. It is the honest answer to \"how fast is it normally?\"", show: ["pc-m50"], hl: ["pc-b50"], text: {"pc-stat1":"p50 = 46 ms      (the typical request)"} },
+  { say: "<b>p90</b> is at position <code>ceil(0.90 x 20) = 18</code>: <b>120 ms</b>. Already 2.6x the median — and it is a real request that somebody actually waited for, not an estimate.", show: ["pc-m90"], hl: ["pc-b90"], unhl: ["pc-b50"], text: {"pc-stat1":"p50 = 46 ms      p90 = 120 ms"} },
+  { say: "<b>p99</b> would be at position <code>ceil(0.99 x 20) = 20</code> — the maximum. With only twenty samples, \"p99\" is just another name for the slowest request. You need roughly 1,000 samples before a p99 means anything.", show: ["pc-m99"], hl: ["pc-b99"], unhl: ["pc-b90"], text: {"pc-stat1":"p50 = 46 ms      p90 = 120 ms      p99 = 2100 ms (= max)"} },
+  { say: "Now the <b>mean</b>: 3,316 / 20 = <b>166 ms</b>. Look where it sits — above 17 of the 20 requests. It describes the experience of precisely nobody, and it is nearly four times the typical request.", show: ["pc-mmean","pc-note"], unhl: ["pc-b99"], text: {"pc-stat2":"mean = 166 ms    slower than 17 of 20 requests"} },
+  { say: "Watch what one outlier does. Remove the single 2,100 ms request and the mean drops to <b>64 ms</b> — a 61% \"improvement\" from one request — while the median moves from 46 to 45. That is why average-based dashboards both hide real regressions and invent imaginary ones.", text: {"pc-stat2":"drop one outlier: mean 166 -> 64 ms,  median 46 -> 45 ms"} },
+  { say: "The takeaway: every percentile is a measurement of a request somebody really made. \"p99 = 2.1 s\" means one user in a hundred sat there for 2.1 seconds. No average can tell you that, and no average can be traced back to a request you can go and investigate.", unhl: ["pc-raw-out"], text: {"pc-stat1":"p50 = 46 ms      p90 = 120 ms      p99 = 2100 ms","pc-stat2":"each one is a real request you can look up in a trace"} },
 ]);
 
-/* ---------- Animation 2: tail amplification ---------- */
 createAnimation('anim-tail', [
-  { say: 'One service: <b>p50 = 20 ms, p99 = 500 ms</b>. One call in a hundred lands in the tail. On its own dashboard this looks entirely healthy.',
-    hl: ['ta-c1'] },
-  { say: 'But a single page load calls <b>ten</b> such services and needs every answer before it can render. The page is exactly as slow as its slowest call.',
-    unhl: ['ta-c1'], hl: ['ta-page'], text: { 'ta-lat': '20 ms', 'ta-lat2': 'all ten fast' } },
-  { say: 'Here is a page load where one call &mdash; <code>recommend-api</code> &mdash; happens to hit its own p99. Nine calls returned in about 20 ms; one took 500. The page took 500.',
-    fill: { 'ta-c7': '#f9e3df' }, hl: ['ta-c7'], unhl: ['ta-page'],
-    text: { 'ta-c7-t': 'recommend-api     500 ms', 'ta-lat': '500 ms', 'ta-lat2': 'one call in the tail' } },
-  { say: 'How often does that happen? Each call is fast with probability 0.99, so <i>all ten</i> are fast with probability <code>0.99^10</code>.',
-    show: ['ta-p1', 'ta-p2'], unhl: ['ta-c7'] },
-  { say: 'That works out to 0.904 &mdash; so <b>9.6% of page loads</b> contain at least one tail call. Not 1%.',
-    show: ['ta-p3', 'ta-p4'] },
-  { say: 'Read that again in percentile terms: the service’s <b>p99 has become the page’s p90</b>. Every backend team can hit its 1% target while one user in ten has a slow page.',
-    show: ['ta-p5'] },
-  { say: 'It gets worse quickly. At 100 calls per request &mdash; perfectly ordinary for a dashboard or a search page &mdash; <code>1 &minus; 0.99^100 = 63%</code> of requests touch the tail. The tail stops being an edge case and becomes the common case.',
-    show: ['ta-p6'] },
-  { say: 'Three defences, in order: <b>reduce fan-out</b> (batch, denormalise, cache), <b>shorten the tail at the source</b>, and <b>tolerate it</b> with hedged requests or a timeout and a degraded panel. And measure end to end &mdash; the only number that reflects this is the one taken where the user is waiting.',
-    show: ['ta-note'], hl: ['ta-page'],
-    text: { 'ta-lat': 'p90 = 500 ms', 'ta-lat2': 'each service: p99 = 500' } },
+  { say: "One service: <b>p50 = 20 ms, p99 = 500 ms</b>. One call in a hundred lands in the tail. On its own dashboard this looks entirely healthy.", hl: ["ta-c1"] },
+  { say: "But a single page load calls <b>ten</b> such services and needs every answer before it can render. The page is exactly as slow as its slowest call.", hl: ["ta-page"], unhl: ["ta-c1"], text: {"ta-lat":"20 ms","ta-lat2":"all ten fast"} },
+  { say: "Here is a page load where one call — <code>recommend-api</code> — happens to hit its own p99. Nine calls returned in about 20 ms; one took 500. The page took 500.", hl: ["ta-c7"], unhl: ["ta-page"], text: {"ta-c7-t":"recommend-api     500 ms","ta-lat":"500 ms","ta-lat2":"one call in the tail"}, fill: {"ta-c7":"#f9e3df"} },
+  { say: "How often does that happen? Each call is fast with probability 0.99, so <em>all ten</em> are fast with probability <code>0.99^10</code>.", show: ["ta-p1","ta-p2"], unhl: ["ta-c7"] },
+  { say: "That works out to 0.904 — so <b>9.6% of page loads</b> contain at least one tail call. Not 1%.", show: ["ta-p3","ta-p4"] },
+  { say: "Read that again in percentile terms: the service’s <b>p99 has become the page’s p90</b>. Every backend team can hit its 1% target while one user in ten has a slow page.", show: ["ta-p5"] },
+  { say: "It gets worse quickly. At 100 calls per request — perfectly ordinary for a dashboard or a search page — <code>1 − 0.99^100 = 63%</code> of requests touch the tail. The tail stops being an edge case and becomes the common case.", show: ["ta-p6"] },
+  { say: "Three defences, in order: <b>reduce fan-out</b> (batch, denormalise, cache), <b>shorten the tail at the source</b>, and <b>tolerate it</b> with hedged requests or a timeout and a degraded panel. And measure end to end — the only number that reflects this is the one taken where the user is waiting.", show: ["ta-note"], hl: ["ta-page"], text: {"ta-lat":"p90 = 500 ms","ta-lat2":"each service: p99 = 500"} },
 ]);
 
-/* ---------- Key-concept animations ---------- */
+/* Animations inside key-concept panels */
 window.TERM_ANIMS = {
   co: [
-    { say: 'A load generator targets ten requests per second: one every 100 ms. For the first second everything is normal and each request returns in about 20 ms.',
-      text: { 'co-tool1': '10 samples, ~20 ms each', 'co-real1': '10 users, ~20 ms each' } },
-    { say: 'At t = 1.0 s the server stalls for a full second &mdash; a garbage collection pause, a lock, a failover.',
-      show: ['co-stall', 'co-stall-t'] },
-    { say: 'A <b>closed-loop</b> generator waits for each response before sending the next. So during the stall it sends <i>nothing</i>: it is stuck waiting on the one request already in flight.',
-      text: { 'co-tool1': '1 request in flight', 'co-tool2': 'sends nothing for 1 s' } },
-    { say: 'When the stall ends it records that one request at 1,000 ms and carries on. Out of about 100 samples, exactly one is slow.',
-      text: { 'co-tool1': '100 samples', 'co-tool2': 'p50 = 20 ms,  p99 = 1,000 ms' } },
-    { say: 'But real users do not politely wait their turn. During that second, ten more users arrived. The first waited 1,000 ms, the next 900 ms, the next 800 ms, and so on &mdash; every one of them was in the queue.',
-      show: ['co-missing'] },
-    { say: 'Recorded honestly, the sample contains <b>ten</b> slow measurements, not one. The p99 is similar, but p90 goes from 20 ms to 500 ms: the tool described a 1% problem and the users had a 10% problem.',
-      text: { 'co-real1': '100 samples', 'co-real2': 'p50 = 20 ms,  p90 = 500 ms,  p99 = 1,000 ms' } },
-    { say: 'The fix is to decouple sending from receiving: an <b>open-loop</b> generator sends on schedule whatever the server is doing, and HdrHistogram can correct after the fact if you tell it the expected interval. The tell-tale sign in a report is a p99 close to the p50 with an enormous maximum.',
-      show: ['co-fix', 'co-note'] },
+    { say: "A load generator targets ten requests per second: one every 100 ms. For the first second everything is normal and each request returns in about 20 ms.", text: {"co-tool1":"10 samples, ~20 ms each","co-real1":"10 users, ~20 ms each"} },
+    { say: "At t = 1.0 s the server stalls for a full second — a garbage collection pause, a lock, a failover.", show: ["co-stall","co-stall-t"] },
+    { say: "A <b>closed-loop</b> generator waits for each response before sending the next. So during the stall it sends <em>nothing</em>: it is stuck waiting on the one request already in flight.", text: {"co-tool1":"1 request in flight","co-tool2":"sends nothing for 1 s"} },
+    { say: "When the stall ends it records that one request at 1,000 ms and carries on. Out of about 100 samples, exactly one is slow.", text: {"co-tool1":"100 samples","co-tool2":"p50 = 20 ms,  p99 = 1,000 ms"} },
+    { say: "But real users do not politely wait their turn. During that second, ten more users arrived. The first waited 1,000 ms, the next 900 ms, the next 800 ms, and so on — every one of them was in the queue.", show: ["co-missing"] },
+    { say: "Recorded honestly, the sample contains <b>ten</b> slow measurements, not one. The p99 is similar, but p90 goes from 20 ms to 500 ms: the tool described a 1% problem and the users had a 10% problem.", text: {"co-real1":"100 samples","co-real2":"p50 = 20 ms,  p90 = 500 ms,  p99 = 1,000 ms"} },
+    { say: "The fix is to decouple sending from receiving: an <b>open-loop</b> generator sends on schedule whatever the server is doing, and HdrHistogram can correct after the fact if you tell it the expected interval. The tell-tale sign in a report is a p99 close to the p50 with an enormous maximum.", show: ["co-fix","co-note"] },
   ],
 };
 </script>

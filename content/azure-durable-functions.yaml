@@ -1,0 +1,998 @@
+title: Azure Durable Functions
+slug: azure-durable-functions
+tagline: Write a long-running workflow as ordinary code, and let replay make it survive restarts.
+asof: Nov 2026 · extension v3.x (in-process and .NET isolated) · Durable Task Scheduler backend generally available
+description: "Azure Durable Functions cheatsheet: orchestrators, activities and entities, an animated walk-through of replay and fan-out/fan-in, determinism rules, patterns, backends and gotchas."
+aliases:
+  - Azure Durable Functions
+  - Durable Functions
+  - Durable Task
+  - durable orchestration
+keywords:
+  - azure
+  - serverless
+  - workflow
+  - orchestration
+  - durable execution
+  - event sourcing
+  - dotnet
+  - saga
+  - stateful functions
+related: [ azure-api-management ]
+overview:
+  - "Plain serverless functions are stateless and short-lived, which makes multi-step processes awkward: you end up stitching functions together with queues, storing progress in a table, and writing your own retry, timeout and compensation logic. Durable Functions is the extension to Azure Functions that removes all of that plumbing."
+  - You write an **orchestrator function** that looks like normal, sequential code — call this, await it, loop, branch, wait for approval, time out after three days — and the runtime makes it durable. Every decision the orchestrator takes is appended to a history, the function is unloaded from memory whenever it is waiting, and it is **replayed** from the top when new results arrive. Your code looks synchronous; the execution is event-sourced.
+  - It is available for C# (in-process and isolated worker), JavaScript and TypeScript, Python, PowerShell and Java, and it runs on every Azure Functions hosting plan. The same engine underneath, the Durable Task Framework, also powers Durable Task Scheduler — a managed backend with a real monitoring dashboard — and Azure Container Apps' durable workflows.
+architecture:
+  svg: azure-durable-functions/architecture.svg
+  alt: A client function starts an orchestrator, which schedules activities through control and work-item queues, with all state in a durable history store
+  caption: The orchestrator is a pure decision-maker; activities do the I/O; everything that happened is an event in the history, which is why the workflow survives a process crash, a deploy or a three-day wait.
+howItWorks:
+  - anim:
+      id: anim-replay
+      title: "Replay: how awaiting for three days costs nothing"
+      svg: azure-durable-functions/anim-replay.svg
+      alt: Animated replay cycle of a durable orchestrator with its history table
+      steps:
+        - say: "A client starts the orchestration. Nothing runs yet: an `ExecutionStarted` event is appended to the history and a message goes on the control queue."
+          show: [ rp-h1 ]
+          text:
+            rp-state: queued
+        - say: "Execution #1. The orchestrator runs line 1. `CallActivity(\"Charge\")` does **not** call anything — it records the intent as `TaskScheduled` and returns an incomplete task."
+          show: [ rp-h2 ]
+          hl: [ rp-orch, rp-l1 ]
+          text:
+            rp-state: running (execution 1)
+            rp-runs: "executions so far: 1"
+        - say: "The orchestrator awaits a task that is not complete, so the function simply **returns**. The instance is evicted from memory: no thread, no process, nothing to pay for. It could stay like this for three days."
+          unhl: [ rp-orch, rp-l1 ]
+          text:
+            rp-state: unloaded — zero memory, zero cost
+        - say: "A worker — possibly on a different machine — picks the work item off the queue and runs the `Charge` activity. This is ordinary code with no restrictions: HTTP calls, database writes, whatever it needs."
+          hl: [ rp-worker ]
+          text:
+            rp-worker-sub: Charge → 42.00
+        - say: The result is appended to the history as `TaskCompleted`, and the orchestrator is queued to run again.
+          show: [ rp-h3 ]
+          unhl: [ rp-worker ]
+          text:
+            rp-worker-sub: idle
+        - say: "Execution #2 — and this is the part that surprises everyone. The orchestrator starts again **at line 1**. But this time `CallActivity(\"Charge\")` finds a matching `TaskCompleted` in the history, so it returns 42.00 immediately without scheduling anything."
+          hl: [ rp-orch ]
+          text:
+            rp-state: replaying (execution 2)
+            rp-runs: "executions so far: 2"
+          fill:
+            rp-l1: "#e3eedc"
+        - say: Replay catches up with reality at line 2, which is new. `Ship` is scheduled, `TaskScheduled` is written, and the instance unloads again.
+          show: [ rp-h4 ]
+          hl: [ rp-l2 ]
+          unhl: [ rp-orch ]
+          text:
+            rp-state: unloaded again
+        - say: "Same cycle: the activity runs, its result is appended, and the orchestrator replays a third time — lines 1 and 2 both answered from history — until it reaches the return."
+          show: [ rp-h5 ]
+          hl: [ rp-l3 ]
+          unhl: [ rp-l1, rp-l2 ]
+          text:
+            rp-state: replaying (execution 3)
+            rp-runs: "executions so far: 3"
+          fill:
+            rp-l2: "#e3eedc"
+        - say: "`ExecutionCompleted` is written with the output, and the instance is done. Your code ran three times; the workflow happened once. That is also why orchestrator code must be **deterministic**: a `DateTime.UtcNow` or a `Guid.NewGuid()` would give a different answer on replay, and the instance would fail."
+          show: [ rp-h6, rp-note ]
+          unhl: [ rp-l3 ]
+          text:
+            rp-state: Completed
+            rp-hnote: same history → same run, every time
+          fill:
+            rp-l3: "#e3eedc"
+  - anim:
+      id: anim-fanout
+      title: Fan-out / fan-in, with a failure and a retry
+      svg: azure-durable-functions/anim-fanout.svg
+      alt: Animated fan-out to five parallel activities, one failing and retrying, then fanning in
+      steps:
+        - say: The orchestrator loops over five files and calls `CallActivityAsync` for each one **without awaiting**. Five `TaskScheduled` events go into the history in a single execution.
+          hl: [ fo-orch ]
+          text:
+            fo-state: scheduled 5
+        - say: It then awaits `Task.WhenAll` and unloads. Five work items sit on the queue, and any worker in the app can pick up any of them — this is where the parallelism comes from.
+          unhl: [ fo-orch ]
+          text:
+            fo-state: unloaded
+            fo-caption: Five work items, picked up by however many workers the platform has scaled out to.
+        - say: "Results come back out of order, which is normal: each activity is independent and runs wherever there was capacity."
+          text:
+            fo-t3: invoice-003 ✓ 1.4 MB
+            fo-t1: invoice-001 ✓ 0.9 MB
+            fo-done: 2 / 5 complete
+          fill:
+            fo-a3: "#e3eedc"
+            fo-a1: "#e3eedc"
+        - say: Two more land. The orchestrator has replayed once per completion, each time finding four results in the history and one task still outstanding.
+          text:
+            fo-t2: invoice-002 ✓ 0.7 MB
+            fo-t5: invoice-005 ✓ 2.1 MB
+            fo-done: 4 / 5 complete
+          fill:
+            fo-a2: "#e3eedc"
+            fo-a5: "#e3eedc"
+        - say: "The fourth file throws: the storage account returned a 503. The activity fails, and the failure is recorded in the history like any other event."
+          hl: [ fo-a4 ]
+          text:
+            fo-t4: invoice-004 ✗ 503 from storage
+            fo-result: 1 failure
+          fill:
+            fo-a4: "#f9e3df"
+        - say: The retry policy on that call — 3 attempts, 5 s, backoff 2x — schedules a durable timer and retries. Because the schedule lives in the history, it survives the worker that started it crashing.
+          text:
+            fo-t4: invoice-004 ↺ retry 1 in 5 s
+            fo-result: retrying
+          fill:
+            fo-a4: "#fbf3c4"
+        - say: The retry succeeds, the last result is appended, and `WhenAll` finally completes.
+          unhl: [ fo-a4 ]
+          text:
+            fo-t4: invoice-004 ✓ 1.1 MB
+            fo-done: 5 / 5 complete
+            fo-result: all results in history
+          fill:
+            fo-a4: "#e3eedc"
+        - say: The orchestrator replays one last time with all five results available, runs the aggregation, and calls the summary activity. The aggregation happens <em>in the orchestrator</em>, so keep it cheap and deterministic — it has now run six times.
+          show: [ fo-note ]
+          hl: [ fo-orch, fo-sum ]
+          text:
+            fo-state: aggregating
+            fo-result: total 6.2 MB → WriteSummary
+            fo-caption: One failure retried itself without touching the other four. No coordinator code was written.
+  - anim:
+      id: anim-async
+      title: "Async HTTP API: answering in 50 ms for work that takes four minutes"
+      svg: azure-durable-functions/anim-async.svg
+      alt: Animated async HTTP pattern where the client gets 202 Accepted and polls a status endpoint
+      steps:
+        - say: A caller posts an order. Fulfilling it takes about four minutes — far longer than any sensible HTTP timeout, and longer than most gateways will hold a connection open.
+          show: [ ah-l1 ]
+          hl: [ ah-client ]
+          text:
+            ah-client-sub: POST /api/orders
+        - say: The client function schedules the orchestration and returns **immediately**. It does not await the workflow. `CreateCheckStatusResponseAsync` writes a `202 Accepted` whose body carries the management URLs — status, terminate, raise-event, purge.
+          show: [ ah-l2 ]
+          unhl: [ ah-client ]
+          text:
+            ah-client-lat: HTTP done in 52 ms
+            ah-orch-sub: queued
+            ah-client-sub: holds a status URL
+        - say: The HTTP request is already over. Only now does the orchestrator start, charging the card, and it sets a custom status so the outside world can see where it is.
+          hl: [ ah-orch ]
+          text:
+            ah-orch-sub: Running
+            ah-orch-step: step 2 of 4
+        - say: The caller polls the status URL whenever it likes — from a browser, a mobile app, a retry loop. Nothing is blocked while it is not polling.
+          show: [ ah-l3, ah-l4 ]
+          unhl: [ ah-orch ]
+          text:
+            ah-client-sub: polling
+        - say: Minutes later, another poll. The custom status is the difference between an opaque "Running" and something a support engineer can act on — set it with `SetCustomStatus`.
+          show: [ ah-l5 ]
+          hl: [ ah-orch ]
+          text:
+            ah-orch-step: step 3 of 4
+        - say: When the orchestration finishes, the same URL returns `200` with the output in the body. The caller never held a connection for more than a few milliseconds.
+          show: [ ah-l6 ]
+          unhl: [ ah-orch ]
+          text:
+            ah-orch-sub: Completed
+            ah-orch-step: "output: TRK-991"
+            ah-client-sub: has its result
+        - say: This is the pattern to reach for the moment an operation outgrows a request. You get the whole status API generated for you, the work survives a restart of the thing that started it, and there is no timeout to design around — just a resource the caller can check.
+          show: [ ah-note ]
+  - anim:
+      id: anim-human
+      title: "Human interaction: racing an approval against a three-day deadline"
+      svg: azure-durable-functions/anim-human.svg
+      alt: Animated human interaction pattern racing an external event against a durable timer
+      steps:
+        - say: "An expense claim is over the threshold, so the orchestrator reaches an approval step. It starts **two durable tasks at once**: one waiting for a named external event, one a timer three days out."
+          hl: [ hi-orch ]
+          text:
+            hi-orch-sub: awaiting WhenAny
+            hi-orch-state: running
+        - say: It awaits `WhenAny` over the pair and returns. The instance is evicted from memory. Both "tasks" are now just rows in a table — no thread, no process, no timeout to keep alive.
+          hl: [ hi-any ]
+          unhl: [ hi-orch ]
+          text:
+            hi-orch-state: unloaded
+            hi-clock: "day 0 · memory in use: none"
+        - say: Day one passes. Day two passes. The entire cost of waiting is a few bytes of storage — which is why a three-day approval needs no special design at all.
+          unhl: [ hi-any ]
+          text:
+            hi-clock: "day 2 · memory in use: none · cost: storage only"
+        - say: A manager clicks **Approve** in an email. That link hits an ordinary HTTP function, which calls `RaiseEventAsync(instanceId, "Approved", decision)`.
+          hl: [ hi-evt ]
+          text:
+            hi-evt-sub: event raised by a client function
+          fill:
+            hi-evt: "#e3eedc"
+        - say: The event is appended to the history and the orchestrator is replayed. This time the approval task is complete, so it wins the race.
+          hl: [ hi-any ]
+          unhl: [ hi-evt ]
+          text:
+            hi-orch-state: replaying
+            hi-any-sub: approval won
+            hi-out: "outcome: Approved by jane@contoso"
+        - say: "Now the step everybody forgets: **cancel the timer**. An uncancelled durable timer keeps the instance alive until it fires, so the workflow shows as Running for the next three days even though it is logically finished."
+          unhl: [ hi-any ]
+          text:
+            hi-timer-sub: cancelled via the CancellationTokenSource
+            hi-orch-state: Completed
+            hi-clock: "day 2 · total elapsed: 2 days · compute used: milliseconds"
+          fill:
+            hi-timer: "#f9e3df"
+        - say: Had nobody approved, the timer would have won instead and the `Escalate` activity would have run — the same code, the other branch, equally durable. This is what makes human-in-the-loop workflows almost free here, and genuinely hard with queues and a status table.
+          show: [ hi-note ]
+  - anim:
+      id: anim-monitor
+      title: "Monitor: a polling loop that does not grow forever"
+      svg: azure-durable-functions/anim-monitor.svg
+      alt: Animated monitor pattern comparing history growth with and without ContinueAsNew
+      steps:
+        - say: A device has to be polled until a reading goes critical. The obvious implementation is a `while` loop around an activity and a timer — and it works, right up until it does not.
+          hl: [ mo-s1 ]
+          text:
+            mo-iter: iteration 1
+            mo-s1-t: 38 °C
+        - say: The reading is normal, so the orchestrator schedules a five-minute durable timer and unloads. One iteration costs about seven history events.
+          hl: [ mo-s3 ]
+          unhl: [ mo-s1 ]
+          text:
+            mo-s2-t: no
+            mo-a-t: "history: 7 events"
+            mo-b-t: "history: 7 events"
+        - say: With a plain loop, iteration 2 **appends to the same history**. Fourteen events now — and every replay re-reads all of them, because that is how replay works.
+          show: [ mo-a2 ]
+          unhl: [ mo-s3 ]
+          text:
+            mo-iter: iteration 2
+            mo-a-t: "history: 14 events · replay re-reads all of them"
+        - say: "`ContinueAsNew` changes that. The orchestration restarts with fresh input and an **empty history**: back to seven events. The state it needs travels in the input, not in the history."
+          hide: [ mo-b2 ]
+          hl: [ mo-s4 ]
+          text:
+            mo-s4-t: "poll count: 2"
+            mo-b-t: "history: 7 events — reset every iteration"
+        - say: Fifty iterations in — about four hours of polling — the plain loop is carrying 350 events. The ContinueAsNew version is still carrying seven.
+          show: [ mo-a3, mo-a4, mo-a5, mo-a6 ]
+          unhl: [ mo-s4 ]
+          text:
+            mo-iter: iteration 50
+            mo-a-t: "history: 350 events · replay is getting slow"
+            mo-s4-t: "poll count: 50"
+        - say: "Five hundred iterations, about two days: **3,500 events** against seven. Replay cost grows with the square of the step count, so the plain loop gets slower, then expensive, then the instance fails outright."
+          show: [ mo-a7, mo-a8, mo-a9, mo-a10 ]
+          text:
+            mo-iter: iteration 500
+            mo-a-t: "history: 3,500 events · this instance will fail"
+            mo-b-t: "history: 7 events · unchanged"
+            mo-s4-t: "poll count: 500"
+        - say: "And the loop still has to end. When the reading does go critical the orchestrator calls `RaiseAlert` and **returns** instead of continuing — that `return` is how an eternal orchestration stops. Two rules: carry everything you need in the input, and call `ContinueAsNew` last, with nothing scheduled after it."
+          show: [ mo-note ]
+          hl: [ mo-s2 ]
+          text:
+            mo-s1-t: 91 °C
+            mo-s2-t: yes → RaiseAlert, return
+            mo-iter: iteration 501 — done
+  - heading: Comparing the patterns
+    id: compare-patterns
+  - md: All five run on the same engine — an orchestrator that is replayed, and activities that are not. What differs is the <em>shape</em> of the workflow and therefore which failure you have to think about.
+  - table:
+      columns: [ Pattern, Shape, What it buys you, The thing that bites, Use it for ]
+      rows:
+        - cells:
+            - "**Chaining**"
+            - "`await`, `await`, `await`"
+            - checkpointing between every step, for free
+            - non-deterministic code between the awaits
+            - "multi-step processes: order fulfilment, onboarding"
+        - cells:
+            - "**Fan-out / fan-in**"
+            - schedule many, `WhenAll`
+            - parallelism across every worker, per-item retries
+            - thousands of tasks bloat one history — batch or sub-orchestrate
+            - batch processing, per-file or per-region work
+        - cells:
+            - "**Async HTTP API**"
+            - 202 + a status URL
+            - no held connection, no gateway timeout
+            - callers that poll too aggressively
+            - any operation longer than a few seconds
+        - cells:
+            - "**Human interaction**"
+            - event vs timer, `WhenAny`
+            - waiting days costs nothing
+            - an uncancelled timer keeps the instance Running
+            - approvals, confirmations, escalation
+        - self: true
+          cells:
+            - "**Monitor**"
+            - poll, timer, `ContinueAsNew`
+            - a polling loop with no cron job and no state table
+            - forgetting `ContinueAsNew` — the history grows until it fails
+            - watching an external job to completion
+        - cells:
+            - "**Aggregator** (entities)"
+            - a keyed actor, not an orchestration
+            - serialised operations per key, no locking
+            - different model — entities are not replayed
+            - per-device or per-cart state, counters
+  - md: |-
+      Two things to take from that table:
+
+      - **The first five are the same mechanism wearing different clothes.** Every one of them is an orchestrator awaiting a durable task and being replayed when it completes. Once the replay animation makes sense, the rest are just different things to await: an activity, a set of activities, an external event, a timer.
+      - **The aggregator is the odd one out.** An entity is not replayed, has no beginning or end, and processes one operation at a time per key. If you find yourself writing an orchestration that never finishes and only accumulates state, you want an entity instead.
+concepts:
+  - term: orchestrator function
+    short: The workflow itself, written as sequential code. It decides what to call and in what order, and is replayed from the start every time it resumes.
+    see: [ determinism, replay, activity function, history ]
+    detail: |-
+      An orchestrator is a function with a `TaskOrchestrationContext` (isolated worker) or `IDurableOrchestrationContext` (in-process). Everything it awaits must come from that context, because only context calls are recorded in the history.
+
+      ```csharp
+      [Function(nameof(ProcessOrder))]
+      public static async Task<Receipt> ProcessOrder(
+          [OrchestrationTrigger] TaskOrchestrationContext ctx)
+      {
+          var order = ctx.GetInput<Order>()!;
+
+          var payment = await ctx.CallActivityAsync<PaymentResult>("ChargeCard", order);
+          if (!payment.Succeeded)
+              return Receipt.Declined(payment.Reason);
+
+          var tracking = await ctx.CallActivityAsync<string>("ShipOrder", order);
+          await ctx.CallActivityAsync("SendConfirmation", (order, tracking));
+
+          return new Receipt(payment.TransactionId, tracking);
+      }
+      ```
+
+      | Allowed in an orchestrator | Forbidden |
+      | --- | --- |
+      | `CallActivityAsync`, `CallSubOrchestratorAsync` | `HttpClient`, database calls, file I/O |
+      | `ctx.CreateTimer`, `WaitForExternalEvent` | `Task.Delay`, `Thread.Sleep` |
+      | `ctx.CurrentUtcDateTime`, `ctx.NewGuid()` | `DateTime.UtcNow`, `Guid.NewGuid()`, `Random` |
+      | loops, `if`, `try/catch`, LINQ over results | `Task.Run`, `ConfigureAwait(false)`, blocking waits |
+
+      Think of it as a pure function from "the history so far" to "the next thing to schedule". Everything that touches the outside world belongs in an activity.
+  - term: activity function
+    short: "A single unit of real work: call an API, write to a database, send an email. Ordinary code, no determinism rules, executed at least once."
+    see: [ orchestrator function, retry policy, determinism ]
+    detail: |-
+      Activities are where all the I/O lives. They receive one serializable input, return one serializable output, and know nothing about the workflow they belong to.
+
+      ```csharp
+      [Function("ChargeCard")]
+      public static async Task<PaymentResult> ChargeCard(
+          [ActivityTrigger] Order order, FunctionContext ctx)
+      {
+          // ordinary code: HttpClient, EF Core, whatever you like
+          return await _payments.ChargeAsync(order.CardToken, order.Total);
+      }
+      ```
+
+      #### Rules that matter
+
+      - **At least once.** An activity can run twice — a worker crashes after doing the work but before reporting the result. Make activities idempotent, usually with an idempotency key derived from the instance id.
+      - **Keep inputs and outputs small.** They are serialized into the history. Large payloads belong in Blob Storage, with the activity passing a URL.
+      - **One job each.** Fine-grained activities give you better retry granularity and a far more readable history.
+
+      Anything that would be unsafe to run twice — charging a card, sending an email — needs a deduplication key. The instance id plus a step name is a good one, because it is stable across replays.
+  - term: client function
+    short: Any ordinary function — HTTP, queue, timer — that starts, queries, terminates or raises events against orchestration instances.
+    see: [ instance id, status and management, external events ]
+    detail: |-
+      The client is the only way in. It gets a `DurableTaskClient` through a binding and uses it to drive instances.
+
+      ```csharp
+      [Function("StartOrder")]
+      public static async Task<HttpResponseData> Start(
+          [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequestData req,
+          [DurableClient] DurableTaskClient client)
+      {
+          var order = await req.ReadFromJsonAsync<Order>();
+          string id = await client.ScheduleNewOrchestrationInstanceAsync(
+              nameof(ProcessOrder), order);
+
+          return await client.CreateCheckStatusResponseAsync(req, id);
+      }
+      ```
+
+      `CreateCheckStatusResponseAsync` returns `202 Accepted` with a payload of management URLs — status, terminate, raise-event, purge — which gives you a complete async HTTP API for free.
+
+      | Client operation | Use |
+      | --- | --- |
+      | `ScheduleNewOrchestrationInstanceAsync` | start, optionally with your own instance id |
+      | `GetInstanceAsync` | poll status, input, output, custom status |
+      | `RaiseEventAsync` | deliver an external event (approval, webhook) |
+      | `TerminateAsync` / `SuspendAsync` / `ResumeAsync` | operational control |
+      | `PurgeInstancesAsync` | delete completed history — schedule this, see the gotchas |
+  - term: entity function
+    short: A small, addressable piece of durable state — a counter, a cart, a device shadow — that processes operations one at a time per entity key.
+    see: [ orchestrator function, task hub ]
+    detail: |-
+      Entities are the actor model inside Durable Functions. Each entity has an id (`"Counter@device-42"`), holds serializable state, and the runtime guarantees that its operations execute serially, so you never need a lock.
+
+      ```csharp
+      public class Counter : TaskEntity<int>
+      {
+          public void Add(int amount) => State += amount;
+          public int Get() => State;
+          public void Reset() => State = 0;
+
+          [Function(nameof(Counter))]
+          public Task RunAsync([EntityTrigger] TaskEntityDispatcher d) => d.DispatchAsync<Counter>();
+      }
+      ```
+
+      | Entity | Orchestrator |
+      | --- | --- |
+      | holds state, reacts to operations | holds a plan, drives a sequence |
+      | no replay — operations run once | replayed many times |
+      | lives indefinitely, no "end" | runs to completion |
+      | signal (fire-and-forget) or call (await) | started by a client |
+
+      Reach for an entity when state is keyed and long-lived and the work is a stream of small updates. Use `LockAsync` from an orchestrator when one operation must span several entities atomically — that is Durable Functions' version of a transaction.
+  - term: replay
+    short: Each time an orchestrator resumes, it runs again from the first line. Completed awaits return their recorded result instead of re-executing.
+    see: [ determinism, history, orchestrator function ]
+    detail: |-
+      This is the whole trick, and the thing that confuses everyone on day one. The orchestrator is not suspended and resumed in place — it is **re-executed from the top**, with the history replayed into it.
+
+      1. The orchestrator runs until it awaits something not yet in the history.
+      2. The function returns; the instance is evicted from memory.
+      3. When the awaited result arrives, it is appended to the history.
+      4. The orchestrator starts again at line 1. Each `await` whose result is already in the history completes instantly, without scheduling anything.
+      5. Execution reaches the first <em>new</em> await, schedules it, and the cycle repeats.
+
+      Consequences worth internalising:
+
+      - A log statement in an orchestrator prints once per replay. Use `ctx.CreateReplaySafeLogger()` to suppress the duplicates.
+      - Waiting costs nothing: a three-day timer is a row in a table, not a process holding memory.
+      - The cost of an orchestration grows with the <em>number of steps squared</em> in the worst case, because each replay re-reads the whole history. Long loops need `ContinueAsNew`.
+
+      The first animation on this page walks through one full cycle.
+  - term: determinism
+    short: Replayed code must take exactly the same decisions every time. Anything that could return a different value on the second run breaks the orchestration.
+    see: [ replay, orchestrator function, versioning ]
+    detail: |-
+      Because the orchestrator is re-executed, non-deterministic code makes replay diverge from history — and the runtime fails the instance with a non-determinism error, often long after the offending deploy.
+
+      | Instead of | Use |
+      | --- | --- |
+      | `DateTime.UtcNow` | `ctx.CurrentUtcDateTime` |
+      | `Guid.NewGuid()` | `ctx.NewGuid()` |
+      | `new Random()` | generate it in an activity and return it |
+      | `Task.Delay` / `Thread.Sleep` | `ctx.CreateTimer(deadline, ct)` |
+      | `HttpClient`, database, file access | an activity function |
+      | `Environment.GetEnvironmentVariable` for a value that changes | pass it as input, or read it in an activity |
+      | `Task.WhenAny` on non-durable tasks | `ctx.WhenAny` over durable tasks only |
+
+      Two subtler traps. First, `foreach` over a `HashSet` or `Dictionary` has no guaranteed order — sort first. Second, parallel `Task.Run` inside an orchestrator breaks the single-threaded replay model entirely. In .NET, the [Durable Task analyzers](https://www.nuget.org/packages/Microsoft.DurableTask.Analyzers) catch most of these at build time; install them on day one.
+  - term: history
+    short: "The append-only list of events for one instance: what was scheduled, what completed, what failed. It is the only state the workflow has."
+    see: [ replay, task hub, storage backend ]
+    figure:
+      svg: azure-durable-functions/figure-history.svg
+      alt: Each replay re-reads the whole history, so total work grows with the square of the number of steps
+    detail: |-
+      Event sourcing, applied to a function call stack. A completed two-activity orchestration looks like this:
+
+      ```
+      1  OrchestratorStarted
+      2  ExecutionStarted        name=ProcessOrder  input={...}
+      3  TaskScheduled           name=ChargeCard
+      4  OrchestratorCompleted
+      5  TaskCompleted           result={"txn":"ch_9f3"}
+      6  OrchestratorStarted
+      7  TaskScheduled           name=ShipOrder
+      8  TaskCompleted           result="TRK-991"
+      9  ExecutionCompleted      output={...}
+      ```
+
+      ::figure::
+
+      #### Size matters
+
+      | Shape | History size | Verdict |
+      | --- | --- | --- |
+      | 10 activities, small payloads | a few KB | fine |
+      | 1,000 activities | megabytes, replay seconds | batch them, or sub-orchestrate |
+      | Activity returning a 10 MB document | huge rows, slow every replay | store it in a blob, pass the URL |
+      | Infinite loop without `ContinueAsNew` | grows forever | will eventually fail the instance |
+
+      You can read the history through the management API or the Durable Task Scheduler dashboard. It is the first place to look when a workflow behaves strangely, because it is a literal transcript of what the orchestrator decided.
+  - term: task hub
+    short: The named container for all the queues, tables and blobs an application uses. Two apps sharing a task hub will steal each other's work.
+    see: [ history, storage backend, instance id ]
+    detail: |-
+      Configured in `host.json`, it namespaces everything in the backend:
+
+      ```json
+      { "extensions": { "durableTask": { "hubName": "OrdersHubProd" } } }
+      ```
+
+      | Situation | What to do |
+      | --- | --- |
+      | Dev, test and prod sharing a storage account | a different `hubName` each — or, better, separate accounts |
+      | Several developers running locally against one account | `"hubName": "%UserName%Hub"` (the setting supports app-setting substitution) |
+      | Two apps that must share work | same hub name, same storage — this is the only correct reason to share |
+      | Deleting old data | deleting the task hub's tables wipes every instance, including running ones |
+
+      The classic incident: a staging slot and production share a storage account and a hub name, staging picks up a production work item, and an activity runs against the wrong database. Give every environment its own hub, and check it in code review.
+  - term: instance id
+    short: The unique key of one orchestration run. Supply your own to get deduplication for free.
+    see: [ client function, status and management, activity function ]
+    detail: |-
+      By default it is a GUID. Pass your own and the task hub enforces uniqueness, which turns "start a workflow" into an idempotent operation:
+
+      ```csharp
+      // if order 10427 is already being processed, this throws instead of
+      // starting a second, parallel workflow for the same order
+      await client.ScheduleNewOrchestrationInstanceAsync(
+          nameof(ProcessOrder), order,
+          new StartOrchestrationOptions { InstanceId = $"order-{order.Id}" });
+      ```
+
+      | Good instance id | Why |
+      | --- | --- |
+      | `order-10427` | natural key: a duplicate message cannot start a second run |
+      | `invoice-2026-11-ACME` | readable in the dashboard, greppable in logs |
+      | `{guid}` (default) | fine when there is no natural key, useless for deduplication |
+
+      Caveat: an id can be reused once the previous instance has completed <em>and</em> been purged, so an id that must stay unique forever needs a date or version segment. Avoid `/` and `@` in ids — `@` is reserved for entities.
+  - term: durable timers
+    short: "`ctx.CreateTimer()` instead of `Task.Delay`. The orchestrator unloads and is woken at the deadline — minutes, days or months later."
+    see: [ external events, replay, determinism ]
+    detail: |-
+      A durable timer is a scheduled message, not a sleeping thread. Nothing is in memory while it waits, so a 30-day timer costs nothing but a row.
+
+      ```csharp
+      using var cts = new CancellationTokenSource();
+      var approval = ctx.WaitForExternalEvent<bool>("Approved");
+      var timeout  = ctx.CreateTimer(ctx.CurrentUtcDateTime.AddDays(3), cts.Token);
+
+      if (approval == await Task.WhenAny(approval, timeout))
+      {
+          cts.Cancel();                       // always cancel the loser
+          await ctx.CallActivityAsync("Publish");
+      }
+      else
+      {
+          await ctx.CallActivityAsync("Escalate");
+      }
+      ```
+
+      | Detail | Value |
+      | --- | --- |
+      | Maximum single timer | 6 days on the Azure Storage backend; longer waits are split automatically in recent versions |
+      | Precision | seconds, not milliseconds — it is a queue message with a visibility delay |
+      | Cost while waiting | storage only; on the Consumption plan you pay nothing for the idle time |
+
+      Always cancel the losing timer. An uncancelled timer keeps the instance alive until it fires, so the orchestration shows as Running for three days after it has logically finished.
+  - term: external events
+    short: "`WaitForExternalEvent` parks the orchestration until something outside — a human, a webhook, another system — raises a named event."
+    see: [ durable timers, client function, instance id ]
+    detail: |-
+      This is what makes human-in-the-loop workflows trivial. The orchestrator awaits a named event; any client raises it by instance id.
+
+      ```csharp
+      // in the orchestrator
+      var decision = await ctx.WaitForExternalEvent<ApprovalDecision>("ApprovalReceived");
+
+      // anywhere else, days later
+      await client.RaiseEventAsync(instanceId, "ApprovalReceived", new ApprovalDecision(true, "jane"));
+      ```
+
+      | Behaviour | Detail |
+      | --- | --- |
+      | Event before the await | buffered in the history, delivered as soon as the orchestrator awaits it |
+      | Event to an unknown instance | silently dropped — check the instance exists first |
+      | Event to a completed instance | dropped; there is nothing to wake |
+      | Several events, same name | queued; each `WaitForExternalEvent` consumes one |
+
+      Always pair an external event with a timer. A workflow waiting on an event that will never arrive is invisible: it is not failed, not completed, just Running forever.
+  - term: fan-out / fan-in
+    short: Schedule many activities without awaiting, then `Task.WhenAll`. The platform parallelises across every available worker.
+    see: [ orchestrator function, sub-orchestration, retry policy ]
+    detail: |-
+      The pattern Durable Functions makes almost free, and the main reason to pick it over a chain of queue-triggered functions.
+
+      ```csharp
+      var tasks = files.Select(f => ctx.CallActivityAsync<long>("ProcessFile", f)).ToList();
+      long[] sizes = await Task.WhenAll(tasks);
+      await ctx.CallActivityAsync("WriteSummary", sizes.Sum());
+      ```
+
+      | Scale | Guidance |
+      | --- | --- |
+      | Up to ~100 parallel activities | straightforward; the default concurrency settings cope |
+      | Thousands | batch the inputs, or fan out to sub-orchestrations that each fan out further |
+      | Per-worker concurrency | `maxConcurrentActivityFunctions` in `host.json`, default 10 x core count |
+
+      The aggregation step runs in the orchestrator, so it is replayed — keep it cheap and deterministic. If an exception from one activity should not kill the batch, await each task inside a `try/catch` rather than relying on `WhenAll`, which surfaces only the first failure.
+  - term: sub-orchestration
+    short: An orchestrator calling another orchestrator. The unit of composition, and the way to keep any single history small.
+    see: [ fan-out / fan-in, history, ContinueAsNew ]
+    detail: |-
+      A sub-orchestration has its own instance, its own history and its own lifetime; the parent awaits it exactly like an activity.
+
+      ```csharp
+      var results = await Task.WhenAll(
+          regions.Select(r => ctx.CallSubOrchestratorAsync<RegionReport>(
+              nameof(ProcessRegion), input: r,
+              options: new SubOrchestrationOptions { InstanceId = $"{ctx.InstanceId}:{r}" })));
+      ```
+
+      | Use it to | Because |
+      | --- | --- |
+      | Split a 1,000-step workflow | ten histories of 100 events replay far faster than one of 1,000 |
+      | Reuse a workflow | the same sub-orchestration can be called from several parents |
+      | Isolate failure | a sub-orchestration can fail and be retried as a unit |
+      | Give a step its own retry policy | retries apply to the whole sub-workflow, not one activity |
+
+      Give sub-orchestrations a derived instance id. Searching the dashboard for `order-10427` then shows the parent and all of its children together.
+  - term: ContinueAsNew
+    short: Restart the orchestration with fresh input and an empty history. The only correct way to write an eternal or long-looping workflow.
+    see: [ history, replay, durable timers ]
+    detail: |-
+      Because every replay re-reads the whole history, a loop that runs forever eventually makes replay unbearably slow and then fails outright. `ContinueAsNew` truncates it.
+
+      ```csharp
+      [Function(nameof(MonitorDevice))]
+      public static async Task MonitorDevice([OrchestrationTrigger] TaskOrchestrationContext ctx)
+      {
+          var state = ctx.GetInput<MonitorState>()!;
+          var reading = await ctx.CallActivityAsync<Reading>("PollDevice", state.DeviceId);
+
+          if (reading.IsCritical)
+          {
+              await ctx.CallActivityAsync("RaiseAlert", reading);
+              return;                                     // stop the loop
+          }
+
+          await ctx.CreateTimer(ctx.CurrentUtcDateTime.AddMinutes(5), CancellationToken.None);
+          ctx.ContinueAsNew(state with { Polls = state.Polls + 1 });   // fresh history
+      }
+      ```
+
+      | Rule | Why |
+      | --- | --- |
+      | Carry all the state you need in the input | the new instance starts with an empty history and no memory of the old one |
+      | Call it last, and return straight after | anything scheduled after it is lost |
+      | Use it after roughly 100–1,000 iterations | before replay cost becomes noticeable |
+
+      Unprocessed external events are carried over, so an eternal orchestration can still receive signals across restarts.
+  - term: retry policy
+    short: "Declarative retries on an activity or sub-orchestration call: attempts, delay, backoff, timeout. The orchestrator owns them, so they survive a crash."
+    see: [ activity function, sub-orchestration, durable timers ]
+    detail: |-
+      Retries are recorded in the history, which means a retry schedule survives the worker that started it dying. That is the difference from an in-process retry library.
+
+      ```csharp
+      var options = TaskOptions.FromRetryPolicy(new RetryPolicy(
+          maxNumberOfAttempts: 5,
+          firstRetryInterval: TimeSpan.FromSeconds(5),
+          backoffCoefficient: 2.0,                        // 5s, 10s, 20s, 40s
+          maxRetryInterval: TimeSpan.FromMinutes(5),
+          retryTimeout: TimeSpan.FromMinutes(30)));
+
+      await ctx.CallActivityAsync("CallPartnerApi", payload, options);
+      ```
+
+      | Setting | Typical |
+      | --- | --- |
+      | `maxNumberOfAttempts` | 3–5 for a transient dependency, 1 for anything not idempotent |
+      | `firstRetryInterval` | 1–10 s |
+      | `backoffCoefficient` | 2.0 — exponential; the platform adds no jitter, so stagger at the source |
+      | `retryTimeout` | bounds the total, which `maxNumberOfAttempts` alone does not |
+
+      For compensation rather than retry — the saga pattern — wrap the orchestrator body in `try/catch` and call undo activities in the catch. The catch block is replayed deterministically, so compensation is as durable as the forward path.
+  - term: versioning
+    short: Changing orchestrator code while instances are mid-flight. The in-flight ones replay against your <em>new</em> code, and a changed shape breaks them.
+    see: [ determinism, replay, instance id ]
+    detail: |-
+      The single most common production incident with Durable Functions. An instance started on Monday, parked on a three-day timer, replays on Thursday against the code you deployed on Wednesday. If step 2 is now a different activity, replay diverges and the instance fails.
+
+      | Change | Safe? |
+      | --- | --- |
+      | Changing the body of an activity | yes — activities are not replayed |
+      | Adding a step at the end | yes |
+      | Adding or removing a step in the middle | **no** |
+      | Renaming an activity or changing its argument types | **no** |
+      | Reordering awaits, or changing a loop's iteration count | **no** |
+
+      #### Strategies
+
+      - **Side-by-side:** deploy `ProcessOrderV2` next to `ProcessOrder` and point new starts at it. Verbose, and always correct.
+      - **New task hub / new app:** drain the old hub while the new one takes new work. The cleanest option for a big change.
+      - **Drain before deploy:** stop new starts, wait for in-flight instances to finish, then deploy. Only viable for short workflows.
+      - Recent extension versions add built-in orchestration versioning, which lets one app run several versions of the same orchestrator — check the version you are on before relying on it.
+  - term: storage backend
+    short: "Where the history and queues live: Azure Storage by default, or Durable Task Scheduler, Netherite or MSSQL."
+    see: [ task hub, history, status and management ]
+    detail: |-
+      The backend is pluggable and changes throughput, cost and operability far more than anything in your code.
+
+      | Backend | Good for | Trade-off |
+      | --- | --- | --- |
+      | Azure Storage (default) | most workloads; cheap, zero setup | lowest throughput; no built-in dashboard |
+      | Durable Task Scheduler | high throughput, a real monitoring UI, managed by Azure | a provisioned resource with its own cost |
+      | Netherite | very high throughput via Event Hubs + FASTER | more moving parts to operate |
+      | MSSQL | keeping state in your own SQL Server, on-premises or portable | you own the database's capacity and backups |
+
+      Switching backends means starting a fresh task hub: history is not portable, so in-flight instances do not migrate. Plan the switch like a migration, not a config change.
+  - term: status and management
+    short: Querying, suspending, terminating, rewinding and purging instances — through HTTP, the client API, the CLI or the dashboard.
+    see: [ client function, instance id, history ]
+    detail: |-
+      Every instance has a status, and operations are the day-two part of running workflows in production.
+
+      | Status | Means |
+      | --- | --- |
+      | `Pending` | scheduled, not yet picked up |
+      | `Running` | executing, or waiting on a timer or event — the two look the same |
+      | `Completed` | returned normally |
+      | `Failed` | an unhandled exception, or replay divergence |
+      | `Terminated` | killed by an operator; activities already running are not cancelled |
+      | `Suspended` | paused and resumable — useful while you fix a downstream system |
+
+      `SetCustomStatusAsync` is underused: it attaches an arbitrary object to the instance, visible to any status query. "Step 3 of 7: awaiting approval from finance" turns an opaque Running into something a support engineer can act on.
+
+      Completed instances are kept forever unless you purge them, so schedule a timer-triggered purge of instances older than your retention policy. A task hub with millions of stale rows gets slow and expensive.
+commands:
+  heading: Essential commands & syntax
+  tocLabel: Commands
+  groups:
+    - group: Project setup (.NET isolated worker)
+      items:
+        - lang: bash
+          code: |-
+            func init OrdersWorkflow --worker-runtime dotnet-isolated
+            cd OrdersWorkflow
+            dotnet add package Microsoft.Azure.Functions.Worker.Extensions.DurableTask
+            dotnet add package Microsoft.DurableTask.Analyzers
+          what: New Functions app with the Durable extension and the analyzers that catch non-determinism at build time.
+        - lang: bash
+          code: func start
+          what: "Runs locally. With `\"AzureWebJobsStorage\": \"UseDevelopmentStorage=true\"` it uses Azurite for the task hub."
+        - lang: json
+          code: |-
+            { "extensions": { "durableTask": {
+                "hubName": "%TaskHubName%",
+                "maxConcurrentActivityFunctions": 10,
+                "maxConcurrentOrchestratorFunctions": 5 } } }
+          what: "`host.json`: per-environment hub name, and the two concurrency knobs that matter most."
+    - group: The patterns, in C#
+      items:
+        - lang: csharp
+          code: |-
+            // function chaining
+            var a = await ctx.CallActivityAsync<string>("StepOne", input);
+            var b = await ctx.CallActivityAsync<string>("StepTwo", a);
+            return await ctx.CallActivityAsync<string>("StepThree", b);
+          what: Sequential steps where each depends on the previous result.
+        - lang: csharp
+          code: |-
+            // fan-out / fan-in
+            var tasks = items.Select(i => ctx.CallActivityAsync<long>("Process", i)).ToList();
+            var results = await Task.WhenAll(tasks);
+          what: Parallel work across every available worker, then aggregation.
+        - lang: csharp
+          code: |-
+            // human interaction with a deadline
+            using var cts = new CancellationTokenSource();
+            var approval = ctx.WaitForExternalEvent<bool>("Approved");
+            var timeout  = ctx.CreateTimer(ctx.CurrentUtcDateTime.AddDays(3), cts.Token);
+            if (approval == await Task.WhenAny(approval, timeout)) { cts.Cancel(); /* ... */ }
+          what: Waits up to three days for an approval, escalating on timeout. Cancel the loser.
+        - lang: csharp
+          code: |-
+            // saga: compensate on failure
+            try { await ctx.CallActivityAsync("ReserveStock", o); await ctx.CallActivityAsync("ChargeCard", o); }
+            catch (TaskFailedException) { await ctx.CallActivityAsync("ReleaseStock", o); throw; }
+          what: Compensation is just a catch block, replayed as durably as the forward path.
+        - lang: csharp
+          code: ctx.SetCustomStatus(new { step = "awaiting-approval", since = ctx.CurrentUtcDateTime });
+          what: Attaches progress to the instance so a status query shows something meaningful.
+    - group: Python
+      items:
+        - lang: python
+          code: |-
+            import azure.durable_functions as df
+
+            def orchestrator(context: df.DurableOrchestrationContext):
+                order = context.get_input()
+                payment = yield context.call_activity("ChargeCard", order)
+                tracking = yield context.call_activity("ShipOrder", order)
+                return {"payment": payment, "tracking": tracking}
+
+            main = df.Orchestrator.create(orchestrator)
+          what: "Same model with generators: every `yield` is a durable await, and the function is replayed identically."
+        - lang: python
+          code: |-
+            tasks = [context.call_activity("Process", i) for i in items]
+            results = yield context.task_all(tasks)
+          what: "Fan-out / fan-in in Python: `task_all` and `task_any` replace `WhenAll` and `WhenAny`."
+    - group: Operating instances (HTTP management API)
+      items:
+        - lang: bash
+          code: curl -s "$BASE/runtime/webhooks/durabletask/instances/order-10427?code=$KEY&showHistory=true"
+          what: Full status plus the event history — the first thing to look at when a workflow misbehaves.
+        - lang: bash
+          code: |-
+            curl -X POST "$BASE/runtime/webhooks/durabletask/instances/order-10427/raiseEvent/Approved?code=$KEY" \
+              -H "Content-Type: application/json" -d 'true'
+          what: Delivers an external event to a parked orchestration.
+        - lang: bash
+          code: |-
+            curl -X POST ".../instances/order-10427/terminate?reason=duplicate&code=$KEY"
+            curl -X POST ".../instances/order-10427/suspend?reason=upstream-outage&code=$KEY"
+          what: Terminate kills the instance; suspend pauses it so you can resume once a dependency recovers.
+        - lang: bash
+          code: curl -X DELETE ".../instances?createdTimeTo=2026-09-01T00:00:00Z&runtimeStatus=Completed&code=$KEY"
+          what: Purges old completed instances. Schedule this — history is kept forever otherwise.
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - "Workflow logic reads as ordinary code: loops, conditionals, try/catch, not a state machine in JSON."
+      - State, checkpointing and recovery are free — no progress table, no "where was I" logic.
+      - "Waiting is genuinely free: a three-day timer or a pending approval costs storage, not compute."
+      - Durable retries and compensation survive the worker process dying mid-retry.
+      - Fan-out across hundreds of workers is three lines, and fan-in is `WhenAll`.
+      - The history is a readable transcript of exactly what happened, which makes debugging unusually pleasant.
+  bad:
+    heading: Cons
+    items:
+      - The replay model is genuinely unintuitive, and every new team member writes a non-deterministic orchestrator first.
+      - Versioning in-flight instances is a real operational burden, not an edge case.
+      - "Debugging is odd: breakpoints hit repeatedly, and logs duplicate unless you use a replay-safe logger."
+      - Per-step latency is higher than a direct call — each activity is a queue hop plus a history write.
+      - Payload size is constrained by the history; large data needs out-of-band storage.
+      - It ties the workflow to Azure Functions. Portable alternatives exist, but migration means rewriting.
+when:
+  note: If you were about to add a "status" column and a cron job to chase it, this is what you wanted.
+  good:
+    heading: Use it when…
+    items:
+      - A process has several steps that must all eventually happen, across minutes, days or months.
+      - "You need reliable compensation: step 3 failed, so undo steps 2 and 1."
+      - The workflow waits on humans, webhooks or external jobs, and polling would be wasteful.
+      - You want parallel fan-out with aggregation and per-item retries, without writing a coordinator.
+      - You are already on Azure Functions and the team knows C#, Python or TypeScript.
+      - You need an auditable record of what the process did and when.
+  bad:
+    heading: Avoid it when…
+    items:
+      - The work is one short step. Use a **plain Azure Function** with a queue trigger.
+      - The workflow is mostly connector glue across SaaS systems. Use **Azure Logic Apps**, where those connectors already exist.
+      - You need sub-millisecond coordination or very high per-step throughput. Use **direct calls** or a stream processor over Apache Kafka.
+      - Your workflow must run outside Azure or stay portable. Use **Temporal** or **Dapr Workflow**, which share the model without the hosting lock-in.
+      - Non-technical users must author or change the flow. Use a **designer-based tool**; orchestrators are code and belong to developers.
+      - The team cannot absorb the determinism rules. The failure mode is subtle and shows up in production — a **state machine in a database** is less clever and easier to reason about.
+useCases:
+  - title: Order fulfilment saga
+    body: Reserve stock, charge the card, book the courier, send confirmation — four systems, any of which can fail. The orchestrator calls each as an activity with its own retry policy, and a `catch` block compensates in reverse order. A crash halfway through resumes exactly where it stopped instead of leaving a half-charged order.
+  - title: Document approval with a deadline
+    body: An expense claim over a threshold waits for a manager's approval. The orchestrator races `WaitForExternalEvent("Approved")` against a three-day timer, escalating to the department head on timeout. Nothing is running for those three days; the entire workflow is one row in a table and a scheduled message.
+  - title: Batch processing a nightly drop
+    body: Ten thousand files land in Blob Storage each night. The orchestrator fans out in batches of 200 to sub-orchestrations, each fanning out to per-file activities. The platform scales workers out and back in, failures retry individually, and the final fan-in writes a single summary report.
+  - title: Polling an external job to completion
+    body: "A rendering service accepts a job and returns a job id. Instead of a cron job scanning a table, the orchestrator loops: call a status activity, wait on a durable timer, `ContinueAsNew` every hundred polls. It stops the instant the job finishes, and the polling state needs no storage of its own."
+  - title: Per-device state with entities
+    body: A fleet of IoT devices sends readings at different rates. A `DeviceState` entity per device accumulates readings, exposes a current aggregate and signals an orchestrator when a threshold is crossed. Operations on one device serialise automatically, so there is no locking and no lost update.
+gotchas:
+  items:
+    - mistake: Doing I/O in the orchestrator
+      why: An `HttpClient` call or a database query inside an orchestrator runs again on every replay — so a "send email" step sends four emails — and it breaks determinism the moment the response differs.
+      fix: every side effect goes in an activity. Install `Microsoft.DurableTask.Analyzers` so the compiler tells you before production does.
+    - mistake: "`DateTime.UtcNow` and `Guid.NewGuid()` in orchestrator code"
+      why: They return something different on each replay, so the orchestrator takes a different branch than the history records, and the instance fails with a non-determinism error — often days after the deploy.
+      fix: "`ctx.CurrentUtcDateTime` and `ctx.NewGuid()`. For randomness, generate it in an activity and return it, so the value is recorded."
+    - mistake: Deploying a changed orchestrator while instances are in flight
+      why: An instance parked on a timer resumes against the new code, replay diverges from its history, and it fails. The instances that break are the long-running ones you care about most.
+      fix: version side-by-side (`ProcessOrderV2`), or use a new task hub for the new version and drain the old one. Never reorder or insert steps in a live orchestrator.
+    - mistake: Sharing a task hub between environments
+      why: Staging and production point at the same storage account with the same `hubName`. A staging worker picks up a production work item and runs it against the wrong database.
+      fix: "a distinct `hubName` per environment, ideally a distinct storage account. Locally, use `\"hubName\": \"%UserName%Hub\"` so developers do not collide."
+    - mistake: Assuming an activity runs exactly once
+      why: Delivery is at-least-once. A worker that completes the work and dies before reporting the result causes the activity to run again — charging the card twice.
+      fix: make activities idempotent with a deduplication key derived from the instance id and step name, and enforce it where the side effect happens.
+    - mistake: Putting large payloads through activities
+      why: Inputs and outputs are serialized into the history, so a 10 MB response is written once and re-read on every replay. Orchestrations get slow, then expensive, then they fail.
+      fix: write the payload to Blob Storage and pass a URL or blob name. Keep activity inputs and outputs to kilobytes.
+    - mistake: Never cancelling the losing durable timer
+      why: After `Task.WhenAny(approval, timeout)` picks the approval, the timer is still pending, so the instance stays Running until the three days elapse and your dashboard is full of phantom work.
+      fix: hold a `CancellationTokenSource` for the timer and cancel it as soon as the other task wins.
+    - mistake: Never purging completed instances
+      why: History is retained indefinitely. Task hubs grow to millions of rows, queries slow down, storage costs climb, and the dashboard becomes unusable.
+      fix: a timer-triggered function calling `PurgeInstancesAsync` for completed instances older than your retention period. Decide the period before you launch, not after.
+    - mistake: Logging normally inside an orchestrator
+      why: Every log line appears once per replay, so a six-step workflow writes the first line six times. Log volume, and your confidence in the logs, both suffer.
+      fix: "`ctx.CreateReplaySafeLogger<T>()`, which suppresses output during replay. Check `ctx.IsReplaying` if you need the distinction yourself."
+alternatives:
+  columns:
+    - Tool
+    - Best for
+    - Complexity
+    - Cost / license
+    - Key difference vs Durable Functions
+  rows:
+    - self: true
+      cells:
+        - "**Azure Durable Functions**"
+        - code-first workflows on Azure Functions
+        - Medium
+        - Functions plan + storage
+        - —
+    - cells:
+        - "**Azure Logic Apps**"
+        - SaaS integration, connector-heavy flows
+        - Low
+        - per action / per execution
+        - Visual designer and 1,000+ connectors; no code, and harder to unit-test
+    - cells:
+        - "**Temporal**"
+        - durable execution anywhere, any cloud
+        - Medium–high
+        - OSS, or Temporal Cloud
+        - Same replay model, cloud-agnostic, far better tooling; you operate a cluster or pay for one
+    - cells:
+        - "**AWS Step Functions**"
+        - the same patterns on AWS
+        - Medium
+        - per state transition
+        - Workflow is JSON/ASL, not code; strong AWS service integrations
+    - cells:
+        - "**Dapr Workflow**"
+        - workflows inside Kubernetes microservices
+        - Medium
+        - OSS
+        - Built on the same Durable Task engine, but hosted by Dapr rather than Functions
+    - cells:
+        - "**Plain queues + a state table**"
+        - two or three steps, full control
+        - Low to write, high to maintain
+        - infrastructure only
+        - You write the checkpointing, retries, timeouts and compensation yourself
+    - cells:
+        - "**MassTransit / NServiceBus sagas**"
+        - message-driven .NET systems already on a bus
+        - Medium
+        - OSS / commercial
+        - Saga state is an explicit entity reacting to messages, not replayed code
+  notes:
+    - "**Pick Logic Apps** if the workflow is mostly connecting SaaS products and a non-developer should be able to read it."
+    - "**Pick Temporal** if you want this programming model without tying it to Azure Functions, and you can run or buy the server."
+    - "**Pick Step Functions** if you are on AWS; the concepts transfer, the authoring experience does not."
+    - "**Pick Dapr Workflow** if your services already run on Kubernetes with Dapr and you want the same model in-process."
+    - "**Pick plain queues** if the process is two steps and will stay two steps. The moment it needs timeouts and compensation, you are reimplementing this."
+resources:
+  - url: https://learn.microsoft.com/azure/azure-functions/durable/durable-functions-overview
+    title: Durable Functions overview
+    why: the official introduction, with all the application patterns side by side.
+  - url: https://learn.microsoft.com/azure/azure-functions/durable/durable-functions-code-constraints
+    title: Orchestrator code constraints
+    why: the determinism rules, in full. Read this before writing your first orchestrator.
+  - url: https://learn.microsoft.com/azure/azure-functions/durable/durable-functions-versioning
+    title: Versioning in Durable Functions
+    why: the strategies for changing orchestrators with instances in flight.
+  - url: https://learn.microsoft.com/azure/azure-functions/durable/durable-task-scheduler/durable-task-scheduler
+    title: Durable Task Scheduler
+    why: the managed backend, its dashboard and when it is worth the extra resource.
+  - url: https://learn.microsoft.com/azure/azure-functions/durable/durable-functions-http-api
+    title: HTTP API reference
+    why: every management endpoint for querying, raising events, terminating and purging.
+  - url: https://github.com/Azure/azure-functions-durable-extension/tree/dev/samples
+    title: Official samples on GitHub
+    why: runnable implementations of each pattern in several languages.

@@ -39,9 +39,9 @@
       <h1>Semantic caching</h1>
       <p class="tagline">A normal cache asks "have I seen this exact key?". A semantic cache asks "have I answered this question before, in any words?".</p>
       <span class="meta">As of Nov 2026 · examples use Redis vector search, pgvector and Microsoft.Extensions.AI</span>
-      <p>Two users ask "how do I reset my password?" and "I forgot my password, what now?". A key-value cache sees two unrelated strings and calls the model twice. A <b>semantic cache</b> embeds the question, searches for a previous question whose vector is close enough, and if one exists returns that stored answer &mdash; in tens of milliseconds, for the price of one embedding call instead of one generation.</p>
+      <p>Two users ask "how do I reset my password?" and "I forgot my password, what now?". A key-value cache sees two unrelated strings and calls the model twice. A <b>semantic cache</b> embeds the question, searches for a previous question whose vector is close enough, and if one exists returns that stored answer — in tens of milliseconds, for the price of one embedding call instead of one generation.</p>
       <p>The mechanism is small: embed, nearest-neighbour search, compare against a similarity threshold, serve or fall through. The difficulty is entirely in the threshold and the scoping. Set the threshold loose and the cache answers a question nobody asked; scope it badly and user A's answer is served to user B. Unlike an exact cache, a semantic cache can be <em>wrong</em>, which changes it from an optimisation into a correctness decision.</p>
-      <p>It is most valuable where traffic is repetitive and answers are stable: support and FAQ bots, documentation search, internal assistants, classification pipelines. In those workloads hit rates of 20&ndash;40% are ordinary, and each hit removes a two-second, few-cent call and replaces it with a 30 ms lookup.</p>
+      <p>It is most valuable where traffic is repetitive and answers are stable: support and FAQ bots, documentation search, internal assistants, classification pipelines. In those workloads hit rates of 20–40% are ordinary, and each hit removes a two-second, few-cent call and replaces it with a 30 ms lookup.</p>
     </header>
 
     <section id="architecture">
@@ -105,16 +105,15 @@
           <text x="400" y="318" font-size="11" text-anchor="middle" fill="#5f6f66">every cache entry is keyed by <tspan font-family="Fira Code, monospace">tenant + user-scope + model + prompt version</tspan>, not by the question alone</text>
         </svg>
       </div>
-      <p class="caption">Cache-aside, with similarity search instead of a key lookup &mdash; and one extra failure mode that a key lookup does not have.</p>
+      <p class="caption">Cache-aside, with similarity search instead of a key lookup — and one extra failure mode that a key lookup does not have.</p>
     </section>
 
     <section id="how-it-works">
       <h2>How it works</h2>
-      <p style="margin:0 0 18px">The first animation walks three questions through the cache: a miss, a near-identical hit, and a question that is close but not close enough. The second is the failure that makes people turn semantic caching off.</p>
-      <span class="note" style="margin:-8px 0 18px">a key cache can only be stale. a semantic cache can be wrong.</span>
-
+      <p>The first animation walks three questions through the cache: a miss, a near-identical hit, and a question that is close but not close enough. The second is the failure that makes people turn semantic caching off.</p>
+      <span class="note" style="margin:-6px 0 14px">a key cache can only be stale. a semantic cache can be wrong.</span>
       <div class="anim" id="anim-flow">
-        <h3>1 &middot; Miss, store, hit</h3>
+        <h3>1 · Miss, store, hit</h3>
         <div class="stage">
           <svg viewBox="0 0 800 340" role="img" aria-label="Three questions arriving at a semantic cache: the first misses and is stored, the second is a paraphrase and hits, the third is below the threshold and falls through">
             <text id="sc-phase" x="400" y="20" font-size="12.5" text-anchor="middle" fill="#5f6f66">an empty cache in front of a documentation assistant</text>
@@ -157,9 +156,8 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-falsehit">
-        <h3>2 &middot; The false hit</h3>
+        <h3>2 · The false hit</h3>
         <div class="stage">
           <svg viewBox="0 0 800 340" role="img" aria-label="Two different questions with very similar embeddings producing a cache hit that serves the wrong answer, and the three fixes">
             <text id="sf-phase" x="400" y="20" font-size="12.5" text-anchor="middle" fill="#5f6f66">two questions that differ by one word, and mean entirely different things</text>
@@ -199,224 +197,213 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>Similarity threshold</b><span>The cosine score above which a stored question is treated as "the same question".</span><template class="term-detail" data-see="False hit, Hit rate, Cache namespace, Reranked verification">
-          <p>This single number decides both your savings and your error rate, and the two move in opposite directions. Lower it and more questions hit &mdash; including ones that are merely related. Raise it and every hit is safe, but paraphrases stop matching and the hit rate collapses.</p>
-          <p>There is no universal value, because it depends on the embedding model and on how close your question space is. Short, templated questions cluster tightly and need a high threshold; long, varied questions spread out and tolerate a lower one. Derive it from data: embed a few hundred real question pairs, label each pair same/different, and plot precision and recall against the threshold.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Workload</th><th>Threshold</th><th>Reasoning</th></tr>
-            <tr><td>FAQ / support</td><td>0.95&ndash;0.97</td><td>questions are short, a wrong answer is costly</td></tr>
-            <tr><td>Internal docs assistant</td><td>0.93&ndash;0.96</td><td>varied phrasing, tolerant audience</td></tr>
-            <tr><td>Classification / tagging</td><td>0.90&ndash;0.94</td><td>outputs are coarse, errors are cheap</td></tr>
-            <tr><td>Anything transactional or financial</td><td>exact match only</td><td>do not guess</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>A threshold alone is a blunt instrument. Pair it with a <b>Cache namespace</b> so it is only ever comparing questions that could legitimately share an answer.</li></ul>
+        <p>This single number decides both your savings and your error rate, and the two move in opposite directions. Lower it and more questions hit — including ones that are merely related. Raise it and every hit is safe, but paraphrases stop matching and the hit rate collapses.</p>
+        <p>There is no universal value, because it depends on the embedding model and on how close your question space is. Short, templated questions cluster tightly and need a high threshold; long, varied questions spread out and tolerate a lower one. Derive it from data: embed a few hundred real question pairs, label each pair same/different, and plot precision and recall against the threshold.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Workload</th><th>Threshold</th><th>Reasoning</th></tr>
+        <tr><td>FAQ / support</td><td>0.95–0.97</td><td>questions are short, a wrong answer is costly</td></tr>
+        <tr><td>Internal docs assistant</td><td>0.93–0.96</td><td>varied phrasing, tolerant audience</td></tr>
+        <tr><td>Classification / tagging</td><td>0.90–0.94</td><td>outputs are coarse, errors are cheap</td></tr>
+        <tr><td>Anything transactional or financial</td><td>exact match only</td><td>do not guess</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>A threshold alone is a blunt instrument. Pair it with a <b>Cache namespace</b> so it is only ever comparing questions that could legitimately share an answer.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>False hit</b><span>Serving a cached answer to a question that only looks similar — a wrong answer delivered fast.</span><template class="term-detail" data-see="Similarity threshold, Reranked verification, Negative caching">
-          <p>Embeddings measure topical closeness, not equivalence. "How do I cancel my order?" and "How do I cancel my subscription?" differ by one token and share almost all their semantic content, so cosine similarity lands around 0.93&ndash;0.95 &mdash; above many thresholds. Negations are worse: "can I get a refund?" and "can I <em>not</em> get a refund?" are nearly identical vectors with opposite meaning.</p>
-          <p>The reason this is dangerous rather than annoying is invisibility. The answer is fluent, plausible and instant; nothing in the response says it came from a different question. Unless you log the similarity score and the matched question id with every hit, false hits are undetectable in production.</p>
-          <h4>Classic false-hit pairs</h4>
-          <table>
-            <tr><th>Pair</th><th>Why it matches</th></tr>
-            <tr><td>cancel my order / cancel my subscription</td><td>one noun differs</td></tr>
-            <tr><td>refund for EU / refund for US</td><td>entity swap, same shape</td></tr>
-            <tr><td>price in 2025 / price in 2026</td><td>numbers carry little signal</td></tr>
-            <tr><td>is X allowed / is X <em>not</em> allowed</td><td>negation barely moves the vector</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The cheap mitigations are a higher threshold, entity and number checks, and a second-stage verification before serving.</li></ul>
+        <p>Embeddings measure topical closeness, not equivalence. "How do I cancel my order?" and "How do I cancel my subscription?" differ by one token and share almost all their semantic content, so cosine similarity lands around 0.93–0.95 — above many thresholds. Negations are worse: "can I get a refund?" and "can I <em>not</em> get a refund?" are nearly identical vectors with opposite meaning.</p>
+        <p>The reason this is dangerous rather than annoying is invisibility. The answer is fluent, plausible and instant; nothing in the response says it came from a different question. Unless you log the similarity score and the matched question id with every hit, false hits are undetectable in production.</p>
+        <h4>Classic false-hit pairs</h4>
+        <table><tr><th>Pair</th><th>Why it matches</th></tr>
+        <tr><td>cancel my order / cancel my subscription</td><td>one noun differs</td></tr>
+        <tr><td>refund for EU / refund for US</td><td>entity swap, same shape</td></tr>
+        <tr><td>price in 2025 / price in 2026</td><td>numbers carry little signal</td></tr>
+        <tr><td>is X allowed / is X <em>not</em> allowed</td><td>negation barely moves the vector</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The cheap mitigations are a higher threshold, entity and number checks, and a second-stage verification before serving.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Cache namespace</b><span>The partition key that keeps answers from leaking across tenants, users, models and prompt versions.</span><template class="term-detail" data-see="Similarity threshold, Invalidation, Caching retrieval vs caching answers">
-          <p>A semantic cache keyed only by question text is a data-leak waiting to happen. Two users in different tenants can ask the same words and must get different answers &mdash; or must not get each other's answers at all. The partition must be a hard pre-filter in the vector query, never a post-filter applied to results.</p>
-          <p>The namespace should also include everything that could change the correct answer even for the same user: the model id, the system-prompt version, the retrieval index version, the locale. Bump any of them and the old entries should stop matching rather than quietly serving answers produced by yesterday's prompt.</p>
-          <h4>A workable key</h4>
-          <pre class="language-none line-numbers"><code class="language-none">namespace = sha1(tenantId
+        <p>A semantic cache keyed only by question text is a data-leak waiting to happen. Two users in different tenants can ask the same words and must get different answers — or must not get each other's answers at all. The partition must be a hard pre-filter in the vector query, never a post-filter applied to results.</p>
+        <p>The namespace should also include everything that could change the correct answer even for the same user: the model id, the system-prompt version, the retrieval index version, the locale. Bump any of them and the old entries should stop matching rather than quietly serving answers produced by yesterday's prompt.</p>
+        <h4>A workable key</h4>
+        <pre class="language-none line-numbers"><code class="language-none">namespace = sha1(tenantId
                + ":" + visibilityScope   // public | role:support | user:4412
                + ":" + modelId           // gpt-4.1-mini
                + ":" + promptVersion     // v7
                + ":" + indexVersion      // docs-2026-11-18
-               + ":" + locale)           // en-GB</code></pre>
-          <h4>How it relates</h4>
-          <ul><li>If answers depend on the individual user, the only safe scope is that user &mdash; which usually makes the cache worthless and tells you to cache something else.</li></ul>
+               + ":" + locale)           // en-GB</code></pre><h4>How it relates</h4>
+        <ul>
+        <li>If answers depend on the individual user, the only safe scope is that user — which usually makes the cache worthless and tells you to cache something else.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Hit rate</b><span>The share of requests served from the cache — the number that decides whether any of this is worth it.</span><template class="term-detail" data-see="Savings arithmetic, Cold start, Similarity threshold">
-          <p>Hit rate is a property of your traffic, not of your implementation. Support and FAQ workloads are famously head-heavy: a few hundred distinct intents cover most of the volume, and semantic caching captures all the paraphrases of each. Open-ended chat and personalised assistants have a long flat tail and cache badly.</p>
-          <p>Measure it before building: take a day of real questions, embed them, and count how many have a previous neighbour above your candidate threshold. It is an afternoon of work and it tells you whether the hit rate is 35% or 3%.</p>
-          <h4>What to expect</h4>
-          <table>
-            <tr><th>Workload</th><th>Typical hit rate</th></tr>
-            <tr><td>Public FAQ bot</td><td>40&ndash;70%</td></tr>
-            <tr><td>Internal docs assistant</td><td>20&ndash;40%</td></tr>
-            <tr><td>Support agent copilot</td><td>15&ndash;30%</td></tr>
-            <tr><td>Open-ended chat</td><td>2&ndash;10%</td></tr>
-            <tr><td>Agentic / multi-turn tasks</td><td>near zero on full context</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>A low hit rate is not a failure of the cache. It is a signal that <b>Prompt caching</b> or a cheaper model is the better lever.</li></ul>
+        <p>Hit rate is a property of your traffic, not of your implementation. Support and FAQ workloads are famously head-heavy: a few hundred distinct intents cover most of the volume, and semantic caching captures all the paraphrases of each. Open-ended chat and personalised assistants have a long flat tail and cache badly.</p>
+        <p>Measure it before building: take a day of real questions, embed them, and count how many have a previous neighbour above your candidate threshold. It is an afternoon of work and it tells you whether the hit rate is 35% or 3%.</p>
+        <h4>What to expect</h4>
+        <table><tr><th>Workload</th><th>Typical hit rate</th></tr>
+        <tr><td>Public FAQ bot</td><td>40–70%</td></tr>
+        <tr><td>Internal docs assistant</td><td>20–40%</td></tr>
+        <tr><td>Support agent copilot</td><td>15–30%</td></tr>
+        <tr><td>Open-ended chat</td><td>2–10%</td></tr>
+        <tr><td>Agentic / multi-turn tasks</td><td>near zero on full context</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>A low hit rate is not a failure of the cache. It is a signal that <b>Prompt caching</b> or a cheaper model is the better lever.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Savings arithmetic</b><span>The back-of-the-envelope that says whether the cache pays for itself.</span><template class="term-detail" data-see="Hit rate, Prompt caching, Cold start">
-          <p>Every request now costs an embedding call plus a vector search, whether it hits or not. Hits avoid a generation. So the saving is <code>hitRate &times; generationCost &minus; embeddingCost &minus; searchCost</code>, and the break-even hit rate is usually tiny because generation is two to three orders of magnitude more expensive than an embedding.</p>
-          <h4>A worked example</h4>
-          <table>
-            <tr><th>Item</th><th>Per request</th></tr>
-            <tr><td>Embedding (cache key)</td><td>~$0.00001 · 8 ms</td></tr>
-            <tr><td>Vector lookup</td><td>~$0 · 5&ndash;20 ms</td></tr>
-            <tr><td>RAG + generation on a miss</td><td>~$0.004 · 1.9 s</td></tr>
-            <tr><td>At 30% hit rate, 1M req/month</td><td>saves ~$1,200 and 300k &times; 1.9 s of waiting</td></tr>
-            <tr><td>Break-even hit rate</td><td>&lt; 1%</td></tr>
-          </table>
-          <p>The latency saving usually matters more than the money: a cached answer lands in 25&ndash;40 ms, which is the difference between a progress spinner and an instant reply.</p>
-          <h4>How it relates</h4>
-          <ul><li>The same reasoning appears in <b>Back-of-the-envelope estimates</b>: find the dominant term, and ignore the rest.</li></ul>
+        <p>Every request now costs an embedding call plus a vector search, whether it hits or not. Hits avoid a generation. So the saving is <code>hitRate × generationCost − embeddingCost − searchCost</code>, and the break-even hit rate is usually tiny because generation is two to three orders of magnitude more expensive than an embedding.</p>
+        <h4>A worked example</h4>
+        <table><tr><th>Item</th><th>Per request</th></tr>
+        <tr><td>Embedding (cache key)</td><td>~$0.00001 · 8 ms</td></tr>
+        <tr><td>Vector lookup</td><td>~$0 · 5–20 ms</td></tr>
+        <tr><td>RAG + generation on a miss</td><td>~$0.004 · 1.9 s</td></tr>
+        <tr><td>At 30% hit rate, 1M req/month</td><td>saves ~$1,200 and 300k × 1.9 s of waiting</td></tr>
+        <tr><td>Break-even hit rate</td><td>&lt; 1%</td></tr></table>
+        <p>The latency saving usually matters more than the money: a cached answer lands in 25–40 ms, which is the difference between a progress spinner and an instant reply.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The same reasoning appears in <b>Back-of-the-envelope estimates</b>: find the dominant term, and ignore the rest.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Invalidation</b><span>Removing cached answers when the underlying knowledge, prompt or model changes.</span><template class="term-detail" data-see="Cache namespace, Eviction, Caching retrieval vs caching answers">
-          <p>A cached answer is a frozen snapshot of a corpus, a prompt and a model. Any of the three can change, and when they do the cached answer becomes confidently out of date &mdash; with none of the signals a stale page has.</p>
-          <p>Three mechanisms, used together. <b>Version in the namespace</b> handles prompt and model changes: bump the version and the old entries become unreachable without a delete. <b>TTL</b> bounds everything else. <b>Targeted invalidation</b> handles document updates: store the retrieved chunk ids alongside each cached answer, and when a document is re-ingested, delete every cache entry that cited it.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Content</th><th>TTL</th></tr>
-            <tr><td>Product documentation</td><td>24 h &ndash; 7 days</td></tr>
-            <tr><td>Policy and legal text</td><td>1&ndash;24 h, plus event-driven purge</td></tr>
-            <tr><td>Pricing, stock, anything live</td><td>do not cache the answer; cache the retrieval</td></tr>
-            <tr><td>Classification results</td><td>30 days or more</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Reverse-indexing cache entries by cited chunk id is the one piece people skip, and the reason retracted content keeps being quoted.</li></ul>
+        <p>A cached answer is a frozen snapshot of a corpus, a prompt and a model. Any of the three can change, and when they do the cached answer becomes confidently out of date — with none of the signals a stale page has.</p>
+        <p>Three mechanisms, used together. <b>Version in the namespace</b> handles prompt and model changes: bump the version and the old entries become unreachable without a delete. <b>TTL</b> bounds everything else. <b>Targeted invalidation</b> handles document updates: store the retrieved chunk ids alongside each cached answer, and when a document is re-ingested, delete every cache entry that cited it.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Content</th><th>TTL</th></tr>
+        <tr><td>Product documentation</td><td>24 h – 7 days</td></tr>
+        <tr><td>Policy and legal text</td><td>1–24 h, plus event-driven purge</td></tr>
+        <tr><td>Pricing, stock, anything live</td><td>do not cache the answer; cache the retrieval</td></tr>
+        <tr><td>Classification results</td><td>30 days or more</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Reverse-indexing cache entries by cited chunk id is the one piece people skip, and the reason retracted content keeps being quoted.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Normalisation</b><span>Canonicalising the question before embedding so trivial variations collapse to one key.</span><template class="term-detail" data-see="Exact-match tier, Similarity threshold, Cache namespace">
-          <p>Lowercasing, trimming whitespace, stripping trailing punctuation and removing greetings costs microseconds and raises the hit rate on the exact tier for free. "Hi! How do I reset my password?" and "how do i reset my password" become the same string, which means a hash lookup answers them before any embedding call happens.</p>
-          <p>Be careful what you strip. Removing numbers, dates or identifiers raises the hit rate and manufactures false hits &mdash; those tokens are often the entire question. Normalise form, never content.</p>
-          <h4>Safe and unsafe</h4>
-          <table>
-            <tr><th>Transformation</th><th>Verdict</th></tr>
-            <tr><td>lowercase, trim, collapse whitespace</td><td>safe</td></tr>
-            <tr><td>strip greetings and sign-offs</td><td>safe</td></tr>
-            <tr><td>drop trailing <code>?</code> and <code>!</code></td><td>safe</td></tr>
-            <tr><td>remove stop words</td><td>risky &mdash; drops negations</td></tr>
-            <tr><td>strip digits, dates, ids</td><td>unsafe</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Normalisation is what makes the free <b>Exact-match tier</b> actually land.</li></ul>
+        <p>Lowercasing, trimming whitespace, stripping trailing punctuation and removing greetings costs microseconds and raises the hit rate on the exact tier for free. "Hi! How do I reset my password?" and "how do i reset my password" become the same string, which means a hash lookup answers them before any embedding call happens.</p>
+        <p>Be careful what you strip. Removing numbers, dates or identifiers raises the hit rate and manufactures false hits — those tokens are often the entire question. Normalise form, never content.</p>
+        <h4>Safe and unsafe</h4>
+        <table><tr><th>Transformation</th><th>Verdict</th></tr>
+        <tr><td>lowercase, trim, collapse whitespace</td><td>safe</td></tr>
+        <tr><td>strip greetings and sign-offs</td><td>safe</td></tr>
+        <tr><td>drop trailing <code>?</code> and <code>!</code></td><td>safe</td></tr>
+        <tr><td>remove stop words</td><td>risky — drops negations</td></tr>
+        <tr><td>strip digits, dates, ids</td><td>unsafe</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Normalisation is what makes the free <b>Exact-match tier</b> actually land.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Exact-match tier</b><span>A plain hash lookup in front of the semantic cache, catching identical questions for free.</span><template class="term-detail" data-see="Normalisation, Hit rate, Savings arithmetic">
-          <p>A surprising share of repeated traffic is byte-identical after normalisation &mdash; the same button, the same suggested prompt, the same retry. Those questions do not need an embedding call at all: a Redis <code>GET</code> on <code>sha256(namespace + normalised)</code> answers them in under a millisecond with zero risk of a false hit.</p>
-          <p>So the real shape is three tiers: exact, semantic, generate. The exact tier is cheap, perfectly safe and often handles half of all hits; the semantic tier is what catches paraphrases.</p>
-          <pre class="language-none"><code class="language-none">exact   → 0.4 ms, 0 risk,      ~15% of requests
+        <p>A surprising share of repeated traffic is byte-identical after normalisation — the same button, the same suggested prompt, the same retry. Those questions do not need an embedding call at all: a Redis <code>GET</code> on <code>sha256(namespace + normalised)</code> answers them in under a millisecond with zero risk of a false hit.</p>
+        <p>So the real shape is three tiers: exact, semantic, generate. The exact tier is cheap, perfectly safe and often handles half of all hits; the semantic tier is what catches paraphrases.</p>
+        <pre class="language-none"><code class="language-none">exact   → 0.4 ms, 0 risk,      ~15% of requests
 semantic→ 20 ms,  threshold risk, ~18% of requests
-generate→ 1.9 s,  full cost,     ~67% of requests</code></pre>
-          <h4>How it relates</h4>
-          <ul><li>Build this tier first. It is twenty lines and it is the part that cannot be wrong.</li></ul>
+generate→ 1.9 s,  full cost,     ~67% of requests</code></pre><h4>How it relates</h4>
+        <ul>
+        <li>Build this tier first. It is twenty lines and it is the part that cannot be wrong.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Reranked verification</b><span>A cheap second check, after the vector match, that the two questions really are the same question.</span><template class="term-detail" data-see="False hit, Similarity threshold, Negative caching">
-          <p>Because a false hit is a correctness bug, it is worth spending 20&ndash;80 ms to avoid one. The candidate match from the vector search is verified before being served: a cross-encoder scores the pair properly, or a rules check compares the entities, numbers and negations in both questions, or &mdash; for high-value flows &mdash; a small, fast model is asked "are these the same question? yes/no".</p>
-          <p>This lets you lower the vector threshold deliberately, raising the hit rate, because the verification stage catches what the looser threshold lets through. Recall from the index, precision from the verifier &mdash; the same division of labour as retrieval and reranking in <b>RAG</b>.</p>
-          <h4>Cost of each check</h4>
-          <table>
-            <tr><th>Verifier</th><th>Latency</th><th>Catches</th></tr>
-            <tr><td>Entity / number / negation rules</td><td>&lt; 1 ms</td><td>the classic pairs</td></tr>
-            <tr><td>Cross-encoder</td><td>20&ndash;60 ms</td><td>most paraphrase errors</td></tr>
-            <tr><td>Small LLM judge</td><td>150&ndash;400 ms</td><td>nearly all, at a real cost</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>If verification costs more than generation, you have reinvented the expensive path. Keep it to rules and a cross-encoder.</li></ul>
+        <p>Because a false hit is a correctness bug, it is worth spending 20–80 ms to avoid one. The candidate match from the vector search is verified before being served: a cross-encoder scores the pair properly, or a rules check compares the entities, numbers and negations in both questions, or — for high-value flows — a small, fast model is asked "are these the same question? yes/no".</p>
+        <p>This lets you lower the vector threshold deliberately, raising the hit rate, because the verification stage catches what the looser threshold lets through. Recall from the index, precision from the verifier — the same division of labour as retrieval and reranking in <b>RAG</b>.</p>
+        <h4>Cost of each check</h4>
+        <table><tr><th>Verifier</th><th>Latency</th><th>Catches</th></tr>
+        <tr><td>Entity / number / negation rules</td><td>&lt; 1 ms</td><td>the classic pairs</td></tr>
+        <tr><td>Cross-encoder</td><td>20–60 ms</td><td>most paraphrase errors</td></tr>
+        <tr><td>Small LLM judge</td><td>150–400 ms</td><td>nearly all, at a real cost</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>If verification costs more than generation, you have reinvented the expensive path. Keep it to rules and a cross-encoder.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Prompt caching</b><span>The provider-side cache of a shared prompt prefix — a different mechanism, often confused with this one.</span><template class="term-detail" data-see="Savings arithmetic, Hit rate, Cache namespace">
-          <p>Prompt caching is offered by the model provider: you mark a long, stable prefix &mdash; system instructions, a tool catalogue, a fixed document &mdash; and repeated requests that share it are billed and processed more cheaply, because the provider reuses the computed attention state. The model still runs; only the prefix work is saved.</p>
-          <p>Semantic caching skips the model entirely. The two are complementary and solve different problems: prompt caching lowers the cost of every miss, semantic caching removes some misses altogether.</p>
-          <h4>Side by side</h4>
-          <table>
-            <tr><th></th><th>Semantic cache</th><th>Prompt cache</th></tr>
-            <tr><td>Where</td><td>your infrastructure</td><td>the provider</td></tr>
-            <tr><td>Saves</td><td>the whole call</td><td>part of the input cost</td></tr>
-            <tr><td>Keyed on</td><td>question meaning</td><td>exact token prefix</td></tr>
-            <tr><td>Can be wrong</td><td>yes</td><td>no</td></tr>
-            <tr><td>Latency</td><td>~25 ms total</td><td>faster first token, still seconds</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Put the stable parts of your prompt at the front &mdash; it is what makes prompt caching land, and costs nothing.</li></ul>
+        <p>Prompt caching is offered by the model provider: you mark a long, stable prefix — system instructions, a tool catalogue, a fixed document — and repeated requests that share it are billed and processed more cheaply, because the provider reuses the computed attention state. The model still runs; only the prefix work is saved.</p>
+        <p>Semantic caching skips the model entirely. The two are complementary and solve different problems: prompt caching lowers the cost of every miss, semantic caching removes some misses altogether.</p>
+        <h4>Side by side</h4>
+        <table><tr><th></th><th>Semantic cache</th><th>Prompt cache</th></tr>
+        <tr><td>Where</td><td>your infrastructure</td><td>the provider</td></tr>
+        <tr><td>Saves</td><td>the whole call</td><td>part of the input cost</td></tr>
+        <tr><td>Keyed on</td><td>question meaning</td><td>exact token prefix</td></tr>
+        <tr><td>Can be wrong</td><td>yes</td><td>no</td></tr>
+        <tr><td>Latency</td><td>~25 ms total</td><td>faster first token, still seconds</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Put the stable parts of your prompt at the front — it is what makes prompt caching land, and costs nothing.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Negative caching</b><span>Remembering that a question had no good answer, so you do not pay to fail twice.</span><template class="term-detail" data-see="Invalidation, False hit, Hit rate">
-          <p>When retrieval finds nothing above the cut-off and the system answers "I don't have enough information", that outcome is worth caching too &mdash; with a much shorter TTL, because it is the entry most likely to be fixed by someone adding a document.</p>
-          <p>Negative entries also double as a content backlog. A ranked list of questions that repeatedly produce refusals is the most honest documentation gap report you will ever get.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Outcome</th><th>TTL</th></tr>
-            <tr><td>Answered</td><td>hours to days</td></tr>
-            <tr><td>Refused ("don't know")</td><td>5&ndash;30 minutes</td></tr>
-            <tr><td>Error / timeout</td><td>do not cache</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Purge negative entries whenever the index is updated &mdash; that is exactly the event that might have fixed them.</li></ul>
+        <p>When retrieval finds nothing above the cut-off and the system answers "I don't have enough information", that outcome is worth caching too — with a much shorter TTL, because it is the entry most likely to be fixed by someone adding a document.</p>
+        <p>Negative entries also double as a content backlog. A ranked list of questions that repeatedly produce refusals is the most honest documentation gap report you will ever get.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Outcome</th><th>TTL</th></tr>
+        <tr><td>Answered</td><td>hours to days</td></tr>
+        <tr><td>Refused ("don't know")</td><td>5–30 minutes</td></tr>
+        <tr><td>Error / timeout</td><td>do not cache</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Purge negative entries whenever the index is updated — that is exactly the event that might have fixed them.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Cold start</b><span>An empty cache serves nothing, and the first hours look like pure added latency.</span><template class="term-detail" data-see="Hit rate, Savings arithmetic, Exact-match tier">
-          <p>Every entry has to be paid for once. On day one the hit rate is zero and every request carries an extra embedding call and vector search. This is small &mdash; under 15 ms &mdash; but it is the reason a cache evaluated for an hour looks useless.</p>
-          <p>Warming helps where the head of the distribution is known: replay the top few hundred historical questions, or seed from your FAQ, during deployment. Flushing on every deploy is the opposite mistake &mdash; version the namespace instead, so old entries age out rather than disappearing at once.</p>
-          <h4>How it relates</h4>
-          <ul><li>Watch hit rate over days, not minutes, and segment by question type &mdash; one long-tail segment can hide a 60% hit rate in another.</li></ul>
+        <p>Every entry has to be paid for once. On day one the hit rate is zero and every request carries an extra embedding call and vector search. This is small — under 15 ms — but it is the reason a cache evaluated for an hour looks useless.</p>
+        <p>Warming helps where the head of the distribution is known: replay the top few hundred historical questions, or seed from your FAQ, during deployment. Flushing on every deploy is the opposite mistake — version the namespace instead, so old entries age out rather than disappearing at once.</p>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Watch hit rate over days, not minutes, and segment by question type — one long-tail segment can hide a 60% hit rate in another.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Caching retrieval vs caching answers</b><span>You can cache the final text, or just the retrieved chunks — and the trade-offs are different.</span><template class="term-detail" data-see="Invalidation, False hit, Savings arithmetic">
-          <p>Caching the <em>answer</em> saves everything but freezes the output: if the documents change, or the answer should be personalised, it is wrong. Caching the <em>retrieval result</em> &mdash; the chunk ids for a question &mdash; saves the search but still runs generation, so the answer reflects the current text of those chunks and can be tailored to the user.</p>
-          <p>For live data, caching retrieval is often the only safe choice. It also has a much weaker scoping requirement, because chunk ids with ACL filters re-applied at read time cannot leak the way a rendered answer can.</p>
-          <h4>Which to cache</h4>
-          <table>
-            <tr><th>Situation</th><th>Cache</th></tr>
-            <tr><td>Stable docs, impersonal answers</td><td>the answer</td></tr>
-            <tr><td>Answers vary by user</td><td>the retrieval</td></tr>
-            <tr><td>Underlying text changes hourly</td><td>the retrieval</td></tr>
-            <tr><td>Classification / extraction</td><td>the answer, long TTL</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Caching retrieval cuts about 120 ms and the search cost; caching answers cuts about 1.9 s and nearly all the cost.</li></ul>
+        <p>Caching the <em>answer</em> saves everything but freezes the output: if the documents change, or the answer should be personalised, it is wrong. Caching the <em>retrieval result</em> — the chunk ids for a question — saves the search but still runs generation, so the answer reflects the current text of those chunks and can be tailored to the user.</p>
+        <p>For live data, caching retrieval is often the only safe choice. It also has a much weaker scoping requirement, because chunk ids with ACL filters re-applied at read time cannot leak the way a rendered answer can.</p>
+        <h4>Which to cache</h4>
+        <table><tr><th>Situation</th><th>Cache</th></tr>
+        <tr><td>Stable docs, impersonal answers</td><td>the answer</td></tr>
+        <tr><td>Answers vary by user</td><td>the retrieval</td></tr>
+        <tr><td>Underlying text changes hourly</td><td>the retrieval</td></tr>
+        <tr><td>Classification / extraction</td><td>the answer, long TTL</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Caching retrieval cuts about 120 ms and the search cost; caching answers cuts about 1.9 s and nearly all the cost.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Eviction</b><span>How entries leave a cache that would otherwise grow without limit.</span><template class="term-detail" data-see="Invalidation, Hit rate, Cold start">
-          <p>Semantic caches grow one entry per distinct question, and each entry carries a vector of several kilobytes plus the answer text. A million entries at 1536 dimensions is roughly 6 GB of vectors before the index &mdash; affordable in Redis or Postgres, but not free, and every extra entry slightly slows the search and slightly raises false-hit risk.</p>
-          <p>LRU or LFU by access is the usual policy, combined with a TTL. Because hit distribution is head-heavy, evicting the cold tail costs almost no hit rate: in most workloads the top 5% of entries serve the large majority of hits.</p>
-          <h4>Common values</h4>
-          <table>
-            <tr><th>Setting</th><th>Typical</th></tr>
-            <tr><td>Max entries</td><td>100k &ndash; 1M</td></tr>
-            <tr><td>Policy</td><td><code>allkeys-lru</code> or LFU, plus TTL</td></tr>
-            <tr><td>Vector size</td><td>6 KB at 1536 dims &times; float32</td></tr>
-            <tr><td>With int8 quantisation</td><td>1.5 KB</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>The eviction policies here are the ordinary ones from <b>Redis</b> and <b>Caching strategies</b>; only the key is unusual.</li></ul>
+        <p>Semantic caches grow one entry per distinct question, and each entry carries a vector of several kilobytes plus the answer text. A million entries at 1536 dimensions is roughly 6 GB of vectors before the index — affordable in Redis or Postgres, but not free, and every extra entry slightly slows the search and slightly raises false-hit risk.</p>
+        <p>LRU or LFU by access is the usual policy, combined with a TTL. Because hit distribution is head-heavy, evicting the cold tail costs almost no hit rate: in most workloads the top 5% of entries serve the large majority of hits.</p>
+        <h4>Common values</h4>
+        <table><tr><th>Setting</th><th>Typical</th></tr>
+        <tr><td>Max entries</td><td>100k – 1M</td></tr>
+        <tr><td>Policy</td><td><code>allkeys-lru</code> or LFU, plus TTL</td></tr>
+        <tr><td>Vector size</td><td>6 KB at 1536 dims × float32</td></tr>
+        <tr><td>With int8 quantisation</td><td>1.5 KB</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>The eviction policies here are the ordinary ones from <b>Redis</b> and <b>Caching strategies</b>; only the key is unusual.</li>
+        </ul>
         </template></div>
-
         <div class="term"><b>Observability</b><span>Logging the similarity, the matched entry and the served source on every request — the only way false hits become visible.</span><template class="term-detail" data-see="False hit, Hit rate, Reranked verification">
-          <p>A semantic cache that logs only a hit/miss counter is unauditable. Three fields per request make it debuggable: the similarity score, the id of the matched entry, and whether the answer came from exact, semantic or generation. With those you can replay any complaint, plot the score distribution, and see exactly where the threshold sits relative to real traffic.</p>
-          <p>Two alerts are worth having: a rising hit rate with no traffic change (the threshold may have become too loose after a model swap) and a cluster of hits in the 0.92&ndash;0.95 band, which is where false hits live.</p>
-          <h4>What to record</h4>
-          <table>
-            <tr><th>Field</th><th>Why</th></tr>
-            <tr><td><code>cache.source</code></td><td>exact / semantic / miss</td></tr>
-            <tr><td><code>cache.similarity</code></td><td>histogram, threshold tuning</td></tr>
-            <tr><td><code>cache.matched_id</code></td><td>replay the original question</td></tr>
-            <tr><td><code>cache.namespace</code></td><td>catch scoping bugs</td></tr>
-            <tr><td>user feedback on cached answers</td><td>the real false-hit signal</td></tr>
-          </table>
-          <h4>How it relates</h4>
-          <ul><li>Serve a small "this answer was reused" affordance in internal tools; the first false hit a user reports pays for the whole instrumentation.</li></ul>
+        <p>A semantic cache that logs only a hit/miss counter is unauditable. Three fields per request make it debuggable: the similarity score, the id of the matched entry, and whether the answer came from exact, semantic or generation. With those you can replay any complaint, plot the score distribution, and see exactly where the threshold sits relative to real traffic.</p>
+        <p>Two alerts are worth having: a rising hit rate with no traffic change (the threshold may have become too loose after a model swap) and a cluster of hits in the 0.92–0.95 band, which is where false hits live.</p>
+        <h4>What to record</h4>
+        <table><tr><th>Field</th><th>Why</th></tr>
+        <tr><td><code>cache.source</code></td><td>exact / semantic / miss</td></tr>
+        <tr><td><code>cache.similarity</code></td><td>histogram, threshold tuning</td></tr>
+        <tr><td><code>cache.matched_id</code></td><td>replay the original question</td></tr>
+        <tr><td><code>cache.namespace</code></td><td>catch scoping bugs</td></tr>
+        <tr><td>user feedback on cached answers</td><td>the real false-hit signal</td></tr></table>
+        <h4>How it relates</h4>
+        <ul>
+        <li>Serve a small "this answer was reused" affordance in internal tools; the first false hit a user reports pays for the whole instrumentation.</li>
+        </ul>
         </template></div>
       </div>
     </section>
 
     <section id="commands">
       <h2>Essential code</h2>
-
       <div class="cmd-group">
         <h3>The three tiers</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// C# — exact tier, then semantic tier, then generate
@@ -458,10 +445,10 @@ from dataclasses import dataclass
 
 THRESHOLD = 0.95
 
-def normalise(q: str) -> str:
+def normalise(q: str) -&gt; str:
     return " ".join(q.lower().strip().rstrip("?!.").split())
 
-def get_or_create(question: str, scope: str, generate) -> tuple[str, str]:
+def get_or_create(question: str, scope: str, generate) -&gt; tuple[str, str]:
     norm = normalise(question)
     exact_key = f"sc:{scope}:x:{hashlib.sha256(norm.encode()).hexdigest()}"
 
@@ -470,7 +457,7 @@ def get_or_create(question: str, scope: str, generate) -> tuple[str, str]:
 
     vector = embed(norm)
     match = nearest(scope, vector, limit=1)
-    if match and match.similarity >= THRESHOLD and verify(norm, match.question):
+    if match and match.similarity &gt;= THRESHOLD and verify(norm, match.question):
         return match.answer, "semantic"
 
     answer = generate()
@@ -478,7 +465,6 @@ def get_or_create(question: str, scope: str, generate) -> tuple[str, str]:
     store(scope, vector, norm, answer, ttl=86_400)
     return answer, "miss"</code></pre><div class="what">Identical logic. The interesting lines are <code>verify</code> and <code>scope</code> — everything else is plumbing.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>The vector store behind it</h3>
         <div class="cmd"><pre class="language-bash line-numbers"><code class="language-bash"># Redis — a vector index over cached questions, partitioned by namespace
@@ -492,7 +478,7 @@ FT.CREATE idx:semcache
     embedding VECTOR HNSW 6 TYPE FLOAT32 DIM 1536 DISTANCE_METRIC COSINE
 
 # query: nearest neighbour WITHIN one namespace — a pre-filter, not a post-filter
-FT.SEARCH idx:semcache "(@ns:{t42_gpt41mini_v7_enGB})=>[KNN 1 @embedding $vec AS score]"
+FT.SEARCH idx:semcache "(@ns:{t42_gpt41mini_v7_enGB})=&gt;[KNN 1 @embedding $vec AS score]"
   PARAMS 2 vec "$BLOB" RETURN 3 question answer score DIALECT 2</code></pre><div class="what">The <code>@ns</code> tag filter runs before the KNN search, so one tenant's entries can never be candidates for another's query.</div></div>
         <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">-- Postgres alternative: pgvector, with the cited chunks kept for invalidation
 CREATE TABLE semantic_cache (
@@ -520,7 +506,6 @@ LIMIT 1;
 -- targeted invalidation when a document is re-ingested
 DELETE FROM semantic_cache WHERE cited_chunks &amp;&amp; $1;   -- array overlap</code></pre><div class="what">Storing the cited chunk ids is what turns "we changed a document" into a precise purge instead of a full flush.</div></div>
       </div>
-
       <div class="cmd-group">
         <h3>Guarding against false hits</h3>
         <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// C# — cheap rules that catch the classic false-hit pairs before anything expensive
@@ -562,7 +547,7 @@ logger.info(
       <h2>Pros &amp; cons</h2>
       <div class="cols">
         <div class="col good"><h3>Pros</h3><ul>
-          <li>Removes the whole generation call, not part of it &mdash; typically 1&ndash;3 s and most of the cost.</li>
+          <li>Removes the whole generation call, not part of it — typically 1–3 s and most of the cost.</li>
           <li>Catches paraphrases, which is the majority of real repetition in natural language traffic.</li>
           <li>Break-even hit rate is under 1%, because embeddings are hundreds of times cheaper than generation.</li>
           <li>Works as a capacity buffer: cached answers keep flowing during provider rate limits or outages.</li>
@@ -573,10 +558,10 @@ logger.info(
           <li>It can serve a <em>wrong</em> answer, which an exact cache structurally cannot.</li>
           <li>The threshold must be derived from labelled data and re-derived after any embedding model change.</li>
           <li>Scoping bugs are data leaks: one missing tenant filter crosses a boundary.</li>
-          <li>Adds 10&ndash;25 ms and an embedding call to every request, including misses.</li>
+          <li>Adds 10–25 ms and an embedding call to every request, including misses.</li>
           <li>Invalidation is harder than in a key cache: you must know which documents an answer used.</li>
           <li>Near-useless for personalised, multi-turn or agentic traffic.</li>
-          <li>Hides model improvements &mdash; a better model's answers are not served while old entries live.</li>
+          <li>Hides model improvements — a better model's answers are not served while old entries live.</li>
         </ul></div>
       </div>
     </section>
@@ -584,11 +569,11 @@ logger.info(
     <section id="use-cases">
       <h2>Concrete use cases</h2>
       <div class="cards">
-        <div class="card"><h3>Public FAQ assistant</h3><p>A help centre bot answers the same forty intents in a thousand phrasings. Hit rate settles near 60%, the public scope means no per-user partitioning, and cached answers return in 30 ms &mdash; which also makes the bot feel faster than the search it replaced.</p></div>
+        <div class="card"><h3>Public FAQ assistant</h3><p>A help centre bot answers the same forty intents in a thousand phrasings. Hit rate settles near 60%, the public scope means no per-user partitioning, and cached answers return in 30 ms — which also makes the bot feel faster than the search it replaced.</p></div>
         <div class="card"><h3>Documentation search over a stable corpus</h3><p>An internal docs assistant on a corpus that changes weekly. Answers are cached for 24 hours, keyed by prompt version and index version, and purged by cited chunk id whenever a page is republished.</p></div>
-        <div class="card"><h3>Surviving a rate limit</h3><p>A provider starts returning 429s at peak. Cached answers continue to serve a third of traffic unaffected, turning a total outage into partial degradation while the rest of the requests queue &mdash; the same idea as <b>graceful degradation</b>, applied to spend.</p></div>
+        <div class="card"><h3>Surviving a rate limit</h3><p>A provider starts returning 429s at peak. Cached answers continue to serve a third of traffic unaffected, turning a total outage into partial degradation while the rest of the requests queue — the same idea as <b>graceful degradation</b>, applied to spend.</p></div>
         <div class="card"><h3>Classification and extraction pipelines</h3><p>Millions of near-duplicate support emails classified into twenty categories. Outputs are short and stable, so a long TTL and a moderate threshold remove most of the model calls, with a rules check on extracted identifiers to prevent cross-contamination.</p></div>
-        <div class="card"><h3>Evaluation and CI runs</h3><p>A golden set of 200 questions runs on every pull request. A semantic cache keyed on prompt version makes unrelated changes cost nothing, while a prompt change bumps the version and re-runs everything &mdash; which is exactly the behaviour you want.</p></div>
+        <div class="card"><h3>Evaluation and CI runs</h3><p>A golden set of 200 questions runs on every pull request. A semantic cache keyed on prompt version makes unrelated changes cost nothing, while a prompt change bumps the version and re-runs everything — which is exactly the behaviour you want.</p></div>
       </div>
     </section>
 
@@ -598,14 +583,14 @@ logger.info(
       <div class="cols">
         <div class="col good"><h3>Use it when…</h3><ul>
           <li>Traffic is head-heavy: a few hundred intents cover most requests.</li>
-          <li>Answers are impersonal &mdash; the same question deserves the same answer for everyone in scope.</li>
+          <li>Answers are impersonal — the same question deserves the same answer for everyone in scope.</li>
           <li>The underlying corpus changes on a timescale of hours or days, not seconds.</li>
           <li>Latency matters and a 25 ms answer is meaningfully better than a 2 s one.</li>
           <li>You are rate limited or cost constrained and have measured a hit rate above a few percent.</li>
         </ul></div>
         <div class="col bad"><h3>Avoid it when…</h3><ul>
           <li>Answers depend on the individual user or live data. Cache the <b>retrieval result</b> instead of the answer.</li>
-          <li>A wrong answer is unacceptable &mdash; medical, legal, financial. Use an <b>exact-match cache</b> only.</li>
+          <li>A wrong answer is unacceptable — medical, legal, financial. Use an <b>exact-match cache</b> only.</li>
           <li>Traffic is open-ended or multi-turn, so almost nothing repeats. Use <b>prompt caching</b> and a cheaper model.</li>
           <li>You cannot reliably scope entries per tenant or per permission set. Fix the scoping first.</li>
           <li>You have no evaluation set, so a regression from a false hit would be invisible. Build that first.</li>
@@ -616,14 +601,14 @@ logger.info(
 
     <section id="gotchas">
       <h2>Common mistakes &amp; gotchas</h2>
-      <div class="gotcha"><b>Picking the threshold by feel</b><span>0.9 looks like a high number, so it gets used. In most embedding spaces almost any two questions on the same topic score above 0.9, and the cache starts answering questions that were never asked.</span><div class="fix">Fix: label 200&ndash;500 real question pairs as same/different, plot precision and recall against the threshold, and pick the point where precision is acceptable. Re-run it whenever the embedding model changes.</div></div>
+      <div class="gotcha"><b>Picking the threshold by feel</b><span>0.9 looks like a high number, so it gets used. In most embedding spaces almost any two questions on the same topic score above 0.9, and the cache starts answering questions that were never asked.</span><div class="fix">Fix: label 200–500 real question pairs as same/different, plot precision and recall against the threshold, and pick the point where precision is acceptable. Re-run it whenever the embedding model changes.</div></div>
       <div class="gotcha"><b>No tenant or permission scope</b><span>The cache key is the question text, so a question asked in tenant A returns an answer built from tenant A's documents to a user in tenant B. It is a data leak with a cache hit rate graph that looks excellent.</span><div class="fix">Fix: namespace every entry by tenant and visibility scope, and apply it as a pre-filter inside the vector query. Add a test that proves a cross-tenant lookup returns nothing.</div></div>
       <div class="gotcha"><b>Ignoring negation and numbers</b><span>"Can I return an item after 30 days?" and "Can I return an item after 60 days?" are nearly the same vector. So are a question and its negation. Both serve confidently wrong answers.</span><div class="fix">Fix: a verification step that compares extracted numbers, dates, identifiers and negation words, and rejects the match when they differ. It is a regex and a set comparison.</div></div>
       <div class="gotcha"><b>Caching the answer when the data is live</b><span>Stock levels, prices, open tickets and account balances get frozen into cached text, and the system confidently reports yesterday's number for a day.</span><div class="fix">Fix: cache the retrieval result, not the answer, for anything time-sensitive; or exclude those intents from the cache entirely with a classifier on the question.</div></div>
       <div class="gotcha"><b>Flushing the whole cache on deploy</b><span>Every release throws away a warm cache, so hit rate restarts at zero and the first hour after each deploy is slow and expensive.</span><div class="fix">Fix: put the prompt and model version in the namespace. Entries from the previous version stop matching and expire naturally; nothing has to be deleted.</div></div>
       <div class="gotcha"><b>No way to tell a cached answer from a fresh one</b><span>A user reports a wrong answer. Nobody can tell whether the model produced it just now or the cache served it from a different question three days ago, so the investigation starts from nothing.</span><div class="fix">Fix: log source, similarity and matched entry id on every request, and propagate a <code>cache.source</code> attribute into your traces.</div></div>
       <div class="gotcha"><b>Changing the embedding model in place</b><span>New entries are written with new-model vectors while old entries hold old-model vectors. Distances between the two spaces are meaningless, so the threshold no longer means what it meant.</span><div class="fix">Fix: include the embedding model id in the namespace. New entries simply form a new partition, and the old one expires.</div></div>
-      <div class="gotcha"><b>Caching whole conversations</b><span>In a multi-turn assistant the cache key is the full history, which is unique almost every time. Hit rate is near zero and the embedding call is pure overhead.</span><div class="fix">Fix: cache on the <em>condensed standalone question</em> produced by query rewriting, not on the raw transcript &mdash; or accept that this workload does not cache and spend the effort on prompt caching.</div></div>
+      <div class="gotcha"><b>Caching whole conversations</b><span>In a multi-turn assistant the cache key is the full history, which is unique almost every time. Hit rate is near zero and the embedding call is pure overhead.</span><div class="fix">Fix: cache on the <em>condensed standalone question</em> produced by query rewriting, not on the raw transcript — or accept that this workload does not cache and spend the effort on prompt caching.</div></div>
     </section>
 
     <section id="alternatives">
@@ -632,7 +617,7 @@ logger.info(
         <table>
           <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost</th><th>Key difference vs semantic caching</th></tr></thead>
           <tbody>
-            <tr class="self"><td><b>Semantic caching</b></td><td>repetitive, impersonal questions</td><td>Medium</td><td>vector store + embeddings</td><td>&mdash;</td></tr>
+            <tr class="self"><td><b>Semantic caching</b></td><td>repetitive, impersonal questions</td><td>Medium</td><td>vector store + embeddings</td><td>—</td></tr>
             <tr><td><b>Exact-match cache</b></td><td>identical requests, zero risk tolerance</td><td>Very low</td><td>a Redis key</td><td>Cannot be wrong, cannot match paraphrases; use it as tier one anyway</td></tr>
             <tr><td><b>Provider prompt caching</b></td><td>long shared prefixes</td><td>Very low</td><td>discounted input tokens</td><td>Still runs the model; saves part of the input cost, never the whole call</td></tr>
             <tr><td><b>Precomputed FAQ answers</b></td><td>a known, small intent set</td><td>Low</td><td>near zero</td><td>Human-reviewed and auditable; needs an intent classifier and manual upkeep</td></tr>
@@ -643,11 +628,11 @@ logger.info(
         </table>
       </div>
       <ul style="margin-top:12px">
-        <li><b>Pick an exact-match cache</b> as tier one always &mdash; it is cheaper, safer and catches a surprising share of traffic.</li>
+        <li><b>Pick an exact-match cache</b> as tier one always — it is cheaper, safer and catches a surprising share of traffic.</li>
         <li><b>Pick prompt caching</b> when the repetition is in your system prompt and tool catalogue rather than in user questions.</li>
         <li><b>Pick precomputed answers</b> when a small set of questions dominates and the answers deserve human review.</li>
         <li><b>Pick retrieval caching</b> whenever the answer must reflect live data or differ per user.</li>
-        <li><b>Pick a smaller model</b> when the hit rate measurement comes back in low single digits &mdash; your traffic simply does not repeat.</li>
+        <li><b>Pick a smaller model</b> when the hit rate measurement comes back in low single digits — your traffic simply does not repeat.</li>
       </ul>
     </section>
 
@@ -701,34 +686,34 @@ logger.info(
   </main>
 </div>
 
-<script src="../assets/player.js?v=3658cbc7"></script>
+<script src="../assets/player.js?v=e9bf1ea3"></script>
 <script>
 createAnimation('anim-flow', [
-  { say: 'A user asks <code>how do I reset my password?</code>. The cache is empty, so this is going to cost full price &mdash; but it is also the request that makes every later paraphrase free.', hl: ['sc-q'], text: { 'sc-qt': '"how do I reset my password?"', 'sc-s': 'requests 1 · hits 0 · hit rate 0% · generation spend $0.000' } },
-  { say: 'First the exact tier: normalise the text and hash it. Nothing. That lookup cost 0.4 ms and no embedding call &mdash; always try it before paying for a vector.', unhl: ['sc-q'], hl: ['sc-dec'], text: { 'sc-d2': 'exact tier: miss (0.4 ms, no embedding)' } },
-  { say: 'Now the semantic tier. The question is embedded and searched against past questions in this namespace &mdash; same tenant, same model, same prompt version. There are none, so the nearest neighbour does not exist.', text: { 'sc-d2': 'semantic tier: index empty → MISS' }, fill: { 'sc-d2': '#c53b3b' } },
-  { say: 'So the expensive path runs: retrieve chunks, build the prompt, generate. 1.9 seconds and about four tenths of a cent.', unhl: ['sc-dec'], hl: ['sc-llm'], text: { 'sc-l1': 'retrieve 120 ms → generate 1.8 s', 'sc-l2': 'cost $0.004', 'sc-l3': 'cited chunks: pwd-reset#1, pwd-reset#2', 'sc-o1': '"Open Settings → Security → Reset password…"', 'sc-o2': 'served in 1,940 ms', 'sc-o3': 'source: generated' }, fill: { 'sc-o3': '#c53b3b' } },
-  { say: 'On the way out, the answer is written back twice: once under the exact hash, and once as a vector entry with its question, its answer, the chunk ids it cited and a 24-hour TTL.', unhl: ['sc-llm'], text: { 'sc-ct': 'cache contents — 1 entry', 'sc-c1': '#1 "how do i reset my password"', 'sc-c2': '   → "Open Settings → Security…"', 'sc-c3': '   cited: pwd-reset#1, pwd-reset#2 · ttl 24h', 'sc-s': 'requests 1 · hits 0 · hit rate 0% · generation spend $0.004' } },
-  { say: 'Minutes later a different user types <code>I forgot my password, what now?</code>. Not one word in common with the first question beyond "password" &mdash; an exact cache sees nothing at all.', hl: ['sc-q'], text: { 'sc-qt': '"I forgot my password, what now?"', 'sc-d2': 'exact tier: miss', 'sc-s': 'requests 2 · hits 0 · hit rate 0% · generation spend $0.004' } },
-  { say: 'The semantic tier embeds it and finds entry #1 at cosine 0.962, above the 0.95 threshold. Verification passes: no identifiers, no numbers, no negation on either side.', unhl: ['sc-q'], hl: ['sc-dec'], text: { 'sc-d2': 'nearest: #1 · similarity 0.962 ≥ 0.95 → HIT' }, fill: { 'sc-d2': '#2f6b3f' } },
-  { say: 'The stored answer is served directly. 28 ms instead of 1,940, and the only cost was one embedding call &mdash; roughly a four-hundredth of a generation.', unhl: ['sc-dec'], hl: ['sc-out'], text: { 'sc-o1': '"Open Settings → Security → Reset password…"', 'sc-o2': 'served in 28 ms', 'sc-o3': 'source: semantic cache, matched #1 @ 0.962', 'sc-s': 'requests 2 · hits 1 · hit rate 50% · generation spend $0.004' }, fill: { 'sc-o3': '#2f6b3f' } },
-  { say: 'Third question: <code>how do I change my email address?</code>. Same product area, same shape of sentence &mdash; and it scores 0.907. Below the threshold, so it falls through.', unhl: ['sc-out'], hl: ['sc-dec'], text: { 'sc-qt': '"how do I change my email address?"', 'sc-d2': 'nearest: #1 · similarity 0.907 < 0.95 → MISS', 'sc-s': 'requests 3 · hits 1 · hit rate 33% · generation spend $0.004' }, fill: { 'sc-d2': '#c53b3b' } },
-  { say: 'That near-miss is the whole design in one number. At a threshold of 0.90 this would have hit, and a user asking about their email address would have been told how to reset their password &mdash; instantly, fluently, and wrongly.', unhl: ['sc-dec'], text: { 'sc-phase': 'the threshold decides which of these two outcomes you get', 'sc-c5': '0.962 → same question, different words → serve', 'sc-c6': '0.907 → related question, different answer → generate', 'sc-c7': 'the gap between them is all the margin you have' }, fill: { 'sc-c5': '#2f6b3f', 'sc-c6': '#5f6f66', 'sc-c7': '#c53b3b' } },
-  { say: 'After the third generation the cache holds three entries, and from here the hit rate climbs as paraphrases of all three arrive. In a support workload it typically settles between 20% and 60% within a day.', text: { 'sc-ct': 'cache contents — 3 entries', 'sc-c1': '#1 "how do i reset my password"       hits 1', 'sc-c2': '#2 "how do i change my email address"  hits 0', 'sc-c3': '#3 "where are my invoices"             hits 0', 'sc-c4': 'ttl 24h · evict LRU above 500k entries', 'sc-s': 'steady state: ~1 in 3 requests never reaches the model' }, fill: { 'sc-s': '#2f6b3f' } },
+  { say: "A user asks <code>how do I reset my password?</code>. The cache is empty, so this is going to cost full price — but it is also the request that makes every later paraphrase free.", hl: ["sc-q"], text: {"sc-qt":"\"how do I reset my password?\"","sc-s":"requests 1 · hits 0 · hit rate 0% · generation spend $0.000"} },
+  { say: "First the exact tier: normalise the text and hash it. Nothing. That lookup cost 0.4 ms and no embedding call — always try it before paying for a vector.", hl: ["sc-dec"], unhl: ["sc-q"], text: {"sc-d2":"exact tier: miss (0.4 ms, no embedding)"} },
+  { say: "Now the semantic tier. The question is embedded and searched against past questions in this namespace — same tenant, same model, same prompt version. There are none, so the nearest neighbour does not exist.", text: {"sc-d2":"semantic tier: index empty → MISS"}, fill: {"sc-d2":"#c53b3b"} },
+  { say: "So the expensive path runs: retrieve chunks, build the prompt, generate. 1.9 seconds and about four tenths of a cent.", hl: ["sc-llm"], unhl: ["sc-dec"], text: {"sc-l1":"retrieve 120 ms → generate 1.8 s","sc-l2":"cost $0.004","sc-l3":"cited chunks: pwd-reset#1, pwd-reset#2","sc-o1":"\"Open Settings → Security → Reset password…\"","sc-o2":"served in 1,940 ms","sc-o3":"source: generated"}, fill: {"sc-o3":"#c53b3b"} },
+  { say: "On the way out, the answer is written back twice: once under the exact hash, and once as a vector entry with its question, its answer, the chunk ids it cited and a 24-hour TTL.", unhl: ["sc-llm"], text: {"sc-ct":"cache contents — 1 entry","sc-c1":"#1 \"how do i reset my password\"","sc-c2":"   → \"Open Settings → Security…\"","sc-c3":"   cited: pwd-reset#1, pwd-reset#2 · ttl 24h","sc-s":"requests 1 · hits 0 · hit rate 0% · generation spend $0.004"} },
+  { say: "Minutes later a different user types <code>I forgot my password, what now?</code>. Not one word in common with the first question beyond \"password\" — an exact cache sees nothing at all.", hl: ["sc-q"], text: {"sc-qt":"\"I forgot my password, what now?\"","sc-d2":"exact tier: miss","sc-s":"requests 2 · hits 0 · hit rate 0% · generation spend $0.004"} },
+  { say: "The semantic tier embeds it and finds entry #1 at cosine 0.962, above the 0.95 threshold. Verification passes: no identifiers, no numbers, no negation on either side.", hl: ["sc-dec"], unhl: ["sc-q"], text: {"sc-d2":"nearest: #1 · similarity 0.962 ≥ 0.95 → HIT"}, fill: {"sc-d2":"#2f6b3f"} },
+  { say: "The stored answer is served directly. 28 ms instead of 1,940, and the only cost was one embedding call — roughly a four-hundredth of a generation.", hl: ["sc-out"], unhl: ["sc-dec"], text: {"sc-o1":"\"Open Settings → Security → Reset password…\"","sc-o2":"served in 28 ms","sc-o3":"source: semantic cache, matched #1 @ 0.962","sc-s":"requests 2 · hits 1 · hit rate 50% · generation spend $0.004"}, fill: {"sc-o3":"#2f6b3f"} },
+  { say: "Third question: <code>how do I change my email address?</code>. Same product area, same shape of sentence — and it scores 0.907. Below the threshold, so it falls through.", hl: ["sc-dec"], unhl: ["sc-out"], text: {"sc-qt":"\"how do I change my email address?\"","sc-d2":"nearest: #1 · similarity 0.907 < 0.95 → MISS","sc-s":"requests 3 · hits 1 · hit rate 33% · generation spend $0.004"}, fill: {"sc-d2":"#c53b3b"} },
+  { say: "That near-miss is the whole design in one number. At a threshold of 0.90 this would have hit, and a user asking about their email address would have been told how to reset their password — instantly, fluently, and wrongly.", unhl: ["sc-dec"], text: {"sc-phase":"the threshold decides which of these two outcomes you get","sc-c5":"0.962 → same question, different words → serve","sc-c6":"0.907 → related question, different answer → generate","sc-c7":"the gap between them is all the margin you have"}, fill: {"sc-c5":"#2f6b3f","sc-c6":"#5f6f66","sc-c7":"#c53b3b"} },
+  { say: "After the third generation the cache holds three entries, and from here the hit rate climbs as paraphrases of all three arrive. In a support workload it typically settles between 20% and 60% within a day.", text: {"sc-ct":"cache contents — 3 entries","sc-c1":"#1 \"how do i reset my password\"       hits 1","sc-c2":"#2 \"how do i change my email address\"  hits 0","sc-c3":"#3 \"where are my invoices\"             hits 0","sc-c4":"ttl 24h · evict LRU above 500k entries","sc-s":"steady state: ~1 in 3 requests never reaches the model"}, fill: {"sc-s":"#2f6b3f"} },
 ]);
 
 createAnimation('anim-falsehit', [
-  { say: 'Yesterday someone asked how to cancel an order, and the answer was cached: orders can be cancelled until dispatch, then it becomes a return.', hl: ['sf-q1'] },
-  { say: 'Today a different user asks how to cancel their <em>subscription</em>. The correct answer is unrelated &mdash; a 30-day notice period, billed to the end of the term.', unhl: ['sf-q1'], hl: ['sf-q2'] },
-  { say: 'The two sentences differ by one noun. Everything else &mdash; the verb, the possessive, the question form, the topic of ending a commercial relationship &mdash; is shared.', unhl: ['sf-q2'], hl: ['sf-sim'], text: { 'sf-simv': 'computing over 1536 dimensions…' } },
-  { say: 'Cosine similarity: 0.941. That is not a bug in the embedding model. The two questions genuinely are highly related &mdash; they are simply not the same question.', text: { 'sf-simv': '0.941' }, fill: { 'sf-simv': '#c53b3b' } },
-  { say: 'The threshold is 0.92, chosen months ago because it maximised hit rate on a sample. 0.941 clears it.', unhl: ['sf-sim'], hl: ['sf-thr'], text: { 'sf-t2': '0.92 — and 0.941 ≥ 0.92, so this is a HIT' }, fill: { 'sf-t2': '#c53b3b' } },
-  { say: 'The user is told, in 24 milliseconds, that they can cancel until dispatch. It is fluent, confident, instant, and about a completely different product.', unhl: ['sf-thr'], hl: ['sf-res'], text: { 'sf-r2': 'served: "orders can be cancelled until dispatch…" — wrong, in 24 ms' }, fill: { 'sf-r2': '#c53b3b', 'sf-res': '#f9e3df' } },
-  { say: 'And nothing marks it. There is no staleness, no error, no log line that differs from a correct hit. Without the similarity score and the matched entry id in your telemetry, this is invisible.', text: { 'sf-v': 'a false hit looks exactly like a good one — unless you logged the score' }, fill: { 'sf-v': '#c53b3b' } },
-  { say: 'Fix one: raise the threshold. At 0.97 this pair misses &mdash; and so do some genuine paraphrases, so the hit rate falls. That is the trade, and it is the right trade when a wrong answer is costly.', unhl: ['sf-res'], hl: ['sf-thr'], text: { 'sf-t2': '0.97 — 0.941 < 0.97 → miss, and hit rate drops from 38% to 22%' }, fill: { 'sf-t2': '#5f6f66', 'sf-res': '#e8ece2' } },
-  { say: 'Fix two: verify before serving. A cross-encoder, or just a rules check, compares the two questions properly. Here the head nouns differ &mdash; order versus subscription &mdash; so the match is rejected.', unhl: ['sf-thr'], text: { 'sf-r2': 'verifier: head noun mismatch (order ≠ subscription) → reject, generate instead', 'sf-phase': 'recall from the threshold, precision from the verifier' }, fill: { 'sf-r2': '#2f6b3f' } },
-  { say: 'Fix three, and the cheapest: scope. If order questions and subscription questions live in different namespaces &mdash; by intent, product or document set &mdash; they can never be compared in the first place.', text: { 'sf-q1t': 'ns: t42 | orders | gpt-4.1-mini | v7', 'sf-q2t': 'ns: t42 | billing | gpt-4.1-mini | v7', 'sf-r2': 'different namespace → not even a candidate → no comparison, no risk' }, fill: { 'sf-q2t': '#2f6b3f' } },
-  { say: 'With verification in place you can deliberately <em>lower</em> the threshold again: the index casts a wide net, the verifier keeps precision. More hits and fewer false ones &mdash; the same split of labour as retrieval and reranking in a RAG pipeline.', text: { 'sf-t2': '0.90 + verifier → hit rate 41%, false hits near zero', 'sf-v': 'threshold alone is a blunt dial. threshold + verifier + namespace is a design.' }, fill: { 'sf-t2': '#2f6b3f', 'sf-v': '#2f6b3f', 'sf-verd': '#e3eedc' } },
+  { say: "Yesterday someone asked how to cancel an order, and the answer was cached: orders can be cancelled until dispatch, then it becomes a return.", hl: ["sf-q1"] },
+  { say: "Today a different user asks how to cancel their <em>subscription</em>. The correct answer is unrelated — a 30-day notice period, billed to the end of the term.", hl: ["sf-q2"], unhl: ["sf-q1"] },
+  { say: "The two sentences differ by one noun. Everything else — the verb, the possessive, the question form, the topic of ending a commercial relationship — is shared.", hl: ["sf-sim"], unhl: ["sf-q2"], text: {"sf-simv":"computing over 1536 dimensions…"} },
+  { say: "Cosine similarity: 0.941. That is not a bug in the embedding model. The two questions genuinely are highly related — they are simply not the same question.", text: {"sf-simv":"0.941"}, fill: {"sf-simv":"#c53b3b"} },
+  { say: "The threshold is 0.92, chosen months ago because it maximised hit rate on a sample. 0.941 clears it.", hl: ["sf-thr"], unhl: ["sf-sim"], text: {"sf-t2":"0.92 — and 0.941 ≥ 0.92, so this is a HIT"}, fill: {"sf-t2":"#c53b3b"} },
+  { say: "The user is told, in 24 milliseconds, that they can cancel until dispatch. It is fluent, confident, instant, and about a completely different product.", hl: ["sf-res"], unhl: ["sf-thr"], text: {"sf-r2":"served: \"orders can be cancelled until dispatch…\" — wrong, in 24 ms"}, fill: {"sf-r2":"#c53b3b","sf-res":"#f9e3df"} },
+  { say: "And nothing marks it. There is no staleness, no error, no log line that differs from a correct hit. Without the similarity score and the matched entry id in your telemetry, this is invisible.", text: {"sf-v":"a false hit looks exactly like a good one — unless you logged the score"}, fill: {"sf-v":"#c53b3b"} },
+  { say: "Fix one: raise the threshold. At 0.97 this pair misses — and so do some genuine paraphrases, so the hit rate falls. That is the trade, and it is the right trade when a wrong answer is costly.", hl: ["sf-thr"], unhl: ["sf-res"], text: {"sf-t2":"0.97 — 0.941 < 0.97 → miss, and hit rate drops from 38% to 22%"}, fill: {"sf-t2":"#5f6f66","sf-res":"#e8ece2"} },
+  { say: "Fix two: verify before serving. A cross-encoder, or just a rules check, compares the two questions properly. Here the head nouns differ — order versus subscription — so the match is rejected.", unhl: ["sf-thr"], text: {"sf-r2":"verifier: head noun mismatch (order ≠ subscription) → reject, generate instead","sf-phase":"recall from the threshold, precision from the verifier"}, fill: {"sf-r2":"#2f6b3f"} },
+  { say: "Fix three, and the cheapest: scope. If order questions and subscription questions live in different namespaces — by intent, product or document set — they can never be compared in the first place.", text: {"sf-q1t":"ns: t42 | orders | gpt-4.1-mini | v7","sf-q2t":"ns: t42 | billing | gpt-4.1-mini | v7","sf-r2":"different namespace → not even a candidate → no comparison, no risk"}, fill: {"sf-q2t":"#2f6b3f"} },
+  { say: "With verification in place you can deliberately <em>lower</em> the threshold again: the index casts a wide net, the verifier keeps precision. More hits and fewer false ones — the same split of labour as retrieval and reranking in a RAG pipeline.", text: {"sf-t2":"0.90 + verifier → hit rate 41%, false hits near zero","sf-v":"threshold alone is a blunt dial. threshold + verifier + namespace is a design."}, fill: {"sf-t2":"#2f6b3f","sf-v":"#2f6b3f","sf-verd":"#e3eedc"} },
 ]);
 </script>
 </body>

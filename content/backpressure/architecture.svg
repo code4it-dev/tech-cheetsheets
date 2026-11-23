@@ -1,0 +1,54 @@
+<svg viewBox="0 0 800 340" role="img" aria-label="A producer, a bounded queue and a consumer, with the backpressure signal travelling upstream and three possible responses">
+  <defs>
+    <marker id="bp-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+    <marker id="bp-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#c53b3b"/></marker>
+  </defs>
+  <text x="400" y="22" font-size="12.5" text-anchor="middle" fill="#5f6f66">work flows one way; the "I am full" signal has to flow the other</text>
+
+  <rect x="20" y="52" width="170" height="78" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+  <text x="105" y="78" font-size="12.5" text-anchor="middle" fill="#23362e" font-weight="700">producer</text>
+  <text x="105" y="100" font-size="11" text-anchor="middle" fill="#5f6f66">1,000 / s</text>
+  <text x="105" y="118" font-size="11" text-anchor="middle" fill="#5f6f66">wants to send</text>
+  <line x1="194" y1="80" x2="222" y2="80" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#bp-arr)"/>
+
+  <rect x="226" y="52" width="330" height="78" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="2"/>
+  <text x="391" y="74" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">bounded queue &mdash; capacity 10</text>
+  <g fill="#2f6b3f">
+    <rect x="244" y="86" width="22" height="28" rx="3"/><rect x="272" y="86" width="22" height="28" rx="3"/>
+    <rect x="300" y="86" width="22" height="28" rx="3"/><rect x="328" y="86" width="22" height="28" rx="3"/>
+    <rect x="356" y="86" width="22" height="28" rx="3"/><rect x="384" y="86" width="22" height="28" rx="3"/>
+    <rect x="412" y="86" width="22" height="28" rx="3"/><rect x="440" y="86" width="22" height="28" rx="3"/>
+    <rect x="468" y="86" width="22" height="28" rx="3"/><rect x="496" y="86" width="22" height="28" rx="3"/>
+  </g>
+  <text x="524" y="105" font-size="11" fill="#c53b3b" font-weight="700">FULL</text>
+  <line x1="560" y1="80" x2="588" y2="80" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#bp-arr)"/>
+
+  <rect x="592" y="52" width="188" height="78" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+  <text x="686" y="78" font-size="12.5" text-anchor="middle" fill="#23362e" font-weight="700">consumer</text>
+  <text x="686" y="100" font-size="11" text-anchor="middle" fill="#5f6f66">800 / s</text>
+  <text x="686" y="118" font-size="11" text-anchor="middle" fill="#2f6b3f">the real capacity</text>
+
+  <path d="M592 142 L105 142 L105 170" fill="none" stroke="#c53b3b" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#bp-red)"/>
+  <text x="350" y="158" font-size="11" text-anchor="middle" fill="#c53b3b" font-weight="600">backpressure: "stop, I am full"</text>
+
+  <rect x="20" y="176" width="240" height="96" rx="8" fill="#e3eedc" stroke="#2f6b3f" stroke-width="1.5"/>
+  <text x="140" y="198" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">1 · slow down</text>
+  <text x="140" y="220" font-size="10.5" text-anchor="middle" fill="#5f6f66">block the producer, or ask</text>
+  <text x="140" y="236" font-size="10.5" text-anchor="middle" fill="#5f6f66">for less work upstream</text>
+  <text x="140" y="258" font-size="10.5" text-anchor="middle" fill="#2f6b3f">correct when the producer can wait</text>
+
+  <rect x="280" y="176" width="240" height="96" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="1.5"/>
+  <text x="400" y="198" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">2 · drop</text>
+  <text x="400" y="220" font-size="10.5" text-anchor="middle" fill="#5f6f66">refuse the work, fast,</text>
+  <text x="400" y="236" font-size="10.5" text-anchor="middle" fill="#5f6f66">and say so clearly</text>
+  <text x="400" y="258" font-size="10.5" text-anchor="middle" fill="#5f6f66">this is load shedding</text>
+
+  <rect x="540" y="176" width="240" height="96" rx="8" fill="#f9e3df" stroke="#e6b3ad" stroke-width="1.5"/>
+  <text x="660" y="198" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">3 · buffer forever</text>
+  <text x="660" y="220" font-size="10.5" text-anchor="middle" fill="#5f6f66">unbounded queue: latency grows</text>
+  <text x="660" y="236" font-size="10.5" text-anchor="middle" fill="#5f6f66">without limit, then OOM</text>
+  <text x="660" y="258" font-size="10.5" text-anchor="middle" fill="#c53b3b" font-weight="600">the default, and always wrong</text>
+
+  <text class="hand" x="20" y="302" font-size="16" fill="#c53b3b">an unbounded queue is not resilience &mdash; it is a delayed, louder failure</text>
+  <text x="20" y="326" font-size="11" fill="#5f6f66">Little's Law decides the rest: with queue depth L and service rate &lambda;, the wait is W = L / &lambda;. Bound L and you have bounded your latency.</text>
+</svg>

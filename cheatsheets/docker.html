@@ -99,7 +99,6 @@
 
     <section id="how-it-works">
       <h2>How it works</h2>
-
       <div class="anim" id="anim-run">
         <h3>What happens on <code>docker run -p 8080:80 nginx</code></h3>
         <div class="stage">
@@ -140,7 +139,6 @@
         <div class="controls"></div>
         <div class="narration"></div>
       </div>
-
       <div class="anim" id="anim-build">
         <h3>How layers and the build cache work</h3>
         <div class="stage">
@@ -177,128 +175,143 @@
       <h2>Key concepts</h2>
       <div class="terms">
         <div class="term"><b>image</b><span>A read-only template: a stack of filesystem layers plus metadata (start command, env vars, exposed ports). Built once, run anywhere.</span><template class="term-detail" data-see="layer, Dockerfile, registry, tag / digest, container">
-<p>An image is a list of layer tarballs plus a JSON config (entrypoint, env vars, working dir, exposed ports, user). It is immutable and identified by a content hash (digest).</p>
-<h4>Typical base image sizes</h4>
-<table><tr><th>Base</th><th>Size</th><th>Notes</th></tr>
-<tr><td><code>alpine</code></td><td>~8 MB</td><td>musl libc: some Python wheels must compile</td></tr>
-<tr><td><code>python:3.13-slim</code></td><td>~45 MB compressed</td><td>Debian minimal, good default</td></tr>
-<tr><td><code>python:3.13</code></td><td>~400 MB</td><td>full toolchain, use as build stage</td></tr>
-<tr><td>distroless / chiseled</td><td>~20–50 MB</td><td>no shell, smallest attack surface</td></tr></table>
-<p>One image can target several CPU architectures (<code>linux/amd64</code>, <code>linux/arm64</code>) under the same tag: a multi-platform image.</p>
+        <p>An image is a list of layer tarballs plus a JSON config (entrypoint, env vars, working dir, exposed ports, user). It is immutable and identified by a content hash (digest).</p>
+        <h4>Typical base image sizes</h4>
+        <table><tr><th>Base</th><th>Size</th><th>Notes</th></tr>
+        <tr><td><code>alpine</code></td><td>~8 MB</td><td>musl libc: some Python wheels must compile</td></tr>
+        <tr><td><code>python:3.13-slim</code></td><td>~45 MB compressed</td><td>Debian minimal, good default</td></tr>
+        <tr><td><code>python:3.13</code></td><td>~400 MB</td><td>full toolchain, use as build stage</td></tr>
+        <tr><td>distroless / chiseled</td><td>~20–50 MB</td><td>no shell, smallest attack surface</td></tr></table>
+        <p>One image can target several CPU architectures (<code>linux/amd64</code>, <code>linux/arm64</code>) under the same tag: a multi-platform image.</p>
         </template></div>
         <div class="term"><b>container</b><span>A running (or stopped) instance of an image: an isolated process with its own writable layer. Many containers can run from one image.</span><template class="term-detail" data-see="image, namespaces / cgroups, volume, port mapping">
-<p>A container = image layers (read-only) + its own writable layer + runtime settings (env, ports, mounts, limits) + an isolated process.</p>
-<h4>Lifecycle</h4>
-<p><code>created</code> → <code>running</code> → <code>paused</code> / <code>exited</code> → removed. A stopped container still exists (and keeps its writable layer) until <code>docker rm</code>.</p>
-<ul><li>PID 1 inside the container is your app; when it exits, the container stops.</li>
-<li>Restart policies: <code>--restart unless-stopped</code> keeps services up across crashes and host reboots.</li>
-<li>Limit resources: <code>--memory 512m --cpus 1.5</code>.</li></ul>
+        <p>A container = image layers (read-only) + its own writable layer + runtime settings (env, ports, mounts, limits) + an isolated process.</p>
+        <h4>Lifecycle</h4>
+        <p><code>created</code> → <code>running</code> → <code>paused</code> / <code>exited</code> → removed. A stopped container still exists (and keeps its writable layer) until <code>docker rm</code>.</p>
+        <ul>
+        <li>PID 1 inside the container is your app; when it exits, the container stops.</li>
+        <li>Restart policies: <code>--restart unless-stopped</code> keeps services up across crashes and host reboots.</li>
+        <li>Limit resources: <code>--memory 512m --cpus 1.5</code>.</li>
+        </ul>
         </template></div>
         <div class="term"><b>layer</b><span>The filesystem changes made by one Dockerfile instruction. Layers are content-addressed, cached and shared between images.</span><template class="term-detail" data-see="image, build cache, Dockerfile">
-<p>Each filesystem-changing instruction (<code>RUN</code>, <code>COPY</code>, <code>ADD</code>) creates a layer containing only the files it added, changed or deleted. Layers are stacked with a union filesystem (overlayfs).</p>
-<ul><li>Deleting a file in a later layer <b>hides</b> it but doesn't shrink the image: the bytes are still in the earlier layer. Clean up in the same <code>RUN</code> that created the files.</li>
-<li>Layers are shared: ten images on <code>python:3.13-slim</code> store the base once.</li>
-<li>Inspect with <code>docker history myapp:1.0</code> or the <code>dive</code> tool.</li></ul>
+        <p>Each filesystem-changing instruction (<code>RUN</code>, <code>COPY</code>, <code>ADD</code>) creates a layer containing only the files it added, changed or deleted. Layers are stacked with a union filesystem (overlayfs).</p>
+        <ul>
+        <li>Deleting a file in a later layer <b>hides</b> it but doesn't shrink the image: the bytes are still in the earlier layer. Clean up in the same <code>RUN</code> that created the files.</li>
+        <li>Layers are shared: ten images on <code>python:3.13-slim</code> store the base once.</li>
+        <li>Inspect with <code>docker history myapp:1.0</code> or the <code>dive</code> tool.</li>
+        </ul>
         </template></div>
         <div class="term"><b>Dockerfile</b><span>A text file of instructions (<code>FROM</code>, <code>COPY</code>, <code>RUN</code>, <code>CMD</code>…) that describes how to build an image.</span><template class="term-detail" data-see="layer, build cache, multi-stage build, .dockerignore">
-<table><tr><th>Instruction</th><th>Does</th></tr>
-<tr><td><code>FROM</code></td><td>base image (one per stage)</td></tr>
-<tr><td><code>WORKDIR</code></td><td>set and create the working directory</td></tr>
-<tr><td><code>COPY</code> / <code>ADD</code></td><td>add files from the build context (prefer COPY)</td></tr>
-<tr><td><code>RUN</code></td><td>run a command at build time, creating a layer</td></tr>
-<tr><td><code>ENV</code> / <code>ARG</code></td><td>runtime env var / build-time variable</td></tr>
-<tr><td><code>EXPOSE</code></td><td>document the port (doesn't publish it)</td></tr>
-<tr><td><code>USER</code></td><td>run as this user from here on</td></tr>
-<tr><td><code>CMD</code> / <code>ENTRYPOINT</code></td><td>default command / fixed executable</td></tr>
-<tr><td><code>HEALTHCHECK</code></td><td>command Docker runs to report health</td></tr></table>
-<p>Order instructions from least to most frequently changing so the build cache helps you.</p>
+        <table><tr><th>Instruction</th><th>Does</th></tr>
+        <tr><td><code>FROM</code></td><td>base image (one per stage)</td></tr>
+        <tr><td><code>WORKDIR</code></td><td>set and create the working directory</td></tr>
+        <tr><td><code>COPY</code> / <code>ADD</code></td><td>add files from the build context (prefer COPY)</td></tr>
+        <tr><td><code>RUN</code></td><td>run a command at build time, creating a layer</td></tr>
+        <tr><td><code>ENV</code> / <code>ARG</code></td><td>runtime env var / build-time variable</td></tr>
+        <tr><td><code>EXPOSE</code></td><td>document the port (doesn't publish it)</td></tr>
+        <tr><td><code>USER</code></td><td>run as this user from here on</td></tr>
+        <tr><td><code>CMD</code> / <code>ENTRYPOINT</code></td><td>default command / fixed executable</td></tr>
+        <tr><td><code>HEALTHCHECK</code></td><td>command Docker runs to report health</td></tr></table>
+        <p>Order instructions from least to most frequently changing so the build cache helps you.</p>
         </template></div>
         <div class="term"><b>build cache</b><span>Docker reuses a layer when its instruction and inputs are unchanged. Once one step changes, every later step is rebuilt.</span><template class="term-detail" data-see="layer, Dockerfile, .dockerignore">
-<p>For each instruction, BuildKit checks whether it already built the same instruction on the same parent layer with the same inputs (for <code>COPY</code>, a checksum of the copied files). If yes, it reuses the layer.</p>
-<ul><li>The first cache miss invalidates <b>every later step</b>.</li>
-<li><code>RUN apt-get update</code> is cached too, so combine it with <code>install</code> in one <code>RUN</code>.</li>
-<li>Cache mounts keep package caches between builds: <code>RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.txt</code>.</li>
-<li>CI runners start empty; export the cache to a registry (<code>--cache-to type=registry</code>) or use the GitHub Actions cache.</li></ul>
-<p>Force a clean build with <code>--no-cache</code>.</p>
+        <p>For each instruction, BuildKit checks whether it already built the same instruction on the same parent layer with the same inputs (for <code>COPY</code>, a checksum of the copied files). If yes, it reuses the layer.</p>
+        <ul>
+        <li>The first cache miss invalidates <b>every later step</b>.</li>
+        <li><code>RUN apt-get update</code> is cached too, so combine it with <code>install</code> in one <code>RUN</code>.</li>
+        <li>Cache mounts keep package caches between builds: <code>RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.txt</code>.</li>
+        <li>CI runners start empty; export the cache to a registry (<code>--cache-to type=registry</code>) or use the GitHub Actions cache.</li>
+        </ul>
+        <p>Force a clean build with <code>--no-cache</code>.</p>
         </template></div>
         <div class="term"><b>registry</b><span>A server that stores and distributes images: Docker Hub, GitHub Container Registry, ECR, ACR, or a private one.</span><template class="term-detail" data-see="image, tag / digest">
-<p>A registry stores images in <b>repositories</b> (<code>ghcr.io/acme/web</code>), each with many tags. Pull and push use the OCI distribution API; only missing layers are transferred.</p>
-<table><tr><th>Registry</th><th>Notes</th></tr>
-<tr><td>Docker Hub</td><td>default for unqualified names; pull rate limits for anonymous users</td></tr>
-<tr><td>GitHub Container Registry</td><td><code>ghcr.io</code>, permissions tied to the repo</td></tr>
-<tr><td>Azure ACR / AWS ECR / Google Artifact Registry</td><td>close to your cloud workloads, private networking</td></tr>
-<tr><td>Harbor</td><td>self-hosted, with scanning and replication</td></tr></table>
-<p>Scan images for known vulnerabilities (Docker Scout, Trivy) as part of CI.</p>
+        <p>A registry stores images in <b>repositories</b> (<code>ghcr.io/acme/web</code>), each with many tags. Pull and push use the OCI distribution API; only missing layers are transferred.</p>
+        <table><tr><th>Registry</th><th>Notes</th></tr>
+        <tr><td>Docker Hub</td><td>default for unqualified names; pull rate limits for anonymous users</td></tr>
+        <tr><td>GitHub Container Registry</td><td><code>ghcr.io</code>, permissions tied to the repo</td></tr>
+        <tr><td>Azure ACR / AWS ECR / Google Artifact Registry</td><td>close to your cloud workloads, private networking</td></tr>
+        <tr><td>Harbor</td><td>self-hosted, with scanning and replication</td></tr></table>
+        <p>Scan images for known vulnerabilities (Docker Scout, Trivy) as part of CI.</p>
         </template></div>
         <div class="term"><b>tag / digest</b><span><code>nginx:1.27</code> is a movable tag; <code>nginx@sha256:…</code> is an immutable digest. Pin digests (or exact tags) in production.</span><template class="term-detail" data-see="image, registry">
-<p><code>nginx:1.27</code> is a <b>tag</b>: a human-friendly pointer that can be moved to a new image at any time. <code>nginx@sha256:3b2f…</code> is a <b>digest</b>: the hash of the image manifest, which can never change.</p>
-<ul><li><code>latest</code> is just the default tag name, not "the newest".</li>
-<li>Tag your builds with something unique: version (<code>1.4.2</code>) and/or git SHA (<code>sha-9f3c2a1</code>).</li>
-<li>Pin base images by digest in production Dockerfiles for fully reproducible builds; let a bot (Dependabot, Renovate) update the pin.</li></ul>
+        <p><code>nginx:1.27</code> is a <b>tag</b>: a human-friendly pointer that can be moved to a new image at any time. <code>nginx@sha256:3b2f…</code> is a <b>digest</b>: the hash of the image manifest, which can never change.</p>
+        <ul>
+        <li><code>latest</code> is just the default tag name, not "the newest".</li>
+        <li>Tag your builds with something unique: version (<code>1.4.2</code>) and/or git SHA (<code>sha-9f3c2a1</code>).</li>
+        <li>Pin base images by digest in production Dockerfiles for fully reproducible builds; let a bot (Dependabot, Renovate) update the pin.</li>
+        </ul>
         </template></div>
         <div class="term"><b>volume</b><span>Storage managed by Docker that lives outside the container's writable layer, so data survives when the container is removed.</span><template class="term-detail" data-see="bind mount, container">
-<pre class="language-bash"><code class="language-bash">docker volume create pgdata
-docker run -d -v pgdata:/var/lib/postgresql/data postgres:17</code></pre>
-<p>A named volume lives in Docker's storage area (<code>/var/lib/docker/volumes</code>), independent of any container. Remove and recreate the container and the data is still there.</p>
-<ul><li>Faster than bind mounts on Docker Desktop (stays inside the Linux VM).</li>
-<li>Back up by running a throwaway container: <code>docker run --rm -v pgdata:/d -v .:/b alpine tar czf /b/pg.tgz -C /d .</code>.</li>
-<li><code>docker compose down -v</code> deletes the project's volumes. Careful.</li></ul>
+        <pre class="language-bash"><code class="language-bash">docker volume create pgdata
+docker run -d -v pgdata:/var/lib/postgresql/data postgres:17</code></pre><p>A named volume lives in Docker's storage area (<code>/var/lib/docker/volumes</code>), independent of any container. Remove and recreate the container and the data is still there.</p>
+        <ul>
+        <li>Faster than bind mounts on Docker Desktop (stays inside the Linux VM).</li>
+        <li>Back up by running a throwaway container: <code>docker run --rm -v pgdata:/d -v .:/b alpine tar czf /b/pg.tgz -C /d .</code>.</li>
+        <li><code>docker compose down -v</code> deletes the project's volumes. Careful.</li>
+        </ul>
         </template></div>
         <div class="term"><b>bind mount</b><span>Maps a host folder into a container (<code>-v ./src:/app</code>). Handy for live code reloading in development.</span><template class="term-detail" data-see="volume, container">
-<p><code>-v ./src:/app/src</code> (or <code>--mount type=bind,…</code>) maps a host path into the container. Changes appear on both sides instantly, which is ideal for hot-reloading code in development.</p>
-<ul><li>File ownership follows host UIDs, which can cause permission errors with non-root containers.</li>
-<li>On Windows and macOS, file I/O crosses the VM boundary and can be slow for large trees (<code>node_modules</code>). Keep the repo inside WSL 2 on Windows.</li>
-<li>Add <code>:ro</code> to mount read-only.</li></ul>
-<p>Use volumes for data, bind mounts for source code and config you edit.</p>
+        <p><code>-v ./src:/app/src</code> (or <code>--mount type=bind,…</code>) maps a host path into the container. Changes appear on both sides instantly, which is ideal for hot-reloading code in development.</p>
+        <ul>
+        <li>File ownership follows host UIDs, which can cause permission errors with non-root containers.</li>
+        <li>On Windows and macOS, file I/O crosses the VM boundary and can be slow for large trees (<code>node_modules</code>). Keep the repo inside WSL 2 on Windows.</li>
+        <li>Add <code>:ro</code> to mount read-only.</li>
+        </ul>
+        <p>Use volumes for data, bind mounts for source code and config you edit.</p>
         </template></div>
         <div class="term"><b>network</b><span>Virtual network for containers. On a user-defined bridge network, containers reach each other by name (<code>http://api:8000</code>).</span><template class="term-detail" data-see="port mapping, Docker Compose, container">
-<table><tr><th>Driver</th><th>What it does</th></tr>
-<tr><td><code>bridge</code> (default)</td><td>private network on the host; NAT to the outside</td></tr>
-<tr><td>user-defined bridge</td><td>same, plus DNS: containers reach each other by name</td></tr>
-<tr><td><code>host</code></td><td>container shares the host network stack (Linux only)</td></tr>
-<tr><td><code>none</code></td><td>no networking</td></tr></table>
-<p>Compose creates a user-defined network per project, so <code>api</code> can call <code>http://cache:6379</code>. On the default bridge network, name resolution doesn't work: always create your own network.</p>
+        <table><tr><th>Driver</th><th>What it does</th></tr>
+        <tr><td><code>bridge</code> (default)</td><td>private network on the host; NAT to the outside</td></tr>
+        <tr><td>user-defined bridge</td><td>same, plus DNS: containers reach each other by name</td></tr>
+        <tr><td><code>host</code></td><td>container shares the host network stack (Linux only)</td></tr>
+        <tr><td><code>none</code></td><td>no networking</td></tr></table>
+        <p>Compose creates a user-defined network per project, so <code>api</code> can call <code>http://cache:6379</code>. On the default bridge network, name resolution doesn't work: always create your own network.</p>
         </template></div>
         <div class="term"><b>port mapping</b><span><code>-p 8080:80</code> forwards host port 8080 to port 80 inside the container. Without it the service is unreachable from outside.</span><template class="term-detail" data-see="network, container">
-<p><code>-p 8080:80</code> = <b>host</b> port 8080 → <b>container</b> port 80. Docker adds NAT rules on the host so traffic reaching 8080 is forwarded to the container's private IP.</p>
-<div class="figure">
-  <svg viewBox="0 0 560 190" role="img" aria-label="Diagram of host port 8080 forwarded through NAT to container port 80 on the docker bridge network">
-    <defs><marker id="pm-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#c53b3b"/></marker></defs>
-    <rect x="10" y="60" width="100" height="50" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
-    <text x="60" y="82" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">browser</text>
-    <text x="60" y="99" font-size="10.5" text-anchor="middle" fill="#5f6f66">localhost:8080</text>
-    <rect x="140" y="15" width="410" height="160" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
-    <text x="155" y="34" font-size="12" font-weight="600" fill="#23362e">host · 192.168.1.20</text>
-    <rect x="160" y="65" width="100" height="40" rx="20" fill="#c53b3b"/>
-    <text x="210" y="90" font-size="12" text-anchor="middle" fill="#fbfcf8" font-family="Fira Code, monospace">:8080</text>
-    <rect x="290" y="62" width="90" height="46" rx="6" fill="#fbf3c4" stroke="#d9c25a"/>
-    <text x="335" y="82" font-size="11" text-anchor="middle" fill="#23362e">NAT rule</text>
-    <text x="335" y="98" font-size="10.5" text-anchor="middle" fill="#5f6f66">iptables/nft</text>
-    <rect x="400" y="45" width="135" height="110" rx="6" fill="#e3eedc" stroke="#2f6b3f"/>
-    <text x="467" y="64" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">container</text>
-    <text x="467" y="80" font-size="10.5" text-anchor="middle" fill="#5f6f66">172.18.0.2 (bridge)</text>
-    <rect x="425" y="92" width="85" height="30" rx="15" fill="#2f6b3f"/>
-    <text x="467" y="112" font-size="12" text-anchor="middle" fill="#fbfcf8" font-family="Fira Code, monospace">nginx :80</text>
-    <g stroke="#c53b3b" stroke-width="2" marker-end="url(#pm-arr)" fill="none">
-      <line x1="110" y1="85" x2="158" y2="85"/><line x1="260" y1="85" x2="288" y2="85"/><line x1="380" y1="95" x2="423" y2="105"/>
-    </g>
-    <text x="345" y="148" font-size="13" text-anchor="middle" fill="#c53b3b" font-family="Kalam, cursive">-p 8080:80 = HOST:CONTAINER</text>
-  </svg>
-</div>
-<ul><li><code>-p 127.0.0.1:8080:80</code> binds only to localhost; plain <code>-p 8080:80</code> listens on <b>all</b> interfaces, so it's reachable from your network.</li>
-<li><code>EXPOSE</code> in a Dockerfile only documents a port; <code>-P</code> publishes all exposed ports to random host ports.</li>
-<li>Containers on the same network don't need port mapping to talk to each other.</li></ul>
+        <p><code>-p 8080:80</code> = <b>host</b> port 8080 → <b>container</b> port 80. Docker adds NAT rules on the host so traffic reaching 8080 is forwarded to the container's private IP.</p>
+        <div class="figure">
+          <svg viewBox="0 0 560 190" role="img" aria-label="Diagram of host port 8080 forwarded through NAT to container port 80 on the docker bridge network">
+            <defs><marker id="pm-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#c53b3b"/></marker></defs>
+            <rect x="10" y="60" width="100" height="50" rx="6" fill="#fbfcf8" stroke="#a9b5a6"/>
+            <text x="60" y="82" font-size="12" text-anchor="middle" fill="#23362e" font-weight="600">browser</text>
+            <text x="60" y="99" font-size="10.5" text-anchor="middle" fill="#5f6f66">localhost:8080</text>
+            <rect x="140" y="15" width="410" height="160" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="155" y="34" font-size="12" font-weight="600" fill="#23362e">host · 192.168.1.20</text>
+            <rect x="160" y="65" width="100" height="40" rx="20" fill="#c53b3b"/>
+            <text x="210" y="90" font-size="12" text-anchor="middle" fill="#fbfcf8" font-family="Fira Code, monospace">:8080</text>
+            <rect x="290" y="62" width="90" height="46" rx="6" fill="#fbf3c4" stroke="#d9c25a"/>
+            <text x="335" y="82" font-size="11" text-anchor="middle" fill="#23362e">NAT rule</text>
+            <text x="335" y="98" font-size="10.5" text-anchor="middle" fill="#5f6f66">iptables/nft</text>
+            <rect x="400" y="45" width="135" height="110" rx="6" fill="#e3eedc" stroke="#2f6b3f"/>
+            <text x="467" y="64" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="600">container</text>
+            <text x="467" y="80" font-size="10.5" text-anchor="middle" fill="#5f6f66">172.18.0.2 (bridge)</text>
+            <rect x="425" y="92" width="85" height="30" rx="15" fill="#2f6b3f"/>
+            <text x="467" y="112" font-size="12" text-anchor="middle" fill="#fbfcf8" font-family="Fira Code, monospace">nginx :80</text>
+            <g stroke="#c53b3b" stroke-width="2" marker-end="url(#pm-arr)" fill="none">
+              <line x1="110" y1="85" x2="158" y2="85"/><line x1="260" y1="85" x2="288" y2="85"/><line x1="380" y1="95" x2="423" y2="105"/>
+            </g>
+            <text x="345" y="148" font-size="13" text-anchor="middle" fill="#c53b3b" font-family="Kalam, cursive">-p 8080:80 = HOST:CONTAINER</text>
+          </svg>
+        </div>
+        <ul>
+        <li><code>-p 127.0.0.1:8080:80</code> binds only to localhost; plain <code>-p 8080:80</code> listens on <b>all</b> interfaces, so it's reachable from your network.</li>
+        <li><code>EXPOSE</code> in a Dockerfile only documents a port; <code>-P</code> publishes all exposed ports to random host ports.</li>
+        <li>Containers on the same network don't need port mapping to talk to each other.</li>
+        </ul>
         </template></div>
         <div class="term"><b>Docker Compose</b><span>Defines a multi-container app (services, networks, volumes) in <code>compose.yaml</code> and starts it with one command.</span><template class="term-detail" data-see="network, volume, container">
-<p>One <code>compose.yaml</code> describes services (image or build, ports, env, volumes, dependencies), networks and volumes. <code>docker compose up</code> creates them all, in dependency order, on a private network.</p>
-<ul><li><code>depends_on</code> with <code>condition: service_healthy</code> waits for a healthcheck, not just a started container.</li>
-<li><code>.env</code> files and <code>${VAR}</code> substitution keep secrets and per-machine settings out of the file.</li>
-<li><b>Profiles</b> enable optional services (<code>docker compose --profile debug up</code>).</li>
-<li><code>docker compose watch</code> syncs code changes into containers as you edit.</li></ul>
-<p>Great for development, CI and small single-host production. For many hosts, the same services move to Kubernetes manifests or Helm charts.</p>
+        <p>One <code>compose.yaml</code> describes services (image or build, ports, env, volumes, dependencies), networks and volumes. <code>docker compose up</code> creates them all, in dependency order, on a private network.</p>
+        <ul>
+        <li><code>depends_on</code> with <code>condition: service_healthy</code> waits for a healthcheck, not just a started container.</li>
+        <li><code>.env</code> files and <code>${VAR}</code> substitution keep secrets and per-machine settings out of the file.</li>
+        <li><b>Profiles</b> enable optional services (<code>docker compose --profile debug up</code>).</li>
+        <li><code>docker compose watch</code> syncs code changes into containers as you edit.</li>
+        </ul>
+        <p>Great for development, CI and small single-host production. For many hosts, the same services move to Kubernetes manifests or Helm charts.</p>
         </template></div>
         <div class="term"><b>multi-stage build</b><span>Several <code>FROM</code> stages in one Dockerfile: compile in a big image, copy only the result into a small final image.</span><template class="term-detail" data-see="Dockerfile, image, layer">
-<pre class="language-docker line-numbers"><code class="language-docker">FROM python:3.13 AS build
+        <pre class="language-docker line-numbers"><code class="language-docker">FROM python:3.13 AS build
 WORKDIR /src
 COPY requirements.txt .
 RUN pip wheel --wheel-dir /wheels -r requirements.txt
@@ -308,49 +321,51 @@ COPY --from=build /wheels /wheels
 RUN pip install --no-cache-dir /wheels/* &amp;&amp; rm -rf /wheels
 COPY . /app
 USER 1000
-CMD ["python", "/app/app.py"]</code></pre>
-<p>Compilers, headers and caches stay in the <code>build</code> stage; only the result is copied into the final stage. For Go or .NET apps the final image can be tens of MB instead of a GB.</p>
-<p>Build a specific stage with <code>docker build --target build .</code> (e.g. for running tests).</p>
+CMD ["python", "/app/app.py"]</code></pre><p>Compilers, headers and caches stay in the <code>build</code> stage; only the result is copied into the final stage. For Go or .NET apps the final image can be tens of MB instead of a GB.</p>
+        <p>Build a specific stage with <code>docker build --target build .</code> (e.g. for running tests).</p>
         </template></div>
         <div class="term"><b>.dockerignore</b><span>Lists files not sent to the build (<code>.git</code>, <code>node_modules</code>, <code>.env</code>). Faster builds and no leaked secrets.</span><template class="term-detail" data-see="build cache, Dockerfile">
-<pre class="language-none line-numbers"><code class="language-none">.git
+        <pre class="language-none line-numbers"><code class="language-none">.git
 .venv
 __pycache__/
 node_modules/
 .env
 *.log
-dist/</code></pre>
-<p>Before building, Docker sends the <b>build context</b> (the folder) to the builder. Without a .dockerignore that includes <code>.git</code> history, virtual envs and secrets.</p>
-<ul><li>Builds start faster (smaller context).</li>
-<li><code>COPY . .</code> doesn't break the cache when irrelevant files change.</li>
-<li>Secrets like <code>.env</code> never end up in an image layer.</li></ul>
+dist/</code></pre><p>Before building, Docker sends the <b>build context</b> (the folder) to the builder. Without a .dockerignore that includes <code>.git</code> history, virtual envs and secrets.</p>
+        <ul>
+        <li>Builds start faster (smaller context).</li>
+        <li><code>COPY . .</code> doesn't break the cache when irrelevant files change.</li>
+        <li>Secrets like <code>.env</code> never end up in an image layer.</li>
+        </ul>
         </template></div>
         <div class="term"><b>dockerd</b><span>The Docker daemon. It exposes the API that the CLI and Compose call, and manages images, networks and volumes.</span><template class="term-detail" data-see="containerd / runc, image, network, volume">
-<p>The Docker daemon runs as a background service (root by default) and exposes a REST API on <code>/var/run/docker.sock</code> (Linux) or a named pipe (Windows).</p>
-<ul><li>Manages images, containers, networks, volumes and builds (via BuildKit).</li>
-<li>Delegates running containers to containerd.</li>
-<li><b>Access to the socket = root on the host.</b> Never mount <code>docker.sock</code> into untrusted containers or expose the API over TCP without TLS.</li></ul>
-<p><b>Rootless mode</b> runs the daemon as a normal user for better security; Podman avoids a daemon entirely.</p>
+        <p>The Docker daemon runs as a background service (root by default) and exposes a REST API on <code>/var/run/docker.sock</code> (Linux) or a named pipe (Windows).</p>
+        <ul>
+        <li>Manages images, containers, networks, volumes and builds (via BuildKit).</li>
+        <li>Delegates running containers to containerd.</li>
+        <li><b>Access to the socket = root on the host.</b> Never mount <code>docker.sock</code> into untrusted containers or expose the API over TCP without TLS.</li>
+        </ul>
+        <p><b>Rootless mode</b> runs the daemon as a normal user for better security; Podman avoids a daemon entirely.</p>
         </template></div>
         <div class="term"><b>containerd / runc</b><span>The lower-level runtimes Docker uses: containerd manages container lifecycles, runc creates the process following the OCI spec.</span><template class="term-detail" data-see="dockerd, namespaces / cgroups">
-<p>The container stack in layers:</p>
-<table><tr><th>Layer</th><th>Role</th></tr>
-<tr><td>docker CLI / Compose</td><td>user interface</td></tr>
-<tr><td>dockerd</td><td>high-level API: builds, networks, volumes</td></tr>
-<tr><td>containerd</td><td>image pulling, storage, container lifecycle (CNCF project)</td></tr>
-<tr><td>runc</td><td>low-level OCI runtime: sets up namespaces and cgroups, starts the process, exits</td></tr></table>
-<p>Kubernetes talks to containerd directly through the CRI, skipping dockerd. That's why images built with Docker run unchanged on Kubernetes: they're standard OCI images. Alternative low-level runtimes: crun (faster), gVisor and Kata (stronger isolation).</p>
+        <p>The container stack in layers:</p>
+        <table><tr><th>Layer</th><th>Role</th></tr>
+        <tr><td>docker CLI / Compose</td><td>user interface</td></tr>
+        <tr><td>dockerd</td><td>high-level API: builds, networks, volumes</td></tr>
+        <tr><td>containerd</td><td>image pulling, storage, container lifecycle (CNCF project)</td></tr>
+        <tr><td>runc</td><td>low-level OCI runtime: sets up namespaces and cgroups, starts the process, exits</td></tr></table>
+        <p>Kubernetes talks to containerd directly through the CRI, skipping dockerd. That's why images built with Docker run unchanged on Kubernetes: they're standard OCI images. Alternative low-level runtimes: crun (faster), gVisor and Kata (stronger isolation).</p>
         </template></div>
         <div class="term"><b>namespaces / cgroups</b><span>Linux kernel features behind containers: namespaces isolate what a process can see, cgroups limit what it can use.</span><template class="term-detail" data-see="container, containerd / runc">
-<table><tr><th>Namespace</th><th>Isolates</th></tr>
-<tr><td>pid</td><td>process tree: the app sees itself as PID 1</td></tr>
-<tr><td>net</td><td>network interfaces, IPs, ports</td></tr>
-<tr><td>mnt</td><td>filesystem mounts: the image's root filesystem</td></tr>
-<tr><td>uts</td><td>hostname</td></tr>
-<tr><td>ipc</td><td>shared memory, semaphores</td></tr>
-<tr><td>user</td><td>UID mapping: root inside, unprivileged outside (rootless)</td></tr></table>
-<p><b>cgroups</b> limit and account resources: <code>--memory 512m</code> (exceed it and the kernel OOM-kills the process), <code>--cpus 1.5</code> (throttled above it), PIDs and disk I/O.</p>
-<p>Seeing it yourself: <code>docker run --rm alpine ps</code> lists a single process, and <code>docker stats</code> shows each container's cgroup usage. Kubernetes requests and limits are translated into these same cgroup settings.</p>
+        <table><tr><th>Namespace</th><th>Isolates</th></tr>
+        <tr><td>pid</td><td>process tree: the app sees itself as PID 1</td></tr>
+        <tr><td>net</td><td>network interfaces, IPs, ports</td></tr>
+        <tr><td>mnt</td><td>filesystem mounts: the image's root filesystem</td></tr>
+        <tr><td>uts</td><td>hostname</td></tr>
+        <tr><td>ipc</td><td>shared memory, semaphores</td></tr>
+        <tr><td>user</td><td>UID mapping: root inside, unprivileged outside (rootless)</td></tr></table>
+        <p><b>cgroups</b> limit and account resources: <code>--memory 512m</code> (exceed it and the kernel OOM-kills the process), <code>--cpus 1.5</code> (throttled above it), PIDs and disk I/O.</p>
+        <p>Seeing it yourself: <code>docker run --rm alpine ps</code> lists a single process, and <code>docker stats</code> shows each container's cgroup usage. Kubernetes requests and limits are translated into these same cgroup settings.</p>
         </template></div>
       </div>
     </section>
@@ -559,51 +574,30 @@ print(c.name, c.status)</code></pre><div class="what">Python SDK (<code>pip inst
   </main>
 </div>
 
-<script src="../assets/player.js?v=3658cbc7"></script>
+<script src="../assets/player.js?v=e9bf1ea3"></script>
 <script>
-/* ---------- Animation 1: docker run ---------- */
 createAnimation('anim-run', [
-  { say: 'You type <code>docker run -p 8080:80 nginx</code>. The CLI does almost nothing itself: it sends the request to the Docker daemon over its REST API.',
-    show: ['d-cmd'], hl: ['d-cli'] },
-  { say: '<code>dockerd</code> receives it. First question: is the image <code>nginx:latest</code> already on this machine?',
-    move: { 'd-cmd': [180, 0] }, unhl: ['d-cli'], hl: ['d-daemon'], text: { 'd-daemon-l': 'need nginx:latest' } },
-  { say: 'It checks the local image store. Not found, so it has to download it.',
-    hl: ['d-img'], text: { 'd-img-t': 'nginx? not found' } },
-  { say: 'The daemon pulls the image from Docker Hub. An image is a stack of read-only <b>layers</b>; any layer already present locally (from another image) is skipped.',
-    unhl: ['d-img'], hl: ['d-reg'], show: ['d-layers'], text: { 'd-daemon-l': 'pulling 3 layers' } },
-  { say: 'The layers are unpacked into the local store. The next <code>docker run nginx</code> starts instantly, with no download.',
-    move: { 'd-layers': [0, 80] }, unhl: ['d-reg'], text: { 'd-img-t': 'nginx:latest ✓' } },
-  { say: 'containerd and runc create the container: the image layers, read-only, plus a thin <b>writable layer</b> on top. Files the app changes go there, and vanish when the container is removed.',
-    hide: ['d-layers'], show: ['d-ctr', 'd-ctr-title', 'd-img-l', 'd-rw'], unhl: ['d-daemon'], text: { 'd-daemon-l': 'creating container', 'd-img-t': 'nginx, python, redis' } },
-  { say: 'The kernel isolates it with <b>namespaces</b> (own process tree, network and mounts) and limits it with <b>cgroups</b>. There is no VM and no guest kernel: it\'s a fenced-off process on the host.',
-    show: ['d-ns', 'd-cg'] },
-  { say: 'nginx starts as <b>PID 1</b> inside the container, and Docker forwards host port 8080 to container port 80. The whole thing took well under a second.',
-    show: ['d-proc', 'd-port'], text: { 'd-daemon-l': 'running ✓' } },
-  { say: 'Open <code>http://localhost:8080</code> and nginx answers. <code>docker stop</code> ends the process; <code>docker rm</code> deletes the writable layer, so use volumes for data you want to keep.',
-    show: ['d-note'] },
+  { say: "You type <code>docker run -p 8080:80 nginx</code>. The CLI does almost nothing itself: it sends the request to the Docker daemon over its REST API.", show: ["d-cmd"], hl: ["d-cli"] },
+  { say: "<code>dockerd</code> receives it. First question: is the image <code>nginx:latest</code> already on this machine?", hl: ["d-daemon"], unhl: ["d-cli"], move: {"d-cmd":[180,0]}, text: {"d-daemon-l":"need nginx:latest"} },
+  { say: "It checks the local image store. Not found, so it has to download it.", hl: ["d-img"], text: {"d-img-t":"nginx? not found"} },
+  { say: "The daemon pulls the image from Docker Hub. An image is a stack of read-only <b>layers</b>; any layer already present locally (from another image) is skipped.", show: ["d-layers"], hl: ["d-reg"], unhl: ["d-img"], text: {"d-daemon-l":"pulling 3 layers"} },
+  { say: "The layers are unpacked into the local store. The next <code>docker run nginx</code> starts instantly, with no download.", unhl: ["d-reg"], move: {"d-layers":[0,80]}, text: {"d-img-t":"nginx:latest ✓"} },
+  { say: "containerd and runc create the container: the image layers, read-only, plus a thin <b>writable layer</b> on top. Files the app changes go there, and vanish when the container is removed.", show: ["d-ctr","d-ctr-title","d-img-l","d-rw"], hide: ["d-layers"], unhl: ["d-daemon"], text: {"d-daemon-l":"creating container","d-img-t":"nginx, python, redis"} },
+  { say: "The kernel isolates it with <b>namespaces</b> (own process tree, network and mounts) and limits it with <b>cgroups</b>. There is no VM and no guest kernel: it's a fenced-off process on the host.", show: ["d-ns","d-cg"] },
+  { say: "nginx starts as <b>PID 1</b> inside the container, and Docker forwards host port 8080 to container port 80. The whole thing took well under a second.", show: ["d-proc","d-port"], text: {"d-daemon-l":"running ✓"} },
+  { say: "Open <code>http://localhost:8080</code> and nginx answers. <code>docker stop</code> ends the process; <code>docker rm</code> deletes the writable layer, so use volumes for data you want to keep.", show: ["d-note"] },
 ]);
 
-/* ---------- Animation 2: build cache ---------- */
 createAnimation('anim-build', [
-  { say: '<code>docker build</code> runs the Dockerfile top to bottom. <code>FROM</code> starts from the base image\'s layers.',
-    hl: ['b-l1'], show: ['b-g1'] },
-  { say: '<code>WORKDIR</code> creates a tiny layer that sets the working directory.',
-    unhl: ['b-l1'], hl: ['b-l2'], show: ['b-g2'] },
-  { say: 'Copy <b>only the dependency list</b> first. This layer changes only when <code>requirements.txt</code> changes.',
-    unhl: ['b-l2'], hl: ['b-l3'], show: ['b-g3'] },
-  { say: '<code>pip install</code> is the slow, heavy step: minutes of downloads and a 180 MB layer.',
-    unhl: ['b-l3'], hl: ['b-l4'], show: ['b-g4'] },
-  { say: 'Now copy the source code. It is small but changes on every commit.',
-    unhl: ['b-l4'], hl: ['b-l5'], show: ['b-g5'] },
-  { say: '<code>CMD</code> only records metadata (the start command). The first build is done.',
-    unhl: ['b-l5'], hl: ['b-l6'], show: ['b-g6'] },
-  { say: 'You edit <code>app.py</code> and build again. Docker compares each instruction and its input files with the cache: lines 1–4 are unchanged, so their layers are <b>reused instantly</b>.',
-    unhl: ['b-l6'], show: ['b-edit'], fill: { 'b-l5': '#fbf3c4', 'b-L1': '#e3eedc', 'b-L2': '#e3eedc', 'b-L3': '#e3eedc', 'b-L4': '#e3eedc' },
-    text: { 'b-s1': 'cached ✓', 'b-s2': 'cached ✓', 'b-s3': 'cached ✓', 'b-s4': 'cached ✓ (0 s)' } },
-  { say: '<code>COPY . .</code> sees changed files, so that layer <b>and every layer after it</b> is rebuilt. The rebuild takes seconds, not minutes.',
-    fill: { 'b-L5': '#f9e3df', 'b-L6': '#f9e3df' }, text: { 'b-s5': 'rebuilt', 'b-s6': 'rebuilt' } },
-  { say: 'That is why instruction order matters: put what changes least at the top and what changes most at the bottom.',
-    show: ['b-note'] },
+  { say: "<code>docker build</code> runs the Dockerfile top to bottom. <code>FROM</code> starts from the base image's layers.", show: ["b-g1"], hl: ["b-l1"] },
+  { say: "<code>WORKDIR</code> creates a tiny layer that sets the working directory.", show: ["b-g2"], hl: ["b-l2"], unhl: ["b-l1"] },
+  { say: "Copy <b>only the dependency list</b> first. This layer changes only when <code>requirements.txt</code> changes.", show: ["b-g3"], hl: ["b-l3"], unhl: ["b-l2"] },
+  { say: "<code>pip install</code> is the slow, heavy step: minutes of downloads and a 180 MB layer.", show: ["b-g4"], hl: ["b-l4"], unhl: ["b-l3"] },
+  { say: "Now copy the source code. It is small but changes on every commit.", show: ["b-g5"], hl: ["b-l5"], unhl: ["b-l4"] },
+  { say: "<code>CMD</code> only records metadata (the start command). The first build is done.", show: ["b-g6"], hl: ["b-l6"], unhl: ["b-l5"] },
+  { say: "You edit <code>app.py</code> and build again. Docker compares each instruction and its input files with the cache: lines 1–4 are unchanged, so their layers are <b>reused instantly</b>.", show: ["b-edit"], unhl: ["b-l6"], text: {"b-s1":"cached ✓","b-s2":"cached ✓","b-s3":"cached ✓","b-s4":"cached ✓ (0 s)"}, fill: {"b-l5":"#fbf3c4","b-L1":"#e3eedc","b-L2":"#e3eedc","b-L3":"#e3eedc","b-L4":"#e3eedc"} },
+  { say: "<code>COPY . .</code> sees changed files, so that layer <b>and every layer after it</b> is rebuilt. The rebuild takes seconds, not minutes.", text: {"b-s5":"rebuilt","b-s6":"rebuilt"}, fill: {"b-L5":"#f9e3df","b-L6":"#f9e3df"} },
+  { say: "That is why instruction order matters: put what changes least at the top and what changes most at the bottom.", show: ["b-note"] },
 ]);
 </script>
 </body>

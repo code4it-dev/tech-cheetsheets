@@ -1,0 +1,38 @@
+<svg viewBox="0 0 800 346" role="img" aria-label="A decision path for whether to retry, followed by the backoff schedule and the amplification caused by retrying at several layers">
+  <defs>
+    <marker id="rb-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+    <marker id="rb-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#c53b3b"/></marker>
+  </defs>
+  <text x="400" y="22" font-size="12.5" text-anchor="middle" fill="#5f6f66">three questions before the attempt, one formula for the wait &mdash; and never at more than one layer</text>
+
+  <rect x="20" y="40" width="760" height="82" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+  <text x="400" y="60" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">should I retry at all?</text>
+  <rect x="36" y="72" width="226" height="38" rx="5" fill="#e3eedc" stroke="#2f6b3f"/>
+  <text x="149" y="88" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">1 &middot; is the error transient?</text>
+  <text x="149" y="103" font-size="9.5" text-anchor="middle" fill="#5f6f66">timeout, 503, connection reset</text>
+  <text x="272" y="94" font-size="12" fill="#5f6f66">&rarr;</text>
+  <rect x="288" y="72" width="226" height="38" rx="5" fill="#e3eedc" stroke="#2f6b3f"/>
+  <text x="401" y="88" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">2 &middot; is it safe to repeat?</text>
+  <text x="401" y="103" font-size="9.5" text-anchor="middle" fill="#5f6f66">idempotent, or has an idempotency key</text>
+  <text x="524" y="94" font-size="12" fill="#5f6f66">&rarr;</text>
+  <rect x="540" y="72" width="226" height="38" rx="5" fill="#e3eedc" stroke="#2f6b3f"/>
+  <text x="653" y="88" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">3 &middot; is there budget?</text>
+  <text x="653" y="103" font-size="9.5" text-anchor="middle" fill="#5f6f66">attempts, deadline, retry budget</text>
+
+  <rect x="20" y="136" width="372" height="96" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="2"/>
+  <text x="206" y="158" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">how long to wait</text>
+  <text x="206" y="184" font-size="12.5" text-anchor="middle" fill="#23362e" font-weight="700" font-family="Fira Code, monospace">random(0, min(cap, base &times; 2ⁿ))</text>
+  <text x="206" y="204" font-size="10.5" text-anchor="middle" fill="#5f6f66">exponential, capped, and <em>fully jittered</em></text>
+  <text x="206" y="222" font-size="10.5" text-anchor="middle" fill="#c53b3b">without the random(), backoff only moves the spike</text>
+
+  <rect x="408" y="136" width="372" height="96" rx="8" fill="#f9e3df" stroke="#e6b3ad" stroke-width="2"/>
+  <text x="594" y="158" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">retries multiply, they do not add</text>
+  <text x="424" y="182" font-size="10.5" fill="#5f6f66">client 3&times; &nbsp;&rarr;&nbsp; gateway 3&times; &nbsp;&rarr;&nbsp; service 3&times;</text>
+  <text x="594" y="206" font-size="14" text-anchor="middle" fill="#c53b3b" font-weight="700" font-family="Fira Code, monospace">1 request = 27 calls</text>
+  <text x="594" y="224" font-size="10.5" text-anchor="middle" fill="#5f6f66">retry at one layer only, and budget it</text>
+
+  <rect x="20" y="246" width="760" height="76" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+  <text x="400" y="266" font-size="12" text-anchor="middle" fill="#23362e" font-weight="700">the layers, in order &mdash; each one needs the one above it</text>
+  <text x="36" y="288" font-size="10.5" fill="#5f6f66">timeout &mdash; bound every attempt &nbsp;·&nbsp; retry &mdash; only transient, only idempotent</text>
+  <text x="36" y="308" font-size="10.5" fill="#5f6f66">backoff + jitter &mdash; space them out &nbsp;·&nbsp; budget &mdash; cap the total &nbsp;·&nbsp; circuit breaker &mdash; stop entirely</text>
+</svg>

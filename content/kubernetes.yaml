@@ -1,0 +1,678 @@
+title: Kubernetes
+slug: kubernetes
+tagline: You declare what should run; it keeps a fleet of machines making that true, forever.
+asof: Nov 2026 · release line 1.36
+description: "Kubernetes cheatsheet: architecture, animated deployment and self-healing walk-throughs, key concepts with deep dives, kubectl commands, trade-offs and alternatives."
+aliases: [ Kubernetes, K8s, k8s ]
+keywords:
+  - container orchestration
+  - k8s
+  - containers
+  - devops
+  - cloud native
+  - kubectl
+  - helm
+  - aks
+  - eks
+  - gke
+related: [ docker ]
+overview:
+  - "Running one container on one server is easy. Running hundreds across dozens of servers is not: which machine has room, what happens when a machine dies, how do containers find each other, how do you roll out a new version without downtime? Kubernetes (K8s) is the system that answers those questions for you."
+  - "You describe the **desired state** in YAML (\"3 replicas of `web:1.4`, reachable on port 80, each needing half a CPU\") and send it to the API server. Controllers then run a reconcile loop: they compare desired and actual state and act until they match. They schedule containers onto nodes, restart crashed ones, replace lost machines and roll out new versions gradually."
+  - Kubernetes was open-sourced by Google in 2014 and is now the CNCF's flagship project (Apache 2.0). Most teams use a managed control plane such as AKS, EKS or GKE, and run containers built with Docker or any OCI-compatible tool. For local learning, kind, minikube and k3d run a whole cluster on a laptop.
+architecture:
+  svg: kubernetes/architecture.svg
+  alt: A control plane with API server, etcd, scheduler and controller manager manages worker nodes running kubelet, kube-proxy, a container runtime and pods; a Service load-balances to pods
+  caption: Everything is an object in the API server. Controllers watch objects and nudge reality toward them; kubelets on each node actually start the containers.
+howItWorks:
+  - anim:
+      id: anim-deploy
+      title: From `kubectl apply` to running pods
+      svg: kubernetes/anim-deploy.svg
+      alt: Animated walk-through of applying a Deployment
+      steps:
+        - say: "You run `kubectl apply -f web.yaml`: a Deployment asking for 3 replicas of `web:1.4`. You describe the **desired state**, not the steps to get there."
+          show: [ k-yaml ]
+          hl: [ k-cli ]
+        - say: The API server authenticates you, checks your RBAC permissions and validates the object against its schema.
+          hl: [ k-api ]
+          unhl: [ k-cli ]
+          move:
+            k-yaml: [ 160, 0 ]
+          text:
+            k-api-l: authn · RBAC · validate
+        - say: "It stores the Deployment in **etcd**, the cluster's database, and kubectl returns. Nothing is running yet: you only changed the desired state."
+          hide: [ k-yaml ]
+          hl: [ k-etcd ]
+          unhl: [ k-api ]
+          text:
+            k-api-l: stored ✓
+            k-etcd-t: "web: want 3 replicas"
+        - say: "The Deployment controller (through a ReplicaSet) sees \"want 3, have 0\" and creates 3 Pod objects. They are **Pending**: no node yet."
+          show: [ k-pending, k-pending-t, k-p1, k-p2, k-p3 ]
+          hl: [ k-ctrl ]
+          unhl: [ k-etcd ]
+          text:
+            k-ctrl-t: want 3 · have 0 → create
+        - say: "The scheduler picks up Pending pods and scores every node: is there enough free CPU and memory for the pod's **requests** (500m each here)? Affinity and spreading rules count too."
+          hl: [ k-sched ]
+          unhl: [ k-ctrl ]
+          text:
+            k-ctrl-t: want 3 · have 3
+            k-sched-t: scoring nodes…
+        - say: It binds two pods to node-1 and one to node-2, which only has room for one.
+          hide: [ k-pending, k-pending-t ]
+          move:
+            k-p1: [ 190, -95 ]
+            k-p2: [ 190, -101 ]
+            k-p3: [ 190, -27 ]
+          text:
+            k-sched-t: node-1 ×2 · node-2 ×1
+            k-p1-t: Scheduled
+            k-p2-t: Scheduled
+            k-p3-t: Scheduled
+        - say: The **kubelet** on each node sees pods assigned to it, tells containerd to pull `web:1.4` and start the containers.
+          hl: [ k-n1, k-n2 ]
+          unhl: [ k-sched ]
+          text:
+            k-p1-t: pulling image…
+            k-p2-t: pulling image…
+            k-p3-t: pulling image…
+        - say: Containers start, readiness probes pass, and the pods become **Ready**. The Service starts sending them traffic. Desired state = actual state.
+          unhl: [ k-n1, k-n2 ]
+          text:
+            k-p1-t: Running · Ready
+            k-p2-t: Running · Ready
+            k-p3-t: Running · Ready
+          fill:
+            k-p1-r: "#e3eedc"
+            k-p2-r: "#e3eedc"
+            k-p3-r: "#e3eedc"
+        - say: Controllers never stop comparing desired and actual state. That reconcile loop is what makes the next animation, self-healing, possible.
+          show: [ k-note ]
+  - anim:
+      id: anim-heal
+      title: "Self-healing: a node dies"
+      svg: kubernetes/anim-heal.svg
+      alt: Animated walk-through of Kubernetes replacing pods from a failed node
+      steps:
+        - say: Three `web` pods run on three nodes. The **Service** gives them one stable name and spreads traffic across all Ready pods.
+          hl: [ h-svc ]
+        - say: node-1 loses power. Its kubelet stops sending heartbeats to the API server.
+          hl: [ h-n1 ]
+          unhl: [ h-svc ]
+          text:
+            h-n1-t: node-1 · no heartbeat
+          fill:
+            h-n1: "#f9e3df"
+        - say: After about 40 s without heartbeats the node lifecycle controller marks node-1 **NotReady**. Its pods are marked for eviction (after a 5-minute toleration by default).
+          hl: [ h-nc ]
+          unhl: [ h-n1 ]
+          text:
+            h-n1-t: node-1 · NotReady
+            h-nc-t: node-1 NotReady → evict
+            h-a-t: Terminating
+          fill:
+            h-a: "#f9e3df"
+        - say: As soon as web-a stops being Ready, it is removed from the Service's endpoints, so users only reach web-b and web-c.
+          hide: [ h-l-a ]
+          hl: [ h-svc ]
+          unhl: [ h-nc ]
+          text:
+            h-svc-t: 2 endpoints
+        - say: "The **ReplicaSet controller** compares desired and actual: want 3, have 2. It creates a replacement Pod object."
+          hl: [ h-ctrl ]
+          unhl: [ h-svc ]
+          text:
+            h-ctrl-t: want 3 · have 2 → create 1
+          fill:
+            h-ctrl: "#fbf3c4"
+        - say: The scheduler places the new pod on node-3, which has spare capacity.
+          show: [ h-d ]
+          hl: [ h-n3 ]
+          unhl: [ h-ctrl ]
+          text:
+            h-d-t: Scheduled · pulling
+        - say: It starts, passes readiness, and joins the Service. Back to 3 healthy replicas, and nobody was paged.
+          show: [ h-l-d ]
+          unhl: [ h-n3 ]
+          text:
+            h-d-t: Running · Ready
+            h-svc-t: 3 endpoints
+            h-ctrl-t: want 3 · have 3 ✓
+          fill:
+            h-d-r: "#e3eedc"
+            h-ctrl: "#fbfcf8"
+        - say: The new pod has a different name and IP. That is why clients use the Service name and why state belongs in volumes or external databases, never inside a pod.
+          show: [ h-note, h-note2 ]
+concepts:
+  - term: cluster
+    short: A set of machines (nodes) plus a control plane that manages them as one big computer for containers.
+    see: [ node, namespace, pod ]
+    detail: |-
+      A cluster is the unit you create, upgrade and secure. You talk to it only through its API server; the machines behind it are interchangeable.
+
+      - **Control plane**: API server, etcd, scheduler, controller manager. Managed services (AKS, EKS, GKE) run and patch it for you.
+      - **Worker nodes**: where your pods actually run.
+
+      #### Typical sizes
+
+      | Setting | Nodes |
+      | --- | --- |
+      | Laptop (kind, minikube) | 1–3 containers pretending to be nodes |
+      | Small production | 3–10 nodes |
+      | Large | hundreds; the documented limit is 5,000 nodes |
+
+      Many companies run several clusters (dev, staging, prod, per region) rather than one giant one: a smaller blast radius and easier upgrades.
+  - term: node
+    short: A worker machine (VM or physical) that runs pods. Each runs a kubelet, kube-proxy and a container runtime.
+    see: [ cluster, pod, vCPU, requests & limits, DaemonSet ]
+    detail: |-
+      A node offers **allocatable** resources to pods: its total CPU and memory minus what is reserved for the OS and Kubernetes' own agents.
+
+      #### On every node
+
+      - **kubelet**: the agent. Watches the API server for pods assigned to this node and starts or stops their containers.
+      - **container runtime**: usually containerd; pulls images and runs containers.
+      - **kube-proxy** (or a CNI like Cilium): implements Service routing on the node.
+
+      #### Common sizes
+
+      Production nodes are often 4–16 vCPU with 16–64 GiB of memory (e.g. Azure `Standard_D4s_v5`: 4 vCPU, 16 GiB). Several medium nodes usually beat one huge node: losing one costs less.
+
+      Statuses: `Ready`, `NotReady` (kubelet stopped reporting), `SchedulingDisabled` (cordoned for maintenance).
+  - term: pod
+    short: "The smallest deployable unit: one or more containers that share an IP address and volumes and are always scheduled together."
+    see: [ node, Deployment, Service, probes, requests & limits ]
+    detail: |-
+      You almost never create pods directly; a Deployment, StatefulSet, DaemonSet or Job creates them for you and replaces them when they die.
+
+      - Containers in one pod talk over `localhost` and can share volumes.
+      - Typical shape: one main container, optionally a **sidecar** (log shipper, proxy) and **init containers** that run first.
+      - Pods are **ephemeral**: a replacement gets a new name and a new IP. Reach them through a Service.
+
+      #### Lifecycle phases
+
+      `Pending` → `Running` → `Succeeded` / `Failed`. Common trouble states you'll see in `kubectl get pods`: `ImagePullBackOff` (wrong image or no registry access), `CrashLoopBackOff` (container keeps exiting), `OOMKilled` (exceeded memory limit).
+  - term: vCPU
+    short: "The CPU unit Kubernetes counts in: 1 CPU = one vCPU or hyperthread = 1000 millicores (`1000m`)."
+    see: [ requests & limits, node, HPA, pod ]
+    anim:
+      key: vcpu
+      title: CPU on a 4-vCPU node
+      svg: kubernetes/vcpu.svg
+      alt: Animated example of CPU requests filling a 4 vCPU node and a limit throttling a pod
+      steps:
+        - say: node-1 has 4 vCPU = 4000m. About 200m is reserved for the OS and the kubelet, so ~3800m is **allocatable** to pods.
+          hl: []
+        - say: The `api` pod requests `500m`. The scheduler subtracts it from the free capacity.
+          show: [ v-api ]
+          text:
+            v-free: "free: 3300m"
+        - say: Two `web` replicas request `250m` each.
+          show: [ v-web ]
+          text:
+            v-free: "free: 2800m"
+        - say: "A `worker` requests `1500m`. Requests are a reservation: they count even when the pod is idle."
+          show: [ v-worker ]
+          text:
+            v-free: "free: 1300m"
+        - say: "A new pod requesting `1500m` doesn't fit: only 1300m is unreserved. It stays **Pending** until a node has room, even if the node's actual CPU usage is low."
+          show: [ v-new, v-new-t ]
+        - say: The worker idles at ~900m, below its request. Its **limit** is `2000m`.
+          show: [ v-usage ]
+          hide: [ v-new, v-new-t ]
+        - say: "A traffic spike: the worker can burst above its request, using spare CPU on the node, up to its limit."
+          move:
+            v-cover: [ 77, 0 ]
+        - say: "At `2000m` the kernel **throttles** it: the container is paused for part of every 100 ms period. It gets slower, not killed. (Exceeding a <em>memory</em> limit kills it: OOMKilled.)"
+          show: [ v-thr ]
+          move:
+            v-cover: [ 142, 0 ]
+    detail: |-
+      A **vCPU** is one virtual CPU as sold by a cloud provider: usually one hyperthread of a physical core. Kubernetes measures CPU in these units and lets you ask for fractions, written in **millicores**: `1000m` = 1 vCPU, `250m` = a quarter.
+
+      #### Common values
+
+      | Request | Typical workload |
+      | --- | --- |
+      | `50m–100m` | sidecars, small agents, idle-most-of-the-time services |
+      | `250m–500m` | a typical web API or worker replica |
+      | `1`–`2` | CPU-heavy services, JVM apps at startup, build jobs |
+      | `4+` | databases, ML inference, batch processing |
+
+      A node with 4 vCPU has roughly **3.8 vCPU allocatable** after system reservations. The scheduler only places a pod where the sum of **requests** fits.
+
+      ::anim vcpu::
+
+      #### How it relates
+
+      - **Requests** reserve vCPU for scheduling; **limits** cap usage. Going over the CPU limit only **slows** the container (throttling); going over the memory limit **kills** it (`OOMKilled`).
+      - The **HPA** measures CPU usage as a percentage of the request, so a wrong request makes autoscaling wrong too.
+      - Node size in vCPU sets how many pods fit; cloud cost is mostly "vCPU × hours".
+  - term: requests & limits
+    short: "Per-container CPU and memory settings: requests are reserved for scheduling, limits are the hard ceiling."
+    see: [ vCPU, node, HPA, pod ]
+    detail: |-
+      ```yaml
+      resources:
+        requests: { cpu: 250m, memory: 256Mi }
+        limits:   { memory: 512Mi }
+      ```
+
+      - **Requests**: what the scheduler adds up to decide if a pod fits on a node. Your guaranteed share.
+      - **CPU limit**: usage above it is throttled. Many teams set no CPU limit to avoid needless throttling, relying on requests for fairness.
+      - **Memory limit**: exceeding it gets the container killed (`OOMKilled`) and restarted. Always set one.
+
+      #### Quality of Service classes
+
+      | Class | When | Evicted |
+      | --- | --- | --- |
+      | Guaranteed | requests = limits for CPU and memory | last |
+      | Burstable | requests set, lower than limits | middle |
+      | BestEffort | nothing set | first |
+
+      Memory units: `Mi`/`Gi` are powers of 2 (256Mi ≈ 268 MB); `M`/`G` are powers of 10.
+  - term: Deployment
+    short: Declares how many replicas of a stateless pod should run and rolls out new versions gradually.
+    see: [ ReplicaSet, pod, Service, HPA, probes ]
+    detail: |-
+      The workhorse object for web apps, APIs and workers. You change the image tag; the Deployment creates a new ReplicaSet and shifts pods over.
+
+      #### Rolling update knobs
+
+      - `maxSurge: 25%`: how many extra pods may exist during a rollout.
+      - `maxUnavailable: 25%`: how many may be missing. Set to `0` for zero downtime.
+      - New pods must pass their **readiness probe** before old ones are removed.
+
+      `kubectl rollout undo deployment/web` switches back to the previous ReplicaSet in seconds. Kubernetes keeps 10 old revisions by default.
+
+      For stateful software with stable identities (databases, Kafka brokers) use a StatefulSet instead.
+  - term: ReplicaSet
+    short: Keeps exactly N identical pods running. Deployments create and manage ReplicaSets for you.
+    see: [ Deployment, pod, labels & selectors ]
+    detail: |-
+      A ReplicaSet runs the simplest reconcile loop: count the pods matching my **label selector**; create or delete pods until the count equals `replicas`.
+
+      You rarely touch them directly. During a rollout a Deployment owns two ReplicaSets, old and new, and scales one down while scaling the other up. Their names carry the pod-template hash: `web-7d9f8c`, and pods are named `web-7d9f8c-x2k4q`.
+
+      Deleting a pod by hand is safe: the ReplicaSet notices the shortfall and creates a replacement within seconds.
+  - term: Service
+    short: A stable virtual IP and DNS name that load-balances to the Ready pods matching a label selector.
+    see: [ pod, labels & selectors, Ingress / Gateway API, probes ]
+    detail: |-
+      Pods come and go with new IPs; a Service gives clients one address that never changes: `web.shop.svc.cluster.local`, or just `web` from the same namespace.
+
+      #### Types
+
+      | Type | Reachable from |
+      | --- | --- |
+      | `ClusterIP` (default) | inside the cluster only |
+      | `NodePort` | every node's IP on a port 30000–32767 |
+      | `LoadBalancer` | a cloud load balancer with a public or private IP |
+      | `Headless` (`clusterIP: None`) | DNS returns pod IPs directly (used by StatefulSets) |
+
+      Only pods passing their readiness probe are listed as endpoints, which is how rollouts and failures avoid sending traffic to broken pods.
+  - term: Ingress / Gateway API
+    short: HTTP(S) routing from outside the cluster to Services by host name and path, with TLS termination.
+    see: [ Service, namespace ]
+    detail: |-
+      Instead of one cloud load balancer per Service, a single entry point routes `shop.example.com/api` to the `api` Service and `/` to `web`.
+
+      - **Ingress**: the original API; needs an ingress controller (NGINX, Traefik, cloud-specific) installed in the cluster.
+      - **Gateway API**: the newer, more expressive successor (traffic splitting, header matching, roles for platform vs app teams). Prefer it for new setups.
+
+      TLS certificates are usually issued automatically by cert-manager with Let's Encrypt.
+  - term: namespace
+    short: A virtual folder inside a cluster for grouping and isolating objects, quotas and permissions.
+    see: [ cluster, ConfigMap & Secret, Service ]
+    detail: |-
+      Names must be unique only within a namespace, so `team-a` and `team-b` can both have a Service called `api`.
+
+      - Built-in: `default`, `kube-system` (cluster components), `kube-public`, `kube-node-lease`.
+      - Attach **ResourceQuotas** (max CPU/memory per team), **RBAC** roles and **NetworkPolicies** per namespace.
+      - Namespaces are not a security boundary by themselves: pods can still talk across them unless NetworkPolicies say otherwise.
+
+      Common layouts: one namespace per team, per app, or per environment in a shared dev cluster. Select one with `-n shop` or set it as default for your context.
+  - term: labels & selectors
+    short: Key/value tags on objects (`app=web`) and the queries that pick objects by them. The glue of Kubernetes.
+    see: [ Service, ReplicaSet, Deployment ]
+    detail: |-
+      Kubernetes rarely references objects by name. A Service, ReplicaSet or NetworkPolicy finds its pods with a **selector** such as `app=web,tier=frontend`.
+
+      ```yaml
+      metadata:
+        labels: { app: web, version: "1.4", team: shop }
+      ---
+      selector:
+        matchLabels: { app: web }
+      ```
+
+      Recommended keys: `app.kubernetes.io/name`, `/version`, `/component`, `/part-of`. Query from the CLI: `kubectl get pods -l app=web`.
+
+      Gotcha: a typo in a selector means a Service with zero endpoints, silently. Check with `kubectl get endpointslices -l kubernetes.io/service-name=web`.
+  - term: ConfigMap & Secret
+    short: Configuration and credentials stored separately from the image and injected as env vars or files.
+    see: [ pod, namespace, Deployment ]
+    detail: |-
+      The same image runs in dev and prod; only its ConfigMaps and Secrets differ.
+
+      - **ConfigMap**: plain settings (feature flags, URLs, config files).
+      - **Secret**: passwords, tokens, TLS keys. Only **base64-encoded**, not encrypted, unless you enable encryption at rest. Restrict access with RBAC.
+
+      Mounted as files they update in place after a short delay; as env vars they're read only at container start, so you need a rollout (`kubectl rollout restart`) to pick up changes.
+
+      Production teams often sync secrets from a vault (Azure Key Vault, AWS Secrets Manager, HashiCorp Vault) with the External Secrets Operator.
+  - term: PersistentVolumeClaim
+    short: A pod's request for durable storage ("10Gi, read-write"), fulfilled by a PersistentVolume from a StorageClass.
+    see: [ StatefulSet, pod, node ]
+    detail: |-
+      Container filesystems disappear with the pod. A PVC asks for a disk that outlives it; the cluster provisions one dynamically (an Azure Disk, an EBS volume…) via a **StorageClass**.
+
+      #### Access modes
+
+      | Mode | Meaning | Typical backend |
+      | --- | --- | --- |
+      | `ReadWriteOnce` | one node mounts it read-write | cloud block disks |
+      | `ReadWriteMany` | many nodes read-write | NFS, Azure Files, EFS |
+      | `ReadOnlyMany` | many nodes read-only | shared datasets |
+
+      Block disks are tied to one availability zone: a pod using one can only be rescheduled to nodes in that zone. Check the `reclaimPolicy`: `Delete` removes the disk with the claim.
+  - term: StatefulSet
+    short: Like a Deployment, but each pod gets a stable name, stable DNS and its own persistent volume.
+    see: [ PersistentVolumeClaim, Service, Deployment ]
+    detail: |-
+      Pods are named `db-0`, `db-1`, `db-2`, created in order and keep their name and disk across restarts. A headless Service gives each one a DNS name like `db-0.db`.
+
+      Used for databases, Kafka brokers, Elasticsearch, ZooKeeper-style clusters: software where members are not interchangeable.
+
+      Running databases on Kubernetes is possible but demanding (backups, upgrades, failover). Operators such as CloudNativePG or Strimzi automate it; managed cloud databases are often simpler.
+  - term: DaemonSet
+    short: Runs one copy of a pod on every node (or a chosen subset), for node-level agents.
+    see: [ node, pod ]
+    detail: |-
+      When a node joins, the DaemonSet adds its pod there automatically; when it leaves, the pod goes with it.
+
+      Typical uses: log collectors (Fluent Bit), metrics agents (node-exporter, Datadog agent), network plugins (Cilium), storage drivers. Use a `nodeSelector` or tolerations to target, say, only GPU nodes.
+  - term: probes
+    short: "Health checks the kubelet runs: liveness restarts a stuck container, readiness controls traffic, startup protects slow boots."
+    see: [ Service, Deployment, pod ]
+    detail: |-
+      | Probe | If it fails… | Check |
+      | --- | --- | --- |
+      | **readiness** | pod removed from Service endpoints (no restart) | "can I serve traffic now?" (DB connected, cache warm) |
+      | **liveness** | container is restarted | "am I deadlocked?" Keep it cheap and local |
+      | **startup** | other probes wait until it passes | for apps that take a minute to boot |
+
+      ```yaml
+      readinessProbe:
+        httpGet: { path: /healthz/ready, port: 8000 }
+        periodSeconds: 5
+      ```
+
+      Classic mistake: a liveness probe that checks the database. When the database is slow, every pod restarts at once and turns a blip into an outage.
+  - term: HPA
+    short: "Horizontal Pod Autoscaler: adds or removes replicas based on CPU, memory or custom metrics."
+    see: [ vCPU, requests & limits, Deployment ]
+    detail: |-
+      ```bash
+      kubectl autoscale deployment web --cpu-percent=70 --min=2 --max=10
+      ```
+
+      Every 15 s it computes `desired = ceil(current × actual / target)`. With 3 pods at 140% of their CPU **request** and a 70% target, it scales to 6.
+
+      - Needs metrics-server and CPU **requests** on the pods, since utilisation is measured against them.
+      - Scales down slowly by design (5-minute stabilisation window) to avoid flapping.
+      - It adds pods, not machines: the **Cluster Autoscaler** or Karpenter adds nodes when pods stay Pending. KEDA scales on queue length, Kafka lag and more.
+  - term: Helm
+    short: "The package manager for Kubernetes: templated YAML bundles (\"charts\") installed and upgraded as releases."
+    see: [ namespace, Deployment, ConfigMap & Secret ]
+    detail: |-
+      ```bash
+      helm repo add bitnami https://charts.bitnami.com/bitnami
+      helm install cache bitnami/redis -n shop --set auth.enabled=true
+      helm upgrade cache bitnami/redis -f values-prod.yaml
+      helm rollback cache 1
+      ```
+
+      A chart is templates plus a `values.yaml`; you override values per environment. Helm records each install as a numbered revision you can roll back to.
+
+      Alternatives: **Kustomize** (built into kubectl, patches plain YAML without templates) and GitOps tools like Argo CD or Flux that apply either from a Git repo.
+commands:
+  heading: Essential commands & syntax
+  tocLabel: Commands
+  groups:
+    - group: Setup & context
+      items:
+        - lang: bash
+          code: kind create cluster --name dev
+          what: "Local cluster running inside Docker containers (also: minikube, k3d, Docker Desktop's built-in Kubernetes)."
+        - lang: bash
+          code: |-
+            kubectl config get-contexts
+            kubectl config use-context dev
+          what: List clusters you can talk to and switch between them. Always check before running destructive commands.
+        - lang: bash
+          code: kubectl config set-context --current --namespace=shop
+          what: Default namespace for later commands, instead of typing `-n shop` each time.
+    - group: Deploy
+      items:
+        - lang: yaml
+          code: |-
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata: { name: web }
+            spec:
+              replicas: 3
+              selector: { matchLabels: { app: web } }
+              template:
+                metadata: { labels: { app: web } }
+                spec:
+                  containers:
+                    - name: web
+                      image: ghcr.io/acme/web:1.4
+                      ports: [{ containerPort: 8000 }]
+                      resources:
+                        requests: { cpu: 250m, memory: 256Mi }
+                        limits: { memory: 512Mi }
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata: { name: web }
+            spec:
+              selector: { app: web }
+              ports: [{ port: 80, targetPort: 8000 }]
+          what: "`web.yaml`: a Deployment with resource requests plus a Service in front of it."
+        - lang: bash
+          code: kubectl apply -f web.yaml
+          what: Create or update objects to match the file. Safe to run repeatedly.
+        - lang: bash
+          code: |-
+            kubectl set image deployment/web web=ghcr.io/acme/web:1.5
+            kubectl rollout status deployment/web
+            kubectl rollout undo deployment/web
+          what: Roll out a new image, watch it, and roll back if something's wrong.
+        - lang: bash
+          code: kubectl scale deployment/web --replicas=5
+          what: Change the replica count by hand (an HPA would override it).
+    - group: Inspect & debug
+      items:
+        - lang: bash
+          code: kubectl get pods -o wide · kubectl get all -A
+          what: Pods with their node and IP; everything in every namespace.
+        - lang: bash
+          code: kubectl describe pod web-7d9f8c-x2k4q
+          what: "Details and **Events** at the bottom: why it's Pending, failing probes, image pull errors."
+        - lang: bash
+          code: kubectl logs -f deploy/web --previous
+          what: Follow logs; `--previous` shows the crashed container's last run.
+        - lang: bash
+          code: kubectl exec -it deploy/web -- sh
+          what: Shell inside a running container.
+        - lang: bash
+          code: kubectl port-forward svc/web 8080:80
+          what: Reach a Service from your laptop at `localhost:8080`, no Ingress needed.
+        - lang: bash
+          code: |-
+            kubectl get events --sort-by=.lastTimestamp
+            kubectl top pods
+          what: Recent cluster events in order; live CPU and memory usage (needs metrics-server).
+        - lang: csharp
+          code: |-
+            // dotnet add package KubernetesClient
+            var config = KubernetesClientConfiguration.BuildConfigFromConfigFile();  // same kubeconfig
+            using var k8s = new Kubernetes(config);
+
+            var pods = await k8s.CoreV1.ListNamespacedPodAsync("shop");
+            foreach (var p in pods.Items)
+                Console.WriteLine($"{p.Metadata.Name,-40} {p.Status.Phase}");
+          what: The official .NET client, reading the same kubeconfig as `kubectl`. In-cluster, swap the first line for `InClusterConfig()`.
+        - lang: python
+          code: |-
+            from kubernetes import client, config
+            config.load_kube_config()
+            for p in client.CoreV1Api().list_namespaced_pod("shop").items:
+                print(p.metadata.name, p.status.phase)
+          what: Python client (`pip install kubernetes`), using the same kubeconfig as kubectl.
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - "Self-healing: crashed containers restart, lost nodes' pods are rescheduled automatically."
+      - Zero-downtime rolling updates and one-command rollbacks.
+      - "Declarative YAML in Git: environments are reproducible and reviewable."
+      - Bin-packs many services onto shared machines, using hardware efficiently.
+      - Same API on every cloud and on-premises; huge ecosystem (Helm, Argo CD, Prometheus, Istio).
+      - Autoscaling of pods (HPA, KEDA) and of nodes (Cluster Autoscaler, Karpenter).
+  bad:
+    heading: Cons
+    items:
+      - "Steep learning curve: dozens of object types, networking and storage concepts."
+      - "Operational overhead even when managed: upgrades every few months, add-ons, security patches."
+      - "Easy to misconfigure: missing requests, bad probes or open RBAC cause outages and breaches."
+      - Debugging spans many layers (app, container, pod, node, network, cloud).
+      - "Baseline cost: control plane, system pods and spare capacity before your app runs."
+      - Overkill for a handful of services or a small team.
+when:
+  note: "Rule of thumb: adopt it when you have more services than people who want to manage servers."
+  good:
+    heading: Use it when…
+    items:
+      - You run many containerised services that need scheduling, scaling and self-healing.
+      - You need zero-downtime deploys and fast rollbacks as routine.
+      - Several teams share infrastructure and need isolation and self-service.
+      - You want one deployment model across clouds or on-premises.
+      - "You already have (or can buy) the skills: a platform team or a managed service."
+  bad:
+    heading: Avoid it when…
+    items:
+      - You have a few services and a small team. Use **Azure Container Apps**, **Cloud Run** or **ECS Fargate**.
+      - Everything runs on one server. Use **Docker Compose**.
+      - The app is a classic monolith with a database. Use a **PaaS** such as App Service or Heroku.
+      - Workloads are event-driven and short. Use **serverless functions**.
+      - Nobody owns upgrades and security. An unmaintained cluster is a liability.
+useCases:
+  - title: Microservices platform
+    body: A retailer runs 60 services owned by 10 teams on one AKS cluster per environment. Each team gets a namespace, quotas and its own Argo CD app; the platform team owns ingress, observability and upgrades.
+  - title: Spiky web traffic
+    body: A ticketing site's HPA scales the checkout Deployment from 4 to 40 pods during a sale, and Karpenter adds nodes for them. Both scale back down at night.
+  - title: Batch and ML jobs
+    body: A data team submits Jobs and CronJobs for nightly ETL and model training on a GPU node pool that scales to zero when idle.
+  - title: Hybrid and multi-cloud
+    body: A manufacturer runs the same Helm charts on-premises (on factory servers with k3s) and in the cloud, so the deployment process is identical everywhere.
+  - title: Preview environments
+    body: Every pull request gets its own namespace with the full app deployed, so reviewers click a URL instead of running it locally. It's deleted on merge.
+gotchas:
+  note: Click any key concept above for the deep dive. vCPU and probes explain half of these.
+  items:
+    - mistake: No resource requests or memory limits
+      why: The scheduler packs pods blindly, nodes run out of memory, and random pods get evicted or OOMKilled.
+      fix: set CPU and memory requests on every container and a memory limit; enforce with LimitRanges.
+    - mistake: Liveness probe checks dependencies
+      why: When the database is slow, every pod fails liveness and restarts together, turning a slowdown into an outage.
+      fix: liveness checks only the process itself; put dependency checks in readiness.
+    - mistake: Using `:latest` image tags
+      why: Pods on different nodes run different code, and `kubectl rollout undo` can't go back.
+      fix: "immutable tags (version or git SHA) and `imagePullPolicy: IfNotPresent`."
+    - mistake: Running only one replica
+      why: Node upgrades and evictions take the app down, even though Kubernetes is "highly available".
+      fix: at least 2 replicas, a PodDisruptionBudget and topology spread across zones.
+    - mistake: Secrets treated as encrypted
+      why: Secrets are base64; anyone who can read them in the namespace can decode them.
+      fix: enable encryption at rest, tight RBAC, and an external secret store.
+    - mistake: Ignoring graceful shutdown
+      why: On rollout, pods get SIGTERM while the Service may still route to them for a few seconds; in-flight requests fail.
+      fix: handle SIGTERM, add a short `preStop` sleep, and set `terminationGracePeriodSeconds` to cover your longest request.
+    - mistake: Running `kubectl` against the wrong cluster
+      why: A `delete` meant for dev hits production because the context was still set.
+      fix: show the context in your prompt (kube-ps1), use separate kubeconfigs, and restrict prod access with RBAC.
+    - mistake: Falling behind on upgrades
+      why: Each minor version is supported for about a year; skipping versions makes upgrades painful and APIs disappear.
+      fix: upgrade on a schedule, one minor version at a time, and test with `kubectl deprecations` tools such as Pluto.
+alternatives:
+  columns:
+    - Tool
+    - Best for
+    - Complexity
+    - Cost / license
+    - Key difference vs Kubernetes
+  rows:
+    - self: true
+      cells:
+        - "**Kubernetes**"
+        - Many services, many teams, any cloud
+        - High
+        - Apache 2.0; managed AKS, EKS, GKE
+        - —
+    - cells:
+        - "**Docker Compose**"
+        - "One host: dev and small production"
+        - Low
+        - Apache 2.0
+        - No multi-node scheduling or self-healing across machines
+    - cells:
+        - "**Azure Container Apps / Cloud Run / ECS Fargate**"
+        - Running containers without managing a cluster
+        - Low
+        - Pay per use
+        - "Serverless containers: no nodes, less control, scale to zero"
+    - cells:
+        - "**HashiCorp Nomad**"
+        - Simple orchestration of containers and non-container jobs
+        - Medium
+        - BSL 1.1
+        - Single binary, smaller scope; integrates with Consul and Vault
+    - cells:
+        - "**Docker Swarm**"
+        - Small clusters with Compose-like files
+        - Low
+        - Apache 2.0
+        - Built into Docker, simple, but a much smaller ecosystem
+    - cells:
+        - "**k3s**"
+        - Edge, IoT, small or on-prem clusters
+        - Medium
+        - Apache 2.0
+        - Certified Kubernetes in a single lightweight binary
+  notes:
+    - "**Pick Docker Compose** if everything fits on one machine."
+    - "**Pick Container Apps, Cloud Run or Fargate** if you want containers in production without a platform team."
+    - "**Pick Nomad** if you need to schedule mixed workloads with less complexity."
+    - "**Pick Swarm** only for small, simple setups that already use Compose files."
+    - "**Pick k3s** if you need real Kubernetes on small hardware or at the edge."
+resources:
+  - url: https://kubernetes.io/docs/home/
+    title: Kubernetes documentation
+    why: concepts, tasks and the API reference.
+  - url: https://kubernetes.io/docs/tutorials/kubernetes-basics/
+    title: Kubernetes Basics tutorial
+    why: deploy, expose, scale and update an app step by step.
+  - url: https://kind.sigs.k8s.io/
+    title: kind
+    why: run a local cluster inside Docker in one command.
+  - url: https://kubernetes.io/docs/reference/kubectl/quick-reference/
+    title: kubectl quick reference
+    why: the official cheat sheet of commands.
+  - url: https://learnk8s.io/troubleshooting-deployments
+    title: Troubleshooting deployments (Learnk8s)
+    why: a visual flowchart for broken pods.

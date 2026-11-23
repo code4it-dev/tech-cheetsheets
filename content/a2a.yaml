@@ -1,0 +1,881 @@
+title: A2A
+slug: a2a
+tagline: MCP is how an agent reaches a tool. A2A is how an agent hires another agent — and never learns how it works.
+asof: Nov 2026 · spec 1.0.0 · stewarded by the Linux Foundation / Agentic AI Foundation
+description: "A2A (Agent2Agent) cheatsheet: agent cards, tasks and their lifecycle, messages, artifacts, streaming, push notifications and how it differs from MCP."
+aliases:
+  - A2A
+  - Agent2Agent
+  - Agent-to-Agent
+  - agent card
+  - A2A protocol
+  - agent2agent protocol
+keywords:
+  - a2a
+  - agent2agent
+  - ai agents
+  - multi-agent
+  - agent card
+  - json-rpc
+  - grpc
+  - linux foundation
+  - interoperability
+related: [ mcp, agent-harness, grpc, oauth2, saga-pattern ]
+overview:
+  - "**Agent2Agent** standardises what happens when one autonomous agent needs work done by another that it did not build, cannot see inside, and may not even share a company with. The remote agent is <em>opaque</em>: no shared memory, no shared tools, no exposed prompt or plan. You send it a request, it gives you a **task**, and you follow that task to a conclusion."
+  - Mechanically it is small. Every agent publishes an **Agent Card** at `/.well-known/agent-card.json` describing its skills, its transports and how to authenticate. A client picks an interface, calls `SendMessage`, and receives either an immediate `Message` or a `Task` with an id. The task moves through a defined lifecycle, emits status and artifact updates over SSE, and can pause to ask for input or for authorization.
+  - "Version 1.0.0 is a real break from the 0.x drafts most tutorials show: method names are PascalCase (`SendMessage`, not `message/send`), the card lists `supportedInterfaces` instead of a single `url`, and task states are enum constants such as `TASK_STATE_WORKING`. Check which version a counterparty speaks before debugging anything else."
+architecture:
+  svg: a2a/architecture.svg
+  alt: An A2A client agent discovering and delegating to a remote agent, which internally uses MCP to reach its own tools
+  caption: A2A goes across between peers; MCP goes down to tools. Most real systems use both, in that arrangement.
+howItWorks:
+  - md: "The first animation is a complete delegation: discover, send, stream, collect. The second is the task lifecycle, including the two ways a task can stop and wait for you."
+  - note: you don't call an agent. you give it a task and then follow the task.
+  - anim:
+      id: anim-delegate
+      title: 1 · Discover, delegate, stream
+      svg: a2a/anim-delegate.svg
+      alt: A client agent fetching an agent card, sending a message, and receiving streamed status and artifact updates for a task
+      steps:
+        - say: "Your travel agent has a request it cannot handle: a visa eligibility assessment. It knows a specialist agent exists, and knows exactly one thing about it — its domain."
+          hl: [ ad-client ]
+          text:
+            ad-s1: "known: visa.example.com"
+            ad-s2: "known: nothing else"
+        - say: "Discovery is one HTTP GET. The card at `/.well-known/agent-card.json` is the whole contract: skills, interfaces, security schemes and a signature."
+          show: [ ad-msg ]
+          text:
+            ad-msgt: GET /.well-known/agent-card.json
+            ad-w1: → GET https://visa.example.com/.well-known/agent-card.json
+            ad-w2: "← { \"name\": \"Visa Advisor\", \"version\": \"1.2.0\","
+            ad-w3: "    \"supportedInterfaces\": [ {JSONRPC 1.0}, {GRPC 1.0}, {HTTP+JSON 1.0} ],"
+            ad-w4: "    \"capabilities\": { \"streaming\": true, \"pushNotifications\": true },"
+            ad-w5: "    \"skills\": [ { \"id\": \"assess-eligibility\", … } ],"
+            ad-w6: "    \"signatures\": [ … ] }"
+        - say: "The client picks an interface by the rule in the spec: first entry preferred, among the bindings it actually supports. It speaks JSON-RPC, so it takes the first entry."
+          hl: [ ad-server ]
+          unhl: [ ad-client ]
+          move:
+            ad-msg: [ 289, 0 ]
+          text:
+            ad-msgt: chose JSONRPC
+            ad-s1: "endpoint: https://visa.example.com/a2a"
+            ad-s2: "binding: JSONRPC · protocolVersion 1.0"
+            ad-s3: "auth: OAuth client credentials, scope \"assess\""
+            ad-s4: "card signature: verified ✓"
+          fill:
+            ad-s4: "#2f6b3f"
+        - say: "Now the delegation itself. Note what it is not: there is no function name and no typed argument list. A message in prose, plus a PDF by URL — the remote agent decides how to interpret it."
+          text:
+            ad-msgt: SendMessage
+            ad-wt: on the wire — the delegation
+            ad-w1: → {"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{
+            ad-w2: "     \"message\":{\"role\":\"ROLE_USER\",\"parts\":["
+            ad-w3: "       {\"text\":\"Assess eligibility: Italian citizen, 5-day business trip…\"},"
+            ad-w4: "       {\"url\":\"https://files…/app-4412.pdf\",\"mediaType\":\"application/pdf\"}]}}}"
+            ad-w5: "&nbsp;"
+            ad-w6: "&nbsp;"
+        - say: The answer is not a result — it is a **Task**, with an id the server chose. That one design decision is what separates A2A from a remote procedure call.
+          move:
+            ad-msg: [ 0, 0 ]
+          text:
+            ad-msgt: ← Task t_8f21
+            ad-w5: ← {"task":{"id":"t_8f21","contextId":"c_44a9",
+            ad-w6: "           \"status\":{\"state\":\"TASK_STATE_SUBMITTED\"}}}"
+            ad-s1: "taskId:    t_8f21   (server-generated)"
+            ad-s2: "contextId: c_44a9   (groups follow-ups)"
+            ad-s3: "state:     TASK_STATE_SUBMITTED"
+            ad-s4: "artifacts: none yet"
+        - say: Behind the wall the remote agent runs its own loop with its own model, reaching its own tools over MCP, with credentials you will never see and have no claim on.
+          hl: [ ad-tools ]
+          unhl: [ ad-server ]
+          text:
+            ad-phase: what happens over there is deliberately invisible
+            ad-toolst: gov portals, rules engine — not yours
+          fill:
+            ad-toolst: "#c53b3b"
+        - say: "Updates arrive as SSE frames. Each one wraps a `StreamResponse`: exactly one of task, message, statusUpdate or artifactUpdate, in generation order."
+          hl: [ ad-server ]
+          unhl: [ ad-tools ]
+          text:
+            ad-wt: on the wire — the stream
+            ad-w1: "data: {\"result\":{\"statusUpdate\":{\"status\":{\"state\":\"TASK_STATE_WORKING\"}}}}"
+            ad-w2: "data: {\"result\":{\"statusUpdate\":{\"status\":{\"message\":\"reading application\"}}}}"
+            ad-w3: "data: {\"result\":{\"artifactUpdate\":{\"artifact\":{…},\"append\":true}}}"
+            ad-w4: "data: {\"result\":{\"artifactUpdate\":{\"artifact\":{…},\"append\":true,\"lastChunk\":true}}}"
+            ad-w5: "&nbsp;"
+            ad-w6: "&nbsp;"
+            ad-s3: "state:     TASK_STATE_WORKING"
+            ad-s4: "artifacts: assessment.pdf (streaming, 2 chunks)"
+        - say: The artifact streams in chunks with `append` and `lastChunk`, so your UI can render a long report as it is written instead of after it is finished.
+          text:
+            ad-s5: the user is already reading page 1 while page 4 is being written
+          fill:
+            ad-s5: "#2f6b3f"
+        - say: A terminal status closes it. The task is `COMPLETED`, the artifacts are final, and the stream ends.
+          unhl: [ ad-server ]
+          text:
+            ad-w5: "data: {\"result\":{\"statusUpdate\":{\"status\":{\"state\":\"TASK_STATE_COMPLETED\"}}}}"
+            ad-s3: "state:     TASK_STATE_COMPLETED"
+            ad-s4: "artifacts: assessment.pdf (final)"
+            ad-s5: "eligible: yes · class B-1 · 4 documents required"
+          fill:
+            ad-s3: "#2f6b3f"
+        - say: "Look at what you ended up with: a verdict and a document. Not a plan, not a tool trace, not a prompt — the remote agent stayed opaque throughout, and that is what let two companies integrate at all."
+          hl: [ ad-client ]
+          text:
+            ad-s6: you never saw its model, its prompts, its tools or its data
+          fill:
+            ad-s6: "#c53b3b"
+        - say: And the same card, unchanged, works for any other A2A client. Discovery by URL, delegation by message, results by artifact — that is the entire integration surface.
+          unhl: [ ad-client ]
+          text:
+            ad-phase: one card, any A2A client
+            ad-v: across to peers with A2A · down to tools with MCP
+          fill:
+            ad-verd: "#e3eedc"
+  - anim:
+      id: anim-lifecycle
+      title: 2 · The task lifecycle, and the two pauses
+      svg: a2a/anim-lifecycle.svg
+      alt: The A2A task state machine moving from submitted through working, pausing at input-required and auth-required, and ending in a terminal state
+      steps:
+        - say: "The server creates the task and acknowledges it: `TASK_STATE_SUBMITTED`. Accepted, not started — there is nothing to do yet but wait."
+          hl: [ al-sub ]
+          text:
+            al-l1: ← task t_8f21 · TASK_STATE_SUBMITTED · queued
+        - say: It begins, and emits `WORKING`. Status updates can carry a human-readable message, which is what makes a progress UI possible without inventing a side channel.
+          hl: [ al-work ]
+          unhl: [ al-sub ]
+          text:
+            al-workt: reading the application
+            al-l2: ← statusUpdate · TASK_STATE_WORKING · "reading the application"
+          fill:
+            al-work: "#e3eedc"
+        - say: "Then it stops. The application does not state the applicant’s nationality, and the agent will not guess: `TASK_STATE_INPUT_REQUIRED`."
+          hl: [ al-input ]
+          unhl: [ al-work ]
+          text:
+            al-work: " "
+            al-l3: ← statusUpdate · TASK_STATE_INPUT_REQUIRED · "which nationality?"
+          fill:
+            al-input: "#fbf3c4"
+            al-work: "#e8ece2"
+        - say: This is a pause, not a failure. The task is alive and waiting, and the client answers by sending another message carrying the <em>same</em> taskId and contextId.
+          text:
+            al-inputt: client replies on the same task
+            al-l4: "→ SendMessage { taskId: t_8f21, contextId: c_44a9, parts:[{text:\"Italian\"}] }"
+        - say: It resumes. One task, one id, two exchanges — which is precisely the thing a request/response API cannot express without you building a state machine by hand.
+          hl: [ al-work ]
+          unhl: [ al-input ]
+          text:
+            al-input: " "
+            al-workt: assessing eligibility
+            al-l5: ← statusUpdate · TASK_STATE_WORKING (resumed)
+          fill:
+            al-input: "#e8ece2"
+            al-work: "#e3eedc"
+        - say: "Now a different kind of stop. To check the destination’s entry rules it must query a government portal <em>as the user</em>, and it has no consent: `TASK_STATE_AUTH_REQUIRED`."
+          hl: [ al-auth ]
+          unhl: [ al-work ]
+          text:
+            al-work: " "
+            al-l1: ← statusUpdate · TASK_STATE_AUTH_REQUIRED · "consent for portal X"
+            al-l2: "&nbsp;"
+            al-l3: "&nbsp;"
+            al-l4: "&nbsp;"
+            al-l5: "&nbsp;"
+          fill:
+            al-auth: "#fbf3c4"
+            al-work: "#e8ece2"
+        - say: The client drives a consent flow with the actual human and supplies credentials. The spec is explicit that reaching this state is a <em>request</em> for authorization, never a grant — the agent must still obtain and validate it.
+          text:
+            al-autht: client runs the consent flow
+            al-l2: → consent obtained from the human, credentials supplied
+            al-l3: the state alone authorises nothing — it only asks
+          fill:
+            al-l3: "#c53b3b"
+        - say: "Work resumes again, and an artifact starts streaming: the assessment document, chunk by chunk, with `append: true`."
+          hl: [ al-work ]
+          unhl: [ al-auth ]
+          text:
+            al-auth: " "
+            al-workt: writing the assessment
+            al-l4: ← artifactUpdate · assessment.pdf · append=true
+            al-l5: ← artifactUpdate · assessment.pdf · append=true, lastChunk=true
+          fill:
+            al-auth: "#e8ece2"
+            al-work: "#e3eedc"
+        - say: "`COMPLETED` — terminal. The artifacts are final, the stream closes, and `SubscribeToTask` on it from now on returns `UnsupportedOperationError` rather than an empty stream."
+          hl: [ al-done ]
+          unhl: [ al-work ]
+          text:
+            al-work: " "
+            al-l1: ← statusUpdate · TASK_STATE_COMPLETED
+            al-l2: artifacts final · subscribing now returns UnsupportedOperationError
+            al-l3: "&nbsp;"
+            al-l4: "&nbsp;"
+            al-l5: "&nbsp;"
+          fill:
+            al-done: "#e3eedc"
+            al-work: "#e8ece2"
+        - say: It could have ended in three other terminal states, and they are not interchangeable. `FAILED` means it tried and could not. `CANCELED` means someone stopped it. `REJECTED` means it declined the request outright.
+          hl: [ al-fail ]
+          unhl: [ al-done ]
+          text:
+            al-l1: FAILED   → it tried and could not → retry with backoff may work
+            al-l2: CANCELED → someone stopped it deliberately → do not resurrect
+            al-l3: REJECTED → it declined the request → retrying unchanged will never succeed
+            al-l4: conflating these is how you build a retry loop that bills you forever
+          fill:
+            al-l3: "#c53b3b"
+            al-l4: "#c53b3b"
+        - say: "And if your client cannot hold an SSE stream open for forty minutes, register a push notification config instead: the agent POSTs the same `StreamResponse` objects to your webhook, at least once."
+          unhl: [ al-fail ]
+          text:
+            al-phase: same lifecycle, delivered to a webhook instead of a stream
+            al-l1: → CreateTaskPushNotificationConfig { url, token, authentication }
+            al-l2: "← POST https://you.example/a2a/push   Content-Type: application/a2a+json"
+            al-l3: "at-least-once: deduplicate, authenticate, then GetTask to confirm"
+            al-l4: "&nbsp;"
+          fill:
+            al-l3: "#2f6b3f"
+concepts:
+  - term: Agent Card
+    short: The public JSON document at /.well-known/agent-card.json that describes what an agent can do and how to reach it.
+    see: [ Skill, supportedInterfaces, Security schemes, Card signing ]
+    detail: |-
+      Discovery in A2A is a single HTTP GET. The card is the contract: name, description, provider, version, `capabilities`, `securitySchemes`, `securityRequirements`, `defaultInputModes` and `defaultOutputModes`, the `skills` list, `supportedInterfaces`, and optional `signatures`. Servers MUST publish one.
+
+      It is the part a client reads before writing a line of integration code, so it is worth treating as a product surface rather than a config file. A card with three vague skills and no examples is as hard to use as an undocumented API.
+
+      #### Required fields
+
+      | Field | Holds |
+      | --- | --- |
+      | `name`, `description` | what this agent is for |
+      | `version` | the agent's own version, not the protocol's |
+      | `capabilities` | `streaming`, `pushNotifications`, `extendedAgentCard` |
+      | `supportedInterfaces` | ordered list of endpoints and bindings |
+      | `defaultInputModes` / `OutputModes` | media types accepted and produced |
+      | `skills` | what it can actually be asked to do |
+
+      When `capabilities.extendedAgentCard` is true, an authenticated client can call `GetExtendedAgentCard` for a fuller version — skills that are not advertised publicly.
+
+      #### How it relates
+
+      - Cards SHOULD be cacheable: send `Cache-Control` and an `ETag`, and have clients use conditional requests.
+  - term: Skill
+    short: A named capability advertised on the card — the unit a client matches against when choosing an agent.
+    see: [ Agent Card, Message and Part, Task ]
+    detail: |-
+      An `AgentSkill` carries `id`, `name`, `description` and `tags`, plus optional `examples`, `inputModes`, `outputModes` and `securityRequirements`. It is documentation with enough structure to be searched, not a typed function signature.
+
+      That is a deliberate difference from **MCP** tools. An MCP tool has a JSON Schema and is invoked with structured arguments; an A2A skill is described in prose and reached by sending a natural-language message. The remote agent interprets — which is exactly why it is an agent and not a function.
+
+      #### Writing one that gets picked
+
+      | Field | Guidance |
+      | --- | --- |
+      | `id` | stable, machine-friendly, never reused |
+      | `description` | what it does, its limits, what it will refuse |
+      | `tags` | how a registry or another agent finds you |
+      | `examples` | real prompts that work — the most useful field |
+
+      #### How it relates
+
+      - Per-skill `securityRequirements` let one agent expose a public skill and a privileged one behind stronger auth.
+  - term: supportedInterfaces
+    short: The ordered list of endpoints and protocol bindings the agent speaks — first entry is preferred.
+    see: [ Agent Card, Version negotiation, Streaming ]
+    detail: |-
+      Each entry has a `url`, a `protocolBinding` and a `protocolVersion`, plus an optional `tenant`. There are three core bindings: `JSONRPC` (JSON-RPC 2.0 over HTTP, SSE for streaming), `GRPC` (gRPC over HTTP/2 with TLS, service `A2AService`) and `HTTP+JSON` (REST-style, media type `application/a2a+json`).
+
+      Selection is specified, not left to taste: the first entry is the preferred interface, and a client picks the first binding it supports, preferring earlier entries. If the chosen interface declares a `tenant`, the client must send that value; if it does not, the client must omit it.
+
+      #### The three bindings
+
+      | Binding | Shape | Fits |
+      | --- | --- | --- |
+      | `JSONRPC` | POST, PascalCase methods, SSE | the default; easiest to debug |
+      | `GRPC` | `A2AService`, HTTP/2, TLS | high volume, typed clients |
+      | `HTTP+JSON` | `POST /message:send`, `GET /tasks/{id}` | REST-native estates and gateways |
+
+      #### How it relates
+
+      - All three carry the same semantics, so the choice is operational — see **gRPC** for when the typed binding earns its complexity.
+  - term: Task
+    short: "The unit of work: server-created, identified, stateful, and followed rather than awaited."
+    see: [ TaskState, contextId, Artifact, Streaming ]
+    detail: |-
+      A `Task` holds `id`, `contextId`, `status`, `artifacts`, `history` and `metadata`. It is created by the server — a client cannot choose the id — and it exists precisely because agent work is not request/response. It may take an hour, produce several outputs, and stop to ask a question in the middle.
+
+      A response to `SendMessage` is therefore either a `Message` (the agent answered immediately, nothing to track) or a `Task` (something long enough to need an id). Clients must handle both.
+
+      #### Task or message?
+
+      | Situation | Response |
+      | --- | --- |
+      | "what currencies do you support?" | `Message` |
+      | "assess this 40-page application" | `Task` |
+      | Anything needing approval mid-flight | `Task` |
+      | Anything producing files | `Task` |
+
+      #### How it relates
+
+      - Because tasks outlive connections, **push notifications** exist for clients that cannot hold an SSE stream open.
+  - term: TaskState
+    short: The nine enum values a task moves through, four of them terminal and two of them pauses.
+    see: [ Task, In-task auth, Streaming ]
+    detail: |-
+      In 1.0.0 the states are enum constants: `TASK_STATE_UNSPECIFIED`, `SUBMITTED`, `WORKING`, `COMPLETED`, `FAILED`, `CANCELED`, `INPUT_REQUIRED`, `REJECTED` and `AUTH_REQUIRED`, each prefixed `TASK_STATE_`. The 0.x spellings (`"working"`, `"input-required"`) are gone.
+
+      Four are terminal: `COMPLETED`, `FAILED`, `CANCELED`, `REJECTED`. Two are interruptions that expect you to act: `INPUT_REQUIRED` and `AUTH_REQUIRED`. Subscribing to a task that is already terminal returns `UnsupportedOperationError` rather than a stream that never emits.
+
+      #### What each means for you
+
+      | State | Your move |
+      | --- | --- |
+      | `SUBMITTED` | accepted, not started — wait |
+      | `WORKING` | in progress, expect updates |
+      | `INPUT_REQUIRED` | send another message on the same task |
+      | `AUTH_REQUIRED` | obtain credentials, then continue |
+      | `REJECTED` | it declined — do not retry unchanged |
+      | `FAILED` | it tried and could not — retry may help |
+
+      #### How it relates
+
+      - Treat `REJECTED` and `FAILED` differently in your retry policy; see **Retry, backoff & jitter**.
+  - term: contextId
+    short: The server-generated id that groups related tasks and messages into one ongoing interaction.
+    see: [ Task, Message and Part, TaskState ]
+    detail: |-
+      A `taskId` identifies one unit of work; a `contextId` ties several together — a follow-up question, a revision, a second task in the same conversation. Both are server-generated, and an agent must reject a message whose `contextId` and `taskId` do not belong together.
+
+      The practical rule: carry the `contextId` forward when the new request is part of the same conversation, and start fresh when it is not. It is how the remote agent keeps continuity without exposing any of its internal memory to you.
+
+      #### How it relates
+
+      - Never invent either id. The server owns the namespace, which is what keeps opaque agents opaque.
+  - term: Message and Part
+    short: "What the two sides exchange: a role, and a list of parts that may be text, bytes, a URL or structured data."
+    see: [ Artifact, Task, Skill ]
+    detail: |-
+      A `Message` carries `messageId`, `contextId`, `taskId`, `role` (`ROLE_USER` or `ROLE_AGENT`), `parts`, and optional `metadata`, `extensions` and `referenceTaskIds`. In 1.0.0 a `Part` is one object with a oneof: exactly one of `text`, `raw` (bytes, base64 in JSON), `url`, or `data` (any JSON value), plus optional `mediaType` and `filename`.
+
+      That shape is why A2A is multimodal without ceremony: a single message can carry a sentence, a PDF by reference and a structured form, and the receiving agent decides what it can use based on the modes it advertised.
+
+      #### Which part to use
+
+      | Content | Field |
+      | --- | --- |
+      | Instructions, questions | `text` |
+      | Small inline file | `raw` + `mediaType` |
+      | Large file | `url` — do not inline megabytes |
+      | Form answers, parameters | `data` |
+
+      #### How it relates
+
+      - `referenceTaskIds` lets a message point at earlier tasks — the usual way to say "use the output of that one".
+  - term: Artifact
+    short: A durable output of a task, as opposed to the conversational messages that produced it.
+    see: [ Task, Streaming, Message and Part ]
+    detail: |-
+      An `Artifact` has `artifactId`, optional `name` and `description`, at least one `parts` entry, and optional `metadata` and `extensions`. It is the deliverable: a report, a dataset, an image, a decision document — the thing a client keeps after the conversation is over.
+
+      Artifacts can stream. A `TaskArtifactUpdateEvent` carries `append` and `lastChunk` flags, so an agent can emit a long document progressively and the client can render it as it arrives rather than waiting for completion.
+
+      #### Message or artifact?
+
+      | Content | Put it in |
+      | --- | --- |
+      | "I need the applicant's nationality" | a message |
+      | The finished assessment PDF | an artifact |
+      | Progress commentary | a status update message |
+      | A structured result the caller will store | an artifact |
+
+      #### How it relates
+
+      - Clients that only read the final `Task` still get the artifacts; streaming them is an experience improvement, not a different result.
+  - term: SendMessage
+    short: The method that starts or continues work — PascalCase in 1.0.0, not the 0.x slash form.
+    see: [ Streaming, Task, Version negotiation ]
+    detail: |-
+      Version 1.0.0 renamed every method to PascalCase matching gRPC conventions: `SendMessage`, `SendStreamingMessage`, `GetTask`, `ListTasks`, `CancelTask`, `SubscribeToTask`, the four `…TaskPushNotificationConfig` methods, and `GetExtendedAgentCard`. The familiar `message/send` and `tasks/get` belong to 0.x.
+
+      The REST binding maps them onto custom-verb URLs: `POST /message:send`, `POST /message:stream`, `GET /tasks/{id}`, `POST /tasks/{id}:cancel`, `POST /tasks/{id}:subscribe`, and the push-config paths under `/tasks/{id}/pushNotificationConfigs`.
+
+      #### Renames to watch for
+
+      | 0.x | 1.0.0 |
+      | --- | --- |
+      | `message/send` | `SendMessage` |
+      | `message/stream` | `SendStreamingMessage` |
+      | `tasks/get` | `GetTask` |
+      | `tasks/resubscribe` | `SubscribeToTask` |
+      | `GetAuthenticatedExtendedCard` | `GetExtendedAgentCard` |
+
+      #### How it relates
+
+      - Most sample code online is still 0.x. A method-not-found against a 1.0 agent is usually this, not a routing problem.
+  - term: Streaming
+    short: Server-sent events carrying status and artifact updates while a task runs.
+    see: [ Push notifications, Task, Artifact ]
+    detail: |-
+      `SendStreamingMessage` opens an SSE stream (`text/event-stream`) whose `data:` frames are ordinary JSON-RPC envelopes wrapping a `StreamResponse` — exactly one of `task`, `message`, `statusUpdate` or `artifactUpdate`. Events arrive in generation order.
+
+      `TaskStatusUpdateEvent` carries the new status; `TaskArtifactUpdateEvent` carries an artifact chunk with `append` and `lastChunk`. A dropped connection is recoverable: call `SubscribeToTask` to attach again, or `GetTask` to read the current state.
+
+      #### Common values
+
+      | Concern | Guidance |
+      | --- | --- |
+      | Streaming supported? | `capabilities.streaming` on the card |
+      | Reconnect | `SubscribeToTask`; terminal tasks refuse |
+      | Proxies | disable response buffering on the route |
+      | Very long tasks | prefer push notifications over a held stream |
+
+      #### How it relates
+
+      - A **reverse proxy** with default buffering will hold every event until the task ends, which looks exactly like a broken agent.
+  - term: Push notifications
+    short: Webhook delivery of task updates, for clients that cannot hold a connection open for an hour.
+    see: [ Streaming, Task, Security schemes ]
+    detail: |-
+      A client registers a `TaskPushNotificationConfig` — a `url`, a `token` and an `authentication` block with a `scheme` and `credentials` — and the server POSTs a `StreamResponse` to that webhook with `Content-Type: application/a2a+json`. The client returns 2xx; delivery is at-least-once.
+
+      At-least-once is the design constraint everyone discovers late. The webhook must be idempotent, must validate that the notification really came from the agent, and must not trust the payload as the source of truth — call `GetTask` to confirm before acting on anything important.
+
+      #### Common values
+
+      | Setting | Typical |
+      | --- | --- |
+      | Webhook timeout | 10–30 s |
+      | Delivery guarantee | at-least-once — deduplicate |
+      | Auth to your webhook | bearer token, or mTLS |
+      | Advertised by | `capabilities.pushNotifications` |
+
+      #### How it relates
+
+      - Duplicate deliveries are the same problem as everywhere else — see **Idempotency & deduplication**.
+  - term: Security schemes
+    short: "How a client authenticates: declared on the card, obtained out of band, sent on every request."
+    see: [ Agent Card, In-task auth, Card signing ]
+    detail: |-
+      A `SecurityScheme` is exactly one of `apiKeySecurityScheme`, `httpAuthSecurityScheme`, `oauth2SecurityScheme`, `openIdConnectSecurityScheme` or `mtlsSecurityScheme` — the OpenAPI vocabulary, deliberately. OAuth flows include `authorizationCode`, `clientCredentials` and `deviceCode`; `implicit` and `password` are deprecated.
+
+      The flow the spec describes is plain: read `securitySchemes` from the card, obtain credentials out of band, send them in headers (or gRPC metadata) on every request. The server MUST authenticate every request, and production deployments MUST use HTTPS or TLS, with TLS 1.3 recommended. Authorization itself is left implementation-specific.
+
+      #### How it relates
+
+      - A2A does not define agent identity in its semantics — it is handled at the protocol layer, so it is your existing **OAuth 2.0** or mTLS infrastructure doing the work.
+  - term: In-task auth
+    short: "AUTH_REQUIRED: the remote agent needs credentials for a third system, mid-task."
+    see: [ TaskState, Security schemes, Task ]
+    detail: |-
+      A travel agent asks a visa agent to check an application; the visa agent needs the user's consent to query a government portal. Rather than failing, the task enters `TASK_STATE_AUTH_REQUIRED`, letting the agent delegate the authorization step to the client, which can drive a consent flow with the human and then continue the same task.
+
+      The spec is explicit that an agent MUST NOT treat that state alone as authorization — reaching it is a request, not a grant. The credentials must actually be obtained and validated.
+
+      #### How it relates
+
+      - This is the multi-agent equivalent of MCP's elicitation: a pause that puts a human in the loop at the exact moment consent is needed.
+  - term: Card signing
+    short: JWS signatures over the agent card, so a client can verify it was published by who it claims.
+    see: [ Agent Card, Security schemes, Opaque agents ]
+    detail: |-
+      The card's `signatures` array holds `AgentCardSignature` objects with a required `protected` header and `signature`, and an optional `header`, following JWS (RFC 7515). Canonicalisation uses JCS (RFC 8785), and the `signatures` field itself is excluded from the signed payload. The protected header MUST include `alg` and `kid`, and SHOULD set `typ` to `"JOSE"`.
+
+      It matters because the card is the thing you trust before anything else: it tells you where to send work and what the agent claims to do. An unsigned card fetched over a compromised path is a redirection attack with no other defence.
+
+      #### How it relates
+
+      - This is the same supply-chain question as connecting an **MCP** server: verify the publisher before granting access.
+  - term: Version negotiation
+    short: The A2A-Version header, and why 1.0.0 breaks 0.x clients.
+    see: [ SendMessage, supportedInterfaces, TaskState ]
+    detail: |-
+      Service parameters travel as HTTP headers (JSON-RPC and REST bindings) or gRPC metadata, including `A2A-Version` and `A2A-Extensions`. An unsupported version is rejected with `400` and `application/problem+json`, which is a far better failure than a mysterious method-not-found.
+
+      1.0.0 changed enough to matter: PascalCase methods, `supportedInterfaces` replacing the single `url` and `preferredTransport`, `TASK_STATE_*` enum spellings, and renamed request and response types. Legacy names are slated for removal, so dual-version code has a deadline.
+
+      #### Error codes
+
+      | Range | Meaning |
+      | --- | --- |
+      | `-32700`…`-32603` | standard JSON-RPC errors |
+      | `-32001`…`-32099` | A2A-specific errors |
+      | `-32001` | e.g. `TASK_NOT_FOUND` (gRPC `NOT_FOUND`, REST `404`) |
+
+      #### How it relates
+
+      - Read the counterparty's card and its `protocolVersion` first; half of all integration bugs are a version mismatch.
+  - term: Opaque agents
+    short: "The design rule that makes A2A different: you exchange tasks, never internals."
+    see: [ Task, Skill, Card signing ]
+    detail: |-
+      A remote agent does not expose its tools, its prompts, its model, its memory or its plan. You cannot inspect its reasoning and it cannot borrow your context. All that crosses the boundary are messages, task state and artifacts.
+
+      That constraint is the point. It allows agents from different vendors, written in different languages, holding different credentials, to collaborate without a shared runtime — and it keeps each side's intellectual property and data on its own side of the wire.
+
+      #### The consequences
+
+      | You get | You give up |
+      | --- | --- |
+      | Cross-vendor interop | Visibility into reasoning |
+      | Independent deployment | Shared context and memory |
+      | Clear trust boundary | Fine-grained control |
+      | Each side keeps its secrets | Easy end-to-end debugging |
+
+      #### How it relates
+
+      - If you need to see inside, you do not want A2A — you want the other agent's tools exposed over **MCP**, or the same harness running both.
+  - term: A2A vs MCP
+    short: "Complementary, not competing: one connects agents to tools, the other connects agents to agents."
+    see: [ Opaque agents, Task, Skill ]
+    detail: |-
+      The official position is that the two are complementary protocols for different aspects of agentic systems. MCP connects a model or agent to tools, APIs and data sources — typed, synchronous, under your control. A2A standardises how separate agents discover each other, exchange tasks and collaborate as peers — prose-described, long-running, opaque.
+
+      The canonical arrangement: an A2A client asks a remote agent for something substantial; that agent uses MCP internally to reach its own tools. Neither side sees the other's tools, and neither protocol is doing the other's job.
+
+      #### Side by side
+
+      |  | MCP | A2A |
+      | --- | --- | --- |
+      | Other side | a tool or data source | an autonomous agent |
+      | Interface | JSON Schema arguments | messages and skills in prose |
+      | Duration | a call | a task, possibly hours |
+      | Visibility | you define the tool | opaque peer |
+      | Direction | down | across |
+
+      #### How it relates
+
+      - If you control both sides and want determinism, MCP plus your own **agent harness** is simpler. A2A earns its keep across an organisational boundary.
+commands:
+  heading: Essential code
+  tocLabel: Code
+  note: official SDKs exist for python, js, java, c# and go — but the wire format is small enough to read directly.
+  groups:
+    - group: The Agent Card
+      items:
+        - lang: json
+          code: |-
+            // GET https://visa.example.com/.well-known/agent-card.json
+            {
+              "name": "Visa Advisor",
+              "description": "Assesses visa eligibility for business travel and lists required documents.",
+              "version": "1.2.0",
+              "provider": { "organization": "Visa Advisor Ltd", "url": "https://visa.example.com" },
+              "documentationUrl": "https://visa.example.com/docs",
+
+              "supportedInterfaces": [
+                { "url": "https://visa.example.com/a2a", "protocolBinding": "JSONRPC",   "protocolVersion": "1.0" },
+                { "url": "grpc://visa.example.com:443",  "protocolBinding": "GRPC",      "protocolVersion": "1.0" },
+                { "url": "https://visa.example.com/v1",  "protocolBinding": "HTTP+JSON", "protocolVersion": "1.0" }
+              ],
+
+              "capabilities": { "streaming": true, "pushNotifications": true, "extendedAgentCard": false },
+
+              "securitySchemes": {
+                "oauth": { "oauth2SecurityScheme": { "flows": { "clientCredentials": {
+                  "tokenUrl": "https://visa.example.com/oauth/token",
+                  "scopes": { "assess": "Run eligibility assessments" } } } } }
+              },
+              "securityRequirements": [ { "oauth": ["assess"] } ],
+
+              "defaultInputModes":  ["text/plain", "application/pdf", "application/json"],
+              "defaultOutputModes": ["text/plain", "application/pdf"],
+
+              "skills": [
+                {
+                  "id": "assess-eligibility",
+                  "name": "Assess visa eligibility",
+                  "description": "Given nationality, destination, purpose and dates, returns an eligibility verdict, the visa class and the documents required. Does not submit applications.",
+                  "tags": ["visa", "travel", "compliance"],
+                  "examples": [
+                    "Italian citizen, 5-day business trip to the US in March, attending a conference",
+                    "Assess this application PDF and list missing documents"
+                  ]
+                }
+              ],
+              "signatures": [ { "protected": "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpPU0UiLCJraWQiOiIyMDI2LTExIn0",
+                                "signature": "MEUCIQ…" } ]
+            }
+          what: "Everything a client needs before writing code: where to send, how to authenticate, what it can ask for, and proof of who published it."
+    - group: Delegating a task
+      items:
+        - lang: json
+          code: |-
+            // POST https://visa.example.com/a2a   (Authorization: Bearer …, A2A-Version: 1.0)
+            {
+              "jsonrpc": "2.0", "id": 1, "method": "SendMessage",
+              "params": {
+                "message": {
+                  "messageId": "9f2c1b7e-…",
+                  "role": "ROLE_USER",
+                  "parts": [
+                    { "text": "Assess eligibility: Italian citizen, 5-day business trip to the US in March." },
+                    { "url": "https://files.example.com/app-4412.pdf", "mediaType": "application/pdf" }
+                  ]
+                }
+              }
+            }
+
+            // ← a Task, because this will take a while
+            { "jsonrpc": "2.0", "id": 1, "result": { "task": {
+                "id": "t_8f21",                      // server-generated: you cannot choose it
+                "contextId": "c_44a9",               // groups follow-ups to this same conversation
+                "status": { "state": "TASK_STATE_SUBMITTED", "timestamp": "2026-11-23T09:14:02Z" },
+                "artifacts": [], "history": [] } } }
+          what: "Note what is <em>not</em> here: no function name, no typed arguments. You describe the job; the agent decides how to do it."
+        - lang: bash
+          code: |-
+            # the streaming variant — ordinary SSE, readable with curl
+            curl -N https://visa.example.com/a2a \
+              -H "Authorization: Bearer $TOKEN" -H 'A2A-Version: 1.0' \
+              -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+              --data '{"jsonrpc":"2.0","id":2,"method":"SendStreamingMessage",
+                       "params":{"message":{"messageId":"…","role":"ROLE_USER",
+                                 "parts":[{"text":"Assess eligibility…"}]}}}'
+
+            # data: {"jsonrpc":"2.0","id":2,"result":{"task":{"id":"t_8f21","status":{"state":"TASK_STATE_SUBMITTED"}}}}
+            # data: {"jsonrpc":"2.0","id":2,"result":{"statusUpdate":{"taskId":"t_8f21","status":{"state":"TASK_STATE_WORKING"}}}}
+            # data: {"jsonrpc":"2.0","id":2,"result":{"artifactUpdate":{"taskId":"t_8f21","artifact":{…},"append":true}}}
+            # data: {"jsonrpc":"2.0","id":2,"result":{"statusUpdate":{"taskId":"t_8f21","status":{"state":"TASK_STATE_COMPLETED"}}}}
+          what: "Each frame wraps a `StreamResponse`: exactly one of `task`, `message`, `statusUpdate` or `artifactUpdate`, in generation order."
+    - group: A client that follows the task to the end
+      items:
+        - lang: csharp
+          code: |-
+            // C# — discover, send, stream, and handle the pauses
+            record Interface(string Url, string ProtocolBinding, string ProtocolVersion);
+            record AgentCard(string Name, Interface[] SupportedInterfaces, Capabilities Capabilities);
+
+            static readonly string[] Supported = ["JSONRPC", "HTTP+JSON"];     // we don't speak gRPC
+
+            var card = await http.GetFromJsonAsync<AgentCard>(
+                "https://visa.example.com/.well-known/agent-card.json");
+
+            // the spec's rule: first entry is preferred; take the first one we support
+            var iface = card!.SupportedInterfaces.First(i => Supported.Contains(i.ProtocolBinding));
+
+            var task = await SendMessageAsync(iface.Url, "Assess eligibility: Italian citizen…");
+
+            while (true)
+            {
+                switch (task.Status.State)
+                {
+                    case "TASK_STATE_COMPLETED":
+                        return task.Artifacts;                          // the deliverable
+
+                    case "TASK_STATE_INPUT_REQUIRED":
+                        var answer = await AskTheHumanAsync(task.Status.Message);
+                        task = await SendMessageAsync(iface.Url, answer,
+                                                      taskId: task.Id, contextId: task.ContextId);
+                        continue;                                        // same task, same context
+
+                    case "TASK_STATE_AUTH_REQUIRED":
+                        await RunConsentFlowAsync(task.Status.Message);  // reaching this state is NOT a grant
+                        task = await GetTaskAsync(iface.Url, task.Id);
+                        continue;
+
+                    case "TASK_STATE_FAILED":                            // it tried — a retry may work
+                        throw new AgentFailedException(task.Status.Message);
+
+                    case "TASK_STATE_REJECTED":                          // it declined — do NOT retry unchanged
+                    case "TASK_STATE_CANCELED":
+                        throw new AgentRefusedException(task.Status.Message);
+
+                    default:                                             // SUBMITTED / WORKING
+                        await Task.Delay(TimeSpan.FromSeconds(2));
+                        task = await GetTaskAsync(iface.Url, task.Id);
+                        continue;
+                }
+            }
+          what: The loop is the integration. Every state has a different correct response, and conflating `FAILED` with `REJECTED` is how you build a retry storm.
+        - lang: python
+          code: |-
+            # Python — the streaming client, plus an idempotent push-notification webhook
+            import json, httpx
+            from fastapi import FastAPI, Header, HTTPException
+
+            async def stream_task(url: str, text: str, token: str):
+                payload = {"jsonrpc": "2.0", "id": 1, "method": "SendStreamingMessage",
+                           "params": {"message": {"messageId": new_id(), "role": "ROLE_USER",
+                                                  "parts": [{"text": text}]}}}
+                headers = {"Authorization": f"Bearer {token}", "A2A-Version": "1.0",
+                           "Accept": "text/event-stream"}
+
+                async with httpx.AsyncClient(timeout=None) as client:          # no read timeout on a stream
+                    async with client.stream("POST", url, json=payload, headers=headers) as r:
+                        async for line in r.aiter_lines():
+                            if not line.startswith("data: "):
+                                continue
+                            result = json.loads(line[6:])["result"]
+                            if "statusUpdate" in result:
+                                yield ("status", result["statusUpdate"]["status"]["state"])
+                            elif "artifactUpdate" in result:
+                                yield ("artifact", result["artifactUpdate"]["artifact"])
+
+            # --- the webhook side: delivery is AT-LEAST-ONCE ---
+            app = FastAPI()
+            seen: set[str] = set()                                             # use Redis in production
+
+            @app.post("/a2a/push")
+            async def push(body: dict, authorization: str = Header(default="")):
+                if authorization != f"Bearer {WEBHOOK_TOKEN}":                 # the agent authenticates to US
+                    raise HTTPException(401)
+
+                update = body.get("statusUpdate") or body.get("artifactUpdate") or {}
+                key = f'{update.get("taskId")}:{body.get("messageId") or update.get("status", {}).get("timestamp")}'
+                if key in seen:
+                    return {"ok": True}                                        # duplicate: ack and ignore
+                seen.add(key)
+
+                task = await get_task(update["taskId"])                        # confirm; don't trust the payload
+                await handle(task)
+                return {"ok": True}
+          what: "Two things people skip: authenticating the inbound webhook, and re-reading the task instead of acting on a payload that may be a duplicate or a replay."
+prosCons:
+  good:
+    heading: Pros
+    items:
+      - Agents from different vendors, languages and clouds can collaborate without a shared runtime.
+      - Discovery is one HTTP GET, and the card is readable by a human as well as a machine.
+      - "Tasks are built for long-running work: states, interruptions, progress and durable artifacts."
+      - Multimodal by default — text, files, URLs and structured data in one message.
+      - Three bindings over the same semantics, so you can pick JSON-RPC, gRPC or REST to suit your estate.
+      - "Opacity is a feature across organisational boundaries: neither side exposes prompts, tools or data."
+      - Vendor-neutral governance under the Linux Foundation, with broad platform support.
+  bad:
+    heading: Cons
+    items:
+      - "Heavier than a function call: discovery, task state, streaming and webhooks for one delegation."
+      - Opacity cuts both ways — debugging a wrong answer across the boundary is genuinely hard.
+      - Skills are prose, so capability matching is fuzzy and failures are semantic rather than typed.
+      - 1.0.0 renamed methods, card fields and state values; most published examples are 0.x.
+      - "Non-determinism compounds: two agents, two loops, two sets of retries."
+      - Cost and latency are opaque too — you are paying for someone else's token spend.
+      - The ecosystem of genuinely useful public agents is still thin compared with MCP servers.
+when:
+  note: across a trust boundary → A2A. inside your own process → just call the function.
+  good:
+    heading: Use it when…
+    items:
+      - The other side is an autonomous agent you do not own and cannot see inside.
+      - Work is long-running, may produce artifacts, and may need to pause for input or consent.
+      - Agents are built by different teams or vendors in different stacks.
+      - You want capability discovery at runtime rather than hard-coded endpoints.
+      - Neither side may expose its prompts, tools, data or credentials to the other.
+  bad:
+    heading: Avoid it when…
+    items:
+      - You are exposing a system, database or API to a model. Use **MCP**.
+      - Both "agents" live in one codebase. Use a **function call** — a protocol buys nothing.
+      - The interaction is a typed request/response with a schema. Use **gRPC** or REST.
+      - You need determinism, step limits and full observability. Use an **agent harness** you control.
+      - Latency budgets are tight — discovery, task creation and polling all cost round trips.
+      - Only one consumer will ever exist. Integrate directly and revisit when there is a second.
+useCases:
+  - title: Cross-company delegation
+    body: A travel platform's agent delegates visa assessment to a specialist provider's agent. Neither exposes its tools or data; the card describes the skill, the task carries the request, and the artifact is a document the platform can store and show.
+  - title: Specialist agents inside one company
+    body: A support agent hands a pricing question to the pricing team's agent and a legal question to legal's. Each team deploys, versions and secures its own agent independently — the integration is a card URL, not a shared codebase.
+  - title: Long-running research
+    body: A task that runs for forty minutes, emits progress, streams a report artifact in chunks, and pauses once to ask which market to prioritise. Request/response could not express any of that; the task lifecycle expresses all of it.
+  - title: Human-in-the-loop compliance
+    body: A task reaches `AUTH_REQUIRED` because the remote agent needs consent to query a government system. The client drives the consent flow with the actual human, then continues the same task — the pause is in the protocol, not bolted on.
+  - title: An agent marketplace
+    body: Signed agent cards indexed in a registry, searchable by skill tags. An orchestrator picks an agent at runtime by capability rather than by hard-coded URL, and verifies the signature before sending it anything.
+gotchas:
+  items:
+    - mistake: Writing 0.x method names against a 1.0 agent
+      why: "`message/send` and `tasks/get` return method-not-found, and the error gives no hint that the names were renamed to `SendMessage` and `GetTask`."
+      fix: read `protocolVersion` on the chosen interface, send `A2A-Version`, and use the PascalCase names. An unsupported version should come back as a 400 with `application/problem+json`, which is a far clearer signal.
+    - mistake: Treating the response as a value
+      why: Client code awaits `SendMessage` and reads a result. Sometimes it gets a `Message` and works; sometimes it gets a `Task` in `SUBMITTED` and silently returns nothing useful.
+      fix: branch on which you received, and for a task run the follow loop to a terminal state. Both shapes are normal and both must be handled.
+    - mistake: Conflating FAILED, REJECTED and CANCELED
+      why: All three are terminal, so the client retries all of them. `REJECTED` means the agent declined the request — retrying unchanged is a loop that will never succeed, and may be billed each time.
+      fix: retry `FAILED` with backoff, never retry `REJECTED` without changing the request, and treat `CANCELED` as someone's deliberate decision.
+    - mistake: Inventing task or context ids
+      why: A client generates a `taskId` to correlate work. The server rejects it, or worse, a mismatched `contextId` and `taskId` pair is refused for reasons that are hard to read.
+      fix: both ids are server-generated. Store what you are given and send it back unchanged; carry `contextId` forward only for genuine follow-ups.
+    - mistake: Streaming behind a buffering proxy
+      why: The SSE stream produces nothing for twenty minutes and then everything at once, because a reverse proxy buffered the response. The agent looks broken and is not.
+      fix: disable response buffering on the streaming route, keep read timeouts long, and fall back to push notifications for genuinely long tasks.
+    - mistake: Trusting push notifications
+      why: The webhook accepts any POST and acts on the payload. Delivery is at-least-once, so duplicates double-process — and an unauthenticated endpoint will happily act on a forged one.
+      fix: authenticate the inbound call with the token you registered, deduplicate on task id plus event identity, and call `GetTask` to confirm before doing anything irreversible.
+    - mistake: Ignoring the card's interface order
+      why: The client picks gRPC because it is listed, or hard-codes the first URL it saw. Both ignore the rule that the first entry is preferred among those you support — and that a declared `tenant` must be sent.
+      fix: filter `supportedInterfaces` to the bindings you implement, take the earliest, and propagate `tenant` exactly as declared or omit it entirely.
+    - mistake: Unsigned cards fetched over an unverified path
+      why: The card says where to send work and what the agent claims. Fetched without verification, a substituted card redirects every delegation to someone else's endpoint.
+      fix: HTTPS with certificate verification, verify the JWS `signatures` where present, and pin the issuer for agents you depend on.
+    - mistake: No budget on delegated work
+      why: A remote agent runs for an hour on its own schedule, spending your money under a contract you did not read closely. Nothing in the protocol caps it for you.
+      fix: set your own deadline, call `CancelTask` when it passes, and keep per-counterparty budgets and timeouts the way you would for any external dependency.
+alternatives:
+  columns: [ Approach, Best for, Complexity, Cost / license, Key difference vs A2A ]
+  rows:
+    - self: true
+      cells:
+        - "**A2A**"
+        - agents collaborating across boundaries
+        - Medium
+        - open, Apache 2.0
+        - —
+    - cells:
+        - "**MCP**"
+        - connecting a model to tools and data
+        - Medium
+        - open spec
+        - Typed tool calls you define, not opaque peers; the two compose
+    - cells:
+        - "**Direct REST / gRPC**"
+        - a typed, deterministic service
+        - Low
+        - free
+        - No discovery, no task lifecycle, no interruptions — and far simpler
+    - cells:
+        - "**One multi-agent framework**"
+        - agents you own, in one runtime
+        - Low–Medium
+        - free
+        - Shared memory and full visibility, but only within that framework
+    - cells:
+        - "**Message queue**"
+        - asynchronous work at scale
+        - Medium
+        - infrastructure
+        - Durable delivery and decoupling, but you define every message and state yourself
+    - cells:
+        - "**Workflow engine**"
+        - long-running deterministic processes
+        - Medium–High
+        - infrastructure or service
+        - Durable, replayable orchestration of steps you control, not autonomous peers
+  notes:
+    - "**Pick MCP** when the other side is a system you are exposing rather than an agent that reasons."
+    - "**Pick direct REST or gRPC** when the request has a schema and the answer is deterministic."
+    - "**Pick a framework** when you own every agent and want shared state and end-to-end traces."
+    - "**Pick a workflow engine** such as **Azure Durable Functions** when the process must be reliable and replayable rather than autonomous."
+    - "**Use A2A with MCP**: A2A across the boundary, MCP from each agent down to its own tools."
+resources:
+  - url: https://a2a-protocol.org/latest/specification/
+    title: The A2A specification
+    why: the normative document, including the card, the bindings and the task lifecycle.
+  - url: https://a2a-protocol.org/latest/topics/key-concepts/
+    title: Key concepts
+    why: the shortest accurate introduction to tasks, messages, parts and artifacts.
+  - url: https://github.com/a2aproject
+    title: a2aproject on GitHub
+    why: the specification repository and the official SDKs for Python, JavaScript, Java, C# and Go.
+  - url: https://www.linuxfoundation.org/press/linux-foundation-launches-the-agent2agent-protocol-project-to-enable-secure-intelligent-communication-between-ai-agents
+    title: Linux Foundation announcement
+    why: the governance context and who is behind the project.
+  - url: https://modelcontextprotocol.io/specification/latest
+    title: The MCP specification
+    why: the other half of the picture, for the tools layer underneath each agent.
