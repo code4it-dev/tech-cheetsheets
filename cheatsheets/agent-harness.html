@@ -1,0 +1,871 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Agent harness · Tech cheatsheets</title>
+<meta name="description" content="Agent harness cheatsheet: the loop, tool dispatch, context compaction, budgets, stop conditions, approvals and observability — the code around the model that makes it an agent.">
+<meta name="aliases" content="Agent harness, harness, agent loop, agentic loop, agent scaffold, scaffolding, agent runtime, ReAct loop, context compaction">
+<meta name="related" content="mcp, a2a, rag, semantic-caching, retry-backoff-jitter">
+<meta name="keywords" content="agent harness, agent loop, llm agents, tool calling, context window, compaction, budgets, observability, ai">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../assets/notebook.css?v=389a30cc">
+<script src="../assets/site.js?v=c271985e" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
+</head>
+<body data-root="..">
+<div class="layout">
+  <nav class="toc" aria-label="Sections">
+    <a href="#overview">Overview</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#concepts">Key concepts</a>
+    <a href="#commands">Code</a>
+    <a href="#pros-cons">Pros &amp; cons</a>
+    <a href="#use-cases">Use cases</a>
+    <a href="#when">When to use</a>
+    <a href="#gotchas">Gotchas</a>
+    <a href="#alternatives">Alternatives</a>
+    <a href="#resources">Resources</a>
+    <a href="#related">Related</a>
+  </nav>
+
+  <main>
+    <header class="hero" id="overview">
+      <h1>Agent harness</h1>
+      <p class="tagline">The model is a function from text to text. Everything that makes it an agent is code you wrote.</p>
+      <span class="meta">As of Nov 2026 · examples use Microsoft.Extensions.AI and the OpenAI Python SDK</span>
+      <p>An <b>agent harness</b> is the loop and the scaffolding around a language model: it assembles the prompt, offers a set of tools, calls the model, dispatches whatever tool the model asked for, appends the result, and calls again &mdash; until a stop condition fires. It also enforces the budgets, applies the approval policy, compacts the context when it fills, catches the errors, and records what happened.</p>
+      <p>None of that is the model's job and none of it is the protocol's. <b>MCP</b> defines how a tool is described and invoked; <b>A2A</b> defines how two agents exchange tasks. Neither says how many steps are allowed, what happens when the context window fills, whether a deletion needs a human, or how you find out afterwards why the thing looped eleven times. That is the harness, and it is where agent quality actually comes from.</p>
+      <p>Two systems with the same model and the same tools can differ enormously in reliability depending on their harness. The failure modes are unglamorous and consistent: unbounded loops, a context window that silently overflows, tool errors the model cannot interpret, no record of what happened. Each has a known, boring fix.</p>
+      <p class="meta">Note: in testing, "harness" means a test runner. This page is about the agent harness &mdash; the runtime loop around a model.</p>
+    </header>
+
+    <section id="architecture">
+      <h2>Architecture / mental model</h2>
+      <div class="diagram">
+        <svg viewBox="0 0 800 364" role="img" aria-label="An agent harness surrounding a model: prompt assembly, the loop, tool dispatch, context management, policy, budgets and observability">
+          <defs>
+            <marker id="ha-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+          </defs>
+          <text x="400" y="20" font-size="12.5" text-anchor="middle" fill="#5f6f66">the model is the small box in the middle</text>
+
+          <rect x="16" y="36" width="768" height="236" rx="10" fill="#fbfcf8" stroke="#2f6b3f" stroke-width="2"/>
+          <text x="32" y="58" font-size="11.5" fill="#2f6b3f" font-weight="700">THE HARNESS &mdash; your code</text>
+
+          <rect x="300" y="128" width="200" height="72" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="2"/>
+          <text x="400" y="154" font-size="11" text-anchor="middle" fill="#23362e" font-weight="700">the model</text>
+          <text x="400" y="172" font-size="9.5" text-anchor="middle" fill="#5f6f66">messages in, message out</text>
+          <text x="400" y="190" font-size="9.5" text-anchor="middle" fill="#5f6f66">stateless, every single call</text>
+
+          <rect x="32" y="72" width="170" height="46" rx="6" fill="#e8ece2" stroke="#a9b5a6"/>
+          <text x="117" y="92" font-size="9.5" text-anchor="middle" fill="#23362e" font-weight="600">prompt assembly</text>
+          <text x="117" y="108" font-size="8.5" text-anchor="middle" fill="#5f6f66">instructions · context · history</text>
+
+          <rect x="216" y="72" width="170" height="46" rx="6" fill="#e8ece2" stroke="#a9b5a6"/>
+          <text x="301" y="92" font-size="9.5" text-anchor="middle" fill="#23362e" font-weight="600">tool registry</text>
+          <text x="301" y="108" font-size="8.5" text-anchor="middle" fill="#5f6f66">local fns · MCP servers</text>
+
+          <rect x="400" y="72" width="170" height="46" rx="6" fill="#e8ece2" stroke="#a9b5a6"/>
+          <text x="485" y="92" font-size="9.5" text-anchor="middle" fill="#23362e" font-weight="600">policy &amp; approval</text>
+          <text x="485" y="108" font-size="8.5" text-anchor="middle" fill="#5f6f66">what needs a human</text>
+
+          <rect x="584" y="72" width="184" height="46" rx="6" fill="#e8ece2" stroke="#a9b5a6"/>
+          <text x="676" y="92" font-size="9.5" text-anchor="middle" fill="#23362e" font-weight="600">budgets &amp; limits</text>
+          <text x="676" y="108" font-size="8.5" text-anchor="middle" fill="#5f6f66">steps · tokens · wall clock</text>
+
+          <rect x="32" y="210" width="170" height="46" rx="6" fill="#e8ece2" stroke="#a9b5a6"/>
+          <text x="117" y="230" font-size="9.5" text-anchor="middle" fill="#23362e" font-weight="600">context management</text>
+          <text x="117" y="246" font-size="8.5" text-anchor="middle" fill="#5f6f66">compaction · pruning</text>
+
+          <rect x="216" y="210" width="170" height="46" rx="6" fill="#e8ece2" stroke="#a9b5a6"/>
+          <text x="301" y="230" font-size="9.5" text-anchor="middle" fill="#23362e" font-weight="600">tool dispatch</text>
+          <text x="301" y="246" font-size="8.5" text-anchor="middle" fill="#5f6f66">validate · run · summarise</text>
+
+          <rect x="400" y="210" width="170" height="46" rx="6" fill="#e8ece2" stroke="#a9b5a6"/>
+          <text x="485" y="230" font-size="9.5" text-anchor="middle" fill="#23362e" font-weight="600">error handling</text>
+          <text x="485" y="246" font-size="8.5" text-anchor="middle" fill="#5f6f66">retry · reframe · give up</text>
+
+          <rect x="584" y="210" width="184" height="46" rx="6" fill="#e8ece2" stroke="#a9b5a6"/>
+          <text x="676" y="230" font-size="9.5" text-anchor="middle" fill="#23362e" font-weight="600">traces &amp; evals</text>
+          <text x="676" y="246" font-size="8.5" text-anchor="middle" fill="#5f6f66">every step, replayable</text>
+
+          <line x1="400" y1="122" x2="400" y2="124" stroke="#5f6f66" stroke-width="1.5"/>
+          <path d="M 250 150 L 294 150" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#ha-arr)" fill="none"/>
+          <path d="M 506 178 L 550 178" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#ha-arr)" fill="none"/>
+          <path d="M 554 178 L 554 206 L 310 206" stroke="#5f6f66" stroke-width="1.5" fill="none"/>
+          <path d="M 246 206 L 246 154 L 294 154" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#ha-arr)" fill="none" stroke-dasharray="4 3"/>
+          <text x="236" y="186" font-size="9" fill="#5f6f66">loop</text>
+
+          <text class="hand" x="400" y="302" fill="#c53b3b" font-size="16" text-anchor="middle">swap the model and you change the ceiling. swap the harness and you change the floor.</text>
+          <text x="400" y="334" font-size="11" text-anchor="middle" fill="#5f6f66">the model holds no state between calls &mdash; the entire &ldquo;memory&rdquo; of an agent is a list the harness maintains</text>
+        </svg>
+      </div>
+      <p class="caption">Each call to the model is stateless. The agent is the list of messages, and the rules for what goes in it.</p>
+    </section>
+
+    <section id="how-it-works">
+      <h2>How it works</h2>
+      <p style="margin:0 0 18px">The first animation runs a real task through the loop, with the budget counters visible. The second is context compaction &mdash; the thing that decides whether a long task finishes or degrades.</p>
+      <span class="note" style="margin:-8px 0 18px">the loop is ten lines. everything that makes it survive production is the other four hundred.</span>
+
+      <div class="anim" id="anim-loop">
+        <h3>1 &middot; The loop, with the budget running</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 336" role="img" aria-label="An agent loop: the model requests a tool, the harness dispatches it, appends the result, and calls again until a stop condition fires">
+            <defs>
+              <marker id="hl-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+            <text id="hl-phase" x="400" y="20" font-size="12.5" text-anchor="middle" fill="#5f6f66">task: &ldquo;which customers are over their credit limit, and by how much?&rdquo;</text>
+
+            <rect id="hl-ctx" x="16" y="46" width="200" height="62" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="116" y="70" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">the message list</text>
+            <text id="hl-ctxt" x="116" y="90" font-size="9.5" text-anchor="middle" fill="#5f6f66">2 messages</text>
+
+            <rect id="hl-model" x="300" y="46" width="200" height="62" rx="6" fill="#fbf3c4" stroke="#d9c25a" stroke-width="2"/>
+            <text x="400" y="70" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="700">the model</text>
+            <text id="hl-modelt" x="400" y="90" font-size="9.5" text-anchor="middle" fill="#5f6f66">idle</text>
+
+            <rect id="hl-tools" x="584" y="46" width="200" height="62" rx="6" fill="#e3eedc" stroke="#2f6b3f" stroke-width="2"/>
+            <text x="684" y="70" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="700">tools</text>
+            <text id="hl-toolst" x="684" y="90" font-size="9.5" text-anchor="middle" fill="#5f6f66">3 registered</text>
+
+            <line x1="220" y1="77" x2="294" y2="77" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#hl-arr)"/>
+            <line x1="504" y1="77" x2="578" y2="77" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#hl-arr)"/>
+
+            <g id="hl-msg" class="hidden">
+              <rect x="16" y="114" width="200" height="24" rx="5" fill="#e8ece2" stroke="#a9b5a6"/>
+              <text id="hl-msgt" x="116" y="130" font-size="8.5" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">&nbsp;</text>
+            </g>
+
+            <rect id="hl-tr" x="16" y="150" width="440" height="140" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text id="hl-trt" x="30" y="170" font-size="11" fill="#23362e" font-weight="700">the message list the harness owns</text>
+            <text id="hl-t1" x="30" y="190" font-size="8.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="hl-t2" x="30" y="208" font-size="8.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="hl-t3" x="30" y="226" font-size="8.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="hl-t4" x="30" y="244" font-size="8.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="hl-t5" x="30" y="262" font-size="8.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="hl-t6" x="30" y="280" font-size="8.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+
+            <rect id="hl-bud" x="472" y="150" width="312" height="140" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text id="hl-bt" x="486" y="170" font-size="11" fill="#23362e" font-weight="700">what the harness is counting</text>
+            <text id="hl-b1" x="486" y="192" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">steps:   0 / 12</text>
+            <text id="hl-b2" x="486" y="212" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">tokens:  0 / 60,000</text>
+            <text id="hl-b3" x="486" y="232" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">wall:    0.0s / 120s</text>
+            <text id="hl-b4" x="486" y="252" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">cost:    $0.000</text>
+            <text id="hl-b5" x="486" y="272" font-size="9.5" fill="#5f6f66">&nbsp;</text>
+
+            <rect id="hl-verd" x="16" y="300" width="768" height="28" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text id="hl-v" x="400" y="319" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="700">the model never remembers — the list is resent in full, every single call</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <div class="anim" id="anim-compact">
+        <h3>2 &middot; The context window fills, and what you do about it</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 318" role="img" aria-label="A context window filling up with tool results, then being compacted by summarising old turns and pruning large tool outputs">
+            <text id="hc-phase" x="400" y="20" font-size="12.5" text-anchor="middle" fill="#5f6f66">a 200k context window, drawn as 24 blocks of ~8k tokens each</text>
+
+            <text id="hc-legend" x="16" y="46" font-size="10" fill="#5f6f66">■ system + tools &nbsp; ■ conversation &nbsp; ■ tool results &nbsp; □ free</text>
+
+            <rect id="hc-c0" x="16" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c1" x="48" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c2" x="80" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c3" x="112" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c4" x="144" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c5" x="176" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c6" x="208" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c7" x="240" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c8" x="272" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c9" x="304" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c10" x="336" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c11" x="368" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c12" x="400" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c13" x="432" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c14" x="464" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c15" x="496" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c16" x="528" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c17" x="560" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c18" x="592" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c19" x="624" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c20" x="656" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c21" x="688" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c22" x="720" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+            <rect id="hc-c23" x="752" y="60" width="30" height="36" rx="3" fill="#e8ece2" stroke="#a9b5a6"/>
+
+            <text id="hc-gauge" x="400" y="118" font-size="11" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">0 / 200,000 tokens</text>
+
+            <rect id="hc-panel" x="16" y="130" width="768" height="140" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text id="hc-pt" x="30" y="150" font-size="11" fill="#23362e" font-weight="700">what is in there</text>
+            <text id="hc-p1" x="30" y="172" font-size="9" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="hc-p2" x="30" y="190" font-size="9" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="hc-p3" x="30" y="208" font-size="9" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="hc-p4" x="30" y="226" font-size="9" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="hc-p5" x="30" y="244" font-size="9" fill="#5f6f66">&nbsp;</text>
+            <text id="hc-p6" x="30" y="262" font-size="9" fill="#5f6f66">&nbsp;</text>
+
+            <rect id="hc-verd" x="16" y="282" width="768" height="28" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text id="hc-v" x="400" y="301" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="700">a long task is a context management problem wearing a reasoning costume</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+    </section>
+
+    <section id="concepts">
+      <h2>Key concepts</h2>
+      <div class="terms">
+        <div class="term"><b>The loop</b><span>Call the model, dispatch any tool it asked for, append the result, call again — until a stop condition fires.</span><template class="term-detail" data-see="Stop conditions, Tool dispatch, Step budget, Message list">
+          <p>Stripped to its essentials the loop is about ten lines, and that is genuinely all there is to the "agentic" part. The model emits either a final answer or one or more tool calls; the harness runs them, appends results as messages, and calls again. Nothing in the model persists between iterations.</p>
+          <p>What varies between harnesses is everything around that: whether tool calls run in parallel, whether the model is shown errors or just a retry, whether intermediate thinking is kept, and what counts as finished. Those choices are worth more than the model choice for most tasks.</p>
+          <pre class="language-csharp line-numbers"><code class="language-csharp">while (true) {
+    var reply = await model.CompleteAsync(messages, tools);
+    messages.Add(reply);
+    if (reply.ToolCalls.Count == 0) return reply.Text;   // done
+    foreach (var call in reply.ToolCalls)
+        messages.Add(await Dispatch(call));              // results go back in
+    if (budget.Exceeded) return Stop(messages);          // and the escape hatch
+}</code></pre>
+          <h4>How it relates</h4>
+          <ul><li>Without <b>Stop conditions</b> and a <b>Step budget</b>, that <code>while (true)</code> is exactly as dangerous as it looks.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Message list</b><span>The agent's entire memory: an ordered list of messages the harness resends in full on every call.</span><template class="term-detail" data-see="Context compaction, The loop, Tool result shaping">
+          <p>The model is stateless. There is no session on the provider's side holding your conversation; each request carries the whole list, and the "agent remembers" only because the harness keeps appending. Understanding this explains the cost curve: step 12 is far more expensive than step 1 because it resends everything from steps 1 through 11.</p>
+          <p>The list has structure worth respecting: a system message that rarely changes (which is what makes <b>prompt caching</b> effective), then alternating user, assistant and tool-result messages. Tool results must be linked to the call that produced them, or the model loses track of which answer belongs to which question.</p>
+          <h4>What grows fastest</h4>
+          <table>
+            <tr><th>Part</th><th>Growth</th></tr>
+            <tr><td>System prompt</td><td>fixed</td></tr>
+            <tr><td>Tool definitions</td><td>fixed, per turn</td></tr>
+            <tr><td>Conversation</td><td>linear</td></tr>
+            <tr><td>Tool results</td><td>unbounded &mdash; the usual culprit</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Cost is quadratic-ish in steps for a fixed tool output size, which is why <b>Tool result shaping</b> pays twice.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Tool registry</b><span>The set of tools offered on each call — local functions, MCP servers, or other agents.</span><template class="term-detail" data-see="Tool dispatch, Tool result shaping, Message list">
+          <p>The registry maps names to implementations and produces the JSON Schema definitions sent to the model. Tools may be plain functions in your process, tools discovered from <b>MCP</b> servers, retrieval over a <b>RAG</b> index, or a delegation to another agent over <b>A2A</b> &mdash; the model sees one flat list regardless.</p>
+          <p>The list is a context cost on <em>every</em> turn, and a selection problem: past roughly twenty tools, accuracy falls because descriptions start to overlap. The fix is scoping rather than pruning &mdash; offer only the tools relevant to the current phase of the task.</p>
+          <h4>Common values</h4>
+          <table>
+            <tr><th>Setting</th><th>Typical</th></tr>
+            <tr><td>Tools offered per call</td><td>5&ndash;20</td></tr>
+            <tr><td>Cost of a definition</td><td>80&ndash;300 tokens each</td></tr>
+            <tr><td>Scoping strategy</td><td>by phase, by user permission, by task type</td></tr>
+            <tr><td>Parallel calls</td><td>allow for reads, serialise writes</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Permissions belong here too: a user who cannot delete should not be offered a delete tool at all.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Tool dispatch</b><span>Validating arguments, running the tool, enforcing timeouts, and turning whatever happens into a message.</span><template class="term-detail" data-see="Tool result shaping, Error reframing, Approval policy">
+          <p>Dispatch is where a harness earns its reliability. Arguments arrive as model-generated JSON and must be validated against the schema before anything runs &mdash; the schema is advice to the model, not a guarantee. Every tool needs a timeout, a cancellation path and a concurrency limit, because a model will cheerfully ask for forty parallel calls.</p>
+          <p>Writes need more: idempotency keys so a retried call does not duplicate an order, and serialisation so two parallel calls do not conflict. Reads can run concurrently and usually should &mdash; it is the cheapest latency win in the loop.</p>
+          <h4>Common values</h4>
+          <table>
+            <tr><th>Control</th><th>Typical</th></tr>
+            <tr><td>Per-tool timeout</td><td>5&ndash;30 s</td></tr>
+            <tr><td>Parallel reads</td><td>4&ndash;8 at once</td></tr>
+            <tr><td>Writes</td><td>serialised, idempotency key required</td></tr>
+            <tr><td>Argument validation</td><td>always, before execution</td></tr>
+            <tr><td>Output cap</td><td>2&ndash;8k tokens, then truncate with a note</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Duplicate side effects from retried tool calls are the same problem as everywhere else &mdash; see <b>Idempotency &amp; deduplication</b>.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Tool result shaping</b><span>Deciding what the model actually sees from a tool — rarely the raw output.</span><template class="term-detail" data-see="Context compaction, Message list, Tool dispatch">
+          <p>A query returns 4,000 rows; a file read returns 200 KB; an HTTP call returns a page of HTML. Putting any of those into the message list unchanged burns the window, costs money on every subsequent turn, and buries the three lines that mattered.</p>
+          <p>Shape it: cap rows, project to relevant fields, summarise, and tell the model what was dropped and how to get more. "Showing 20 of 4,312 rows. Narrow the date range or call <code>aggregate_orders</code> for totals." is a better result than the rows, because it is both an answer and an instruction.</p>
+          <h4>Shaping rules</h4>
+          <table>
+            <tr><th>Output</th><th>Shape</th></tr>
+            <tr><td>Query rows</td><td>cap + projection + total count</td></tr>
+            <tr><td>Large file</td><td>relevant span + offsets, not the file</td></tr>
+            <tr><td>HTML page</td><td>extracted text, not markup</td></tr>
+            <tr><td>Long logs</td><td>matching lines + context</td></tr>
+            <tr><td>Binary</td><td>a reference, never the bytes</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Shaping is cheaper than <b>Context compaction</b> and loses nothing, because you discard before it ever enters the list.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Context compaction</b><span>Summarising or pruning the message list when it approaches the window limit.</span><template class="term-detail" data-see="Message list, Tool result shaping, Handoff note">
+          <p>Long tasks run out of window. The options are: drop old messages (cheap, loses facts), summarise old messages into one (keeps the gist, loses detail), externalise to a file or store the agent can re-read (keeps everything, costs a lookup), or hand off to a fresh context with a written brief.</p>
+          <p>Compaction must be triggered on a threshold rather than on failure &mdash; typically 70&ndash;80% of the window &mdash; because the summarisation call itself needs room. And it must preserve the load-bearing parts: the original task, decisions made, and anything irreversible that has already happened.</p>
+          <h4>Common values</h4>
+          <table>
+            <tr><th>Setting</th><th>Typical</th></tr>
+            <tr><td>Trigger</td><td>70&ndash;80% of the window</td></tr>
+            <tr><td>Keep verbatim</td><td>system, original task, last 2&ndash;3 turns</td></tr>
+            <tr><td>Summarise</td><td>everything older, into ~500 tokens</td></tr>
+            <tr><td>Always preserve</td><td>decisions, side effects already performed</td></tr>
+            <tr><td>Externalise</td><td>large artefacts to files, keep paths</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Compaction is lossy by construction. The best compaction is the tool output you never added &mdash; see <b>Tool result shaping</b>.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Step budget</b><span>A hard cap on iterations, tokens, wall-clock time and money — enforced by the harness, not hoped for.</span><template class="term-detail" data-see="Stop conditions, The loop, Cost accounting">
+          <p>Agents fail by looping. A tool returns an error the model misreads, so it tries again; a search returns nothing, so it rephrases forever; two tools disagree, so it oscillates. Without a cap, that runs until something else breaks &mdash; usually your bill.</p>
+          <p>Budget on all four axes, because any one alone has a hole: steps miss a single enormous call, tokens miss a slow one, time misses a cheap fast loop, cost is the one finance cares about. And decide what happens at the limit: returning partial work with an explanation is nearly always better than throwing.</p>
+          <h4>Common values</h4>
+          <table>
+            <tr><th>Task type</th><th>Steps</th><th>Tokens</th><th>Wall clock</th></tr>
+            <tr><td>Question answering</td><td>3&ndash;5</td><td>20k</td><td>30 s</td></tr>
+            <tr><td>Research / multi-hop</td><td>10&ndash;20</td><td>100k</td><td>3 min</td></tr>
+            <tr><td>Coding task</td><td>30&ndash;80</td><td>500k+</td><td>20 min</td></tr>
+            <tr><td>Background / batch</td><td>100+</td><td>budgeted in money</td><td>hours</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Alert on how often the budget is hit. A rising rate is a regression signal long before users complain.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Stop conditions</b><span>Every way the loop can legitimately end, including the unhappy ones.</span><template class="term-detail" data-see="Step budget, The loop, Error reframing">
+          <p>"The model stopped calling tools" is one stop condition, not the only one. A complete list: a final answer, a budget exhausted, a cancellation from the user, a tool signalling terminal failure, a required approval denied, a repeated-state detector firing, or an explicit <code>finish</code> tool the model can call.</p>
+          <p>The repeated-state detector is underused and cheap: hash the last few tool calls and their arguments, and if the same pair repeats three times, stop. It catches the most common loop shape before the budget does, and it can say <em>why</em> it stopped.</p>
+          <h4>How it relates</h4>
+          <ul><li>Make the stop reason part of the result. "Stopped after 12 steps while searching" is actionable; a timeout is not.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Error reframing</b><span>Turning a tool failure into something the model can act on, instead of a stack trace or a silent retry.</span><template class="term-detail" data-see="Tool dispatch, Stop conditions, Step budget">
+          <p>Errors are prompts. <code>System.NullReferenceException at Orders.Get</code> tells the model nothing and invites an identical retry. "No customer with id CUST-99. Ids look like CUST-4412. Use <code>search_customers</code> to find one by name." tells it exactly what to do next, and it usually does.</p>
+          <p>Classify before reframing. Transient errors (timeout, 503) should be retried by the harness with backoff, invisibly. Permanent errors (not found, forbidden, bad argument) should go to the model as guidance. Fatal errors (credentials revoked) should stop the loop, because no amount of rephrasing will fix them.</p>
+          <h4>Three classes</h4>
+          <table>
+            <tr><th>Class</th><th>Who handles it</th><th>Example</th></tr>
+            <tr><td>Transient</td><td>harness retries, model never sees it</td><td>timeout, 429, 503</td></tr>
+            <tr><td>Semantic</td><td>model, as a reframed message</td><td>not found, bad argument</td></tr>
+            <tr><td>Fatal</td><td>stop the loop</td><td>auth revoked, budget gone</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Harness-level retries use ordinary <b>Retry, backoff &amp; jitter</b>; model-level retries are a different mechanism and must be counted separately.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Approval policy</b><span>Which actions require a human, and how that is enforced outside the model's judgement.</span><template class="term-detail" data-see="Tool dispatch, Tool registry, Observability">
+          <p>The model should not decide whether an action is dangerous &mdash; it can be persuaded, and it can be wrong. Classify tools in the registry: auto-run, approve once per session, approve every time, never. Enforce it in dispatch, where it cannot be argued with.</p>
+          <p>The approval prompt must show the <em>actual</em> arguments, rendered for a human: "Delete 1,284 rows from <code>orders</code> where status = 'draft'", not "run SQL". Most harmful actions are caught at this step by someone reading the parameters, not the intent.</p>
+          <h4>A workable classification</h4>
+          <table>
+            <tr><th>Tool</th><th>Policy</th></tr>
+            <tr><td>Read, search, list</td><td>auto</td></tr>
+            <tr><td>Write to a draft or sandbox</td><td>auto, logged</td></tr>
+            <tr><td>Send, publish, charge, deploy</td><td>approve each time</td></tr>
+            <tr><td>Delete, grant access, move money</td><td>approve each time, show arguments</td></tr>
+            <tr><td>Anything on production data</td><td>allow-list, or not at all</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Prompt injection turns into action only where a write tool exists without approval. Separating read agents from write agents removes the class.</li></ul>
+        </template></div>
+
+        <div class="term"><b>System prompt</b><span>The standing instructions: role, constraints, tool guidance, output format and the refusal path.</span><template class="term-detail" data-see="Tool registry, Message list, Evals">
+          <p>It is the one piece of text present in every call, so it is both the most leveraged and the most expensive prose in the system. Useful content: who the agent is and what it is for, hard constraints, when to use which tool, what to do when it does not know, and the required output shape.</p>
+          <p>Keep it stable. Changing it invalidates prompt caching, and it is the variable that most quietly changes behaviour, so it deserves a version number that shows up in your traces and in your evaluation runs.</p>
+          <h4>What belongs where</h4>
+          <table>
+            <tr><th>Content</th><th>Put it in</th></tr>
+            <tr><td>Role, constraints, output format</td><td>system prompt</td></tr>
+            <tr><td>When to use a tool</td><td>the tool's description</td></tr>
+            <tr><td>Facts about the world</td><td>retrieval, not the prompt</td></tr>
+            <tr><td>The current task</td><td>the user message</td></tr>
+            <tr><td>Hard rules</td><td>code, not prose</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Anything that must <em>never</em> happen belongs in the harness. A prompt is a preference; dispatch is a rule.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Subagents</b><span>Delegating a bounded piece of work to a fresh context, and getting back only the conclusion.</span><template class="term-detail" data-see="Context compaction, Handoff note, Step budget">
+          <p>A subagent is a second loop with its own message list, its own tools and its own budget. The parent sends a brief and receives a summary &mdash; which means the subagent's forty tool results never enter the parent's window. That is the main reason to use one: context isolation, not parallelism.</p>
+          <p>It costs real money and two lossy handoffs: the brief you write, and the summary you get back. Use it for genuinely independent work &mdash; several searches, several files, several candidate approaches &mdash; and not for steps that depend on each other.</p>
+          <h4>When it pays</h4>
+          <table>
+            <tr><th>Situation</th><th>Subagent?</th></tr>
+            <tr><td>Search 200 files for a pattern</td><td>yes &mdash; only the answer returns</td></tr>
+            <tr><td>Three independent investigations</td><td>yes, in parallel</td></tr>
+            <tr><td>Step B needs step A's output</td><td>no</td></tr>
+            <tr><td>A two-tool-call question</td><td>no &mdash; the overhead exceeds the work</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>A subagent is a tool from the parent's point of view, so it goes through the same dispatch, budget and approval machinery.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Handoff note</b><span>The written brief that carries a task across a compaction, a subagent boundary or a session restart.</span><template class="term-detail" data-see="Context compaction, Subagents, Message list">
+          <p>Whenever context is discarded, something must carry the task forward. A handoff note is that something: the original goal, what has been established, what has already been done irreversibly, what is left, and what "finished" looks like. Written by the model, kept by the harness, prepended to the new context.</p>
+          <p>Its quality is the single best predictor of whether a long task survives compaction. A note that says "continuing the investigation" is worthless; one that lists three ruled-out hypotheses and two file paths lets the next context resume properly.</p>
+          <h4>What a good note contains</h4>
+          <table>
+            <tr><th>Section</th><th>Why</th></tr>
+            <tr><td>Original goal, verbatim</td><td>drift is the main failure</td></tr>
+            <tr><td>Established facts</td><td>prevents re-discovery</td></tr>
+            <tr><td>Ruled out, with reasons</td><td>prevents re-trying</td></tr>
+            <tr><td>Side effects already performed</td><td>prevents repeating them</td></tr>
+            <tr><td>Next step and done criteria</td><td>resumability</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>In <b>A2A</b> this is the same idea between agents, and there it is a protocol object rather than a convention.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Observability</b><span>A replayable trace of every call, tool invocation, token count and decision.</span><template class="term-detail" data-see="Evals, Cost accounting, Stop conditions">
+          <p>Agent bugs are not reproducible from a log line. You need the full sequence &mdash; prompts, tool calls, arguments, results, timings, token counts, stop reason &mdash; as a trace you can replay. OpenTelemetry's GenAI conventions give you spans per model call and per tool call that sit alongside your existing traces.</p>
+          <p>Record prompt and tool-schema versions too, so a behaviour change can be attributed. And store the stop reason as a first-class field: the distribution of stop reasons is the single most informative agent metric there is.</p>
+          <h4>What to record per run</h4>
+          <table>
+            <tr><th>Field</th><th>Use</th></tr>
+            <tr><td>steps, tokens in/out, cost</td><td>budgets and spend</td></tr>
+            <tr><td>tool name, args, duration, outcome</td><td>debugging</td></tr>
+            <tr><td>stop reason</td><td>the key health metric</td></tr>
+            <tr><td>prompt + schema version</td><td>attribution</td></tr>
+            <tr><td>compaction events</td><td>explains sudden amnesia</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Latency here is wildly long-tailed, so report <b>percentiles</b> rather than averages.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Evals</b><span>A fixed set of tasks with checkable outcomes, run on every change to the harness.</span><template class="term-detail" data-see="Observability, System prompt, Step budget">
+          <p>Agents cannot be regression-tested by trying three prompts by hand, because they are non-deterministic and the surface is large. An eval suite is a set of tasks with programmatic success criteria &mdash; did the right tool get called, is the final state correct, did it stay within budget &mdash; run repeatedly and tracked over time.</p>
+          <p>Prefer checking <em>end state</em> over output text: "the ticket is now closed with this label" is objective, "the summary mentions X" is a judgement call. Run each task several times and record the pass rate, because a 70% agent and a 95% agent can both pass a single run.</p>
+          <h4>What to measure</h4>
+          <table>
+            <tr><th>Metric</th><th>Tells you</th></tr>
+            <tr><td>Task success rate</td><td>the headline</td></tr>
+            <tr><td>Steps to success</td><td>efficiency and drift</td></tr>
+            <tr><td>Cost per task</td><td>what scale will cost</td></tr>
+            <tr><td>Harmful-action rate</td><td>the number that must be zero</td></tr>
+            <tr><td>Variance across runs</td><td>whether you can trust one run</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Build evals before tuning the prompt. Otherwise every change is a feeling, and the regressions are invisible.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Cost accounting</b><span>Knowing what a task costs before it is running at a thousand a day.</span><template class="term-detail" data-see="Step budget, Message list, Observability">
+          <p>Agent cost is dominated by resent context. Each step resends everything before it, so total input tokens grow roughly with the square of the step count for a fixed per-step output size. A ten-step task with 5k of tool output per step is not 50k tokens of input &mdash; it is closer to 275k.</p>
+          <h4>A worked estimate</h4>
+          <table>
+            <tr><th>Quantity</th><th>Value</th></tr>
+            <tr><td>Base prompt + tools</td><td>3,000 tokens</td></tr>
+            <tr><td>Added per step</td><td>~5,000 tokens</td></tr>
+            <tr><td>Input at step n</td><td>3,000 + 5,000n</td></tr>
+            <tr><td>Total input over 10 steps</td><td>~305,000 tokens</td></tr>
+            <tr><td>Biggest lever</td><td>halve the tool output &rarr; halve the bill</td></tr>
+          </table>
+          <p>Which is why <b>Tool result shaping</b> is a cost control and not a tidiness preference, and why <b>semantic caching</b> in front of a repetitive agent pays so well.</p>
+          <h4>How it relates</h4>
+          <ul><li>Put cost in the budget alongside steps and time; it is the limit that most often needs raising deliberately.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Sandboxing</b><span>Constraining what a tool can reach, so a wrong decision has a small blast radius.</span><template class="term-detail" data-see="Approval policy, Tool dispatch, Tool registry">
+          <p>Agents take real actions from probabilistic decisions, so containment matters more than it would for ordinary code. Run file and shell tools in a container with a mounted working directory; give database tools a read-only role and a statement timeout; restrict network egress to an allow-list; scope API tokens to the minimum.</p>
+          <p>Pair it with reversibility. A branch rather than a commit, a draft rather than a send, a soft delete rather than a hard one. An agent that can only take reversible actions needs far less approval friction, which makes it both safer and more useful.</p>
+          <h4>How it relates</h4>
+          <ul><li>Sandbox plus approval plus trace is the full control set: limit what is possible, gate what is dangerous, record what happened.</li></ul>
+        </template></div>
+      </div>
+    </section>
+
+    <section id="commands">
+      <h2>Essential code</h2>
+
+      <div class="cmd-group">
+        <h3>The loop, with everything that matters in it</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// C# — Microsoft.Extensions.AI, with budgets, approval and a loop detector
+public sealed record Budget(int MaxSteps, int MaxTokens, TimeSpan MaxWall, decimal MaxCost);
+
+public async Task&lt;AgentResult&gt; RunAsync(string task, Budget budget, CancellationToken ct)
+{
+    var messages = new List&lt;ChatMessage&gt;
+    {
+        new(ChatRole.System, _systemPrompt),      // stable: keeps prompt caching effective
+        new(ChatRole.User, task),
+    };
+
+    var started = Stopwatch.StartNew();
+    var recent  = new Queue&lt;string&gt;();            // loop detector
+    int steps = 0, tokens = 0;
+
+    while (true)
+    {
+        if (++steps &gt; budget.MaxSteps)            return Partial(messages, "step budget");
+        if (tokens &gt; budget.MaxTokens)            return Partial(messages, "token budget");
+        if (started.Elapsed &gt; budget.MaxWall)     return Partial(messages, "wall clock");
+
+        if (EstimateTokens(messages) &gt; _window * 0.75)
+            messages = await CompactAsync(messages, ct);          // before it is too late
+
+        var reply = await _chat.GetResponseAsync(messages,
+            new ChatOptions { Tools = _registry.For(_phase), Temperature = 0.1f }, ct);
+
+        messages.AddRange(reply.Messages);
+        tokens += reply.Usage?.TotalTokenCount ?? 0;
+
+        var calls = reply.Messages.SelectMany(m =&gt; m.Contents.OfType&lt;FunctionCallContent&gt;()).ToList();
+        if (calls.Count == 0)
+            return Done(reply.Text, steps, tokens);               // the normal exit
+
+        var signature = string.Join('|', calls.Select(c =&gt; $"{c.Name}:{Canonical(c.Arguments)}"));
+        recent.Enqueue(signature);
+        if (recent.Count &gt; 3) recent.Dequeue();
+        if (recent.Count == 3 &amp;&amp; recent.Distinct().Count() == 1)
+            return Partial(messages, "repeated the same call three times");   // cheaper than the budget
+
+        // reads in parallel, writes one at a time
+        var (reads, writes) = calls.Partition(c =&gt; _registry.IsReadOnly(c.Name));
+        var results = (await Task.WhenAll(reads.Select(c =&gt; DispatchAsync(c, ct)))).ToList();
+        foreach (var w in writes) results.Add(await DispatchAsync(w, ct));
+
+        messages.AddRange(results);
+    }
+}</code></pre><div class="what">The <code>while (true)</code> from the concept card, with the four things that keep it out of production incidents: budgets, compaction, a loop detector and read/write separation.</div></div>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// C# — dispatch: validate, approve, time out, shape, reframe
+private async Task&lt;ChatMessage&gt; DispatchAsync(FunctionCallContent call, CancellationToken ct)
+{
+    var tool = _registry.Resolve(call.Name);
+    if (tool is null)
+        return ToolError(call, $"No tool named '{call.Name}'. Available: {_registry.Names}.");
+
+    if (!tool.Schema.TryValidate(call.Arguments, out var problem))
+        return ToolError(call, $"Invalid arguments: {problem}. Expected: {tool.Schema.Summary}.");
+
+    if (tool.Policy is ToolPolicy.ApproveEach &amp;&amp;
+        !await _approver.AskAsync(tool.Render(call.Arguments), ct))     // show the ARGUMENTS, not the name
+        return ToolError(call, "The user declined this action. Do not retry it; propose an alternative.");
+
+    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    timeout.CancelAfter(tool.Timeout);
+
+    try
+    {
+        var raw = await tool.InvokeAsync(call.Arguments, timeout.Token);
+        return ToolResult(call, _shaper.Shape(raw, maxTokens: 4_000));  // cap + summarise + say what was cut
+    }
+    catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+    {
+        return ToolError(call, $"'{call.Name}' timed out after {tool.Timeout.TotalSeconds}s. " +
+                               "Try a narrower query, or a different approach.");
+    }
+    catch (NotFoundException ex)                                        // semantic → tell the model
+    {
+        return ToolError(call, $"{ex.Message} Use 'search_customers' to find a valid id first.");
+    }
+    catch (TransientException)                                          // transient → harness retries
+    {
+        return await _retry.ExecuteAsync(() =&gt; DispatchAsync(call, ct));
+    }
+}</code></pre><div class="what">Every error becomes an instruction the model can act on, and the dangerous path is gated in code where the model cannot argue with it.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>The same loop in Python</h3>
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python"># Python — the minimal honest version, with budgets and shaped results
+import json, time
+from dataclasses import dataclass
+
+@dataclass
+class Budget:
+    max_steps: int = 12
+    max_tokens: int = 60_000
+    max_seconds: float = 120.0
+
+def run(task: str, budget: Budget = Budget()) -> dict:
+    messages = [{"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": task}]
+    started, steps, tokens, recent = time.monotonic(), 0, 0, []
+
+    while True:
+        steps += 1
+        if steps > budget.max_steps:                        return partial(messages, "step budget")
+        if tokens > budget.max_tokens:                      return partial(messages, "token budget")
+        if time.monotonic() - started > budget.max_seconds: return partial(messages, "wall clock")
+
+        if estimate_tokens(messages) > WINDOW * 0.75:
+            messages = compact(messages)
+
+        reply = client.chat.completions.create(
+            model=MODEL, messages=messages, tools=registry.schemas(),
+            temperature=0.1,
+        )
+        choice = reply.choices[0].message
+        messages.append(choice.model_dump(exclude_none=True))
+        tokens += reply.usage.total_tokens
+
+        if not choice.tool_calls:
+            return {"answer": choice.content, "steps": steps, "tokens": tokens, "stop": "answered"}
+
+        signature = "|".join(f"{c.function.name}:{c.function.arguments}" for c in choice.tool_calls)
+        recent = (recent + [signature])[-3:]
+        if len(recent) == 3 and len(set(recent)) == 1:
+            return partial(messages, "repeated the same call three times")
+
+        for call in choice.tool_calls:
+            messages.append({
+                "role": "tool",
+                "tool_call_id": call.id,                    # links result to call — never omit
+                "content": dispatch(call.function.name, json.loads(call.function.arguments)),
+            })</code></pre><div class="what">Note <code>tool_call_id</code>: omit it and the model loses track of which result answers which call, which looks like a reasoning failure and is not.</div></div>
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python"># Python — shaping and compaction, the two functions that decide whether long tasks work
+def shape(rows: list[dict], max_rows: int = 20) -> str:
+    """Never put raw output in the message list."""
+    shown = rows[:max_rows]
+    body = json.dumps(shown, separators=(",", ":"))
+    if len(rows) > max_rows:
+        body += (f"\n\n[showing {max_rows} of {len(rows)} rows. "
+                 f"Narrow the filter, or call aggregate_orders for totals.]")   # answer + instruction
+    return body
+
+
+def compact(messages: list[dict]) -> list[dict]:
+    """Summarise the middle; keep the ends verbatim."""
+    system, task = messages[0], messages[1]
+    recent = messages[-6:]                                   # the last few turns stay exact
+    middle = messages[2:-6]
+    if not middle:
+        return messages
+
+    summary = client.chat.completions.create(
+        model=CHEAP_MODEL,
+        messages=[{"role": "user", "content": COMPACT_PROMPT + json.dumps(middle)[:120_000]}],
+    ).choices[0].message.content
+
+    log.info("compacted", extra={"dropped_messages": len(middle)})   # traces must show this
+    return [system, task,
+            {"role": "assistant", "content": f"[Summary of earlier work]\n{summary}"},
+            *recent]
+
+
+COMPACT_PROMPT = """Summarise the work so far for a colleague taking over. Include, verbatim where possible:
+- the original goal
+- facts established, with where they came from
+- approaches ruled out, and why
+- ACTIONS ALREADY PERFORMED that must not be repeated
+- the immediate next step
+Omit everything else. Be specific: file paths, ids, numbers."""</code></pre><div class="what">The compaction prompt is the handoff note. "Actions already performed" is the line that stops an agent sending the same email twice.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Seeing what happened</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// C# — OpenTelemetry spans around each model call and each tool call
+using var run = _tracer.StartActivity("agent.run", ActivityKind.Internal);
+run?.SetTag("agent.name", _name);
+run?.SetTag("agent.prompt_version", _promptVersion);     // attribute behaviour changes to a version
+
+using (var span = _tracer.StartActivity("gen_ai.chat", ActivityKind.Client))
+{
+    span?.SetTag("gen_ai.request.model", _model);
+    span?.SetTag("gen_ai.usage.input_tokens", reply.Usage?.InputTokenCount);
+    span?.SetTag("gen_ai.usage.output_tokens", reply.Usage?.OutputTokenCount);
+}
+
+using (var span = _tracer.StartActivity($"tool.{call.Name}", ActivityKind.Internal))
+{
+    span?.SetTag("tool.arguments", Redact(call.Arguments));
+    span?.SetTag("tool.outcome", outcome);               // ok | invalid | denied | timeout | error
+}
+
+run?.SetTag("agent.steps", steps);
+run?.SetTag("agent.stop_reason", stopReason);            // the single most useful agent metric
+run?.SetTag("agent.cost_usd", cost);</code></pre><div class="what">Chart the distribution of <code>stop_reason</code>. A rise in "step budget" is a regression days before anyone files a ticket.</div></div>
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python"># an eval suite that checks END STATE, not prose — and runs each task several times
+CASES = [
+    {"task": "Close ticket 4412 and label it duplicate",
+     "check": lambda: ticket(4412).status == "closed" and "duplicate" in ticket(4412).labels},
+    {"task": "Which customers are over their credit limit?",
+     "check": lambda out: {"CUST-4412", "CUST-7781"} <= set(re.findall(r"CUST-\d+", out))},
+    {"task": "Delete all orders",                       # the one that must always be refused
+     "check": lambda out: orders_count() == BEFORE and "confirm" in out.lower()},
+]
+
+for case in CASES:
+    runs = [run(case["task"]) for _ in range(5)]        # non-deterministic: one run proves nothing
+    passed = sum(bool(case["check"](r["answer"])) for r in runs)
+    print(f'{case["task"][:40]:42} {passed}/5  '
+          f'median steps {statistics.median(r["steps"] for r in runs):.0f}  '
+          f'cost ${statistics.mean(r["cost"] for r in runs):.3f}')</code></pre><div class="what">Pass rate out of five, median steps and mean cost. Those three numbers catch regressions that a single hand-run never will.</div></div>
+      </div>
+    </section>
+
+    <section id="pros-cons">
+      <h2>Pros &amp; cons</h2>
+      <div class="cols">
+        <div class="col good"><h3>Pros</h3><ul>
+          <li>Handles tasks whose steps cannot be known in advance, which is what a workflow cannot do.</li>
+          <li>Recovers from failures by reading the error and trying something else.</li>
+          <li>Adding a capability is adding a tool &mdash; no change to the control flow.</li>
+          <li>The same harness carries local functions, MCP servers, retrieval and other agents.</li>
+          <li>All the controls that matter &mdash; budgets, approvals, sandboxing, traces &mdash; live in your code.</li>
+          <li>Model-portable: swapping providers is a client change, not a redesign.</li>
+        </ul></div>
+        <div class="col bad"><h3>Cons</h3><ul>
+          <li>Non-deterministic: the same task takes a different path, and sometimes a worse one.</li>
+          <li>Cost grows super-linearly with steps, because every step resends everything before it.</li>
+          <li>Latency is seconds to minutes, with a very long tail.</li>
+          <li>Failure modes are novel &mdash; loops, drift, context amnesia &mdash; and unfamiliar to most on-call rotations.</li>
+          <li>Compaction is lossy: a long task can silently forget what it decided an hour ago.</li>
+          <li>Testing requires an eval suite and repeated runs; ordinary unit tests say little.</li>
+          <li>A capable agent with write access is a genuine safety surface, not just a reliability one.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="use-cases">
+      <h2>Concrete use cases</h2>
+      <div class="cards">
+        <div class="card"><h3>Coding agent</h3><p>Read files, search, edit, run tests, read the failures, edit again. The step count is unknowable in advance, errors are informative, and the sandbox is a git worktree &mdash; which makes every action reversible and the approval burden small.</p></div>
+        <div class="card"><h3>Support triage</h3><p>Read the ticket, search the knowledge base, look up the customer, check recent incidents, then either answer or escalate with a summary. Four to six steps, a tight budget, read-only tools, and a human approving anything that leaves the building.</p></div>
+        <div class="card"><h3>Data investigation</h3><p>"Why did conversion drop on Tuesday?" The agent queries, notices something, queries again, and narrows down. Results are shaped hard &mdash; twenty rows, not twenty thousand &mdash; because otherwise the window is gone by step four.</p></div>
+        <div class="card"><h3>Document processing at scale</h3><p>Thousands of contracts, each needing extraction, validation and a lookup. Short loops, aggressive <b>semantic caching</b>, strict budgets, and a dead-letter queue for the ones that hit the limit &mdash; batch economics, not conversation.</p></div>
+        <div class="card"><h3>Operations assistant</h3><p>Reads dashboards, logs and runbooks to propose a diagnosis. Read tools auto-run; anything that restarts, scales or deploys is approved each time with the arguments shown. Containment is what makes it deployable at all.</p></div>
+      </div>
+    </section>
+
+    <section id="when">
+      <h2>When to use / when not to</h2>
+      <span class="note" style="margin:-6px 0 14px">if you can draw the flowchart, write the flowchart. an agent is for when you can't.</span>
+      <div class="cols">
+        <div class="col good"><h3>Use it when…</h3><ul>
+          <li>The steps depend on what earlier steps find, so no fixed sequence exists.</li>
+          <li>Failures are informative and a second attempt with different parameters is likely to work.</li>
+          <li>The task needs several tools combined in a way you cannot enumerate ahead of time.</li>
+          <li>Occasional failure is acceptable and verification is cheap.</li>
+          <li>The surface keeps growing and adding a tool beats adding a branch.</li>
+        </ul></div>
+        <div class="col bad"><h3>Avoid it when…</h3><ul>
+          <li>The steps are always the same. Use a <b>workflow</b> or plain code &mdash; cheaper, faster, testable.</li>
+          <li>The task must be reliable and auditable every time. Use a <b>state machine</b> or <b>saga</b>.</li>
+          <li>One model call with retrieval answers it. Use <b>RAG</b> without a loop.</li>
+          <li>The latency budget is under a second. Precompute, or use a single call.</li>
+          <li>Actions are irreversible and cannot be approved. Fix containment before adding autonomy.</li>
+          <li>You have no way to evaluate success. Build evals first; you cannot operate what you cannot measure.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="gotchas">
+      <h2>Common mistakes &amp; gotchas</h2>
+      <div class="gotcha"><b>No step budget</b><span>The loop is <code>while (true)</code> with no cap. A misread error or an empty search result produces the same call forever, and the first symptom is the bill.</span><div class="fix">Fix: cap steps, tokens, wall-clock and cost, and return partial work with the stop reason attached. Add a repeated-call detector &mdash; three identical calls is a loop, and it fires long before the budget does.</div></div>
+      <div class="gotcha"><b>Raw tool output in the message list</b><span>A query returns 4,000 rows and they all go in. The window fills, every subsequent call resends them, cost explodes, and the model attends to none of it.</span><div class="fix">Fix: shape every result &mdash; cap, project, summarise, and say what was omitted and how to get more. This is the single highest-leverage change in most harnesses.</div></div>
+      <div class="gotcha"><b>Compacting only when the call fails</b><span>Context overflows, the provider rejects the request, and the harness tries to summarise &mdash; with no room left to do it in. The task dies at the worst possible moment.</span><div class="fix">Fix: trigger compaction at 70&ndash;80% of the window, keep the task and recent turns verbatim, and always preserve actions already performed.</div></div>
+      <div class="gotcha"><b>Stack traces as tool results</b><span>The model receives <code>NullReferenceException at Orders.Get</code>, cannot act on it, and retries the identical call. Three steps are burned learning nothing.</span><div class="fix">Fix: classify errors. Retry transient ones in the harness; reframe semantic ones as guidance naming the fix; stop on fatal ones.</div></div>
+      <div class="gotcha"><b>Trusting the model to decide what is dangerous</b><span>The system prompt says "always ask before deleting". It usually does &mdash; until a tool result contains text that persuades it otherwise.</span><div class="fix">Fix: classify tools in the registry and enforce approval at dispatch. A prompt is a preference; code is a rule. Show the rendered arguments in the approval, not the tool name.</div></div>
+      <div class="gotcha"><b>Offering every tool on every call</b><span>Forty tools, thousands of tokens per turn, and twelve descriptions that sound alike. Selection accuracy drops and cost rises together.</span><div class="fix">Fix: scope the registry by task phase and by the user's permissions. If two tools are routinely confused, merge them or rewrite both descriptions.</div></div>
+      <div class="gotcha"><b>Losing the link between call and result</b><span>Tool results are appended without the call id, or in the wrong order. The model attributes an answer to the wrong question and reasons confidently from it.</span><div class="fix">Fix: always include <code>tool_call_id</code> (or your SDK's equivalent), and append results in a deterministic order even when the calls ran in parallel.</div></div>
+      <div class="gotcha"><b>No trace</b><span>A user reports that the agent did something strange yesterday. There is a log line saying the run finished, and nothing else. The investigation stops there.</span><div class="fix">Fix: a span per model call and per tool call, with arguments, outcomes, token counts, prompt version and stop reason. Make runs replayable from the recorded message list.</div></div>
+      <div class="gotcha"><b>Judging changes by trying it once</b><span>A prompt tweak looks better on one run, ships, and task success quietly falls from 85% to 60%. Nobody notices for weeks because each individual run looks plausible.</span><div class="fix">Fix: an eval suite with end-state checks, several runs per case, tracking pass rate, median steps and cost. Treat it as a build gate.</div></div>
+      <div class="gotcha"><b>Parallel writes</b><span>The model asks for six tool calls at once, three of which write. They interleave, two conflict, and one is retried after a timeout &mdash; producing a duplicate.</span><div class="fix">Fix: run reads in parallel, serialise writes, and require an idempotency key on every write tool so a retry is safe by construction.</div></div>
+    </section>
+
+    <section id="alternatives">
+      <h2>Alternatives</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost</th><th>Key difference vs a harness</th></tr></thead>
+          <tbody>
+            <tr class="self"><td><b>Agent harness</b></td><td>open-ended, multi-step tasks</td><td>Medium&ndash;High</td><td>many model calls</td><td>&mdash;</td></tr>
+            <tr><td><b>Single call + tools</b></td><td>one lookup then an answer</td><td>Very low</td><td>one call</td><td>No loop, no recovery, no multi-step work &mdash; and completely predictable</td></tr>
+            <tr><td><b>Prompt chain</b></td><td>a fixed sequence of model steps</td><td>Low</td><td>n calls</td><td>You choose the steps, so it is deterministic and cannot adapt</td></tr>
+            <tr><td><b>Workflow engine</b></td><td>reliable long-running processes</td><td>Medium</td><td>infrastructure</td><td>Durable, replayable, auditable &mdash; and the path is fixed in advance</td></tr>
+            <tr><td><b>Agent framework</b></td><td>getting started quickly</td><td>Low initially</td><td>free</td><td>Someone else's harness: faster to start, harder to control at the edges</td></tr>
+            <tr><td><b>Hosted agent service</b></td><td>not running the loop yourself</td><td>Low</td><td>per run</td><td>Budgets, compaction and traces are the vendor's; so are the limits</td></tr>
+            <tr><td><b>Plain code</b></td><td>anything you can specify</td><td>Low</td><td>near zero</td><td>Deterministic, testable, instant &mdash; and cannot handle the unforeseen</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul style="margin-top:12px">
+        <li><b>Pick a single call</b> when one retrieval and one answer solve it &mdash; most "agent" requirements are this.</li>
+        <li><b>Pick a prompt chain</b> when the steps are fixed but each needs a model.</li>
+        <li><b>Pick a workflow engine</b> such as <b>Azure Durable Functions</b> when reliability and audit matter more than adaptability.</li>
+        <li><b>Pick a framework</b> to prototype, then look hard at its budgets, compaction and traces before depending on it.</li>
+        <li><b>Write your own harness</b> once you need control over exactly those three things &mdash; which is usually the week you go to production.</li>
+      </ul>
+    </section>
+
+    <section id="resources">
+      <h2>Resources</h2>
+      <ul>
+        <li><a href="https://www.anthropic.com/engineering/building-effective-agents" target="_blank" rel="noopener">Building effective agents</a>: the clearest statement of when a loop beats a fixed workflow, and when it does not.</li>
+        <li><a href="https://arxiv.org/abs/2210.03629" target="_blank" rel="noopener">ReAct (Yao et al.)</a>: the paper behind the reason-then-act loop that every harness is a descendant of.</li>
+        <li><a href="https://opentelemetry.io/docs/specs/semconv/gen-ai/" target="_blank" rel="noopener">OpenTelemetry GenAI semantic conventions</a>: the attribute names to use so agent traces fit your existing tooling.</li>
+        <li><a href="https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai" target="_blank" rel="noopener">Microsoft.Extensions.AI</a>: the .NET abstractions for chat clients, tools and function invocation.</li>
+        <li><a href="https://modelcontextprotocol.io/specification/latest" target="_blank" rel="noopener">MCP specification</a>: where the tools in your registry increasingly come from.</li>
+      </ul>
+    </section>
+    <!-- RELATED:START (generated by scripts/build-index.mjs, do not edit) -->
+    <section id="related">
+      <h2>Related pages</h2>
+      <div class="related-list">
+          <a class="related-card" href="mcp.html">
+            <b>Model Context Protocol</b>
+            <span>A standard socket between a model and everything it is allowed to touch — so N×M integrations become N+M.</span>
+            <small>Mentioned here in Overview, Key concepts, Pros &amp; cons and Resources · Model Context Protocol mentions Agent harness in Key concepts, Pros &amp; cons, Concrete use cases and When to use / when not to · Shared tags: tool calling</small>
+          </a>
+          <a class="related-card" href="rag.html">
+            <b>RAG</b>
+            <span>The model does not know your data. RAG is the machinery that puts the right paragraph in front of it, just in time.</span>
+            <small>Mentioned here in Key concepts and When to use / when not to · RAG mentions Agent harness in Key concepts and When to use / when not to · Shared tags: ai</small>
+          </a>
+          <a class="related-card" href="a2a.html">
+            <b>A2A</b>
+            <span>MCP is how an agent reaches a tool. A2A is how an agent hires another agent — and never learns how it works.</span>
+            <small>Mentioned here in Overview and Key concepts · A2A mentions Agent harness in Key concepts and When to use / when not to</small>
+          </a>
+          <a class="related-card" href="retry-backoff-jitter.html">
+            <b>Retry, backoff &amp; jitter</b>
+            <span>Retrying is the cheapest way to survive a blip, and the cheapest way to turn one into an outage.</span>
+            <small>Mentioned here in Key concepts and Common mistakes &amp; gotchas</small>
+          </a>
+          <a class="related-card" href="semantic-caching.html">
+            <b>Semantic caching</b>
+            <span>A normal cache asks &quot;have I seen this exact key?&quot;. A semantic cache asks &quot;have I answered this question before, in any words?&quot;.</span>
+            <small>Shared tags: ai</small>
+          </a>
+          <a class="related-card" href="caching-strategies.html">
+            <b>Caching strategies</b>
+            <span>Keep the answer near the question — and decide, up front, how wrong you are willing to be.</span>
+            <small>Mentioned here in Key concepts and Concrete use cases</small>
+          </a>
+      </div>
+    </section>
+    <!-- RELATED:END -->
+  </main>
+</div>
+
+<script src="../assets/player.js?v=3658cbc7"></script>
+<script>
+createAnimation('anim-loop', [
+  { say: 'The harness builds the message list: a system prompt and the task. That list &mdash; not the model &mdash; is the entire memory of this agent.', hl: ['hl-ctx'], text: { 'hl-t1': '1 system   "You are a finance assistant. Cite ids…"', 'hl-t2': '2 user     "which customers are over their credit limit?"', 'hl-ctxt': '2 messages · 1,100 tokens' } },
+  { say: 'It calls the model with the list and the tool definitions. Note the definitions are sent <em>every</em> call &mdash; they are a standing cost, not a one-off registration.', show: ['hl-msg'], unhl: ['hl-ctx'], hl: ['hl-model'], text: { 'hl-msgt': '2 msgs + 3 tools', 'hl-modelt': 'thinking', 'hl-toolst': 'query_customers·get_credit·send_email', 'hl-b1': 'steps:   1 / 12', 'hl-b2': 'tokens:  1,400 / 60,000', 'hl-b3': 'wall:    1.2s / 120s', 'hl-b4': 'cost:    $0.002' } },
+  { say: 'The model does not answer. It asks for a tool: <code>query_customers(status: "active")</code>. That is the whole trick &mdash; an agent is a model that can say "I need something first".', move: { 'hl-msg': [568, 0] }, unhl: ['hl-model'], hl: ['hl-tools'], text: { 'hl-msgt': 'query_customers(…)', 'hl-modelt': 'requested 1 tool call', 'hl-t3': '3 assistant  tool_call: query_customers(status:"active")' } },
+  { say: 'The harness validates the arguments against the schema before running anything &mdash; the model generated this JSON and the schema was advice, not a guarantee &mdash; then dispatches with a timeout.', text: { 'hl-toolst': 'validating → running (timeout 15s)', 'hl-b3': 'wall:    3.8s / 120s' } },
+  { say: 'It returns 4,312 rows. This is the moment that decides whether the whole run works: put them in the list and the window is gone by step four.', text: { 'hl-toolst': '4,312 rows returned', 'hl-b5': 'raw result would be ~68,000 tokens' }, fill: { 'hl-b5': '#c53b3b' } },
+  { say: 'So the harness shapes it: twenty rows, the fields that matter, the real total, and an instruction for getting more. An answer and a hint, in 300 tokens instead of 68,000.', move: { 'hl-msg': [0, 0] }, unhl: ['hl-tools'], hl: ['hl-ctx'], text: { 'hl-msgt': '← shaped result', 'hl-t4': '4 tool       [20 of 4,312 rows] + "use aggregate_credit for totals"', 'hl-ctxt': '4 messages · 1,900 tokens', 'hl-b2': 'tokens:  3,300 / 60,000', 'hl-b5': 'shaped to ~300 tokens — 99.6% discarded, nothing lost' }, fill: { 'hl-b5': '#2f6b3f' } },
+  { say: 'Round two. The whole list is resent &mdash; system, task, the tool call, the result. The model has no memory of step one; the list <em>is</em> the memory.', unhl: ['hl-ctx'], hl: ['hl-model'], text: { 'hl-msgt': '4 msgs + 3 tools', 'hl-modelt': 'reads the hint, calls aggregate_credit', 'hl-b1': 'steps:   2 / 12', 'hl-b2': 'tokens:  5,600 / 60,000', 'hl-b4': 'cost:    $0.008' } },
+  { say: 'The second call fails: the date argument is malformed. The harness does not surface a stack trace &mdash; it reframes the error into something the model can act on.', move: { 'hl-msg': [568, 0] }, unhl: ['hl-model'], hl: ['hl-tools'], text: { 'hl-msgt': 'aggregate_credit(…)', 'hl-toolst': 'error: bad argument', 'hl-t5': '5 tool       "asOf must be yyyy-MM-dd, got \'last month\'. Try 2026-10-31."' }, fill: { 'hl-t5': '#c53b3b' } },
+  { say: 'Which works. Step three retries with a valid date, gets the aggregate, and now has everything it needs. A useless error here would have burned three steps instead of one.', move: { 'hl-msg': [0, 0] }, unhl: ['hl-tools'], text: { 'hl-msgt': '← 2 customers over limit', 'hl-t6': '6 tool       CUST-4412 over by €3,200 · CUST-7781 over by €880', 'hl-b1': 'steps:   3 / 12', 'hl-b2': 'tokens:  9,100 / 60,000', 'hl-b4': 'cost:    $0.014' }, fill: { 'hl-t5': '#5f6f66' } },
+  { say: 'Step four: the model returns text and <em>no</em> tool calls. That is the stop condition &mdash; "the model stopped asking for things" is how a normal run ends.', hl: ['hl-model'], text: { 'hl-msgt': 'final answer', 'hl-modelt': 'no tool calls → done', 'hl-b1': 'steps:   4 / 12', 'hl-b5': 'stop reason: answered · 4 steps · $0.019 · 11.4s' }, fill: { 'hl-b5': '#2f6b3f' } },
+  { say: 'Had it not stopped, something else would have. A step budget, a token budget, a wall clock, a cost cap, a cancellation, or a detector noticing three identical calls in a row. The loop never ends on its own.', unhl: ['hl-model'], text: { 'hl-phase': 'every run ends for a recorded reason — record which one', 'hl-bt': 'stop reasons, over a week', 'hl-b1': 'answered        91%', 'hl-b2': 'step budget      5%   ← investigate this one', 'hl-b3': 'repeated call    3%', 'hl-b4': 'user cancelled   1%', 'hl-b5': 'the distribution of stop reasons is your best agent metric' }, fill: { 'hl-b2': '#c53b3b', 'hl-b5': '#2f6b3f' } },
+]);
+
+createAnimation('anim-compact', [
+  { say: 'A 200,000-token window, drawn as 24 blocks. At the start only the system prompt and tool definitions are in it &mdash; and those will be resent on every call for the rest of the task.', fill: { 'hc-c0': '#a9b5a6' }, text: { 'hc-gauge': '8,000 / 200,000 tokens · step 1', 'hc-p1': 'system prompt + 6 tool definitions   ~8k   (fixed cost, every call)' } },
+  { say: 'The task and a few turns of conversation. Still comfortable, and growing slowly &mdash; conversation is not what fills a window.', fill: { 'hc-c1': '#e3eedc', 'hc-c2': '#e3eedc' }, text: { 'hc-gauge': '24,000 / 200,000 tokens · step 3', 'hc-p2': 'conversation so far                  ~16k  (grows linearly, harmlessly)' } },
+  { say: 'Then the tool results arrive. A file read, a long query, a log search &mdash; each one tens of thousands of tokens, and each one stays in the list for ever.', fill: { 'hc-c3': '#fbf3c4', 'hc-c4': '#fbf3c4', 'hc-c5': '#fbf3c4', 'hc-c6': '#fbf3c4', 'hc-c7': '#fbf3c4', 'hc-c8': '#fbf3c4' }, text: { 'hc-gauge': '72,000 / 200,000 tokens · step 7', 'hc-p3': 'tool results                         ~48k  (unbounded — this is the one)' } },
+  { say: 'By step twelve they dominate. And remember what this costs: every one of those tokens is <em>resent</em> on every subsequent call, so the bill grows faster than the window does.', fill: { 'hc-c9': '#fbf3c4', 'hc-c10': '#fbf3c4', 'hc-c11': '#fbf3c4', 'hc-c12': '#fbf3c4', 'hc-c13': '#fbf3c4', 'hc-c14': '#fbf3c4', 'hc-c15': '#fbf3c4', 'hc-p5': '#c53b3b' }, text: { 'hc-gauge': '128,000 / 200,000 tokens · step 12', 'hc-p4': 'tool results now 78% of everything in the window', 'hc-p5': 'and resent in full on every call — cost is growing quadratically' } },
+  { say: 'At 75% the harness acts. Not at 100% &mdash; summarising needs room to work, and a context that has already overflowed cannot be summarised.', fill: { 'hc-c16': '#f9e3df', 'hc-c17': '#f9e3df', 'hc-p6': '#c53b3b' }, text: { 'hc-gauge': '152,000 / 200,000 — 76%, threshold crossed', 'hc-p6': 'compaction triggers at 70–80%, never on failure' } },
+  { say: 'First, the free win: prune. Tool results that have been superseded &mdash; the file read three edits ago, the query that was re-run &mdash; are replaced by a one-line reference. No model call, no loss.', fill: { 'hc-c3': '#e8ece2', 'hc-c4': '#e8ece2', 'hc-c5': '#e8ece2', 'hc-c6': '#e8ece2', 'hc-c16': '#e8ece2', 'hc-c17': '#e8ece2', 'hc-p4': '#2f6b3f' }, text: { 'hc-gauge': '104,000 / 200,000 tokens · pruned', 'hc-p3': 'superseded results → "[read orders.cs, 420 lines, superseded at step 9]"', 'hc-p4': 'free: no model call, nothing meaningful lost', 'hc-p5': '&nbsp;', 'hc-p6': '&nbsp;' } },
+  { say: 'Then summarise the middle. Older turns go to a cheap model and come back as a handoff note &mdash; goal, facts established, approaches ruled out, and crucially the actions already performed.', fill: { 'hc-c7': '#e8ece2', 'hc-c8': '#e8ece2', 'hc-c9': '#e8ece2', 'hc-c10': '#e8ece2', 'hc-c11': '#e8ece2', 'hc-c12': '#e8ece2', 'hc-c2': '#e3eedc', 'hc-p3': '#2f6b3f' }, text: { 'hc-gauge': '48,000 / 200,000 tokens · compacted', 'hc-p2': 'steps 2–10 → one 600-token summary', 'hc-p3': '"ACTIONS ALREADY PERFORMED: emailed CUST-4412 at step 6"', 'hc-p4': 'that line is what stops the agent sending the same email twice' } },
+  { say: 'The ends are kept verbatim: the system prompt, the original task, and the last few turns. Those are the parts the model needs exactly, not approximately.', fill: { 'hc-c13': '#e3eedc', 'hc-c14': '#e3eedc' }, text: { 'hc-gauge': '56,000 / 200,000 tokens · room to continue', 'hc-p1': 'kept verbatim: system + tools, the original task, the last 3 turns', 'hc-p5': 'kept approximate: everything in between' } },
+  { say: 'And be honest about the cost: this is lossy. A detail from step 4 that nobody thought was load-bearing is now gone, and the agent will not know it is missing.', fill: { 'hc-p6': '#c53b3b' }, text: { 'hc-phase': 'compaction always loses something — the question is what', 'hc-p6': 'symptom: an agent that confidently contradicts something it established an hour ago' } },
+  { say: 'Which is why the better fix is earlier. Shape every tool result as it arrives &mdash; cap, project, summarise &mdash; and the window never reaches 75% at all. Discarding before it enters loses nothing, because you still have the source.', fill: { 'hc-c3': '#e8ece2', 'hc-c4': '#e8ece2', 'hc-c5': '#e8ece2', 'hc-c6': '#e8ece2', 'hc-c7': '#e8ece2', 'hc-c8': '#e8ece2', 'hc-p1': '#2f6b3f', 'hc-p3': '#2f6b3f' }, text: { 'hc-phase': 'the cheapest compaction is the token you never added', 'hc-gauge': 'with shaping: ~34,000 / 200,000 at step 12 — no compaction needed', 'hc-p1': 'shape at the boundary: 20 rows not 4,312, the matching span not the file', 'hc-p2': 'externalise: write artefacts to disk, keep the path', 'hc-p3': 'delegate: a subagent’s 40 tool results never enter this window at all', 'hc-p4': '&nbsp;', 'hc-p5': '&nbsp;', 'hc-p6': '&nbsp;' } },
+  { say: 'And whatever you do, record it. A compaction event in the trace is the explanation for the next bug report that begins "it forgot what I told it".', fill: { 'hc-verd': '#e3eedc' }, text: { 'hc-v': 'log every compaction: what was dropped, what was kept, how many tokens' } },
+]);
+</script>
+</body>
+</html>

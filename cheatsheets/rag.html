@@ -1,0 +1,889 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RAG · Tech cheatsheets</title>
+<meta name="description" content="RAG cheatsheet: chunking, embeddings, hybrid retrieval, reranking and prompt assembly — why retrieval quality, not the model, decides whether the answer is right.">
+<meta name="aliases" content="RAG, Retrieval-Augmented Generation, retrieval augmented generation, retrieval-augmented, grounding, grounded generation, hybrid search, reranking, reranker, chunking, RRF, reciprocal rank fusion">
+<meta name="related" content="vector-database, semantic-caching, agent-harness, mcp, caching-strategies">
+<meta name="keywords" content="rag, retrieval augmented generation, llm, embeddings, vector search, hybrid search, reranking, chunking, grounding, ai">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Kalam:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../assets/notebook.css?v=389a30cc">
+<script src="../assets/site.js?v=c271985e" defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js" defer></script>
+</head>
+<body data-root="..">
+<div class="layout">
+  <nav class="toc" aria-label="Sections">
+    <a href="#overview">Overview</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#concepts">Key concepts</a>
+    <a href="#commands">Code</a>
+    <a href="#pros-cons">Pros &amp; cons</a>
+    <a href="#use-cases">Use cases</a>
+    <a href="#when">When to use</a>
+    <a href="#gotchas">Gotchas</a>
+    <a href="#alternatives">Alternatives</a>
+    <a href="#resources">Resources</a>
+    <a href="#related">Related</a>
+  </nav>
+
+  <main>
+    <header class="hero" id="overview">
+      <h1>RAG</h1>
+      <p class="tagline">The model does not know your data. RAG is the machinery that puts the right paragraph in front of it, just in time.</p>
+      <span class="meta">As of Nov 2026 · examples use Microsoft.Extensions.AI, pgvector and Azure AI Search</span>
+      <p><b>Retrieval-Augmented Generation</b> answers a question by first <em>finding</em> the relevant text in a corpus you control, then asking a language model to answer <em>using only that text</em>. The model supplies fluency and reasoning; your index supplies the facts. Nothing is memorised, so when a document changes the answer changes with it &mdash; no retraining, no fine-tuning, no model release.</p>
+      <p>Mechanically it is two pipelines. <b>Ingestion</b> runs offline: split documents into chunks, turn each chunk into an embedding vector, store vector plus text plus metadata. <b>Query</b> runs per request: embed the question, search for nearby chunks, rerank them, paste the survivors into the prompt with the question, generate, and cite.</p>
+      <p>The uncomfortable truth of RAG is that almost every failure is a <em>retrieval</em> failure, not a generation failure. If the answer is not in the retrieved chunks, no model can produce it, and a good model will confidently produce something else. Teams reach for a bigger LLM when the actual fix is better chunking, a hybrid index or a reranker &mdash; which cost a fraction as much.</p>
+    </header>
+
+    <section id="architecture">
+      <h2>Architecture / mental model</h2>
+      <div class="diagram">
+        <svg viewBox="0 0 800 358" role="img" aria-label="RAG architecture: an offline ingestion pipeline writing into an index, and an online query pipeline reading from it and calling an LLM">
+          <defs>
+            <marker id="rg-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+          </defs>
+
+          <text x="400" y="20" font-size="12.5" text-anchor="middle" fill="#5f6f66">two pipelines that meet in one index</text>
+
+          <rect x="16" y="36" width="768" height="112" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="30" y="56" font-size="11" fill="#2f6b3f" font-weight="700">INGESTION &mdash; offline, batch or on change</text>
+
+          <rect x="30" y="66" width="120" height="62" rx="6" fill="#e8ece2" stroke="#a9b5a6"/>
+          <text x="90" y="92" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">sources</text>
+          <text x="90" y="110" font-size="9.5" text-anchor="middle" fill="#5f6f66">pdf · wiki · tickets</text>
+
+          <rect x="182" y="66" width="120" height="62" rx="6" fill="#e8ece2" stroke="#a9b5a6"/>
+          <text x="242" y="92" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">parse + chunk</text>
+          <text x="242" y="110" font-size="9.5" text-anchor="middle" fill="#5f6f66">~500 tok · 15% overlap</text>
+
+          <rect x="334" y="66" width="120" height="62" rx="6" fill="#e8ece2" stroke="#a9b5a6"/>
+          <text x="394" y="92" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">embed</text>
+          <text x="394" y="110" font-size="9.5" text-anchor="middle" fill="#5f6f66">1536-dim vector</text>
+
+          <rect x="486" y="66" width="120" height="62" rx="6" fill="#e8ece2" stroke="#a9b5a6"/>
+          <text x="546" y="92" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">enrich</text>
+          <text x="546" y="110" font-size="9.5" text-anchor="middle" fill="#5f6f66">acl · tenant · date</text>
+
+          <rect x="638" y="66" width="132" height="62" rx="6" fill="#e3eedc" stroke="#2f6b3f" stroke-width="2"/>
+          <text x="704" y="92" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="700">index</text>
+          <text x="704" y="110" font-size="9.5" text-anchor="middle" fill="#5f6f66">vectors + text + BM25</text>
+
+          <line x1="154" y1="97" x2="176" y2="97" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#rg-arr)"/>
+          <line x1="306" y1="97" x2="328" y2="97" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#rg-arr)"/>
+          <line x1="458" y1="97" x2="480" y2="97" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#rg-arr)"/>
+          <line x1="610" y1="97" x2="632" y2="97" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#rg-arr)"/>
+
+          <line x1="704" y1="152" x2="704" y2="196" stroke="#2f6b3f" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#rg-arr)"/>
+          <text x="716" y="178" font-size="9.5" fill="#2f6b3f">read</text>
+
+          <rect x="16" y="196" width="768" height="112" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+          <text x="30" y="216" font-size="11" fill="#c53b3b" font-weight="700">QUERY &mdash; online, per request, on a latency budget</text>
+
+          <rect x="30" y="226" width="112" height="62" rx="6" fill="#e8ece2" stroke="#a9b5a6"/>
+          <text x="86" y="252" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">question</text>
+          <text x="86" y="270" font-size="9.5" text-anchor="middle" fill="#5f6f66">+ rewrite</text>
+
+          <rect x="174" y="226" width="112" height="62" rx="6" fill="#e8ece2" stroke="#a9b5a6"/>
+          <text x="230" y="252" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">retrieve</text>
+          <text x="230" y="270" font-size="9.5" text-anchor="middle" fill="#5f6f66">dense + BM25, k=50</text>
+
+          <rect x="318" y="226" width="112" height="62" rx="6" fill="#e8ece2" stroke="#a9b5a6"/>
+          <text x="374" y="252" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">rerank</text>
+          <text x="374" y="270" font-size="9.5" text-anchor="middle" fill="#5f6f66">50 &rarr; 5</text>
+
+          <rect x="462" y="226" width="112" height="62" rx="6" fill="#fbf3c4" stroke="#d9c25a" stroke-width="2"/>
+          <text x="518" y="252" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="700">assemble</text>
+          <text x="518" y="270" font-size="9.5" text-anchor="middle" fill="#5f6f66">context + question</text>
+
+          <rect x="606" y="226" width="164" height="62" rx="6" fill="#e3eedc" stroke="#2f6b3f" stroke-width="2"/>
+          <text x="688" y="252" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="700">LLM &rarr; answer + citations</text>
+          <text x="688" y="270" font-size="9.5" text-anchor="middle" fill="#5f6f66">grounded in those 5 chunks</text>
+
+          <line x1="146" y1="257" x2="168" y2="257" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#rg-arr)"/>
+          <line x1="290" y1="257" x2="312" y2="257" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#rg-arr)"/>
+          <line x1="434" y1="257" x2="456" y2="257" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#rg-arr)"/>
+          <line x1="578" y1="257" x2="600" y2="257" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#rg-arr)"/>
+
+          <text class="hand" x="400" y="334" fill="#c53b3b" font-size="16" text-anchor="middle">if the chunk isn't retrieved, the answer cannot exist. everything else is decoration.</text>
+        </svg>
+      </div>
+      <p class="caption">An index built offline, read online. The model is the last box, and the least interesting one.</p>
+    </section>
+
+    <section id="how-it-works">
+      <h2>How it works</h2>
+      <p style="margin:0 0 18px">The first animation follows one real question from keystroke to cited answer. The second is the retrieval failure that nearly every RAG system hits in week two.</p>
+      <span class="note" style="margin:-8px 0 18px">retrieve wide, rerank hard, generate narrow.</span>
+
+      <div class="anim" id="anim-query">
+        <h3>1 &middot; One question, end to end</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 330" role="img" aria-label="A question is embedded, searched against an index, reranked, assembled into a prompt and answered with citations">
+            <defs>
+              <marker id="rq-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6f66"/></marker>
+            </defs>
+            <text id="rq-phase" x="400" y="22" font-size="12.5" text-anchor="middle" fill="#5f6f66">a support agent asks a question about one specific invoice</text>
+
+            <rect id="rq-s1" x="16" y="56" width="130" height="52" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="81" y="78" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">question</text>
+            <text id="rq-s1t" x="81" y="96" font-size="9.5" text-anchor="middle" fill="#5f6f66">raw text</text>
+
+            <rect id="rq-s2" x="166" y="56" width="130" height="52" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="231" y="78" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">embed</text>
+            <text id="rq-s2t" x="231" y="96" font-size="9.5" text-anchor="middle" fill="#5f6f66">1536 floats</text>
+
+            <rect id="rq-s3" x="316" y="56" width="150" height="52" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="391" y="78" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">retrieve</text>
+            <text id="rq-s3t" x="391" y="96" font-size="9.5" text-anchor="middle" fill="#5f6f66">ANN + BM25 · k=50</text>
+
+            <rect id="rq-s4" x="486" y="56" width="130" height="52" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="551" y="78" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">rerank</text>
+            <text id="rq-s4t" x="551" y="96" font-size="9.5" text-anchor="middle" fill="#5f6f66">cross-encoder</text>
+
+            <rect id="rq-s5" x="636" y="56" width="148" height="52" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="710" y="78" font-size="10.5" text-anchor="middle" fill="#23362e" font-weight="600">LLM</text>
+            <text id="rq-s5t" x="710" y="96" font-size="9.5" text-anchor="middle" fill="#5f6f66">generate + cite</text>
+
+            <line x1="150" y1="82" x2="162" y2="82" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#rq-arr)"/>
+            <line x1="300" y1="82" x2="312" y2="82" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#rq-arr)"/>
+            <line x1="470" y1="82" x2="482" y2="82" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#rq-arr)"/>
+            <line x1="620" y1="82" x2="632" y2="82" stroke="#5f6f66" stroke-width="1.5" marker-end="url(#rq-arr)"/>
+
+            <g id="rq-msg" class="hidden">
+              <rect x="16" y="120" width="130" height="26" rx="5" fill="#fbf3c4" stroke="#d9c25a"/>
+              <text id="rq-msgt" x="81" y="137" font-size="9" text-anchor="middle" fill="#23362e" font-family="Fira Code, monospace">invoice 8841?</text>
+            </g>
+
+            <rect id="rq-pa" x="16" y="160" width="430" height="150" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text id="rq-pat" x="30" y="180" font-size="11" fill="#23362e" font-weight="700">candidates</text>
+            <text id="rq-a1" x="30" y="202" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rq-a2" x="30" y="222" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rq-a3" x="30" y="242" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rq-a4" x="30" y="262" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rq-a5" x="30" y="282" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rq-a6" x="30" y="302" font-size="9.5" fill="#5f6f66">&nbsp;</text>
+
+            <rect id="rq-pb" x="466" y="160" width="318" height="150" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text id="rq-pbt" x="480" y="180" font-size="11" fill="#23362e" font-weight="700">the prompt the model actually sees</text>
+            <text id="rq-b1" x="480" y="202" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rq-b2" x="480" y="220" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rq-b3" x="480" y="238" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rq-b4" x="480" y="256" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rq-b5" x="480" y="276" font-size="9.5" fill="#5f6f66">&nbsp;</text>
+            <text id="rq-b6" x="480" y="296" font-size="9.5" fill="#5f6f66">&nbsp;</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+
+      <div class="anim" id="anim-hybrid">
+        <h3>2 &middot; Why pure vector search loses the exact match</h3>
+        <div class="stage">
+          <svg viewBox="0 0 800 330" role="img" aria-label="Dense vector search returns semantically similar but wrong chunks while BM25 finds the exact identifier, and reciprocal rank fusion combines both">
+            <text id="rh-phase" x="400" y="22" font-size="12.5" text-anchor="middle" fill="#5f6f66">the query contains an exact identifier: <tspan font-family="Fira Code, monospace">INV-8841</tspan></text>
+
+            <rect id="rh-dense" x="16" y="46" width="230" height="110" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="131" y="68" font-size="11" text-anchor="middle" fill="#23362e" font-weight="700">dense · cosine over embeddings</text>
+            <text id="rh-d1" x="30" y="90" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rh-d2" x="30" y="108" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rh-d3" x="30" y="126" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rh-d4" x="30" y="146" font-size="9.5" fill="#5f6f66">&nbsp;</text>
+
+            <rect id="rh-bm" x="16" y="172" width="230" height="110" rx="8" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text x="131" y="194" font-size="11" text-anchor="middle" fill="#23362e" font-weight="700">sparse · BM25 over tokens</text>
+            <text id="rh-k1" x="30" y="216" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rh-k2" x="30" y="234" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rh-k3" x="30" y="252" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rh-k4" x="30" y="272" font-size="9.5" fill="#5f6f66">&nbsp;</text>
+
+            <rect id="rh-fuse" x="280" y="100" width="150" height="128" rx="8" fill="#fbf3c4" stroke="#d9c25a" stroke-width="2"/>
+            <text x="355" y="124" font-size="11" text-anchor="middle" fill="#23362e" font-weight="700">fusion</text>
+            <text id="rh-f1" x="355" y="150" font-size="9.5" text-anchor="middle" fill="#5f6f66">waiting for both lists</text>
+            <text id="rh-f2" x="355" y="172" font-size="9.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rh-f3" x="355" y="192" font-size="9.5" text-anchor="middle" fill="#5f6f66">&nbsp;</text>
+            <text id="rh-f4" x="355" y="212" font-size="9.5" text-anchor="middle" fill="#5f6f66">&nbsp;</text>
+
+            <rect id="rh-res" x="464" y="46" width="320" height="236" rx="8" fill="#fbfcf8" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text id="rh-rest" x="478" y="68" font-size="11" fill="#23362e" font-weight="700">what reaches the prompt</text>
+            <text id="rh-r1" x="478" y="92" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rh-r2" x="478" y="112" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rh-r3" x="478" y="132" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rh-r4" x="478" y="152" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rh-r5" x="478" y="172" font-size="9.5" fill="#5f6f66" font-family="Fira Code, monospace">&nbsp;</text>
+            <text id="rh-r6" x="478" y="196" font-size="9.5" fill="#5f6f66">&nbsp;</text>
+            <text id="rh-r7" x="478" y="216" font-size="9.5" fill="#5f6f66">&nbsp;</text>
+            <text id="rh-r8" x="478" y="240" font-size="9.5" fill="#5f6f66">&nbsp;</text>
+            <text id="rh-r9" x="478" y="262" font-size="9.5" fill="#5f6f66">&nbsp;</text>
+
+            <rect id="rh-verd" x="16" y="296" width="768" height="30" rx="6" fill="#e8ece2" stroke="#a9b5a6" stroke-width="1.5"/>
+            <text id="rh-v" x="400" y="316" font-size="11.5" text-anchor="middle" fill="#23362e" font-weight="700">embeddings are good at meaning and bad at identifiers</text>
+          </svg>
+        </div>
+        <div class="controls"></div>
+        <div class="narration"></div>
+      </div>
+    </section>
+
+    <section id="concepts">
+      <h2>Key concepts</h2>
+      <div class="terms">
+        <div class="term"><b>Chunking</b><span>Splitting documents into retrievable units small enough to be precise and large enough to be self-contained.</span><template class="term-detail" data-see="Embedding, Parent-document retrieval, Context window budget, Index freshness">
+          <p>Chunking is the single highest-leverage decision in a RAG system, and the one most often made by accepting a library default. A chunk is what gets embedded, what gets scored, and what gets pasted into the prompt &mdash; so it must stand alone. "The limit is 30 days" is useless without the sentence that says <em>what</em> has a 30-day limit.</p>
+          <p>Split on structure first (headings, sections, list items, code blocks, table rows), then on size. Splitting a 400-page PDF every 1,000 characters cuts tables in half and orphans headings; a Markdown-aware splitter that keeps a section together and prepends its heading path to every chunk is usually worth more than any model upgrade.</p>
+          <h4>Common values</h4>
+          <table>
+            <tr><th>Content</th><th>Chunk size</th><th>Overlap</th></tr>
+            <tr><td>Prose, policy, wiki</td><td>400&ndash;800 tokens</td><td>10&ndash;20%</td></tr>
+            <tr><td>FAQ / Q&amp;A pairs</td><td>one pair per chunk</td><td>none</td></tr>
+            <tr><td>Code</td><td>one function or class</td><td>none, keep signature</td></tr>
+            <tr><td>Tables / CSV</td><td>row + header row</td><td>header repeated</td></tr>
+            <tr><td>Transcripts</td><td>2&ndash;5 min window</td><td>30&ndash;60 s</td></tr>
+          </table>
+          <div class="anim" id="chunk-anim" data-steps="chunk"><h4>A sliding window with overlap</h4>
+            <div class="stage">
+              <svg viewBox="0 0 560 210" role="img" aria-label="A document split into overlapping chunks, showing how overlap rescues a sentence that straddles a boundary">
+                <text id="ck-phase" x="280" y="18" font-size="11" text-anchor="middle" fill="#5f6f66">one section of a refund policy</text>
+                <rect x="20" y="34" width="520" height="40" rx="5" fill="#e8ece2" stroke="#a9b5a6"/>
+                <text x="30" y="52" font-size="9" fill="#5f6f66" font-family="Fira Code, monospace">…refunds are issued to the original method. The window</text>
+                <text x="30" y="68" font-size="9" fill="#5f6f66" font-family="Fira Code, monospace">for a refund request is 30 days from delivery…</text>
+                <rect id="ck-c1" class="hidden" x="20" y="92" width="230" height="26" rx="4" fill="#e3eedc" stroke="#2f6b3f"/>
+                <text id="ck-c1t" class="hidden" x="135" y="109" font-size="9" text-anchor="middle" fill="#23362e">chunk 1</text>
+                <rect id="ck-c2" class="hidden" x="266" y="92" width="274" height="26" rx="4" fill="#e3eedc" stroke="#2f6b3f"/>
+                <text id="ck-c2t" class="hidden" x="403" y="109" font-size="9" text-anchor="middle" fill="#23362e">chunk 2</text>
+                <rect id="ck-ov" class="hidden" x="196" y="92" width="110" height="26" rx="4" fill="#fbf3c4" stroke="#d9c25a"/>
+                <text id="ck-ovt" class="hidden" x="251" y="109" font-size="9" text-anchor="middle" fill="#23362e">overlap</text>
+                <rect x="20" y="134" width="520" height="62" rx="5" fill="#fbfcf8" stroke="#a9b5a6"/>
+                <text id="ck-n1" x="32" y="154" font-size="9.5" fill="#5f6f66">&nbsp;</text>
+                <text id="ck-n2" x="32" y="172" font-size="9.5" fill="#5f6f66">&nbsp;</text>
+                <text id="ck-n3" x="32" y="190" font-size="9.5" fill="#5f6f66">&nbsp;</text>
+              </svg>
+            </div>
+            <div class="controls"></div><div class="narration"></div></div>
+          <h4>How it relates</h4>
+          <ul><li>Chunk size trades off against <b>Context window budget</b>: five 800-token chunks is 4,000 tokens before the question is even asked.</li>
+            <li><b>Parent-document retrieval</b> is the escape hatch when you need small chunks for matching and large ones for answering.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Embedding</b><span>A fixed-length vector of floats whose geometry encodes meaning: similar text lands nearby.</span><template class="term-detail" data-see="Vector search, Chunking, Hybrid search, Index freshness">
+          <p>An embedding model maps text to a point in a few hundred to a few thousand dimensions, trained so that semantically related passages have a small angle between them. Cosine similarity of two embeddings is then a usable proxy for "these are about the same thing" &mdash; which is why a question and its answer can match even when they share no words.</p>
+          <p>Two rules that cost people weeks. First, the <em>same</em> model must embed both documents and queries; mixing models produces vectors from different spaces and the scores become noise. Second, changing the embedding model means re-embedding the whole corpus, so treat the model name and version as part of your index schema.</p>
+          <h4>Common values</h4>
+          <table>
+            <tr><th>Model family</th><th>Dimensions</th><th>Notes</th></tr>
+            <tr><td>OpenAI text-embedding-3-small</td><td>1536 (truncatable)</td><td>cheap default</td></tr>
+            <tr><td>OpenAI text-embedding-3-large</td><td>3072 (truncatable)</td><td>better recall, 4&times; storage</td></tr>
+            <tr><td>Cohere embed v3</td><td>1024</td><td>strong multilingual</td></tr>
+            <tr><td>Open-source (BGE, E5, GTE)</td><td>384&ndash;1024</td><td>self-hosted, no egress</td></tr>
+          </table>
+          <p>Storage is blunt arithmetic: 1536 dims &times; 4 bytes = 6 KB per chunk, so a million chunks is ~6 GB of raw vectors before the index overhead. Quantising to <code>int8</code> or binary cuts that by 4&times; or 32&times;.</p>
+          <h4>How it relates</h4>
+          <ul><li><b>Hybrid search</b> exists because embeddings are weak exactly where exact tokens matter: ids, SKUs, error codes, names.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Vector search</b><span>Finding the nearest chunk vectors to the query vector, approximately, in sublinear time.</span><template class="term-detail" data-see="Embedding, Hybrid search, Metadata filtering, Top-k">
+          <p>Exact nearest-neighbour search compares the query to every vector: perfect recall, linear cost. Above a few hundred thousand chunks you switch to <em>approximate</em> nearest neighbour &mdash; HNSW graphs or IVF lists &mdash; which trade a few percent of recall for one to two orders of magnitude of speed.</p>
+          <p>The practical consequence is that a vector index has a recall knob, and it is not set to 100%. In HNSW, <code>ef_search</code> controls how wide the graph walk is; too low and relevant chunks simply never appear as candidates, which looks exactly like a model problem from the outside.</p>
+          <h4>Common values</h4>
+          <table>
+            <tr><th>Parameter</th><th>Typical</th><th>Effect</th></tr>
+            <tr><td>HNSW <code>m</code></td><td>16&ndash;32</td><td>graph degree; more = better recall, more memory</td></tr>
+            <tr><td>HNSW <code>ef_construction</code></td><td>64&ndash;200</td><td>build quality and build time</td></tr>
+            <tr><td>HNSW <code>ef_search</code></td><td>40&ndash;200</td><td>query-time recall vs latency</td></tr>
+            <tr><td>Distance metric</td><td>cosine</td><td>match what the embedding model was trained on</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Where these vectors live and how the index is built is the subject of the <b>Vector database</b> page.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Hybrid search</b><span>Running dense vector search and keyword (BM25) search together, then fusing the two ranked lists.</span><template class="term-detail" data-see="Reciprocal Rank Fusion, Vector search, Embedding, Reranker">
+          <p>Dense retrieval is good at paraphrase and bad at precision on rare tokens. BM25 is the opposite: it will find <code>INV-8841</code>, <code>ERR_CONN_RESET</code> or a product SKU instantly, and will miss "how do I get my money back" against a page titled "Refund policy". Running both and fusing is close to free and is the single most reliable quality improvement in RAG.</p>
+          <p>Most engines support it natively &mdash; Azure AI Search, Elasticsearch, OpenSearch, Weaviate, Qdrant, and Postgres with <code>pgvector</code> plus <code>tsvector</code>. Fusion is usually <b>Reciprocal Rank Fusion</b> rather than score addition, because cosine scores and BM25 scores are on incomparable scales.</p>
+          <h4>When each wins</h4>
+          <table>
+            <tr><th>Query</th><th>Dense</th><th>BM25</th></tr>
+            <tr><td>"why was my card declined"</td><td>wins</td><td>weak</td></tr>
+            <tr><td><code>INV-8841</code></td><td>poor</td><td>wins</td></tr>
+            <tr><td>"NullReferenceException in checkout"</td><td>partial</td><td>wins</td></tr>
+            <tr><td>Multilingual question</td><td>wins</td><td>fails</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>The second animation above is exactly this failure and its fix.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Reciprocal Rank Fusion</b><span>Combining ranked lists by summing 1/(k + rank) instead of trying to compare incompatible scores.</span><template class="term-detail" data-see="Hybrid search, Reranker, Top-k">
+          <p>RRF ignores scores entirely and uses only positions. For each document, score = &Sigma; 1/(k + rank<sub>i</sub>) across the lists it appears in, with <code>k</code> typically 60. A document ranked 1st in one list and 3rd in another beats one ranked 2nd in a single list &mdash; agreement across retrievers is rewarded, and no calibration is needed.</p>
+          <div class="figure">
+            <svg viewBox="0 0 560 190" role="img" aria-label="Two ranked lists fused by reciprocal rank fusion into one list">
+              <text x="80" y="20" font-size="10.5" fill="#23362e" font-weight="700">dense</text>
+              <text x="230" y="20" font-size="10.5" fill="#23362e" font-weight="700">BM25</text>
+              <text x="400" y="20" font-size="10.5" fill="#23362e" font-weight="700">RRF (k=60)</text>
+              <rect x="20" y="30" width="150" height="24" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="30" y="46" font-size="9" fill="#5f6f66" font-family="Fira Code, monospace">1. refund-policy#2</text>
+              <rect x="20" y="60" width="150" height="24" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="30" y="76" font-size="9" fill="#5f6f66" font-family="Fira Code, monospace">2. chargeback-faq</text>
+              <rect x="20" y="90" width="150" height="24" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="30" y="106" font-size="9" fill="#5f6f66" font-family="Fira Code, monospace">3. inv-8841#3</text>
+              <rect x="190" y="30" width="150" height="24" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="200" y="46" font-size="9" fill="#5f6f66" font-family="Fira Code, monospace">1. inv-8841#3</text>
+              <rect x="190" y="60" width="150" height="24" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="200" y="76" font-size="9" fill="#5f6f66" font-family="Fira Code, monospace">2. inv-8841#1</text>
+              <rect x="190" y="90" width="150" height="24" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="200" y="106" font-size="9" fill="#5f6f66" font-family="Fira Code, monospace">3. refund-policy#2</text>
+              <rect x="370" y="30" width="170" height="24" rx="4" fill="#e3eedc" stroke="#2f6b3f"/><text x="380" y="46" font-size="9" fill="#23362e" font-family="Fira Code, monospace">inv-8841#3 → .0325</text>
+              <rect x="370" y="60" width="170" height="24" rx="4" fill="#e3eedc" stroke="#2f6b3f"/><text x="380" y="76" font-size="9" fill="#23362e" font-family="Fira Code, monospace">refund-policy#2 → .0323</text>
+              <rect x="370" y="90" width="170" height="24" rx="4" fill="#e8ece2" stroke="#a9b5a6"/><text x="380" y="106" font-size="9" fill="#5f6f66" font-family="Fira Code, monospace">inv-8841#1 → .0161</text>
+              <text class="hand" x="280" y="150" fill="#c53b3b" font-size="15" text-anchor="middle">rank 3 in one list + rank 1 in the other wins. agreement beats confidence.</text>
+              <text x="280" y="176" font-size="9.5" text-anchor="middle" fill="#5f6f66" font-family="Fira Code, monospace">1/(60+3) + 1/(60+1) = 0.0159 + 0.0164 = 0.0323…</text>
+            </svg>
+          </div>
+          <h4>How it relates</h4>
+          <ul><li>RRF produces the candidate set a <b>Reranker</b> then scores properly.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Reranker</b><span>A cross-encoder that reads the query and each candidate chunk together and scores true relevance.</span><template class="term-detail" data-see="Hybrid search, Top-k, Reciprocal Rank Fusion, Context window budget">
+          <p>Retrieval compares two vectors computed independently &mdash; a <em>bi</em>-encoder. A reranker is a <em>cross</em>-encoder: it concatenates query and chunk and runs them through a model together, so it can see that "the window is 30 days" answers "how long do I have". Far more accurate, far more expensive: you cannot run it over a million chunks, so you run it over the 25&ndash;100 candidates retrieval handed you.</p>
+          <p>This "retrieve wide, rerank hard" shape is why top-k at retrieval and top-n after reranking are different numbers. Retrieve 50, rerank, keep 5. Adding a reranker typically moves answer quality more than any prompt change.</p>
+          <h4>Common values</h4>
+          <table>
+            <tr><th>Setting</th><th>Typical</th></tr>
+            <tr><td>Candidates in</td><td>25&ndash;100</td></tr>
+            <tr><td>Chunks kept</td><td>3&ndash;8</td></tr>
+            <tr><td>Added latency</td><td>50&ndash;300 ms</td></tr>
+            <tr><td>Score cut-off</td><td>drop below ~0.3, even if that leaves 1 chunk</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>A reranker with a cut-off is also your best "I don't know" detector: no chunk above threshold means refuse, not guess.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Top-k</b><span>How many chunks you retrieve, and how many survive into the prompt — two different numbers.</span><template class="term-detail" data-see="Reranker, Context window budget, Lost in the middle">
+          <p>Raising k raises recall and lowers precision. Every extra chunk is another chance that the answer is present &mdash; and another chance that a plausible but wrong passage distracts the model. Past roughly eight chunks, accuracy on most benchmarks starts falling even though the correct chunk is more likely to be in the set.</p>
+          <h4>Common values</h4>
+          <table>
+            <tr><th>Stage</th><th>k</th><th>Why</th></tr>
+            <tr><td>Dense retrieval</td><td>50</td><td>cheap, maximise recall</td></tr>
+            <tr><td>BM25 retrieval</td><td>50</td><td>same list length for fair RRF</td></tr>
+            <tr><td>After fusion</td><td>25&ndash;50</td><td>what the reranker can afford</td></tr>
+            <tr><td>Into the prompt</td><td>3&ndash;8</td><td>precision, cost, attention</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Measure the two halves separately: <b>context recall</b> (was the answer retrieved at all?) and <b>faithfulness</b> (did the model stick to it?). They have different fixes.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Grounding &amp; citations</b><span>Instructing the model to answer only from the supplied chunks, and to point at which one.</span><template class="term-detail" data-see="Faithfulness, Top-k, Context window budget">
+          <p>Grounding is a prompt contract plus a verification step. The contract: "Answer using only the context below. If the context does not contain the answer, say you don't know." The verification: require a citation marker per claim, then check post-hoc that each cited id was actually in the context you sent.</p>
+          <p>Citations are not decoration. They are the only affordance that lets a user catch a wrong answer in two seconds instead of trusting it, and the only cheap automated check you have &mdash; an answer citing a chunk id you never supplied is a hallucination you can detect in code.</p>
+          <h4>A prompt that behaves</h4>
+          <pre class="language-yaml line-numbers"><code class="language-yaml">Answer the question using ONLY the context.
+Cite the source id of every claim as [id].
+If the context is insufficient, reply exactly:
+"I don't have enough information."
+
+Context:
+[doc-412#2] Refund requests must be made within 30 days of delivery.
+[doc-412#3] Refunds are issued to the original payment method.
+
+Question: how long do I have to request a refund?</code></pre>
+          <h4>How it relates</h4>
+          <ul><li>Pair this with a <b>Reranker</b> score cut-off so the "insufficient" branch actually gets taken.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Query rewriting</b><span>Turning the user's raw message into one or more good search queries before retrieving.</span><template class="term-detail" data-see="Hybrid search, Reranker, Grounding &amp; citations">
+          <p>Users do not type search queries. They type "and what about the second one?", or a 300-word complaint with the real question in the middle. Embedding that verbatim retrieves noise. A cheap model call that rewrites the message &mdash; resolving pronouns against conversation history, dropping pleasantries, expanding acronyms &mdash; often improves retrieval more than any index tuning.</p>
+          <h4>Variants</h4>
+          <table>
+            <tr><th>Technique</th><th>What it does</th></tr>
+            <tr><td>Condensation</td><td>rewrite a follow-up into a standalone question</td></tr>
+            <tr><td>Multi-query</td><td>generate 3 phrasings, retrieve each, fuse with RRF</td></tr>
+            <tr><td>HyDE</td><td>generate a <em>hypothetical answer</em>, embed that instead of the question</td></tr>
+            <tr><td>Decomposition</td><td>split a multi-part question into sub-questions</td></tr>
+          </table>
+          <p>HyDE works because answers look like documents and questions do not; embedding a fake answer puts the query vector in the right neighbourhood.</p>
+          <h4>How it relates</h4>
+          <ul><li>Every rewrite adds latency and a failure mode. Measure before keeping it.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Metadata filtering</b><span>Restricting the search to chunks the user is allowed to see, in the right tenant, language and date range.</span><template class="term-detail" data-see="Vector search, Index freshness, Chunking">
+          <p>This is where RAG becomes a security surface. Every chunk carries metadata &mdash; tenant id, ACL group, document class, language, valid-from date &mdash; and the filter must be applied <em>inside</em> the search, not after it. Filter after retrieval and a user with access to nothing still gets an empty list from a top-k that was consumed by documents they cannot see; worse, a careless implementation leaks the text into the prompt and then into the answer.</p>
+          <p>Filtering also interacts badly with ANN indexes. A very selective filter over an HNSW graph can make the walk fail to find enough matching neighbours &mdash; "pre-filter" vs "post-filter" vs "filtered graph traversal" is a real difference between engines, and the reason a tenant with 50 documents sometimes gets worse results than one with 50,000.</p>
+          <h4>Common fields</h4>
+          <table>
+            <tr><th>Field</th><th>Use</th></tr>
+            <tr><td><code>tenant_id</code></td><td>hard isolation, always filtered</td></tr>
+            <tr><td><code>acl</code> / <code>groups</code></td><td>per-document permissions</td></tr>
+            <tr><td><code>source</code>, <code>url</code>, <code>title</code></td><td>citations</td></tr>
+            <tr><td><code>updated_at</code></td><td>freshness boosting, stale filtering</td></tr>
+            <tr><td><code>lang</code></td><td>avoid cross-language noise</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>In a multi-tenant system this is the same decision as in <b>Multitenancy strategies</b>: shared index with a filter, or an index per tenant.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Context window budget</b><span>The token accounting that decides how many chunks you can actually afford per request.</span><template class="term-detail" data-see="Top-k, Lost in the middle, Chunking, Reranker">
+          <p>A large context window is permission, not advice. Tokens cost money and latency on every single request, and time-to-first-token grows with the prompt. A budget makes the trade explicit: system prompt + history + context + question + reserved output must fit, and context is the part you control.</p>
+          <h4>A worked budget</h4>
+          <table>
+            <tr><th>Part</th><th>Tokens</th></tr>
+            <tr><td>System prompt + rules</td><td>400</td></tr>
+            <tr><td>Conversation history (summarised)</td><td>600</td></tr>
+            <tr><td>6 chunks &times; 500 tokens</td><td>3,000</td></tr>
+            <tr><td>Question</td><td>60</td></tr>
+            <tr><td>Reserved for the answer</td><td>800</td></tr>
+            <tr><td><b>Total per request</b></td><td><b>~4,860</b></td></tr>
+          </table>
+          <p>At 10 requests/second that is ~49k input tokens per second, which is the number your bill is actually made of. Trimming from 6 chunks to 4 is a 33% cut to the largest line item.</p>
+          <h4>How it relates</h4>
+          <ul><li><b>Semantic caching</b> removes the whole request for near-duplicate questions, which is a bigger saving than any trimming.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Lost in the middle</b><span>Models attend most to the beginning and end of a long context, and least to what sits in between.</span><template class="term-detail" data-see="Top-k, Context window budget, Reranker">
+          <p>Measured repeatedly across model families: place the answer-bearing passage at position 1 or last and accuracy is high; place it in the middle of ten passages and accuracy drops sharply, sometimes below a model given no context at all. The effect weakens in newer long-context models but does not disappear.</p>
+          <p>Two practical responses. Keep the context short, so there is no middle to get lost in. And order deliberately &mdash; put the top-ranked chunk first and the second-ranked chunk <em>last</em>, rather than in rank order.</p>
+          <h4>How it relates</h4>
+          <ul><li>This is the main argument against "just retrieve 50 chunks, the window is big enough".</li></ul>
+        </template></div>
+
+        <div class="term"><b>Parent-document retrieval</b><span>Matching on small chunks but sending the larger surrounding section to the model.</span><template class="term-detail" data-see="Chunking, Top-k, Context window budget">
+          <p>Small chunks match precisely because they contain little noise; large chunks answer well because they contain the context. Parent-document retrieval has both: index sentence-level or paragraph-level children, retrieve on those, then replace each hit with its parent section before building the prompt, de-duplicating where several children share a parent.</p>
+          <p>Two common shapes: <em>parent/child</em> (child = paragraph, parent = section) and <em>sentence-window</em> (match one sentence, send the three sentences either side). Both cost one extra lookup and usually beat tuning chunk size for days.</p>
+          <h4>How it relates</h4>
+          <ul><li>Store the parent id in <b>Metadata filtering</b> fields at ingestion so the second lookup is a key read, not another search.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Index freshness</b><span>Keeping the index in step with the source, including deletions, without rebuilding it nightly.</span><template class="term-detail" data-see="Metadata filtering, Chunking, Embedding">
+          <p>RAG's selling point is that updating a document updates the answer &mdash; which only holds if ingestion is incremental and reliable. Give each chunk a deterministic id (<code>docId#chunkIndex</code>) and a content hash: re-ingesting a document upserts changed chunks, leaves unchanged ones alone, and deletes chunks beyond the new chunk count.</p>
+          <p>Deletion is the part everyone forgets. A revoked document that stays in the index will be retrieved and quoted, with a citation, for as long as it is there. Treat "document deleted" as a first-class event, not a nightly reconciliation.</p>
+          <h4>Common values</h4>
+          <table>
+            <tr><th>Source</th><th>Trigger</th><th>Lag</th></tr>
+            <tr><td>CMS / wiki</td><td>webhook on publish</td><td>seconds</td></tr>
+            <tr><td>Database</td><td>CDC or outbox</td><td>seconds</td></tr>
+            <tr><td>File share</td><td>poll by mtime</td><td>minutes</td></tr>
+            <tr><td>Full reconcile</td><td>scheduled</td><td>daily, as a safety net</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>The <b>Outbox pattern</b> is the usual way to make "row changed" and "chunk re-indexed" reliable without a dual write.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Faithfulness</b><span>Whether every claim in the answer is actually supported by the retrieved context.</span><template class="term-detail" data-see="Grounding &amp; citations, Context recall, Top-k">
+          <p>Faithfulness is the generation-side metric: given this context, is the answer entailed by it? It is measured by splitting the answer into atomic claims and checking each against the context, usually with a model-as-judge. It is deliberately independent of whether the answer is <em>correct</em> &mdash; a faithful answer to bad context is still wrong, and that is a retrieval bug, not a generation bug.</p>
+          <h4>The standard four</h4>
+          <table>
+            <tr><th>Metric</th><th>Question it answers</th><th>Fix when low</th></tr>
+            <tr><td>Context recall</td><td>was the needed text retrieved?</td><td>chunking, hybrid, k</td></tr>
+            <tr><td>Context precision</td><td>is the retrieved text mostly relevant?</td><td>reranker, cut-off</td></tr>
+            <tr><td>Faithfulness</td><td>is the answer supported?</td><td>prompt, citations, model</td></tr>
+            <tr><td>Answer relevance</td><td>did it answer the question asked?</td><td>query rewriting, prompt</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Build a 50&ndash;200 question golden set <em>before</em> tuning anything; otherwise every change is a vibe.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Context recall</b><span>The share of questions whose answer-bearing chunk appeared in the retrieved set at all.</span><template class="term-detail" data-see="Faithfulness, Top-k, Hybrid search">
+          <p>This is the ceiling on your whole system. If context recall is 72%, then 28% of questions cannot be answered correctly no matter which model you buy &mdash; and will instead be answered incorrectly and confidently. Measure it first, measure it per query type, and only look at generation once it is high.</p>
+          <p>It is also the cheapest metric to compute: for each golden question you already know the correct chunk id, so recall@k is a set-membership check with no model in the loop.</p>
+          <h4>Reading the number</h4>
+          <table>
+            <tr><th>recall@5</th><th>What to do</th></tr>
+            <tr><td>&lt; 60%</td><td>chunking is wrong; look at actual chunks</td></tr>
+            <tr><td>60&ndash;85%</td><td>add hybrid search and a reranker</td></tr>
+            <tr><td>&gt; 90%</td><td>now generation is worth tuning</td></tr>
+          </table>
+          <h4>How it relates</h4>
+          <ul><li>Recall@50 far above recall@5 means retrieval is fine and ranking is the problem &mdash; that is a <b>Reranker</b>, not a new index.</li></ul>
+        </template></div>
+
+        <div class="term"><b>Agentic RAG</b><span>Letting the model decide when to search, what to search for, and whether to search again.</span><template class="term-detail" data-see="Query rewriting, Grounding &amp; citations, Top-k">
+          <p>Classic RAG retrieves once, unconditionally. Agentic RAG exposes search as a <em>tool</em> and lets the loop run: the model may skip retrieval for "hello", issue two different searches for a comparison question, read a result and search again with a better term, or stop when it has enough. It handles multi-hop questions that single-shot retrieval cannot.</p>
+          <p>The cost is latency and non-determinism &mdash; three tool calls instead of one, and a different number each time. It needs a step cap, a per-request budget and good tool descriptions, which is exactly what an <b>Agent harness</b> provides. <b>MCP</b> is now the common way to expose the search tool itself.</p>
+          <h4>How it relates</h4>
+          <ul><li>Start with single-shot RAG, measure, and move to agentic only for the question types that provably need multiple hops.</li></ul>
+        </template></div>
+      </div>
+    </section>
+
+    <section id="commands">
+      <h2>Essential code</h2>
+
+      <div class="cmd-group">
+        <h3>Ingestion &mdash; chunk, embed, upsert</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// C# — Microsoft.Extensions.AI + pgvector via Npgsql
+using Microsoft.Extensions.AI;
+
+IEmbeddingGenerator&lt;string, Embedding&lt;float&gt;&gt; embedder = /* DI */;
+
+static IEnumerable&lt;(int Index, string Text)&gt; Chunk(string doc, int size = 500, int overlap = 75)
+{
+    var words = doc.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+    for (int i = 0, n = 0; i &lt; words.Length; i += size - overlap, n++)
+        yield return (n, string.Join(' ', words.Skip(i).Take(size)));
+}
+
+var chunks = Chunk(document).ToList();
+var vectors = await embedder.GenerateAsync(chunks.Select(c =&gt; c.Text));
+
+await using var batch = new NpgsqlBatch(conn);
+foreach (var (chunk, vector) in chunks.Zip(vectors))
+{
+    var cmd = new NpgsqlBatchCommand("""
+        INSERT INTO chunks (id, doc_id, idx, content, embedding, tenant_id, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, now())
+        ON CONFLICT (id) DO UPDATE
+          SET content = EXCLUDED.content,
+              embedding = EXCLUDED.embedding,
+              updated_at = now();
+        """);
+    cmd.Parameters.AddWithValue($"{docId}#{chunk.Index}");   // deterministic id = free upsert
+    cmd.Parameters.AddWithValue(docId);
+    cmd.Parameters.AddWithValue(chunk.Index);
+    cmd.Parameters.AddWithValue(chunk.Text);
+    cmd.Parameters.AddWithValue(new Vector(vector.Vector));
+    cmd.Parameters.AddWithValue(tenantId);
+    batch.BatchCommands.Add(cmd);
+}
+await batch.ExecuteNonQueryAsync();
+
+// and the step everyone forgets:
+await conn.ExecuteAsync("DELETE FROM chunks WHERE doc_id = $1 AND idx &gt;= $2",
+                        docId, chunks.Count);</code></pre><div class="what">Deterministic ids make re-ingestion an upsert; the trailing delete removes chunks that the new, shorter version no longer has.</div></div>
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python"># Python — openai + psycopg + pgvector
+from dataclasses import dataclass
+from openai import OpenAI
+from pgvector.psycopg import register_vector
+import psycopg
+
+client = OpenAI()
+
+@dataclass(frozen=True)
+class Chunk:
+    index: int
+    text: str
+
+def chunk(doc: str, size: int = 500, overlap: int = 75) -> list[Chunk]:
+    words = doc.split()
+    step = size - overlap
+    return [Chunk(n, " ".join(words[i:i + size]))
+            for n, i in enumerate(range(0, len(words), step))]
+
+chunks = chunk(document)
+resp = client.embeddings.create(model="text-embedding-3-small",
+                                input=[c.text for c in chunks])
+
+with psycopg.connect(DSN) as conn:
+    register_vector(conn)
+    with conn.cursor() as cur:
+        cur.executemany("""
+            INSERT INTO chunks (id, doc_id, idx, content, embedding, tenant_id, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, now())
+            ON CONFLICT (id) DO UPDATE
+              SET content = EXCLUDED.content,
+                  embedding = EXCLUDED.embedding,
+                  updated_at = now()
+        """, [(f"{doc_id}#{c.index}", doc_id, c.index, c.text,
+               d.embedding, tenant_id)
+              for c, d in zip(chunks, resp.data)])
+        cur.execute("DELETE FROM chunks WHERE doc_id = %s AND idx >= %s",
+                    (doc_id, len(chunks)))</code></pre><div class="what">Same shape: batch the embedding call (one request for many chunks is far cheaper than many requests), then upsert and prune.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Retrieval &mdash; hybrid, fused, filtered</h3>
+        <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">-- Postgres: dense + BM25-ish full text, fused with RRF, tenant filter inside both
+WITH dense AS (
+  SELECT id, content, row_number() OVER (ORDER BY embedding &lt;=&gt; $1) AS rank
+  FROM chunks
+  WHERE tenant_id = $2                      -- filter INSIDE the search, never after
+  ORDER BY embedding &lt;=&gt; $1                 -- &lt;=&gt; is cosine distance
+  LIMIT 50
+),
+sparse AS (
+  SELECT id, content,
+         row_number() OVER (ORDER BY ts_rank_cd(tsv, websearch_to_tsquery($3)) DESC) AS rank
+  FROM chunks
+  WHERE tenant_id = $2 AND tsv @@ websearch_to_tsquery($3)
+  LIMIT 50
+)
+SELECT COALESCE(d.id, s.id) AS id,
+       COALESCE(d.content, s.content) AS content,
+       COALESCE(1.0 / (60 + d.rank), 0) + COALESCE(1.0 / (60 + s.rank), 0) AS rrf
+FROM dense d FULL OUTER JOIN sparse s USING (id)
+ORDER BY rrf DESC
+LIMIT 25;</code></pre><div class="what">One query, two retrievers, reciprocal rank fusion with k=60. The 25 survivors go to the reranker.</div></div>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// C# — Azure AI Search does hybrid + semantic reranking server-side
+var options = new SearchOptions
+{
+    VectorSearch = new()
+    {
+        Queries = { new VectorizedQuery(queryVector) { KNearestNeighborsCount = 50, Fields = { "embedding" } } }
+    },
+    Filter = $"tenant_id eq '{tenantId}'",
+    QueryType = SearchQueryType.Semantic,                  // cross-encoder rerank
+    SemanticSearch = new() { SemanticConfigurationName = "default" },
+    Size = 5,
+    Select = { "id", "content", "url", "title" },
+};
+
+var results = await searchClient.SearchAsync&lt;Chunk&gt;(userQuery, options);   // text => BM25, vector => ANN
+
+var context = string.Join("\n\n", await results.Value.GetResultsAsync()
+    .Where(r =&gt; r.SemanticSearch?.RerankerScore &gt; 1.5)      // cut-off: better empty than wrong
+    .Select(r =&gt; $"[{r.Document.Id}] {r.Document.Content}")
+    .ToListAsync());</code></pre><div class="what">Passing both the text and the vector is what makes it hybrid; <code>RerankerScore</code> is the cut-off that lets you answer "I don't know".</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Generation &mdash; grounded, cited, refusable</h3>
+        <div class="cmd"><pre class="language-csharp line-numbers"><code class="language-csharp">// C# — the prompt contract is the whole trick
+var messages = new List&lt;ChatMessage&gt;
+{
+    new(ChatRole.System, """
+        Answer using ONLY the context below.
+        Cite the id of every claim like [doc-412#2].
+        If the context is insufficient, reply exactly: I don't have enough information.
+        """),
+    new(ChatRole.User, $"Context:\n{context}\n\nQuestion: {question}"),
+};
+
+var answer = await chatClient.GetResponseAsync(messages,
+    new ChatOptions { Temperature = 0.1f, MaxOutputTokens = 800 });
+
+// verify every citation actually came from the context we sent
+var cited = Regex.Matches(answer.Text, @"\[([\w\-#]+)\]").Select(m =&gt; m.Groups[1].Value);
+var invented = cited.Except(retrievedIds).ToList();
+if (invented.Count &gt; 0) logger.LogWarning("Hallucinated citations: {Ids}", invented);</code></pre><div class="what">Low temperature, an explicit refusal string, and a cheap regex check that catches invented citations in production.</div></div>
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python"># Python — the same contract, plus a trivial faithfulness gate
+SYSTEM = (
+    "Answer using ONLY the context below.\n"
+    "Cite the id of every claim like [doc-412#2].\n"
+    "If the context is insufficient, reply exactly: I don't have enough information."
+)
+
+answer = client.chat.completions.create(
+    model="gpt-4.1-mini",
+    temperature=0.1,
+    messages=[
+        {"role": "system", "content": SYSTEM},
+        {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"},
+    ],
+).choices[0].message.content
+
+cited = set(re.findall(r"\[([\w\-#]+)\]", answer))
+if not cited and "I don't have enough information" not in answer:
+    log.warning("uncited answer — treat as unverified: %s", answer[:200])</code></pre><div class="what">An answer with no citations and no refusal is the shape a hallucination takes; log it and you will find your retrieval gaps.</div></div>
+      </div>
+
+      <div class="cmd-group">
+        <h3>Index &amp; evaluation</h3>
+        <div class="cmd"><pre class="language-sql line-numbers"><code class="language-sql">-- pgvector: HNSW index, and the recall knob
+CREATE EXTENSION IF NOT EXISTS vector;
+
+ALTER TABLE chunks ADD COLUMN embedding vector(1536);
+ALTER TABLE chunks ADD COLUMN tsv tsvector
+  GENERATED ALWAYS AS (to_tsvector('english', content)) STORED;
+
+CREATE INDEX ON chunks USING hnsw (embedding vector_cosine_ops)
+  WITH (m = 16, ef_construction = 64);
+CREATE INDEX ON chunks USING gin (tsv);
+CREATE INDEX ON chunks (tenant_id, doc_id);
+
+SET hnsw.ef_search = 100;      -- per-session recall vs latency knob</code></pre><div class="what">Build the index after the bulk load, not before; <code>ef_search</code> is the first thing to raise when recall looks bad.</div></div>
+        <div class="cmd"><pre class="language-python line-numbers"><code class="language-python"># Measure context recall before you tune anything else
+golden = [("how long do I have to request a refund?", "doc-412#2"), ...]
+
+hits = sum(expected in [c.id for c in retrieve(q, k=5)] for q, expected in golden)
+print(f"recall@5 = {hits / len(golden):.0%}")      # this is your ceiling
+
+hits50 = sum(expected in [c.id for c in retrieve(q, k=50)] for q, expected in golden)
+print(f"recall@50 = {hits50 / len(golden):.0%}")   # gap vs recall@5 => add a reranker</code></pre><div class="what">Fifteen lines that tell you whether to fix chunking, ranking or the prompt. Run it in CI.</div></div>
+      </div>
+    </section>
+
+    <section id="pros-cons">
+      <h2>Pros &amp; cons</h2>
+      <div class="cols">
+        <div class="col good"><h3>Pros</h3><ul>
+          <li>Answers reflect your data as of now &mdash; edit a document, the answer changes.</li>
+          <li>Citations make answers checkable, which is what makes them usable in regulated work.</li>
+          <li>No training: a corpus, an embedding call and an index get you a working system in a day.</li>
+          <li>Access control is enforced at retrieval, per user, with the data never entering model weights.</li>
+          <li>Far cheaper than fine-tuning to keep current, and trivially reversible.</li>
+          <li>Each stage is separately measurable and separately fixable.</li>
+        </ul></div>
+        <div class="col bad"><h3>Cons</h3><ul>
+          <li>Retrieval quality caps everything, and it is harder to get right than it looks.</li>
+          <li>Adds 200 ms&ndash;1 s of latency: embed, search, rerank, then a long prompt to process.</li>
+          <li>Context tokens dominate the bill &mdash; you pay for the chunks on every request.</li>
+          <li>A confident wrong answer from bad context is worse than no answer at all.</li>
+          <li>An extra data pipeline to build, monitor and reconcile, including deletions.</li>
+          <li>Multi-hop and aggregate questions ("how many contracts expire in Q2?") fit the model badly.</li>
+          <li>The index is a copy of your data, with its own ACL and compliance surface.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="use-cases">
+      <h2>Concrete use cases</h2>
+      <div class="cards">
+        <div class="card"><h3>Support agent assistant</h3><p>Agents answer policy questions by searching a wiki that changes weekly. RAG over the wiki plus the customer's own ticket history answers in seconds with a link to the exact paragraph, so the agent can verify before sending. Fine-tuning would be stale by the next release.</p></div>
+        <div class="card"><h3>Internal documentation search</h3><p>Ten years of Confluence, SharePoint and Google Docs nobody can find anything in. Hybrid retrieval with per-document ACLs gives every employee an answer scoped to what they may see, and citations make the stale pages visible for the first time.</p></div>
+        <div class="card"><h3>Contract and policy Q&amp;A</h3><p>Legal needs "what does this contract say about termination?" with the clause attached. Chunking by clause, retrieving with a reranker and demanding citations turns an hour of reading into thirty seconds &mdash; and the citation is the deliverable, not the prose.</p></div>
+        <div class="card"><h3>Product-aware chat</h3><p>A storefront assistant answers from the live catalogue: specifications, stock, shipping rules. Metadata filters keep it to the user's region and language, and because the index is rebuilt from the catalogue, price changes propagate without touching the model.</p></div>
+        <div class="card"><h3>Developer assistant over a private codebase</h3><p>Chunked per function with the file path and signature prepended, so "where do we validate VAT numbers?" returns the function plus its tests. Hybrid search matters here more than anywhere: half the queries are exact symbol names.</p></div>
+      </div>
+    </section>
+
+    <section id="when">
+      <h2>When to use / when not to</h2>
+      <span class="note" style="margin:-6px 0 14px">use RAG for facts. use fine-tuning for form. they fix different problems.</span>
+      <div class="cols">
+        <div class="col good"><h3>Use it when…</h3><ul>
+          <li>Answers must come from a corpus the model has never seen &mdash; private, internal or very recent.</li>
+          <li>The corpus changes often enough that retraining would never keep up.</li>
+          <li>Users need to verify answers, so citations are a requirement rather than a nicety.</li>
+          <li>Different users may see different documents, so access control must be applied per query.</li>
+          <li>The corpus is far larger than any context window, or too expensive to resend every time.</li>
+        </ul></div>
+        <div class="col bad"><h3>Avoid it when…</h3><ul>
+          <li>The whole corpus fits comfortably in the context window and rarely changes. Use <b>prompt stuffing</b>, possibly with prompt caching.</li>
+          <li>You need a different <em>style</em>, format or tone rather than different facts. Use <b>fine-tuning</b> or a better prompt.</li>
+          <li>The question is an aggregate or a join over structured data. Use <b>text-to-SQL</b> against the database.</li>
+          <li>Answers must be exact and auditable with no generation at all. Use <b>search</b> and show the document.</li>
+          <li>The task needs multi-step reasoning across many documents. Use an <b>agent harness</b> with retrieval as one tool.</li>
+          <li>Latency budget is under ~150 ms. Use <b>semantic caching</b> in front, or precomputed answers.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section id="gotchas">
+      <h2>Common mistakes &amp; gotchas</h2>
+      <div class="gotcha"><b>Blaming the model for a retrieval failure</b><span>The answer is wrong, so the team upgrades the model, raises the temperature, rewrites the prompt &mdash; and nothing improves, because the correct chunk was never in the context.</span><div class="fix">Fix: log the retrieved chunk ids with every answer, and measure context recall on a golden set. If recall@5 is 70%, no prompt will save you.</div></div>
+      <div class="gotcha"><b>Vector search only</b><span>Everything works in the demo and then a user searches for an order number, an error code or a product SKU and gets five semantically adjacent, useless chunks.</span><div class="fix">Fix: hybrid search. Run BM25 alongside the vector query and fuse with RRF. It is usually one query change and the largest single quality jump available.</div></div>
+      <div class="gotcha"><b>Chunking by character count</b><span>The default 1,000-character splitter cuts tables in half, separates headings from their content, and produces chunks that are meaningless out of context &mdash; "the limit is 30 days" with no subject.</span><div class="fix">Fix: split on structure, then size. Prepend the document title and heading path to every chunk. Read fifty random chunks out loud; if you cannot tell what they are about, neither can the retriever.</div></div>
+      <div class="gotcha"><b>Filtering after retrieval</b><span>Top-k is taken globally, then rows the user may not see are dropped. A user with narrow permissions gets two results instead of five, or worse, the text reaches the prompt and is paraphrased into the answer.</span><div class="fix">Fix: push tenant and ACL predicates into the search itself, and verify with a test that a user from tenant B can never retrieve a chunk from tenant A.</div></div>
+      <div class="gotcha"><b>No deletion path</b><span>Documents are upserted happily, but a retracted policy or an offboarded employee's notes stay in the index for ever &mdash; and get cited.</span><div class="fix">Fix: deterministic chunk ids, delete-by-doc-id on removal, prune trailing chunks when a document shrinks, and a periodic reconcile that diffs index ids against source ids.</div></div>
+      <div class="gotcha"><b>Raising k to fix quality</b><span>Recall improves, answers get worse. More chunks means more distractors, a longer prompt, higher cost, and the right passage buried in the middle where the model attends least.</span><div class="fix">Fix: retrieve wide but rerank down to 3&ndash;8, and order the best chunk first. If recall@50 is far above recall@5, the problem is ranking, not retrieval.</div></div>
+      <div class="gotcha"><b>Changing the embedding model in place</b><span>New vectors are written with a new model while old ones remain. The two live in different spaces, scores become meaningless, and quality degrades quietly rather than failing loudly.</span><div class="fix">Fix: treat the embedding model as part of the index identity. Build a new index, backfill, switch reads atomically, then drop the old one.</div></div>
+      <div class="gotcha"><b>No way to say "I don't know"</b><span>With no score cut-off and no refusal instruction, the model always answers &mdash; including from the five least-irrelevant chunks when the corpus simply does not contain the answer.</span><div class="fix">Fix: a reranker score threshold plus an explicit refusal string in the system prompt, and alert on how often it fires. A rising refusal rate is a content gap worth knowing about.</div></div>
+      <div class="gotcha"><b>Shipping without an evaluation set</b><span>Every change is judged by trying three questions by hand. Improvements and regressions are indistinguishable, and the system drifts.</span><div class="fix">Fix: 50&ndash;200 real questions with known answer chunks, scored in CI for context recall, faithfulness and answer relevance. It takes a day and pays for itself in the first week.</div></div>
+      </section>
+
+    <section id="alternatives">
+      <h2>Alternatives</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Approach</th><th>Best for</th><th>Complexity</th><th>Cost</th><th>Key difference vs RAG</th></tr></thead>
+          <tbody>
+            <tr class="self"><td><b>RAG</b></td><td>large, changing, private corpora</td><td>Medium</td><td>index + context tokens</td><td>&mdash;</td></tr>
+            <tr><td><b>Long-context stuffing</b></td><td>small, stable corpora</td><td>Very low</td><td>high per request</td><td>No index at all; you pay for the whole corpus on every call and quality falls as it grows</td></tr>
+            <tr><td><b>Prompt caching</b></td><td>a fixed corpus reused constantly</td><td>Low</td><td>cheap reads, cached writes</td><td>Stuffing made affordable &mdash; still bounded by the window, still no per-user filtering</td></tr>
+            <tr><td><b>Fine-tuning</b></td><td>style, format, domain tone</td><td>High</td><td>training + hosting</td><td>Changes behaviour, not knowledge; cannot cite, cannot be updated per document</td></tr>
+            <tr><td><b>Text-to-SQL</b></td><td>structured, aggregate questions</td><td>Medium</td><td>low per query</td><td>Exact answers over tables; useless over prose</td></tr>
+            <tr><td><b>GraphRAG</b></td><td>multi-hop, entity-heavy corpora</td><td>High</td><td>expensive ingestion</td><td>Builds an entity graph first, so it can answer "how are X and Y connected"</td></tr>
+            <tr><td><b>Agentic search</b></td><td>open-ended research questions</td><td>High</td><td>several calls per answer</td><td>The model decides when and what to search, repeatedly; slower and non-deterministic</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul style="margin-top:12px">
+        <li><b>Pick long-context stuffing</b> when the corpus is a handful of documents &mdash; a product manual, a single policy &mdash; and simplicity beats everything.</li>
+        <li><b>Pick fine-tuning</b> when the complaint is "it doesn't sound like us" rather than "it doesn't know that".</li>
+        <li><b>Pick text-to-SQL</b> for counting, summing and filtering &mdash; questions whose answer is a number, not a paragraph.</li>
+        <li><b>Pick GraphRAG</b> when questions span many documents and relationships, and you can afford a much heavier ingestion step.</li>
+        <li><b>Pick agentic RAG</b> only once single-shot RAG is measurably good and you can name the question types that need more hops.</li>
+      </ul>
+    </section>
+
+    <section id="resources">
+      <h2>Resources</h2>
+      <ul>
+        <li><a href="https://arxiv.org/abs/2005.11401" target="_blank" rel="noopener">Lewis et al. &mdash; Retrieval-Augmented Generation (2020)</a>: the original paper that named the pattern.</li>
+        <li><a href="https://arxiv.org/abs/2307.03172" target="_blank" rel="noopener">Lost in the Middle</a>: the measurements behind "short, well-ordered context beats long context".</li>
+        <li><a href="https://docs.ragas.io/" target="_blank" rel="noopener">Ragas</a>: a practical evaluation library for context recall, precision, faithfulness and answer relevance.</li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/search/hybrid-search-overview" target="_blank" rel="noopener">Azure AI Search &mdash; hybrid search and RRF</a>: a clear vendor-neutral explanation of fusion and semantic reranking.</li>
+        <li><a href="https://github.com/pgvector/pgvector" target="_blank" rel="noopener">pgvector</a>: vectors in Postgres, including HNSW parameters and the distance operators.</li>
+        <li><a href="https://www.anthropic.com/news/contextual-retrieval" target="_blank" rel="noopener">Contextual Retrieval</a>: prepending generated context to each chunk, with measured recall improvements.</li>
+      </ul>
+    </section>
+    <!-- RELATED:START (generated by scripts/build-index.mjs, do not edit) -->
+    <section id="related">
+      <h2>Related pages</h2>
+      <div class="related-list">
+          <a class="related-card" href="vector-database.html">
+            <b>Vector database</b>
+            <span>Every other index answers &quot;equal to&quot;. This one answers &quot;near&quot; — and it is allowed to be slightly wrong about it.</span>
+            <small>Mentioned here in Overview, Key concepts and Resources · Vector database mentions RAG in Overview, Key concepts, Concrete use cases, When to use / when not to and Alternatives · Shared tags: embeddings</small>
+          </a>
+          <a class="related-card" href="database-performance.html">
+            <b>Database performance</b>
+            <span>Index, then query, then schema, then cache, then replicate, then partition — and only then shard.</span>
+            <small>Mentioned here in Overview, Architecture / mental model, Key concepts, Essential code, Pros &amp; cons, Concrete use cases, Common mistakes &amp; gotchas and Alternatives</small>
+          </a>
+          <a class="related-card" href="agent-harness.html">
+            <b>Agent harness</b>
+            <span>The model is a function from text to text. Everything that makes it an agent is code you wrote.</span>
+            <small>Mentioned here in Key concepts and When to use / when not to · Agent harness mentions RAG in Key concepts and When to use / when not to · Shared tags: ai</small>
+          </a>
+          <a class="related-card" href="caching-strategies.html">
+            <b>Caching strategies</b>
+            <span>Keep the answer near the question — and decide, up front, how wrong you are willing to be.</span>
+            <small>Mentioned here in Key concepts, When to use / when not to and Alternatives</small>
+          </a>
+          <a class="related-card" href="semantic-caching.html">
+            <b>Semantic caching</b>
+            <span>A normal cache asks &quot;have I seen this exact key?&quot;. A semantic cache asks &quot;have I answered this question before, in any words?&quot;.</span>
+            <small>Mentioned here in Key concepts · Semantic caching mentions RAG in Key concepts · Shared tags: embeddings, vector search, ai</small>
+          </a>
+          <a class="related-card" href="mcp.html">
+            <b>Model Context Protocol</b>
+            <span>A standard socket between a model and everything it is allowed to touch — so N×M integrations become N+M.</span>
+            <small>Mentioned here in Key concepts · Model Context Protocol mentions RAG in Concrete use cases</small>
+          </a>
+      </div>
+    </section>
+    <!-- RELATED:END -->
+  </main>
+</div>
+
+<script src="../assets/player.js?v=3658cbc7"></script>
+<script>
+createAnimation('anim-query', [
+  { say: 'A support agent types <code>why was invoice 8841 rejected?</code>. Nothing about this invoice exists in the model&rsquo;s weights &mdash; it was created last Tuesday.', show: ['rq-msg'], hl: ['rq-s1'], text: { 'rq-phase': 'a support agent types: why was invoice 8841 rejected?', 'rq-s1t': '"invoice 8841 rejected?"' } },
+  { say: 'The question is embedded by the <em>same</em> model that embedded every chunk at ingestion. Different models produce different vector spaces, and the scores would be noise.', move: { 'rq-msg': [150, 0] }, unhl: ['rq-s1'], hl: ['rq-s2'], text: { 'rq-msgt': '[0.021, -0.44, 0.08, …]', 'rq-s2t': 'text-embedding-3-small' } },
+  { say: 'Two searches run against the index at once: approximate nearest neighbours over the vectors, and BM25 over the raw tokens. Fifty candidates each, filtered to this tenant inside the query.', move: { 'rq-msg': [310, 0] }, unhl: ['rq-s2'], hl: ['rq-s3'], text: { 'rq-pat': 'candidates after fusion — 50 retrieved, top 5 shown', 'rq-a1': '1  billing-faq#7        rrf .0320', 'rq-a2': '2  inv-8841-notes#3     rrf .0318', 'rq-a3': '3  refund-policy#2      rrf .0164', 'rq-a4': '4  billing-faq#2        rrf .0161', 'rq-a5': '5  dunning-rules#9      rrf .0159' } },
+  { say: 'Notice the ordering is wrong. <code>billing-faq#7</code> is about rejected invoices in general; the chunk that actually explains <em>this</em> rejection is second. Cosine similarity cannot tell the difference.', text: { 'rq-a6': 'the chunk that answers the question is ranked 2nd, not 1st' }, fill: { 'rq-a6': '#c53b3b' } },
+  { say: 'So the 50 candidates go to a cross-encoder, which reads the question and each chunk <em>together</em> rather than comparing two vectors computed in isolation. It is far more accurate and far too slow to run over the whole index.', move: { 'rq-msg': [470, 0] }, unhl: ['rq-s3'], hl: ['rq-s4'], text: { 'rq-msgt': '50 candidates', 'rq-s4t': 'query + chunk together' } },
+  { say: 'Reranked, and cut to three. The right chunk is now first, two weak candidates fell below the score cut-off and were dropped entirely &mdash; better a short context than a padded one.', text: { 'rq-pat': 'after reranking — 50 → 3', 'rq-a1': '1  inv-8841-notes#3     score 0.91', 'rq-a2': '2  billing-faq#7        score 0.62', 'rq-a3': '3  dunning-rules#9      score 0.41', 'rq-a4': '✗  refund-policy#2      score 0.18 — dropped', 'rq-a5': '✗  billing-faq#2        score 0.11 — dropped', 'rq-a6': 'cut-off keeps distractors out of the prompt' }, fill: { 'rq-a1': '#2f6b3f', 'rq-a4': '#5f6f66', 'rq-a5': '#5f6f66', 'rq-a6': '#2f6b3f' } },
+  { say: 'Now the prompt is assembled: the grounding rules, the three chunks with their ids, and the question. This &mdash; not the index &mdash; is all the model will ever see.', move: { 'rq-msg': [629, 0] }, unhl: ['rq-s4'], hl: ['rq-s5'], text: { 'rq-msgt': '3 chunks + question', 'rq-b1': 'system: answer ONLY from the context,', 'rq-b2': '        cite every claim as [id],', 'rq-b3': '        else say you do not know', 'rq-b4': '[inv-8841-notes#3] … VAT id missing …', 'rq-b5': '[billing-faq#7] … rejected invoices …', 'rq-b6': 'question: why was invoice 8841 rejected?' } },
+  { say: 'The model generates an answer that only restates what it was given, with the chunk id attached to the claim.', unhl: ['rq-s5'], text: { 'rq-pbt': 'the answer', 'rq-b1': 'Invoice 8841 was rejected because the', 'rq-b2': 'supplier VAT identifier was missing from', 'rq-b3': 'the header. [inv-8841-notes#3]', 'rq-b4': '&nbsp;', 'rq-b5': '~1,900 input tokens · 420 ms end to end', 'rq-b6': 'citation checked against the ids we actually sent' }, fill: { 'rq-b1': '#23362e', 'rq-b2': '#23362e', 'rq-b3': '#2f6b3f', 'rq-b6': '#2f6b3f' } },
+  { say: 'Nothing was memorised. Correct the note in the source system, re-ingest that one document, and the next identical question gets the new answer &mdash; no retraining, no deploy.', text: { 'rq-phase': 'the index is the memory; the model is just the writer', 'rq-pat': 'change the document → change the answer' } },
+  { say: 'And every failure mode has an address. Wrong answer with the right chunk retrieved is a prompt or model problem. Wrong answer with the chunk missing is a chunking, hybrid-search or ranking problem &mdash; which is nearly always the one you have.', text: { 'rq-pat': 'retrieved the right chunk? → generation bug. did not? → retrieval bug' }, fill: { 'rq-pat': '#c53b3b' } },
+]);
+
+createAnimation('anim-hybrid', [
+  { say: 'A user asks: <code>what is blocking INV-8841 from being paid?</code> There is exactly one chunk that answers it, and it contains that identifier verbatim.', hl: ['rh-res'], text: { 'rh-r1': 'target chunk: inv-8841-notes#3' } },
+  { say: 'Dense retrieval embeds the question and walks the vector index. Embeddings capture meaning, so it finds chunks about blocked invoices, dunning and payment holds &mdash; all genuinely about this topic.', unhl: ['rh-res'], hl: ['rh-dense'], text: { 'rh-d1': '1. dunning-rules#9   0.84', 'rh-d2': '2. billing-faq#7     0.82', 'rh-d3': '3. payment-holds#1   0.81', 'rh-d4': 'all about blocked invoices in general' } },
+  { say: 'But the exact chunk is nowhere near the top. To an embedding model, <code>INV-8841</code> is a near-meaningless token; it carries almost no semantic signal, so a chunk containing it looks no more relevant than one that does not.', text: { 'rh-d4': 'inv-8841-notes#3 → ranked 38th' }, fill: { 'rh-d4': '#c53b3b' }, hl: ['rh-verd'] },
+  { say: 'Run BM25 over the same corpus and the picture inverts. Rare tokens are exactly what term-frequency ranking is good at: <code>INV-8841</code> appears in three chunks in the whole index, so its inverse document frequency is enormous.', unhl: ['rh-dense', 'rh-verd'], hl: ['rh-bm'], text: { 'rh-k1': '1. inv-8841-notes#3  18.4', 'rh-k2': '2. inv-8841-notes#1  11.2', 'rh-k3': '3. ledger-2026-03#4   6.1', 'rh-k4': 'exact token match, no embedding involved' }, fill: { 'rh-k1': '#2f6b3f' } },
+  { say: 'BM25 alone is not the answer either. Ask &ldquo;how do I get my money back&rdquo; and it scores zero against a page titled &ldquo;Refund policy&rdquo;, because they share no words. Each retriever fails where the other works.', unhl: ['rh-bm'], text: { 'rh-phase': 'each retriever is blind in a different way' } },
+  { say: 'So fuse them. Reciprocal Rank Fusion ignores the scores &mdash; 0.84 cosine and 18.4 BM25 are not on comparable scales &mdash; and uses only positions: score = sum of 1/(60 + rank).', hl: ['rh-fuse'], text: { 'rh-f1': 'RRF, k = 60', 'rh-f2': 'Σ 1 / (60 + rank)', 'rh-f3': 'positions only', 'rh-f4': 'no calibration needed' } },
+  { say: 'The target chunk is rank 1 in one list and rank 38 in the other: 1/61 + 1/98 = 0.0266. It goes straight to the top, and agreement between the two retrievers is what put it there.', unhl: ['rh-fuse'], hl: ['rh-res'], text: { 'rh-r1': '1. inv-8841-notes#3   .0266', 'rh-r2': '2. dunning-rules#9    .0164', 'rh-r3': '3. billing-faq#7      .0161', 'rh-r4': '4. inv-8841-notes#1   .0161', 'rh-r5': '5. payment-holds#1    .0159' }, fill: { 'rh-r1': '#2f6b3f' } },
+  { say: 'A reranker then scores these few properly and keeps three. The answer is now reachable &mdash; and with dense search alone it never was, no matter which model generated the final text.', unhl: ['rh-res'], text: { 'rh-r6': 'reranked → 3 chunks → prompt', 'rh-r7': 'with dense-only retrieval this question was unanswerable' }, fill: { 'rh-r7': '#c53b3b' } },
+  { say: 'This is why hybrid search is close to a default. It costs one extra query, needs no tuning, and rescues the entire class of questions containing an id, a code, a SKU or a proper noun &mdash; which in business software is most of them.', text: { 'rh-v': 'dense finds meaning · BM25 finds strings · fusion needs no calibration' }, fill: { 'rh-verd': '#e3eedc', 'rh-v': '#2f6b3f' } },
+  { say: 'The tell in production: a sudden cluster of &ldquo;I could not find that&rdquo; answers to questions that all contain an identifier. Log the query alongside the retrieved ids and the pattern is obvious within a day.', text: { 'rh-phase': 'symptom: every failing query contains a code or an id', 'rh-v': 'log query + retrieved ids on every request. the pattern shows up fast.' } },
+]);
+
+window.TERM_ANIMS = {
+  chunk: [
+    { say: 'One section of a refund policy. The sentence that answers &ldquo;how long do I have?&rdquo; starts on one line and finishes on the next.', hl: ['ck-phase'] },
+    { say: 'A fixed-size splitter cuts at 500 tokens regardless of meaning. Chunk 1 ends mid-sentence: <code>…The window</code>.', unhl: ['ck-phase'], show: ['ck-c1', 'ck-c1t'], text: { 'ck-n1': 'chunk 1 ends: "…refunds are issued to the original method. The window"' } },
+    { say: 'Chunk 2 starts where chunk 1 stopped. On its own it says <code>for a refund request is 30 days</code> &mdash; a number with no subject. Retrieve either one and the model cannot answer.', show: ['ck-c2', 'ck-c2t'], text: { 'ck-n2': 'chunk 2 starts: "for a refund request is 30 days from delivery…"' }, fill: { 'ck-n2': '#c53b3b' } },
+    { say: 'Overlap fixes it mechanically: start each chunk a little before the previous one ended, typically 10&ndash;20% of the chunk size.', show: ['ck-ov', 'ck-ovt'], text: { 'ck-n3': 'overlap ≈ 75 of 500 tokens — now the full sentence lives in chunk 2' }, fill: { 'ck-n3': '#2f6b3f' } },
+    { say: 'The cost is duplication: 15% overlap is 15% more vectors, more storage and more near-duplicate hits in the results. That is usually a bargain, but it is why overlap is a dial and not a default of 50%.', text: { 'ck-phase': 'overlap buys completeness with storage and duplicate hits' } },
+    { say: 'The better fix, where the format allows, is to split on structure first &mdash; heading, paragraph, list item, table row &mdash; and prepend the heading path to every chunk, so each one says what it is about.', text: { 'ck-phase': 'split on structure, then on size', 'ck-n1': 'prefix each chunk: "Billing > Refunds > Timing — …"', 'ck-n2': 'now even a truncated chunk carries its subject', 'ck-n3': 'structure-aware splitting beats tuning the number' }, fill: { 'ck-n1': '#2f6b3f', 'ck-n2': '#2f6b3f' } },
+  ],
+};
+</script>
+</body>
+</html>
