@@ -217,7 +217,7 @@
       <p class="tp-short"></p>
       <div class="tp-body"></div>
       <div class="tp-see"></div>
-      <div class="tp-nav"><button type="button" class="tp-prev"></button><button type="button" class="tp-next"></button></div>`;
+      <div class="tp-nav"><button type="button" class="tp-prev" aria-keyshortcuts="ArrowLeft"></button><span class="tp-hint" aria-hidden="true">← → to browse</span><button type="button" class="tp-next" aria-keyshortcuts="ArrowRight"></button></div>`;
     document.body.append(backdrop, panel);
     panelBody = panel.querySelector('.tp-body');
     backdrop.addEventListener('click', closePanel);
@@ -226,6 +226,17 @@
     panel.querySelector('.tp-next').addEventListener('click', () => step(1));
     panel.addEventListener('keydown', e => {
       if (e.key === 'Escape') { e.preventDefault(); closePanel(); }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        /* Browse concepts without closing the panel. The animation player binds the same
+           two keys to step through a diagram, so defer whenever something nearer the
+           target has already claimed them, or could reasonably want them. */
+        if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+        const el = e.target;
+        if (el.closest('.anim, .figure') || el.isContentEditable ||
+            /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+        e.preventDefault();
+        step(e.key === 'ArrowLeft' ? -1 : 1);
+      }
       if (e.key === 'Tab') {                            // keep focus inside the dialog
         const f = [...panel.querySelectorAll('button, a[href], [tabindex="0"]')].filter(el => el.offsetParent !== null);
         if (!f.length) return;
@@ -273,8 +284,11 @@
     });
 
     const i = terms.indexOf(t);
-    panel.querySelector('.tp-prev').textContent = '← ' + termName(terms[(i - 1 + terms.length) % terms.length]);
-    panel.querySelector('.tp-next').textContent = termName(terms[(i + 1) % terms.length]) + ' →';
+    const prev = panel.querySelector('.tp-prev'), next = panel.querySelector('.tp-next');
+    prev.textContent = '← ' + termName(terms[(i - 1 + terms.length) % terms.length]);
+    next.textContent = termName(terms[(i + 1) % terms.length]) + ' →';
+    prev.title = `Previous concept (←) · ${i + 1} of ${terms.length}`;
+    next.title = `Next concept (→) · ${i + 1} of ${terms.length}`;
 
     linkMentions([panelBody]);
     backdrop.hidden = false;
