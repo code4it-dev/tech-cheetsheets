@@ -256,6 +256,8 @@
       const steps = (window.TERM_ANIMS || {})[a.dataset.steps];
       if (steps && typeof window.createAnimation === 'function') window.createAnimation(a.id, steps);
     });
+    // .figure pictures are injected here too, after the page-load fit pass has run
+    if (typeof window.fitSvgText === 'function') panelBody.querySelectorAll('svg').forEach(window.fitSvgText);
 
     const see = (tpl?.dataset.see || '').split(',').map(s => s.trim()).filter(Boolean)
       .map(findTerm).filter(x => x && x !== t);
